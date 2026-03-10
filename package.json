@@ -1,0 +1,52 @@
+{
+  "name": "copy-of-oo-of-al-mohaseb-al-zaki-(smart-accountant)",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:copy": "npm run build && npx cap copy",
+    "cap:sync:android": "npm run build && npx cap sync android",
+    "cap:sync:ios": "npm run build && npx cap sync ios",
+    "android:open": "npx cap open android",
+    "android:apk": "npm run build && npx cap sync android && cd android && gradlew.bat assembleDebug",
+    "android:release": "powershell -ExecutionPolicy Bypass -File scripts/build-android-release.ps1 -ApkOnly",
+    "android:bundle": "powershell -ExecutionPolicy Bypass -File scripts/build-android-release.ps1 -BundleOnly",
+    "android:ship": "powershell -ExecutionPolicy Bypass -File scripts/build-android-release.ps1",
+    "ios:open": "npx cap open ios",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "text:check": "node scripts/check-source-mojibake.mjs",
+    "text:fix": "node scripts/fix-source-mojibake.mjs",
+    "migrate:text": "node scripts/migrate-data-and-regenerate-i18n.mjs",
+    "i18n:regen": "node scripts/migrate-data-and-regenerate-i18n.mjs --regen-i18n-only"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
+    "@capacitor/ios": "^8.2.0",
+    "@dataconnect/generated": "file:src/dataconnect-generated",
+    "@google/genai": "^1.38.0",
+    "@supabase/supabase-js": "^2.98.0",
+    "framer-motion": "^12.31.0",
+    "html5-qrcode": "2.3.8",
+    "jsbarcode": "^3.12.3",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "recharts": "^3.7.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "playwright": "^1.58.2",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "^3.2.4"
+  }
+}

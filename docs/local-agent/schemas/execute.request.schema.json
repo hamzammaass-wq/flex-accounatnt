@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smart-accountant.local/schemas/local-agent/execute.request.schema.json",
+  "title": "LocalAgentExecuteRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requestId",
+    "command",
+    "action",
+    "timestamp"
+  ],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "escpos.print",
+        "cashdrawer.open",
+        "scale.read"
+      ]
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "TEST",
+        "PRINT_RECEIPT",
+        "PRINT_LABEL",
+        "OPEN_CASH_DRAWER",
+        "READ_WEIGHT",
+        "SCAN",
+        "SYNC_FINGERPRINT"
+      ]
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "companyId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "BARCODE_SCANNER",
+            "RECEIPT_PRINTER",
+            "LABEL_PRINTER",
+            "CASH_DRAWER",
+            "SCALE",
+            "DOCUMENT_SCANNER",
+            "FINGERPRINT_READER"
+          ]
+        },
+        "connectionType": {
+          "type": "string",
+          "enum": [
+            "LOCAL_AGENT",
+            "NETWORK",
+            "USB",
+            "BLUETOOTH",
+            "SERIAL",
+            "MANUAL"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "serialPort": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "branch": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "legacy": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "deviceId": {
+          "type": "string"
+        },
+        "deviceType": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "escpos.print"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "enum": [
+              "PRINT_RECEIPT",
+              "PRINT_LABEL"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "cashdrawer.open"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "OPEN_CASH_DRAWER"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "scale.read"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "READ_WEIGHT"
+          }
+        }
+      }
+    }
+  ]
+}

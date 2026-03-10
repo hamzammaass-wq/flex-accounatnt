@@ -1,0 +1,458 @@
+@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Cairo:wght@200;300;400;500;600;700;800;900&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .dir-ltr {
+    direction: ltr;
+    text-align: left;
+  }
+
+  .dir-rtl {
+    direction: rtl;
+    text-align: right;
+  }
+}
+
+.dir-ltr {
+  direction: ltr;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== BASE RESET ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  direction: inherit;
+  min-height: 100dvh;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* ===== DATE INPUTS ===== */
+input[type='date'],
+input[type='datetime-local'],
+input[type='month'],
+input[type='week'],
+input[type='time'] {
+  direction: ltr;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== CSS VARIABLES ===== */
+:root {
+  --app-nav-height-mobile: 78px;
+  --app-nav-height-tablet: 86px;
+  --app-nav-height: 78px;
+  --app-safe-top: env(safe-area-inset-top);
+  --app-safe-bottom: env(safe-area-inset-bottom);
+  --app-keyboard-inset: 0px;
+  --app-content-max-width-tablet-browser: 1080px;
+}
+
+/* ===== IOS ZOOM FIX: 16px on all inputs unconditionally ===== */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+select,
+textarea {
+  font-size: 16px !important;
+}
+
+/* ===== iOS Safari specific zoom prevention ===== */
+@supports (-webkit-touch-callout: none) {
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ===== TOUCH TARGETS: minimum 44px height on interactive elements ===== */
+button,
+[role='button'],
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+select,
+textarea,
+button {
+  min-height: 44px;
+}
+
+/* Allow small UI controls to stay compact (checkboxes, radios, range) */
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'],
+input[type='color'] {
+  min-height: auto;
+}
+
+/* ===== APP SHELL ===== */
+.app-shell-root {
+  min-height: 100dvh;
+}
+
+.app-shell-frame {
+  width: 100%;
+  height: calc(var(--app-vh, 1vh) * 100);
+  min-height: calc(var(--app-vh, 1vh) * 100);
+  background: #f8fafc;
+  position: relative;
+  overflow: hidden;
+}
+
+.app-shell-frame--centered {
+  max-width: min(var(--app-content-max-width-tablet-browser), calc(100vw - 1.5rem));
+  margin-inline: auto;
+  border-radius: 1.75rem;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+}
+
+.app-shell-frame--expanded {
+  max-width: 100%;
+}
+
+/* ===== MAIN SCROLL ===== */
+.app-main-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 0;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+}
+
+/* ===== BOTTOM NAV ===== */
+.app-bottom-nav {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 50;
+  min-height: var(--app-nav-height-mobile);
+  padding-top: 0.75rem;
+  padding-bottom: calc(0.6rem + var(--app-safe-bottom));
+}
+
+html[data-device-class='tablet'] .app-main-scroll,
+html[data-device-class='desktop'] .app-main-scroll {
+  padding-bottom: 0;
+}
+
+html[data-device-class='tablet'] .app-bottom-nav,
+html[data-device-class='desktop'] .app-bottom-nav {
+  min-height: var(--app-nav-height-tablet);
+  padding-inline: 0.75rem;
+}
+
+html[data-device-class='tablet'][data-launch-mode='browser'] .app-shell-frame--centered,
+html[data-device-class='desktop'][data-launch-mode='browser'] .app-shell-frame--centered {
+  height: calc(100dvh - 1.5rem);
+  min-height: calc(100dvh - 1.5rem);
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+html[data-device-class='mobile'] .app-shell-frame--centered {
+  max-width: 100%;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ===== BACK BUTTON ===== */
+.app-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-orientation='portrait'] .app-back-btn {
+  display: inline-flex !important;
+}
+
+@media (orientation: portrait) {
+  .app-back-btn {
+    display: inline-flex !important;
+  }
+}
+
+/* ===== APP PAGE ===== */
+.app-page {
+  padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.75rem);
+}
+
+.keyboard-aware-sticky {
+  bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+}
+
+.transaction-entry-page {
+  padding-bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.95rem) !important;
+}
+
+html[data-keyboard-open='1'] .app-bottom-nav {
+  transform: translateY(calc(100% + var(--app-safe-bottom)));
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+
+/* ===== TABLE SCROLL WRAPPER ===== */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 0.75rem;
+}
+
+/* ===== MOBILE BREAKPOINT ===== */
+@media (max-width: 767px) {
+  :root {
+    --app-nav-height-mobile: 74px;
+    --app-nav-height: 74px;
+  }
+
+  .app-shell-frame {
+    border-radius: 0 !important;
+  }
+
+  .app-main-scroll {
+    overscroll-behavior-y: auto;
+  }
+
+  .app-page {
+    padding-inline: 0.75rem !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.95rem) !important;
+  }
+
+  .app-page h1 {
+    font-size: 1.4rem !important;
+    line-height: 1.85rem !important;
+    letter-spacing: 0 !important;
+    word-break: break-word;
+  }
+
+  .app-page h2 {
+    font-size: 1.1rem !important;
+    line-height: 1.55rem !important;
+    letter-spacing: 0 !important;
+    word-break: break-word;
+  }
+
+  /* Reduce large border-radius on mobile */
+  .app-page [class*='rounded-[2.5rem]'],
+  .app-page [class*='rounded-[2rem]'],
+  .app-page [class*='rounded-[1.8rem]'],
+  .app-page [class*='rounded-[1.6rem]'] {
+    border-radius: 1rem !important;
+  }
+
+  /* Touch scrolling on overflow */
+  .app-page [class*='overflow-x-auto'],
+  .table-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Compact table cells on mobile */
+  .app-page table th,
+  .app-page table td {
+    font-size: 11px !important;
+    padding: 0.4rem 0.3rem !important;
+    white-space: nowrap;
+  }
+
+  /* Ensure all inputs/selects/textarea/buttons don't overflow */
+  .app-page input,
+  .app-page select,
+  .app-page textarea,
+  .app-page button {
+    max-width: 100%;
+  }
+
+  /* Responsive grid collapses */
+  .app-page .mobile-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* Make filter bars wrap */
+  .app-page .filter-bar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* Reduce padding in cards on small screens */
+  .app-page .card-compact {
+    padding: 0.875rem !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-section,
+  .transaction-mobile-form .invoice-submit-panel,
+  .transaction-mobile-form .transaction-line-card {
+    border-radius: 1rem !important;
+    padding: 0.9rem !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-split {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.5rem !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-plus {
+    width: 100% !important;
+    margin-top: 0 !important;
+    min-height: 44px !important;
+  }
+
+  .transaction-mobile-form .entry-card-grid,
+  .transaction-mobile-form .voucher-line-grid,
+  .transaction-mobile-form .journal-line-grid,
+  .transaction-mobile-form .header-fields-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .transaction-mobile-form .invoice-submit-panel {
+    position: sticky !important;
+    z-index: 35 !important;
+    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+  }
+
+  .dashboard-page .dashboard-primary-card,
+  .dashboard-page .dashboard-block-card,
+  .sales-list-page .list-card,
+  .purchase-list-page .list-card,
+  .voucher-list-page .list-card,
+  .journal-list-page .list-card,
+  .definitions-page .settings-card {
+    border-radius: 1rem !important;
+    padding: 0.9rem !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .app-page {
+    padding-inline: 0.95rem !important;
+    padding-top: 0.65rem !important;
+    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.95rem) !important;
+  }
+
+  .app-page [class*='rounded-[3.5rem]'],
+  .app-page [class*='rounded-[3rem]'],
+  .app-page [class*='rounded-[2.8rem]'],
+  .app-page [class*='rounded-[2.5rem]'],
+  .app-page [class*='rounded-[2.2rem]'],
+  .app-page [class*='rounded-[2rem]'],
+  .app-page [class*='rounded-[1.8rem]'] {
+    border-radius: 1.25rem !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-section,
+  .transaction-mobile-form .invoice-submit-panel,
+  .transaction-mobile-form .transaction-line-card {
+    border-radius: 1.25rem !important;
+    padding: 1rem !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-split {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.625rem !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-plus {
+    width: 100% !important;
+    margin-top: 0 !important;
+  }
+
+  .transaction-mobile-form .header-fields-grid,
+  .transaction-mobile-form .voucher-line-grid,
+  .transaction-mobile-form .journal-line-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .transaction-mobile-form .invoice-submit-panel {
+    position: sticky !important;
+    z-index: 35 !important;
+    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+  }
+
+  .dashboard-page .dashboard-primary-card,
+  .dashboard-page .dashboard-block-card,
+  .sales-list-page .list-card,
+  .purchase-list-page .list-card,
+  .voucher-list-page .list-card,
+  .journal-list-page .list-card,
+  .definitions-page .settings-card {
+    border-radius: 1.2rem !important;
+  }
+}
+
+@media (min-width: 1200px) {
+  .transaction-entry-page {
+    padding-bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.75rem) !important;
+  }
+
+  .transaction-mobile-form .transaction-entry-section {
+    padding: 1.1rem !important;
+    border-radius: 1.1rem !important;
+  }
+
+  .transaction-mobile-form .invoice-submit-panel {
+    position: sticky !important;
+    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+    z-index: 35 !important;
+    border-radius: 1.1rem !important;
+    padding: 1rem !important;
+  }
+}
+
+/* ===== PRINT ===== */
+@media print {
+  body.equity-partners-print-locked .equity-partners-no-print {
+    display: none !important;
+  }
+
+  body.equity-partners-print-locked * {
+    visibility: hidden !important;
+  }
+
+  body.equity-partners-print-locked::before {
+    content: "Printing is disabled for Equity & Partners.";
+    display: block;
+    position: fixed;
+    inset: 0;
+    padding: 24px;
+    font-family: "Cairo", sans-serif;
+    font-size: 14px;
+    color: #0f172a;
+    background: #fff;
+    visibility: visible !important;
+  }
+}

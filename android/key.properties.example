@@ -1,0 +1,4 @@
+storeFile=../keystore/smart-accountant-upload.jks
+storePassword=change-me
+keyAlias=smart-accountant-upload
+keyPassword=change-me

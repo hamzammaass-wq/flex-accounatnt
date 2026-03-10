@@ -1,0 +1,1174 @@
+﻿
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useAccounting } from '../contexts/AccountingContext';
+import { 
+  Package, Trash2, Plus, Search, Tag, AlertCircle, 
+  LayoutGrid, X, Check, Edit2, ArrowUpDown,
+  FolderPlus, Settings, BellRing, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer
+} from 'lucide-react';
+import { Product } from '../types';
+import ProductCard from './ProductCard';
+import QuickAddProductModal from './QuickAddProductModal';
+import { Html5Qrcode } from "html5-qrcode";
+import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import EnglishDateInput from './EnglishDateInput';
+import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
+import { printProductBarcodeLabel } from '../utils/barcodeLabelPrint';
+import { PricingMode, resolveProductPricing } from '../utils/productPricing';
+import { getDisplayItemGroupName, getDisplayProductName, getDisplayUnitName } from '../utils/displayNames';
+import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
+
+const ProductList: React.FC = () => {
+  const { 
+    products, addProduct, updateProduct, deleteProduct, 
+    itemGroups, addItemGroup, baseCurrency, units, addUnit, companySettings, currentCompanyId
+  } = useAccounting();
+  const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
+  const tr = (ar: string, en: string) => (isEnglish ? en : ar);
+  const displayProductName = (product?: { id: string; name: string } | null) =>
+    getDisplayProductName(product || undefined, isEnglish);
+  const displayGroupName = (group?: { id: string; name: string } | null) =>
+    getDisplayItemGroupName(group || undefined, isEnglish);
+  const displayUnitName = (unit?: { id: string; name: string } | null) =>
+    getDisplayUnitName(unit || undefined, isEnglish);
+  
+  const [showForm, setShowForm] = useState(false);
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [showUnitForm, setShowUnitForm] = useState(false); 
+  const [searchTerm, setSearchTerm] = useState('');
+  const [groupFilter, setGroupFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState<'LATEST' | 'NAME_ASC' | 'STOCK_LOW' | 'VALUE_HIGH'>('LATEST');
+  const [viewProductId, setViewProductId] = useState<string | null>(null);
+  const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+
+  const [lowStockThreshold, setLowStockThreshold] = useState(() => {
+    const raw = Number(companySettings?.lowStockAlertQtyDefault);
+    return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 5;
+  });
+  const [showThresholdConfig, setShowThresholdConfig] = useState(false);
+
+  // Form State
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [name, setName] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const [unitId, setUnitId] = useState('');
+  const [sellPrice, setSellPrice] = useState('');
+  const [wholesalePrice, setWholesalePrice] = useState('');
+  const [buyPrice, setBuyPrice] = useState('');
+  const [wholesalePricingMode, setWholesalePricingMode] = useState<PricingMode>('FIXED');
+  const [retailPricingMode, setRetailPricingMode] = useState<PricingMode>('FIXED');
+  const [wholesaleMarkupPercent, setWholesaleMarkupPercent] = useState('');
+  const [retailMarkupPercent, setRetailMarkupPercent] = useState('');
+  const [stock, setStock] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [expiryPeriodDays, setExpiryPeriodDays] = useState('');
+  const [expiryAlertLeadDays, setExpiryAlertLeadDays] = useState('');
+  const [lowStockAlertQty, setLowStockAlertQty] = useState('');
+  const [reorderQty, setReorderQty] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [itemCode, setItemCode] = useState('');
+  const [itemCodeMode, setItemCodeMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+
+  // Scanner State
+  const [showScanner, setShowScanner] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  // Group Form State
+  const [groupName, setGroupName] = useState('');
+  const [groupIcon, setGroupIcon] = useState('📦');
+
+  // Unit Form State
+  const [newUnitName, setNewUnitName] = useState('');
+  const [newUnitCode, setNewUnitCode] = useState('');
+
+  // Inline Edit State (Quick Price)
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editPrice, setEditPrice] = useState('');
+
+  const icons = ['📦', '📱', '🍞', '👕', '🏠', '✏️', '💊', '🔧', '💻', '🚗'];
+
+  // Scanner Effect
+  useEffect(() => {
+    if (showScanner) {
+        // Small delay to ensure DOM element exists
+        const timer = setTimeout(() => {
+            const html5QrCode = new Html5Qrcode("reader");
+            scannerRef.current = html5QrCode;
+            
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            
+            html5QrCode.start(
+                { facingMode: "environment" },
+                config,
+                (decodedText) => {
+                    setBarcode(decodedText);
+                    setShowScanner(false);
+                    html5QrCode.stop().catch(console.error);
+                },
+                (errorMessage) => {
+                    // ignore errors during scanning
+                }
+            ).catch(err => {
+                console.error("Error starting scanner:", err);
+                alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
+                setShowScanner(false);
+            });
+        }, 100);
+
+        return () => {
+            clearTimeout(timer);
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop().then(() => scannerRef.current?.clear()).catch(console.error);
+            }
+        };
+    }
+  }, [showScanner]);
+
+  useEffect(() => {
+    const raw = Number(companySettings?.lowStockAlertQtyDefault);
+    if (Number.isFinite(raw)) {
+      setLowStockThreshold(Math.max(0, Math.floor(raw)));
+    }
+  }, [companySettings?.lowStockAlertQtyDefault]);
+
+  const parseLocalizedPositiveInt = (value: string): number => {
+    const normalized = toEnglishDigits(String(value || '')).replace(/[^\d-]/g, '');
+    return parseInt(normalized, 10);
+  };
+
+  const parseLocalizedPositiveDecimal = (value: string): number => {
+    const normalized = toEnglishDigits(String(value || '').trim());
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return parsed;
+  };
+
+  const resetForm = () => {
+      setName('');
+      setGroupId('');
+      setUnitId('');
+      setSellPrice('');
+      setWholesalePrice('');
+      setBuyPrice('');
+      setWholesalePricingMode('FIXED');
+      setRetailPricingMode('FIXED');
+      setWholesaleMarkupPercent('');
+      setRetailMarkupPercent('');
+      setStock('');
+      setExpiryDate('');
+      setExpiryPeriodDays('');
+      setExpiryAlertLeadDays('');
+      setLowStockAlertQty('');
+      setReorderQty('');
+      setBarcode('');
+      setItemCode('');
+      setItemCodeMode('AUTO');
+      setEditingProduct(null);
+  };
+
+  const handleOpenAdd = () => {
+      resetForm();
+      setShowForm(true);
+  };
+
+  const handleOpenEdit = (e: React.MouseEvent, product: Product) => {
+      e.stopPropagation();
+      setEditingProduct(product);
+      setName(product.name);
+      setGroupId(product.category || '');
+      setUnitId(product.unitId || '');
+      const pricing = resolveProductPricing(product);
+      setSellPrice(String(product.retailPrice ?? product.sellPrice ?? pricing.retailPrice));
+      setWholesalePrice(String(product.wholesalePrice ?? pricing.wholesalePrice));
+      setBuyPrice(product.buyPrice.toString());
+      setWholesalePricingMode(product.wholesalePricingMode === 'MARKUP' ? 'MARKUP' : 'FIXED');
+      setRetailPricingMode(product.retailPricingMode === 'MARKUP' ? 'MARKUP' : 'FIXED');
+      setWholesaleMarkupPercent(product.wholesaleMarkupPercent !== undefined ? String(product.wholesaleMarkupPercent) : '');
+      setRetailMarkupPercent(product.retailMarkupPercent !== undefined ? String(product.retailMarkupPercent) : '');
+      setStock(product.stock.toString());
+      setExpiryDate(product.expiryDate || '');
+      setExpiryPeriodDays(product.expiryPeriodDays !== undefined ? String(product.expiryPeriodDays) : '');
+      setExpiryAlertLeadDays(product.expiryAlertLeadDays !== undefined ? String(product.expiryAlertLeadDays) : '');
+      setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
+      setReorderQty(product.reorderQty !== undefined ? String(product.reorderQty) : '');
+      setBarcode(product.barcode || '');
+      setItemCode(product.itemCode || '');
+      setItemCodeMode(product.itemCode ? 'MANUAL' : 'AUTO');
+      setShowForm(true);
+  };
+
+  const autoItemCodePreview = useMemo(
+    () => buildNextItemCode(products, editingProduct?.id),
+    [products, editingProduct?.id]
+  );
+
+  const handleProductSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    const parsedLowStockAlertQty = parseLocalizedPositiveInt(lowStockAlertQty);
+    const parsedReorderQty = parseLocalizedPositiveInt(reorderQty);
+    const parsedExpiryPeriodDays = parseLocalizedPositiveInt(expiryPeriodDays);
+    const parsedExpiryAlertLeadDays = parseLocalizedPositiveInt(expiryAlertLeadDays);
+    const normalizedLowStockAlertQty = Number.isFinite(parsedLowStockAlertQty) && parsedLowStockAlertQty >= 0
+      ? parsedLowStockAlertQty
+      : undefined;
+    const normalizedReorderQty = Number.isFinite(parsedReorderQty) && parsedReorderQty > 0
+      ? parsedReorderQty
+      : undefined;
+    const normalizedExpiryPeriodDays = Number.isFinite(parsedExpiryPeriodDays) && parsedExpiryPeriodDays > 0
+      ? parsedExpiryPeriodDays
+      : undefined;
+    const normalizedExpiryAlertLeadDays = Number.isFinite(parsedExpiryAlertLeadDays) && parsedExpiryAlertLeadDays >= 0
+      ? parsedExpiryAlertLeadDays
+      : undefined;
+    const normalizedExpiryDate = expiryDate.trim() || undefined;
+    const manualItemCode = normalizeItemCode(itemCode);
+    const resolvedItemCode = itemCodeMode === 'AUTO'
+      ? autoItemCodePreview
+      : (manualItemCode || undefined);
+
+    const isItemCodeTaken = !!resolvedItemCode && products.some((product) =>
+      product.id !== editingProduct?.id
+      && normalizeItemCode(product.itemCode || '') === resolvedItemCode
+    );
+
+    if (isItemCodeTaken) {
+      alert(tr(`رقم الصنف ${resolvedItemCode} مستخدم مسبقًا. اختر رقمًا آخر.`, `Item code ${resolvedItemCode} is already used. Choose another code.`));
+      return;
+    }
+
+    const normalizedCost = parseLocalizedPositiveDecimal(buyPrice);
+    const normalizedRetailInput = parseLocalizedPositiveDecimal(sellPrice);
+    const normalizedWholesaleInput = parseLocalizedPositiveDecimal(wholesalePrice);
+    const resolvedWholesaleFixedInput = normalizedWholesaleInput > 0 ? normalizedWholesaleInput : normalizedRetailInput;
+    const normalizedWholesaleMarkup = parseLocalizedPositiveDecimal(wholesaleMarkupPercent);
+    const normalizedRetailMarkup = parseLocalizedPositiveDecimal(retailMarkupPercent);
+
+    const pricingBase: Product = {
+      id: editingProduct?.id || 'tmp_product_pricing',
+      name: name.trim(),
+      buyPrice: normalizedCost,
+      sellPrice: normalizedRetailInput,
+      wholesalePrice: resolvedWholesaleFixedInput,
+      retailPrice: normalizedRetailInput,
+      wholesalePricingMode,
+      retailPricingMode,
+      wholesaleMarkupPercent: normalizedWholesaleMarkup,
+      retailMarkupPercent: normalizedRetailMarkup,
+      stock: parseInt(stock) || 0
+    };
+    const pricing = resolveProductPricing(pricingBase, normalizedCost);
+
+    const productData = {
+      name,
+      itemCode: resolvedItemCode,
+      category: groupId || (itemGroups[0]?.id || 'ig_other'),
+      unitId: unitId || undefined,
+      sellPrice: pricing.retailPrice,
+      buyPrice: pricing.cost,
+      wholesalePrice: pricing.wholesalePrice,
+      retailPrice: pricing.retailPrice,
+      wholesalePricingMode,
+      retailPricingMode,
+      wholesaleMarkupPercent: normalizedWholesaleMarkup,
+      retailMarkupPercent: normalizedRetailMarkup,
+      stock: parseInt(stock) || 0,
+      expiryDate: normalizedExpiryDate,
+      expiryPeriodDays: normalizedExpiryPeriodDays,
+      expiryAlertLeadDays: normalizedExpiryAlertLeadDays,
+      lowStockAlertQty: normalizedLowStockAlertQty,
+      reorderQty: normalizedReorderQty,
+      barcode
+    };
+
+    if (editingProduct) {
+        const result = updateProduct(editingProduct.id, productData);
+        if (!result.ok) return;
+    } else {
+        const result = addProduct(productData);
+        if (!result.ok) return;
+    }
+
+    resetForm();
+    setShowForm(false);
+  };
+
+  const handleGroupSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupName.trim()) return;
+
+    addItemGroup({ name: groupName, icon: groupIcon });
+    setGroupName('');
+    setShowGroupForm(false);
+  };
+
+  const handleUnitSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newUnitName || !newUnitCode) return;
+      addUnit({ name: newUnitName, code: newUnitCode });
+      setNewUnitName('');
+      setNewUnitCode('');
+      setShowUnitForm(false);
+  }
+
+  const confirmDelete = () => {
+      if (deleteProductId) {
+          deleteProduct(deleteProductId);
+          setDeleteProductId(null);
+      }
+  };
+
+  const lowStockCount = useMemo(() => products.filter(p => {
+    const threshold = Number.isFinite(Number(p.lowStockAlertQty)) ? Math.max(0, Number(p.lowStockAlertQty)) : lowStockThreshold;
+    return p.stock <= threshold;
+  }).length, [products, lowStockThreshold]);
+
+  const orderNowCount = useMemo(() => products.filter(p => {
+    const threshold = Number.isFinite(Number(p.lowStockAlertQty)) ? Math.max(0, Number(p.lowStockAlertQty)) : lowStockThreshold;
+    const suggested = Number.isFinite(Number(p.reorderQty)) ? Math.max(0, Number(p.reorderQty)) : 0;
+    return suggested > 0 && p.stock <= threshold;
+  }).length, [products, lowStockThreshold]);
+
+  const filteredProducts = useMemo(() => products.filter(p => {
+    const displayName = displayProductName(p);
+    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         p.barcode?.includes(searchTerm) ||
+                         p.itemCode?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const threshold = Number.isFinite(Number(p.lowStockAlertQty)) ? Math.max(0, Number(p.lowStockAlertQty)) : lowStockThreshold;
+    if (groupFilter === 'LOW_STOCK') {
+        return matchesSearch && p.stock <= threshold;
+    }
+    if (groupFilter === 'ORDER_NOW') {
+        const suggested = Number.isFinite(Number(p.reorderQty)) ? Math.max(0, Number(p.reorderQty)) : 0;
+        return matchesSearch && suggested > 0 && p.stock <= threshold;
+    }
+
+    const matchesGroup = groupFilter === 'ALL' || p.category === groupFilter;
+    return matchesSearch && matchesGroup;
+  }), [products, searchTerm, groupFilter, lowStockThreshold, isEnglish]);
+
+  const totalProductsCount = products.length;
+  const totalUnitsInStock = useMemo(
+    () => products.reduce((sum, product) => sum + Math.max(0, Number(product.stock) || 0), 0),
+    [products]
+  );
+  const totalInventoryValue = useMemo(
+    () => products.reduce((sum, product) => {
+      const pricing = resolveProductPricing(product);
+      return sum + (Math.max(0, Number(product.stock) || 0) * pricing.cost);
+    }, 0),
+    [products]
+  );
+  const filteredUnitsInStock = useMemo(
+    () => filteredProducts.reduce((sum, product) => sum + Math.max(0, Number(product.stock) || 0), 0),
+    [filteredProducts]
+  );
+  const filteredInventoryValue = useMemo(
+    () => filteredProducts.reduce((sum, product) => {
+      const pricing = resolveProductPricing(product);
+      return sum + (Math.max(0, Number(product.stock) || 0) * pricing.cost);
+    }, 0),
+    [filteredProducts]
+  );
+
+  const sortedProducts = useMemo(() => {
+    const list = [...filteredProducts];
+    switch (sortBy) {
+      case 'NAME_ASC':
+        list.sort((a, b) => displayProductName(a).localeCompare(displayProductName(b), isEnglish ? 'en' : 'ar'));
+        break;
+      case 'STOCK_LOW':
+        list.sort((a, b) => (Number(a.stock) || 0) - (Number(b.stock) || 0));
+        break;
+      case 'VALUE_HIGH':
+        list.sort((a, b) => {
+          const aValue = (Number(a.stock) || 0) * resolveProductPricing(a).cost;
+          const bValue = (Number(b.stock) || 0) * resolveProductPricing(b).cost;
+          return bValue - aValue;
+        });
+        break;
+      case 'LATEST':
+      default:
+        // Keep most recently created/updated first based on state order.
+        break;
+    }
+    return list;
+  }, [filteredProducts, sortBy, isEnglish]);
+
+  const getGroupDetails = (id?: string) => {
+      return itemGroups.find(g => g.id === id) || { id: 'uncategorized', name: tr('غير مصنف', 'Uncategorized'), icon: '📦' };
+  };
+
+  const getUnitDetails = (id?: string) => {
+      return units.find(u => u.id === id);
+  };
+
+  const startEditing = (e: React.MouseEvent, product: Product) => {
+    e.stopPropagation();
+    setEditingId(product.id);
+    const pricing = resolveProductPricing(product);
+    setEditPrice(String(product.retailPrice ?? product.sellPrice ?? pricing.retailPrice));
+  };
+
+  const handleSavePrice = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const newPrice = parseFloat(editPrice);
+    if (!isNaN(newPrice) && newPrice >= 0) {
+        updateProduct(id, { sellPrice: newPrice, retailPrice: newPrice, retailPricingMode: 'FIXED' });
+    }
+    setEditingId(null);
+  };
+
+  const barcodePrintSettings = useMemo(
+    () => loadBarcodeReaderSettings(currentCompanyId),
+    [currentCompanyId]
+  );
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+  };
+  const metricDividerClass = isEnglish ? 'border-l border-gray-100' : 'border-r border-gray-100';
+
+  const draftPricingPreview = useMemo(() => {
+    const draftRetailInput = parseLocalizedPositiveDecimal(sellPrice);
+    const draftWholesaleInput = parseLocalizedPositiveDecimal(wholesalePrice);
+    const draft: Product = {
+      id: editingProduct?.id || 'draft_product',
+      name: name || 'draft',
+      buyPrice: parseLocalizedPositiveDecimal(buyPrice),
+      sellPrice: draftRetailInput,
+      wholesalePrice: draftWholesaleInput > 0 ? draftWholesaleInput : draftRetailInput,
+      retailPrice: draftRetailInput,
+      wholesalePricingMode,
+      retailPricingMode,
+      wholesaleMarkupPercent: parseLocalizedPositiveDecimal(wholesaleMarkupPercent),
+      retailMarkupPercent: parseLocalizedPositiveDecimal(retailMarkupPercent),
+      stock: parseInt(stock) || 0
+    };
+    return resolveProductPricing(draft, draft.buyPrice);
+  }, [
+    editingProduct?.id,
+    name,
+    buyPrice,
+    sellPrice,
+    wholesalePrice,
+    wholesalePricingMode,
+    retailPricingMode,
+    wholesaleMarkupPercent,
+    retailMarkupPercent,
+    stock
+  ]);
+
+  const handlePrintBarcodeLabel = (e: React.MouseEvent, product: Product) => {
+    e.stopPropagation();
+    printProductBarcodeLabel({
+      product,
+      settings: barcodePrintSettings,
+      companyId: currentCompanyId,
+      currency: baseCurrency,
+      isEnglish
+    });
+  };
+
+  return (
+    <div className={`app-page w-full max-w-[1680px] mx-auto overflow-x-hidden px-3 sm:px-4 lg:px-6 pb-[calc(var(--app-nav-height)+var(--app-safe-bottom)+0.75rem)] font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+      <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between min-w-0">
+        <div className="min-w-0">
+           <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-tight break-words">{tr('المستودع', 'Inventory')}</h1>
+           <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">{tr('إدارة الأصناف والمخزون', 'Items and Stock Management')}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-start">
+            <button 
+                onClick={() => setShowThresholdConfig(!showThresholdConfig)}
+                className={`p-3 rounded-2xl border transition-all ${showThresholdConfig || lowStockCount > 0 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 shadow-sm'}`}
+            >
+                {lowStockCount > 0 ? <BellRing className="w-5 h-5 animate-pulse" /> : <Settings className="w-5 h-5" />}
+            </button>
+            <button 
+                onClick={() => setShowGroupForm(true)}
+                className="bg-white text-indigo-600 p-3 rounded-2xl border border-indigo-100 hover:bg-indigo-50 transition-all shadow-sm"
+            >
+                <FolderPlus className="w-5 h-5" />
+            </button>
+            <button 
+                onClick={handleOpenAdd}
+                className="bg-blue-600 text-white p-3 rounded-2xl shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-90"
+            >
+                <Plus className="w-6 h-6" />
+            </button>
+        </div>
+      </header>
+
+      {/* Threshold Config */}
+      {showThresholdConfig && (
+          <div className="bg-white p-5 rounded-[2rem] border border-amber-100 shadow-sm mb-6 animate-in slide-in-from-top-4">
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-black text-slate-800 text-sm">{tr('تنبيهات انخفاض المخزون', 'Low Stock Alerts')}</h3>
+                  <button onClick={() => setShowThresholdConfig(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+              </div>
+              <div className="flex items-center gap-4">
+                  <span className="text-xs font-black text-slate-500 uppercase">{tr('الحد الأدنى', 'Minimum')}: {lowStockThreshold}</span>
+                  <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={lowStockThreshold} 
+                      onChange={(e) => setLowStockThreshold(parseInt(e.target.value))}
+                      className="flex-1 h-2 bg-amber-100 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                  />
+              </div>
+          </div>
+      )}
+
+      {/* Inventory Snapshot */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 lg:gap-4 mb-5">
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{tr('إجمالي الأصناف', 'Total Items')}</p>
+              <p className="text-xl font-black text-slate-800 dir-ltr">{formatCurrency(totalProductsCount)}</p>
+              <p className="text-[9px] font-bold text-slate-400 mt-1">{tr('نتائج الفلتر', 'Filtered Results')}: {formatCurrency(sortedProducts.length)}</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-emerald-100 p-4 shadow-sm">
+              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">{tr('وحدات بالمخزون', 'Units In Stock')}</p>
+              <p className="text-xl font-black text-emerald-700 dir-ltr">{formatCurrency(totalUnitsInStock)}</p>
+              <p className="text-[9px] font-bold text-emerald-500/80 mt-1">{tr('حسب الفلتر', 'Filtered')}: {formatCurrency(filteredUnitsInStock)}</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-violet-100 p-4 shadow-sm">
+              <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest mb-1">{tr('قيمة المخزون', 'Inventory Value')}</p>
+              <p className="text-xl font-black text-violet-700 dir-ltr">{formatCurrency(totalInventoryValue)}</p>
+              <p className="text-[9px] font-bold text-violet-500/80 mt-1">{baseCurrency} - {tr('الفلتر', 'Filter')}: {formatCurrency(filteredInventoryValue)}</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm">
+              <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">{tr('تنبيهات النقص', 'Shortage Alerts')}</p>
+              <p className="text-xl font-black text-amber-700 dir-ltr">{formatCurrency(lowStockCount)}</p>
+              <p className="text-[9px] font-bold text-sky-600 mt-1">{tr('اطلب الآن', 'Order Now')}: {formatCurrency(orderNowCount)}</p>
+          </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar lg:flex-wrap lg:overflow-visible lg:pb-0">
+          <button 
+            onClick={() => setGroupFilter('ALL')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap border transition-all ${groupFilter === 'ALL' ? 'bg-slate-800 text-white border-slate-800 shadow-lg' : 'bg-white text-slate-400 border-slate-100'}`}
+          >
+            <LayoutGrid size={14} />
+            {tr('الكل', 'All')}
+          </button>
+          
+          <button 
+            onClick={() => setGroupFilter('LOW_STOCK')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap border transition-all ${groupFilter === 'LOW_STOCK' ? 'bg-red-500 text-white border-red-500 shadow-lg shadow-red-100' : 'bg-white text-slate-400 border-slate-100'}`}
+          >
+            <AlertCircle size={14} />
+            {tr('النواقص', 'Low Stock')}
+            {lowStockCount > 0 && <span className={`mr-1 px-2 py-0.5 rounded-lg text-[8px] ${groupFilter === 'LOW_STOCK' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'}`}>{lowStockCount}</span>}
+          </button>
+
+          <button 
+            onClick={() => setGroupFilter('ORDER_NOW')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap border transition-all ${groupFilter === 'ORDER_NOW' ? 'bg-sky-600 text-white border-sky-600 shadow-lg shadow-sky-100' : 'bg-white text-slate-400 border-slate-100'}`}
+          >
+            <BellRing size={14} />
+            {tr('اطلب الآن', 'Order Now')}
+            {orderNowCount > 0 && <span className={`mr-1 px-2 py-0.5 rounded-lg text-[8px] ${groupFilter === 'ORDER_NOW' ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-600'}`}>{orderNowCount}</span>}
+          </button>
+
+          {itemGroups.map(group => (
+            <button 
+                key={group.id}
+                onClick={() => setGroupFilter(group.id)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap border transition-all ${groupFilter === group.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-100' : 'bg-white text-slate-400 border-slate-100'}`}
+            >
+                <span>{group.icon}</span>
+                {displayGroupName(group)}
+            </button>
+          ))}
+      </div>
+
+      {/* Search + Sort */}
+      <div className="bg-white rounded-[1.8rem] border border-slate-100 shadow-sm p-3 mb-6">
+          <div className="flex flex-col xl:flex-row gap-3 xl:items-center">
+              <div className="relative flex-1 min-w-0">
+                  <input
+                      type="text"
+                      placeholder={tr('بحث باسم الصنف أو رقم/باركود الصنف...', 'Search by item name or item code/barcode...')}
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full p-4 pr-12 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-sm outline-none focus:ring-4 focus:ring-blue-50 transition-all text-slate-700"
+                  />
+                  <Search className="w-5 h-5 text-slate-300 absolute top-1/2 -translate-y-1/2 right-4 pointer-events-none" />
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <div className="relative">
+                      <ArrowUpDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                          className="h-12 pr-9 pl-3 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-black text-slate-600 outline-none appearance-none"
+                      >
+                          <option value="LATEST">{tr('الترتيب: الأحدث', 'Sort: Latest')}</option>
+                          <option value="NAME_ASC">{tr('الترتيب: الاسم', 'Sort: Name')}</option>
+                          <option value="STOCK_LOW">{tr('الترتيب: الأقل مخزونًا', 'Sort: Lowest Stock')}</option>
+                          <option value="VALUE_HIGH">{tr('الترتيب: الأعلى قيمة', 'Sort: Highest Value')}</option>
+                      </select>
+                  </div>
+
+                  {searchTerm && (
+                      <button
+                          type="button"
+                          onClick={() => setSearchTerm('')}
+                          className="h-12 px-4 rounded-xl bg-rose-50 text-rose-600 font-black text-[11px] border border-rose-100 hover:bg-rose-100 transition-all"
+                      >
+                          {tr('مسح', 'Clear')}
+                      </button>
+                  )}
+
+                  <div className="h-12 px-3 rounded-xl bg-blue-50 text-blue-700 border border-blue-100 text-[10px] font-black flex items-center whitespace-nowrap">
+                      {tr('نتائج', 'Results')}: {formatCurrency(sortedProducts.length)}
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      {/* Product Grid */}
+      <div className="space-y-3 lg:space-y-4">
+        {sortedProducts.map(product => {
+            const group = getGroupDetails(product.category);
+            const unit = getUnitDetails(product.unitId);
+            const pricing = resolveProductPricing(product);
+            const productLowStockThreshold = Number.isFinite(Number(product.lowStockAlertQty)) ? Math.max(0, Number(product.lowStockAlertQty)) : lowStockThreshold;
+            const isLowStock = product.stock <= productLowStockThreshold;
+            const canOrderNow = Number.isFinite(Number(product.reorderQty)) && Number(product.reorderQty) > 0 && isLowStock;
+            const isEditing = editingId === product.id;
+
+            return (
+            <div 
+                key={product.id} 
+                onClick={() => setViewProductId(product.id)}
+                className={`bg-white p-5 rounded-[2.5rem] border shadow-sm group hover:shadow-xl hover:border-blue-100 transition-all cursor-pointer animate-in slide-in-from-bottom-2 ${isLowStock ? 'border-red-100 bg-red-50/5' : 'border-gray-50'}`}
+            >
+                <div className="flex justify-between items-start gap-3 mb-4 min-w-0">
+                    <div className="flex gap-4 min-w-0 flex-1">
+                        <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center text-2xl border border-gray-100 shadow-inner group-hover:bg-blue-600 group-hover:text-white transition-all duration-500">
+                            {group.icon}
+                        </div>
+                        <div className="min-w-0">
+                            <h4 className="font-black text-slate-800 text-base mb-1 leading-snug break-words">{displayProductName(product)}</h4>
+                            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                                    {displayGroupName(group)}
+                                </span>
+                                {product.lowStockAlertQty !== undefined && <span className="text-[8px] font-mono text-orange-500">{tr('حد نقص', 'Low Threshold')} {product.lowStockAlertQty}</span>}
+                                {product.reorderQty !== undefined && product.reorderQty > 0 && <span className="text-[8px] font-mono text-sky-600">{tr('إعادة طلب', 'Reorder')} {product.reorderQty}</span>}
+                                {product.expiryPeriodDays !== undefined && product.expiryPeriodDays > 0 && <span className="text-[8px] font-mono text-violet-600">{tr('صلاحية', 'Shelf Life')} {product.expiryPeriodDays} {tr('يوم', 'day')}</span>}
+                                {product.expiryAlertLeadDays !== undefined && product.expiryAlertLeadDays >= 0 && <span className="text-[8px] font-mono text-rose-500">{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays} {tr('يوم', 'day')}</span>}
+                                {product.expiryDate && <span className="text-[8px] font-mono text-emerald-600">{tr('انتهاء', 'Expiry')} {product.expiryDate}</span>}
+                                {canOrderNow && <span className="text-[8px] font-black text-white bg-sky-600 px-1.5 py-0.5 rounded-md">{tr('اطلب الآن', 'Order Now')}</span>}
+                                {product.itemCode && <span className="text-[8px] font-mono text-indigo-400">{product.itemCode}</span>}
+                                {product.barcode && <span className="text-[8px] font-mono text-slate-300">{product.barcode}</span>}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                        <button 
+                            onClick={(e) => handlePrintBarcodeLabel(e, product)}
+                            className="p-2.5 text-gray-300 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all"
+                            title={tr('طباعة باركود', 'Print barcode')}
+                        >
+                            <Printer size={18} />
+                        </button>
+                        <button 
+                            onClick={(e) => handleOpenEdit(e, product)} 
+                            className="p-2.5 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        >
+                            <PenSquare size={18} />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setDeleteProductId(product.id); }} className="p-2.5 text-gray-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                            <Trash2 size={18} />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center bg-gray-50/50 rounded-[1.5rem] p-3 border border-gray-50 group-hover:bg-white group-hover:border-gray-100 transition-all">
+                    <div className={metricDividerClass}>
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('سعر المفرق', 'Retail Price')}</span>
+                        {isEditing ? (
+                            <div className="flex items-center justify-center gap-1 px-1">
+                                <input 
+                                    type="number" 
+                                    value={editPrice} 
+                                    onChange={(e) => setEditPrice(e.target.value)}
+                                    className="w-full text-center font-black text-xs bg-white border border-blue-200 rounded-lg p-1 outline-none dir-ltr"
+                                    autoFocus
+                                    onClick={e => e.stopPropagation()}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleSavePrice(e as any, product.id);
+                                        if (e.key === 'Escape') setEditingId(null);
+                                    }}
+                                />
+                                <button onClick={(e) => handleSavePrice(e, product.id)} className="text-emerald-500"><Check size={14} /></button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center gap-1 group/price" onClick={(e) => startEditing(e, product)}>
+                                <div className="font-black text-slate-700 text-sm dir-ltr">{formatCurrency(pricing.retailPrice)}</div>
+                                <Edit2 size={10} className="text-gray-300 group-hover/price:text-blue-500" />
+                            </div>
+                        )}
+                        {pricing.retailPricingMode === 'MARKUP' && (
+                          <div className="text-[8px] font-black text-emerald-600 mt-1">+{pricing.retailMarkupPercent}%</div>
+                        )}
+                    </div>
+
+                    <div className={metricDividerClass}>
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('سعر الجملة', 'Wholesale Price')}</span>
+                        <div className="font-black text-violet-700 text-sm dir-ltr">{formatCurrency(pricing.wholesalePrice)}</div>
+                        {pricing.wholesalePricingMode === 'MARKUP' && (
+                          <div className="text-[8px] font-black text-violet-600 mt-1">+{pricing.wholesaleMarkupPercent}%</div>
+                        )}
+                    </div>
+
+                    <div className={metricDividerClass}>
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('التكلفة الصافية', 'Net Cost')}</span>
+                        <div className="font-black text-blue-700 text-sm dir-ltr">{formatCurrency(pricing.cost)}</div>
+                    </div>
+
+                    <div>
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('المخزون', 'Stock')}</span>
+                        <div className={`font-black text-sm dir-ltr flex items-center justify-center gap-1 ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {product.stock}
+                            <span className="text-[9px] text-gray-400 font-bold">{unit?.code}</span>
+                        </div>
+                        <div className="text-[8px] font-black text-gray-400 mt-1 dir-ltr">
+                          {formatCurrency(product.stock * pricing.cost)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )})}
+
+        {sortedProducts.length === 0 && (
+            <div className="text-center py-24 bg-white rounded-[3rem] border border-dashed border-gray-200">
+                <Package className="w-16 h-16 text-gray-100 mx-auto mb-4" />
+                <h3 className="text-gray-400 font-black text-lg">{tr('لا توجد أصناف مطابقة', 'No matching items')}</h3>
+                <div className="mt-6 flex items-center justify-center gap-2">
+                    <button onClick={handleOpenAdd} className="px-8 py-3 bg-blue-50 text-blue-600 rounded-2xl font-black text-xs hover:bg-blue-100 transition-all">{tr('إضافة صنف جديد', 'Add New Item')}</button>
+                    {(groupFilter !== 'ALL' || searchTerm) && (
+                        <button
+                            type="button"
+                            onClick={() => { setGroupFilter('ALL'); setSearchTerm(''); }}
+                            className="px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-200 transition-all"
+                        >
+                            {tr('إلغاء الفلاتر', 'Reset filters')}
+                        </button>
+                    )}
+                </div>
+            </div>
+        )}
+      </div>
+
+      {/* Scanner Overlay */}
+      {showScanner && (
+          <div className="fixed inset-0 z-[300] bg-black flex flex-col animate-in fade-in">
+              <div className="relative flex-1 bg-black">
+                  <div id="reader" className="w-full h-full"></div>
+                  <div className="absolute top-0 left-0 w-full h-full border-[50px] border-black/50 pointer-events-none flex items-center justify-center">
+                      <div className="w-64 h-64 border-4 border-blue-500/50 rounded-3xl animate-pulse"></div>
+                  </div>
+              </div>
+              <div className="bg-black p-6 flex justify-between items-center text-white">
+                  <p className="text-sm font-bold">{tr('وجه الكاميرا نحو الباركود...', 'Point the camera at the barcode...')}</p>
+                  <button onClick={() => setShowScanner(false)} className="bg-white/20 p-3 rounded-full hover:bg-white/30 transition-all"><X size={24} /></button>
+              </div>
+          </div>
+      )}
+
+      {showForm && (
+        <QuickAddProductModal
+          mode="DIRECTORY"
+          product={editingProduct}
+          onClose={() => {
+            resetForm();
+            setShowForm(false);
+          }}
+          onSave={() => {
+            resetForm();
+            setShowForm(false);
+          }}
+        />
+      )}
+
+      {/* Add/Edit Product Modal */}
+      {false && showForm && editingProduct && (
+        <div className="fixed inset-0 z-[250] bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center p-3 sm:p-6 animate-in fade-in">
+            <div className="bg-white w-full max-w-lg rounded-t-[2rem] sm:rounded-[2.5rem] shadow-2xl p-4 sm:p-8 animate-in zoom-in-95 max-h-[calc(100dvh-1rem)] sm:max-h-[95vh] overflow-y-auto relative">
+                <button onClick={() => setShowForm(false)} className="absolute left-4 sm:left-6 top-4 sm:top-6 text-gray-400 hover:text-rose-500 bg-gray-50 rounded-full p-2 transition-all hover:bg-rose-50"><X size={24} /></button>
+                
+                <div className="flex flex-col items-center mb-8">
+                    <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center mb-4 text-blue-600 shadow-sm border border-blue-100">
+                        <Tag size={32} />
+                    </div>
+                    <h3 className="font-black text-slate-800 text-xl tracking-tight">
+                        {editingProduct ? tr('تعديل بيانات الصنف', 'Edit Item') : tr('تعريف صنف جديد', 'Create New Item')}
+                    </h3>
+                    <p className="text-gray-400 text-[10px] font-bold mt-1 uppercase tracking-widest">{tr('أدخل تفاصيل المنتج بدقة لضمان صحة المخزون', 'Enter product details accurately to keep inventory correct')}</p>
+                </div>
+
+                <form onSubmit={handleProductSubmit} className="space-y-5">
+                    <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-1">{tr('اسم الصنف التجاري', 'Item Name')}</label>
+                        <input value={name} onChange={e => setName(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm focus:bg-white focus:border-blue-200 focus:ring-4 focus:ring-blue-50 transition-all text-slate-800" placeholder={tr('مثال: آيفون 15 برو ماكس', 'Example: iPhone 15 Pro Max')} required />
+                    </div>
+
+                    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/20 p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block px-1">{tr('رقم الصنف', 'Item Code')}</label>
+                            <div className="inline-flex items-center gap-1 rounded-xl border border-indigo-100 bg-white p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setItemCodeMode('AUTO')}
+                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${itemCodeMode === 'AUTO' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                                >
+                                    {tr('تلقائي', 'Auto')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setItemCodeMode('MANUAL')}
+                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${itemCodeMode === 'MANUAL' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                                >
+                                    {tr('يدوي', 'Manual')}
+                                </button>
+                            </div>
+                        </div>
+
+                        {itemCodeMode === 'AUTO' ? (
+                            <div className="rounded-xl border border-indigo-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{tr('سيتم توليده تلقائيًا', 'It will be generated automatically')}</span>
+                                <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{autoItemCodePreview}</span>
+                            </div>
+                        ) : (
+                            <input
+                                type="text"
+                                value={itemCode}
+                                onChange={(e) => setItemCode(normalizeItemCode(e.target.value))}
+                                className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-black text-sm text-center dir-ltr text-indigo-700 focus:ring-4 focus:ring-indigo-50 transition-all"
+                                placeholder="ITM-125"
+                            />
+                        )}
+                        {itemCodeMode === 'MANUAL' && (
+                            <p className="text-[10px] font-bold text-slate-400 px-1">
+                                {tr('اتركه فارغًا إذا كنت لا تريد ترميزًا للصنف.', 'Leave it blank if you do not want an item code.')}
+                            </p>
+                        )}
+                    </div>
+                    
+                    <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1 mb-2">{tr('كود الباركود (إن وجد)', 'Barcode (optional)')}</label>
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <input type="text" value={barcode} onChange={e => setBarcode(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm text-center dir-ltr focus:bg-white focus:border-blue-200 focus:ring-4 focus:ring-blue-50 text-slate-700" placeholder="0000000000000" />
+                                <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
+                            </div>
+                            <button 
+                                type="button" 
+                                onClick={() => setShowScanner(true)}
+                                className="w-14 bg-slate-800 text-white rounded-2xl flex items-center justify-center shadow-lg active:scale-95 transition-all"
+                                title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
+                            >
+                                <Camera size={20} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">{tr('مجموعة الأصناف', 'Item Group')}</label>
+                            <div className="flex h-14">
+                                <select value={groupId} onChange={e => setGroupId(e.target.value)} className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-indigo-200 transition-all text-slate-700">
+                                    <option value="">{tr('اختر مجموعة', 'Select group')}</option>
+                                    {itemGroups.map(g => <option key={g.id} value={g.id}>{g.icon} {displayGroupName(g)}</option>)}
+                                </select>
+                                <button type="button" onClick={() => setShowGroupForm(true)} className="w-12 bg-indigo-50 text-indigo-600 rounded-l-2xl rounded-r-md border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center">
+                                    <Plus size={18} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">{tr('وحدة القياس', 'Unit')}</label>
+                            <div className="flex h-14">
+                                <select value={unitId} onChange={e => setUnitId(e.target.value)} className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-orange-200 transition-all text-slate-700">
+                                    <option value="">{tr('اختر الوحدة', 'Select unit')}</option>
+                                    {units.map(u => <option key={u.id} value={u.id}>{displayUnitName(u)} ({u.code})</option>)}
+                                </select>
+                                <button type="button" onClick={() => setShowUnitForm(true)} className="w-12 bg-orange-50 text-orange-600 rounded-l-2xl rounded-r-md border border-orange-100 hover:bg-orange-100 transition-all flex items-center justify-center">
+                                    <Plus size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-black text-rose-600 uppercase tracking-widest block mb-2 px-1">{tr('تكلفة الشراء / التكلفة الصافية', 'Purchase Cost / Net Cost')}</label>
+                        <input type="text" inputMode="decimal" lang="en" value={buyPrice} onChange={e => setBuyPrice(toEnglishDigits(e.target.value))} className="w-full p-4 bg-rose-50/50 rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all" placeholder="0.00" />
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/20 p-4 space-y-4">
+                        <div className="flex items-center justify-between gap-2">
+                            <div>
+                                <h4 className="text-xs font-black text-emerald-700">{tr('قائمة الأسعار (جملة / مفرق)', 'Price List (Wholesale / Retail)')}</h4>
+                                <p className="text-[10px] font-bold text-slate-400 mt-1">{tr('يمكن تحديد كل سعر كقيمة ثابتة أو كنسبة هامش من التكلفة.', 'Each price can be fixed or based on cost markup percentage.')}</p>
+                            </div>
+                            <Scale size={16} className="text-emerald-500 shrink-0" />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="bg-white border border-violet-100 rounded-2xl p-3 space-y-3">
+                                <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block">{tr('سعر الجملة', 'Wholesale Price')}</label>
+                                <div className="inline-flex items-center gap-1 rounded-xl border border-violet-100 bg-violet-50/30 p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setWholesalePricingMode('FIXED')}
+                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${wholesalePricingMode === 'FIXED' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
+                                    >
+                                        {tr('ثابت', 'Fixed')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setWholesalePricingMode('MARKUP')}
+                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${wholesalePricingMode === 'MARKUP' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
+                                    >
+                                        {tr('نسبة', 'Markup %')}
+                                    </button>
+                                </div>
+                                {wholesalePricingMode === 'FIXED' ? (
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        lang="en"
+                                        value={wholesalePrice}
+                                        onChange={e => setWholesalePrice(toEnglishDigits(e.target.value))}
+                                        className="w-full p-3 bg-violet-50/50 rounded-xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700"
+                                        placeholder="0.00"
+                                    />
+                                ) : (
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            lang="en"
+                                            value={wholesaleMarkupPercent}
+                                            onChange={e => setWholesaleMarkupPercent(toEnglishDigits(e.target.value))}
+                                            className="w-full p-3 pl-8 bg-violet-50/50 rounded-xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700"
+                                            placeholder="20"
+                                        />
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 font-black">%</span>
+                                    </div>
+                                )}
+                                <div className="text-[11px] font-black text-violet-700 dir-ltr">= {formatCurrency(draftPricingPreview.wholesalePrice)} {baseCurrency}</div>
+                            </div>
+
+                            <div className="bg-white border border-emerald-100 rounded-2xl p-3 space-y-3">
+                                <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block">{tr('سعر المفرق', 'Retail Price')}</label>
+                                <div className="inline-flex items-center gap-1 rounded-xl border border-emerald-100 bg-emerald-50/30 p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRetailPricingMode('FIXED')}
+                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${retailPricingMode === 'FIXED' ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-100'}`}
+                                    >
+                                        {tr('ثابت', 'Fixed')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRetailPricingMode('MARKUP')}
+                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${retailPricingMode === 'MARKUP' ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-100'}`}
+                                    >
+                                        {tr('نسبة', 'Markup %')}
+                                    </button>
+                                </div>
+                                {retailPricingMode === 'FIXED' ? (
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        lang="en"
+                                        value={sellPrice}
+                                        onChange={e => setSellPrice(toEnglishDigits(e.target.value))}
+                                        className="w-full p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
+                                        placeholder="0.00"
+                                    />
+                                ) : (
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            lang="en"
+                                            value={retailMarkupPercent}
+                                            onChange={e => setRetailMarkupPercent(toEnglishDigits(e.target.value))}
+                                            className="w-full p-3 pl-8 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
+                                            placeholder="30"
+                                        />
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-black">%</span>
+                                    </div>
+                                )}
+                                <div className="text-[11px] font-black text-emerald-700 dir-ltr">= {formatCurrency(draftPricingPreview.retailPrice)} {baseCurrency}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2 px-1">{tr('الكمية الافتتاحية', 'Opening Quantity')}</label>
+                        <input type="text" inputMode="numeric" lang="en" value={stock} onChange={e => setStock(toEnglishDigits(e.target.value))} className="w-full p-4 bg-blue-50/30 rounded-2xl border border-blue-100 outline-none font-black text-lg text-center dir-ltr text-blue-800 focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all" placeholder="0" />
+                    </div>
+
+                    <div className="rounded-2xl border border-violet-100 bg-violet-50/20 p-4 space-y-4">
+                        <div className="flex items-center justify-between gap-2">
+                            <div>
+                                <h4 className="text-xs font-black text-violet-700">{tr('الصلاحية والتنبيه قبل الانتهاء', 'Expiry and Pre-Expiry Alert')}</h4>
+                                <p className="text-[10px] font-bold text-slate-400 mt-1">{tr('يمكنك تحديد تاريخ انتهاء مباشر، أو تحديد فترة صلاحية بالأيام ليتم احتساب الانتهاء تلقائيًا من تاريخ شراء الفاتورة.', 'Set a direct expiry date or a shelf-life period in days to auto-calculate expiry from purchase date.')}</p>
+                            </div>
+                            <BellRing size={16} className="text-violet-400 shrink-0" />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block mb-2 px-1">{tr('تاريخ الانتهاء (اختياري)', 'Expiry Date (optional)')}</label>
+                                <EnglishDateInput
+                                    value={expiryDate}
+                                    onChange={setExpiryDate}
+                                    className="w-full p-4 bg-white rounded-2xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700 focus:ring-4 focus:ring-violet-50 transition-all"
+                                    wrapperClassName="w-full"
+                                />
+                                <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('يفيد للمخزون الحالي أو إذا كنت تريد إدخال تاريخ انتهاء يدويًا مباشرة.', 'Useful for current stock or when you want to enter expiry manually.')}</p>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2 px-1">{tr('فترة الصلاحية (أيام) من تاريخ الشراء', 'Shelf-Life (days) from purchase date')}</label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={expiryPeriodDays}
+                                    onChange={e => setExpiryPeriodDays(toEnglishDigits(e.target.value))}
+                                    className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-black text-lg text-center dir-ltr text-indigo-700 focus:bg-white focus:ring-4 focus:ring-indigo-50 transition-all"
+                                    placeholder={tr('اختياري - مثال: 180', 'Optional - example: 180')}
+                                />
+                                <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('عند شراء الصنف، يحتسب النظام تاريخ الانتهاء تلقائيًا من تاريخ الفاتورة + عدد الأيام.', 'On purchase, the system auto-calculates expiry date = invoice date + days.')}</p>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-black text-rose-600 uppercase tracking-widest block mb-2 px-1">{tr('التنبيه قبل الانتهاء (أيام)', 'Alert Before Expiry (days)')}</label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={expiryAlertLeadDays}
+                                onChange={e => setExpiryAlertLeadDays(toEnglishDigits(e.target.value))}
+                                className="w-full p-4 bg-white rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all"
+                                placeholder={tr('اختياري - مثال: 30', 'Optional - example: 30')}
+                            />
+                            <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('إذا تُرك فارغًا، سيستخدم النظام حد التنبيه العام للصلاحية من إعدادات الشركة.', 'If empty, the system uses the global expiry alert threshold from company settings.')}</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-2 px-1">{tr('حد تنبيه نفاد المخزون (كمية)', 'Low Stock Alert Threshold (qty)')}</label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={lowStockAlertQty}
+                                onChange={e => setLowStockAlertQty(toEnglishDigits(e.target.value))}
+                                className="w-full p-4 bg-amber-50/40 rounded-2xl border border-amber-100 outline-none font-black text-lg text-center dir-ltr text-amber-700 focus:bg-white focus:ring-4 focus:ring-amber-50 transition-all"
+                                placeholder={tr('اختياري - مثال: 5', 'Optional - example: 5')}
+                            />
+                            <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('إذا تُرك فارغًا سيتم استخدام الحد العام من الإعدادات.', 'If empty, the global threshold from settings is used.')}</p>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black text-sky-600 uppercase tracking-widest block mb-2 px-1">{tr('كمية إعادة الطلب', 'Reorder Quantity')}</label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                value={reorderQty}
+                                onChange={e => setReorderQty(toEnglishDigits(e.target.value))}
+                                className="w-full p-4 bg-sky-50/40 rounded-2xl border border-sky-100 outline-none font-black text-lg text-center dir-ltr text-sky-700 focus:bg-white focus:ring-4 focus:ring-sky-50 transition-all"
+                                placeholder={tr('اختياري - مثال: 20', 'Optional - example: 20')}
+                            />
+                            <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('عند وصول المخزون للحد يظهر تنبيه "اطلب الآن" بهذا المقترح.', 'When stock hits the threshold, an "Order Now" alert appears with this suggestion.')}</p>
+                        </div>
+                    </div>
+
+                    <button type="submit" className="w-full bg-slate-900 text-white font-black py-4.5 rounded-[1.8rem] shadow-2xl shadow-slate-300 hover:bg-slate-800 active:scale-95 transition-all mt-4 flex items-center justify-center gap-2">
+                        <Check size={20} />
+                        {editingProduct ? tr('حفظ التعديلات النهائية', 'Save Final Changes') : tr('إتمام تعريف الصنف', 'Create Item')}
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Quick Add Group Modal */}
+      {showGroupForm && (
+        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center p-3 sm:p-6 animate-in fade-in">
+            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-2xl animate-in zoom-in-95 max-h-[calc(100dvh-1rem)] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-black text-slate-800 text-lg">{tr('مجموعة أصناف جديدة', 'New Item Group')}</h3>
+                    <button onClick={() => setShowGroupForm(false)} className="p-2 text-gray-400 hover:bg-gray-50 rounded-full"><X size={20} /></button>
+                </div>
+                <form onSubmit={handleGroupSubmit} className="space-y-5">
+                    <input type="text" placeholder={tr('اسم المجموعة', 'Group name')} value={groupName} onChange={e => setGroupName(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm" required />
+                    <div className="grid grid-cols-5 gap-3">
+                        {icons.map(i => (
+                            <button key={i} type="button" onClick={() => setGroupIcon(i)} className={`h-12 w-12 flex items-center justify-center rounded-xl border-2 transition-all ${groupIcon === i ? 'border-indigo-600 bg-indigo-50 text-xl shadow-md' : 'border-gray-50 bg-gray-50/50 hover:border-gray-200'}`}>{i}</button>
+                        ))}
+                    </div>
+                    <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-100 active:scale-95 transition-all">{tr('حفظ المجموعة', 'Save Group')}</button>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Quick Add Unit Modal */}
+      {showUnitForm && (
+        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center p-3 sm:p-6 animate-in fade-in">
+            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-2xl animate-in zoom-in-95 max-h-[calc(100dvh-1rem)] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-black text-slate-800 text-lg">{tr('وحدة قياس جديدة', 'New Unit')}</h3>
+                    <button onClick={() => setShowUnitForm(false)} className="p-2 text-gray-400 hover:bg-gray-50 rounded-full"><X size={20} /></button>
+                </div>
+                <form onSubmit={handleUnitSubmit} className="space-y-5">
+                    <input type="text" placeholder={tr('اسم الوحدة (مثال: كرتون)', 'Unit name (example: Carton)')} value={newUnitName} onChange={e => setNewUnitName(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm" required />
+                    <input type="text" placeholder={tr('الرمز (مثال: CTN)', 'Code (example: CTN)')} value={newUnitCode} onChange={e => setNewUnitCode(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm text-center uppercase dir-ltr" required />
+                    <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-orange-100 active:scale-95 transition-all">{tr('حفظ الوحدة', 'Save Unit')}</button>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {viewProductId && <ProductCard productId={viewProductId} onClose={() => setViewProductId(null)} />}
+
+      {deleteProductId && (
+        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-6 animate-in fade-in">
+            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-2xl animate-in zoom-in-95 text-center max-h-[calc(100dvh-1rem)] overflow-y-auto">
+                <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-500 shadow-sm">
+                    <AlertTriangle size={32} />
+                </div>
+                <h3 className="font-black text-gray-800 text-lg mb-2">{tr('حذف الصنف نهائياً؟', 'Delete item permanently?')}</h3>
+                <p className="text-gray-500 text-xs font-bold mb-8 leading-relaxed">
+                    {tr('هل أنت متأكد من حذف هذا الصنف من المخزون؟ سيتم فقدان بيانات المخزون المرتبطة به.', 'Are you sure you want to delete this item? Linked stock data will be lost.')}
+                </p>
+                <div className="flex gap-3">
+                    <button onClick={() => setDeleteProductId(null)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black text-xs hover:bg-gray-200 transition-all active:scale-95">
+                        {tr('إلغاء', 'Cancel')}
+                    </button>
+                    <button onClick={confirmDelete} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black text-xs shadow-xl shadow-rose-200 hover:bg-rose-700 transition-all active:scale-95">
+                        {tr('نعم، حذف', 'Yes, Delete')}
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ProductList;

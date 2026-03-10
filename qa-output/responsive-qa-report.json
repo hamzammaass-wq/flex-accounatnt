@@ -1,0 +1,86 @@
+[
+  {
+    "scenario": "mobile-browser",
+    "viewport": {
+      "width": 360,
+      "height": 800
+    },
+    "standaloneMocked": false,
+    "navCount": 0,
+    "errors": [
+      "No bottom nav buttons found"
+    ],
+    "warnings": [
+      "console-warning: cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation"
+    ],
+    "tabs": [],
+    "quickActionOverlay": {
+      "attempted": false,
+      "reason": "No bottom nav"
+    },
+    "htmlSnippet": "<!DOCTYPE html><html lang=\"ar-u-nu-latn\" dir=\"rtl\" data-enforce-latin-digits=\"true\" style=\"font-variant-numeric: tabular-nums; text-size-adjust: 100%; --app-nav-height-mobile: 78px; --app-nav-height-tablet: 86px; --app-nav-height: 78px; --app-safe-top: env(safe-area-inset-top); --app-safe-bottom: env(safe-area-inset-bottom); --app-content-max-width-tablet-browser: 1080px; --app-vh: 8px;\" data-device-class=\"mobile\" data-launch-mode=\"browser\" data-touch=\"1\" data-orientation=\"portrait\"><head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\">\n    <meta name=\"theme-color\" content=\"#0f172a\">\n    <meta name=\"mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\">\n    <title>المحاسب الذكي - ERP</title>\n    <link rel=\"manifest\" href=\"/manifest.webmanifest\">\n    <link rel=\"icon\" href=\"/icons/icon-192.svg\" type=\"image/svg+xml\">\n    <link rel=\"apple-touch-icon\" href=\"/icons/icon-192.svg\">\n    <script src=\"https://cdn.tailwindcss.com\"></script>\n    <script src=\"https://apis.google.com/js/api.js\" async=\"\" defer=\"\"></script>\n    <script src=\"https://accounts.google.com/gsi/client\" async=\"\" defer=\"\"></script>\n    <style>\n      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap');\n\n      body {\n        font-family: 'Tajawal', sans-serif;\n      "
+  },
+  {
+    "scenario": "mobile-standalone",
+    "viewport": {
+      "width": 360,
+      "height": 800
+    },
+    "standaloneMocked": true,
+    "navCount": 0,
+    "errors": [
+      "No bottom nav buttons found"
+    ],
+    "warnings": [
+      "console-warning: cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation"
+    ],
+    "tabs": [],
+    "quickActionOverlay": {
+      "attempted": false,
+      "reason": "No bottom nav"
+    },
+    "htmlSnippet": "<!DOCTYPE html><html lang=\"ar-u-nu-latn\" dir=\"rtl\" data-enforce-latin-digits=\"true\" style=\"font-variant-numeric: tabular-nums; text-size-adjust: 100%; --app-nav-height-mobile: 78px; --app-nav-height-tablet: 86px; --app-nav-height: 78px; --app-safe-top: env(safe-area-inset-top); --app-safe-bottom: env(safe-area-inset-bottom); --app-content-max-width-tablet-browser: 1080px; --app-vh: 8px;\" data-device-class=\"mobile\" data-launch-mode=\"standalone\" data-touch=\"1\" data-orientation=\"portrait\"><head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\">\n    <meta name=\"theme-color\" content=\"#0f172a\">\n    <meta name=\"mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\">\n    <title>المحاسب الذكي - ERP</title>\n    <link rel=\"manifest\" href=\"/manifest.webmanifest\">\n    <link rel=\"icon\" href=\"/icons/icon-192.svg\" type=\"image/svg+xml\">\n    <link rel=\"apple-touch-icon\" href=\"/icons/icon-192.svg\">\n    <script src=\"https://cdn.tailwindcss.com\"></script>\n    <script src=\"https://apis.google.com/js/api.js\" async=\"\" defer=\"\"></script>\n    <script src=\"https://accounts.google.com/gsi/client\" async=\"\" defer=\"\"></script>\n    <style>\n      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap');\n\n      body {\n        font-family: 'Tajawal', sans-serif;\n   "
+  },
+  {
+    "scenario": "tablet-browser",
+    "viewport": {
+      "width": 834,
+      "height": 1194
+    },
+    "standaloneMocked": false,
+    "navCount": 0,
+    "errors": [
+      "No bottom nav buttons found"
+    ],
+    "warnings": [
+      "console-warning: cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation"
+    ],
+    "tabs": [],
+    "quickActionOverlay": {
+      "attempted": false,
+      "reason": "No bottom nav"
+    },
+    "htmlSnippet": "<!DOCTYPE html><html lang=\"ar-u-nu-latn\" dir=\"rtl\" data-enforce-latin-digits=\"true\" data-device-class=\"tablet\" data-launch-mode=\"browser\" data-touch=\"0\" style=\"font-variant-numeric: tabular-nums; text-size-adjust: 100%; --app-nav-height-mobile: 78px; --app-nav-height-tablet: 86px; --app-nav-height: 86px; --app-safe-top: env(safe-area-inset-top); --app-safe-bottom: env(safe-area-inset-bottom); --app-content-max-width-tablet-browser: 1080px; --app-vh: 11.94px;\" data-orientation=\"portrait\"><head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\">\n    <meta name=\"theme-color\" content=\"#0f172a\">\n    <meta name=\"mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\">\n    <title>المحاسب الذكي - ERP</title>\n    <link rel=\"manifest\" href=\"/manifest.webmanifest\">\n    <link rel=\"icon\" href=\"/icons/icon-192.svg\" type=\"image/svg+xml\">\n    <link rel=\"apple-touch-icon\" href=\"/icons/icon-192.svg\">\n    <script src=\"https://cdn.tailwindcss.com\"></script>\n    <script src=\"https://apis.google.com/js/api.js\" async=\"\" defer=\"\"></script>\n    <script src=\"https://accounts.google.com/gsi/client\" async=\"\" defer=\"\"></script>\n    <style>\n      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap');\n\n      body {\n        font-family: 'Tajawal', sans-serif;\n  "
+  },
+  {
+    "scenario": "tablet-standalone",
+    "viewport": {
+      "width": 834,
+      "height": 1194
+    },
+    "standaloneMocked": true,
+    "navCount": 0,
+    "errors": [
+      "No bottom nav buttons found"
+    ],
+    "warnings": [
+      "console-warning: cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation"
+    ],
+    "tabs": [],
+    "quickActionOverlay": {
+      "attempted": false,
+      "reason": "No bottom nav"
+    },
+    "htmlSnippet": "<!DOCTYPE html><html lang=\"ar-u-nu-latn\" dir=\"rtl\" data-enforce-latin-digits=\"true\" data-device-class=\"tablet\" data-launch-mode=\"standalone\" data-touch=\"0\" style=\"font-variant-numeric: tabular-nums; text-size-adjust: 100%; --app-nav-height-mobile: 78px; --app-nav-height-tablet: 86px; --app-nav-height: 86px; --app-safe-top: env(safe-area-inset-top); --app-safe-bottom: env(safe-area-inset-bottom); --app-content-max-width-tablet-browser: 1080px; --app-vh: 11.94px;\" data-orientation=\"portrait\"><head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\">\n    <meta name=\"theme-color\" content=\"#0f172a\">\n    <meta name=\"mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\">\n    <title>المحاسب الذكي - ERP</title>\n    <link rel=\"manifest\" href=\"/manifest.webmanifest\">\n    <link rel=\"icon\" href=\"/icons/icon-192.svg\" type=\"image/svg+xml\">\n    <link rel=\"apple-touch-icon\" href=\"/icons/icon-192.svg\">\n    <script src=\"https://cdn.tailwindcss.com\"></script>\n    <script src=\"https://apis.google.com/js/api.js\" async=\"\" defer=\"\"></script>\n    <script src=\"https://accounts.google.com/gsi/client\" async=\"\" defer=\"\"></script>\n    <style>\n      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap');\n\n      body {\n        font-family: 'Tajawal', sans-serif;"
+  }
+]
