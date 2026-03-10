@@ -30,3 +30,6 @@ android/*.jks
 android/*.keystore
 android/keystore/
 ios/App/release.xcconfig
+
+# Firebase local cache
+.firebase/
