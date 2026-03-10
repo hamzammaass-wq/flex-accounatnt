@@ -284,6 +284,10 @@ const AppContent: React.FC = () => {
           else if (fTab === 'QUOTATION') openOverlay('add-quotation');
           else openOverlay('add-sales');
         }}
+        onCreateReturn={(id) => {
+          setSelectedInvoiceId(id);
+          openOverlay('add-sales-return');
+        }}
       />;
       case 'purchases': return <PurchaseInvoiceList
         onNavigate={(tab, fTab) => {
@@ -358,7 +362,7 @@ const AppContent: React.FC = () => {
       case 'add-voucher-payment': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="PAYMENT" onBack={closeOverlay} />; break;
       case 'add-journal': content = <TransactionForm initialMode="JOURNAL" onBack={closeOverlay} />; break;
       case 'add-purchase-return': content = <TransactionForm initialMode="PURCHASE_RETURN" onBack={closeOverlay} />; break;
-      case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" onBack={closeOverlay} />; break;
+      case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
       case 'add-quotation': content = <TransactionForm initialMode="QUOTATION" onBack={closeOverlay} />; break;
     }
 

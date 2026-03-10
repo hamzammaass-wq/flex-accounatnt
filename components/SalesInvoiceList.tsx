@@ -404,7 +404,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreat
     const handleAdd = () => {
         if (activeTab === 'QUOTATIONS') onNavigate('sales', 'QUOTATION');
         else if (activeTab === 'RETURNS') onNavigate('sales', 'SALES_RETURN');
-        else onNavigate('dashboard', 'SALES');
+        else onNavigate('sales', 'SALES');
     };
 
     return (

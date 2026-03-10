@@ -1,10 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  OAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut as firebaseSignOut,
+  updateProfile,
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  type User as FirebaseAuthUser
+} from 'firebase/auth';
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js';
 import { Apple, Building2, CheckCircle2, Lock, Mail, Shield, Sparkles, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
-import type { UserRole } from '../types';
+import type { User as AppUser, UserRole } from '../types';
 import { translate } from '../utils/i18n';
 import { supabase } from '@/supabaseClient';
+import { firebaseAuth, isFirebaseAuthEnabled } from '@/firebaseClient';
 import {
   createCloudCompanyMembership,
   getCloudAccountState,
@@ -13,10 +26,10 @@ import {
 } from '../utils/cloudAccount';
 
 type AuthMode = 'LOGIN' | 'REGISTER' | 'DEMO';
-type OAuthProvider = 'google' | 'apple';
+type AppOAuthProvider = 'google' | 'apple';
 type PendingCloudSetup = {
   userId: string;
-  provider: OAuthProvider | null;
+  provider: AppOAuthProvider | null;
   email: string;
   fullName: string;
   companyName: string;
@@ -24,6 +37,15 @@ type PendingCloudSetup = {
 };
 
 const AUTH_CALLBACK_QUERY_KEYS = ['code', 'error', 'error_code', 'error_description', 'state'];
+const AUTH_CALLBACK_HASH_KEYS = [
+  'access_token',
+  'refresh_token',
+  'expires_at',
+  'expires_in',
+  'token_type',
+  'provider_token',
+  'provider_refresh_token'
+];
 
 const decodeUrlValue = (value: string): string => {
   try {
@@ -53,6 +75,17 @@ const clearAuthCallbackQuery = (): void => {
       changed = true;
     }
   });
+  if (url.hash.startsWith('#')) {
+    const hashParams = new URLSearchParams(url.hash.slice(1));
+    AUTH_CALLBACK_HASH_KEYS.forEach((key) => {
+      if (hashParams.has(key)) {
+        hashParams.delete(key);
+        changed = true;
+      }
+    });
+    const nextHash = hashParams.toString();
+    url.hash = nextHash ? `#${nextHash}` : '';
+  }
   if (!changed) return;
   const nextUrl = `${url.pathname}${url.search}${url.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -63,10 +96,39 @@ const getAuthRedirectUrl = (): string => {
   return `${window.location.origin}${window.location.pathname}`;
 };
 
-const getProviderFromUser = (authUser: SupabaseAuthUser): OAuthProvider | null => {
+const getFirebaseGoogleSetupMessage = (language: 'AR' | 'EN'): string => {
+  if (language === 'AR') {
+    return 'تسجيل الدخول عبر Google يحتاج إعداد Firebase Web App أولًا. أضف VITE_FIREBASE_API_KEY و VITE_FIREBASE_AUTH_DOMAIN و VITE_FIREBASE_PROJECT_ID و VITE_FIREBASE_APP_ID داخل .env.local ثم أعد تشغيل التطبيق.';
+  }
+  return 'Google sign-in requires Firebase Web App configuration first. Add VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, and VITE_FIREBASE_APP_ID to .env.local, then restart the app.';
+};
+
+const getFirebaseOAuthSetupMessage = (provider: AppOAuthProvider, language: 'AR' | 'EN'): string => {
+  if (provider === 'google') return getFirebaseGoogleSetupMessage(language);
+  if (language === 'AR') {
+    return 'تسجيل الدخول عبر Apple يحتاج تفعيل Firebase Auth وإعداد Web App أولًا، ثم إعادة تشغيل التطبيق.';
+  }
+  return 'Apple sign-in requires Firebase Auth and Web App configuration first, then a dev server restart.';
+};
+
+const getProviderFromUser = (authUser: SupabaseAuthUser): AppOAuthProvider | null => {
   const provider = authUser.app_metadata?.provider;
   if (provider === 'google' || provider === 'apple') return provider;
   return null;
+};
+
+const mapFirebaseAuthUser = (authUser: FirebaseAuthUser, currentCompanyId: string): AppUser => {
+  const displayName = authUser.displayName?.trim();
+  return {
+    id: authUser.uid,
+    email: authUser.email || '',
+    name: displayName || authUser.email?.split('@')[0] || 'User',
+    picture: typeof authUser.photoURL === 'string' ? authUser.photoURL : undefined,
+    role: 'ADMIN',
+    status: 'ACTIVE',
+    companyId: currentCompanyId,
+    lastActive: new Date().toISOString()
+  };
 };
 
 const getDefaultFullName = (authUser: SupabaseAuthUser): string => {
@@ -123,12 +185,13 @@ const AuthScreen: React.FC = () => {
   const biometricEnabled = companySettings.biometricLoginEnabled ?? false;
   const isSecureContextForBiometric = useMemo(() => (typeof window !== 'undefined' ? window.isSecureContext : false), []);
   const [biometricSupported, setBiometricSupported] = useState(false);
+  const usingFirebaseAuth = isFirebaseAuthEnabled && !!firebaseAuth;
 
   const appLanguage = companySettings.language ?? 'AR';
   const authBusy = loading || sessionCheckLoading;
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(appLanguage, key, params);
 
-  const getProviderLabel = (provider: OAuthProvider | null): string => {
+  const getProviderLabel = (provider: AppOAuthProvider | null): string => {
     if (provider === 'google') return 'Google';
     if (provider === 'apple') return 'Apple';
     return appLanguage === 'AR' ? 'الحساب السحابي' : 'cloud account';
@@ -150,6 +213,35 @@ const AuthScreen: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (usingFirebaseAuth && firebaseAuth) {
+      const callbackError = getAuthCallbackError();
+      if (callbackError) {
+        setErrorMessage(callbackError);
+      }
+
+      const unsubscribe = onAuthStateChanged(firebaseAuth, (authUser) => {
+        if (cancelled) return;
+        setSessionCheckLoading(false);
+        setPendingCloudSetup(null);
+        setAuthMode('LOGIN');
+
+        if (!authUser) return;
+
+        try {
+          const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
+          setCurrentUser(mapFirebaseAuthUser(authUser, storedCompanyId));
+        } catch {
+          // ignore
+        }
+      });
+
+      clearAuthCallbackQuery();
+      return () => {
+        cancelled = true;
+        unsubscribe();
+      };
+    }
 
     const inspectCloudSession = async () => {
       setSessionCheckLoading(true);
@@ -193,7 +285,7 @@ const AuthScreen: React.FC = () => {
 
     inspectCloudSession();
     return () => { cancelled = true; };
-  }, []);
+  }, [usingFirebaseAuth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,6 +339,24 @@ const AuthScreen: React.FC = () => {
     setInfoMessage('');
 
     try {
+      if (usingFirebaseAuth && firebaseAuth) {
+        const { user } = await createUserWithEmailAndPassword(firebaseAuth, regEmail, regPassword);
+        if (!user) throw new Error('فشل إنشاء المستخدم.');
+
+        const fallbackName = regFullName.trim() || regEmail.split('@')[0];
+        const finalName = fallbackName.trim() || 'User';
+        if (finalName && user.displayName !== finalName) {
+          await updateProfile(user, { displayName: finalName });
+        }
+
+        const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
+        setCurrentUser({
+          ...mapFirebaseAuthUser(user, storedCompanyId),
+          name: finalName
+        });
+        return;
+      }
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: regEmail,
         password: regPassword,
@@ -293,6 +403,15 @@ const AuthScreen: React.FC = () => {
     setInfoMessage('');
 
     try {
+      if (usingFirebaseAuth && firebaseAuth) {
+        const { user } = await signInWithEmailAndPassword(firebaseAuth, loginEmail, loginPassword);
+        if (!user) throw new Error('تعذر إكمال تسجيل الدخول.');
+
+        const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
+        setCurrentUser(mapFirebaseAuthUser(user, storedCompanyId));
+        return;
+      }
+
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password: loginPassword,
@@ -318,21 +437,41 @@ const AuthScreen: React.FC = () => {
     }
   };
 
-  const handleOAuthLogin = async (provider: OAuthProvider) => {
+  const handleOAuthLogin = async (provider: AppOAuthProvider) => {
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: getAuthRedirectUrl(),
-          queryParams: provider === 'google' ? { prompt: 'select_account' } : undefined
-        }
-      });
+      if (usingFirebaseAuth && firebaseAuth) {
+        const authProvider = provider === 'google'
+          ? (() => {
+            const googleProvider = new GoogleAuthProvider();
+            googleProvider.setCustomParameters({ prompt: 'select_account' });
+            return googleProvider;
+          })()
+          : new OAuthProvider('apple.com');
 
-      if (error) throw new Error(error.message);
+        try {
+          const { user } = await signInWithPopup(firebaseAuth, authProvider);
+          const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
+          setCurrentUser(mapFirebaseAuthUser(user, storedCompanyId));
+          return;
+        } catch (err: any) {
+          const code = err?.code || '';
+          if (
+            provider === 'google' &&
+            typeof code === 'string' &&
+            (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request')
+          ) {
+            await signInWithRedirect(firebaseAuth, authProvider);
+            return;
+          }
+          throw err;
+        }
+      }
+
+      throw new Error(getFirebaseOAuthSetupMessage(provider, appLanguage));
     } catch (err: any) {
       setErrorMessage(err.message || `تعذر بدء تسجيل الدخول عبر ${provider}.`);
       setLoading(false);
@@ -383,6 +522,20 @@ const AuthScreen: React.FC = () => {
     setErrorMessage('');
     setInfoMessage('');
 
+    if (usingFirebaseAuth && firebaseAuth) {
+      try {
+        await firebaseSignOut(firebaseAuth);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'تعذر تسجيل الخروج.');
+      } finally {
+        setPendingCloudSetup(null);
+        setAuthMode('LOGIN');
+        clearAuthCallbackQuery();
+        setLoading(false);
+      }
+      return;
+    }
+
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw new Error(error.message);
@@ -396,7 +549,7 @@ const AuthScreen: React.FC = () => {
     }
   };
 
-  const oauthActionLabel = (provider: OAuthProvider): string => {
+  const oauthActionLabel = (provider: AppOAuthProvider): string => {
     if (appLanguage !== 'AR') return provider === 'google' ? 'Continue with Google' : 'Continue with Apple';
     return provider === 'google' ? 'المتابعة عبر Google' : 'المتابعة عبر Apple';
   };
@@ -658,6 +811,13 @@ const AuthScreen: React.FC = () => {
                   <Apple className="w-5 h-5" />
                   {oauthActionLabel('apple')}
                 </button>
+                {!usingFirebaseAuth && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700 text-center">
+                    {appLanguage === 'AR'
+                      ? 'زر Google لن يعمل عبر Firebase قبل إضافة مفاتيح VITE_FIREBASE_* داخل .env.local وإعادة تشغيل التطبيق.'
+                      : 'Google via Firebase stays disabled until VITE_FIREBASE_* values are added to .env.local and the app is restarted.'}
+                  </div>
+                )}
               </div>
 
               <div className="relative flex items-center py-2">

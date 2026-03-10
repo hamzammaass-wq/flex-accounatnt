@@ -19,6 +19,8 @@ import { buildProductPricingPatch } from '../utils/productPricing';
 import { isProfitLossAccount } from '../utils/fiscalYear';
 import { supabase } from '@/supabaseClient';
 import { createCloudCompanyMembership, getCloudAccountState } from '../utils/cloudAccount';
+import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
+import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
 
 // ... (Existing Interfaces)
 
@@ -478,6 +480,17 @@ const STORAGE_KEYS = {
   companies: 'al_mohaseb_companies',
   currentCompany: 'al_mohaseb_current_company'
 } as const;
+
+const mapFirebaseAuthUser = (authUser: FirebaseAuthUser, currentCompanyId: string): User => ({
+  id: authUser.uid,
+  email: authUser.email || '',
+  name: authUser.displayName?.trim() || authUser.email?.split('@')[0] || 'User',
+  picture: typeof authUser.photoURL === 'string' ? authUser.photoURL : undefined,
+  role: 'ADMIN',
+  status: 'ACTIVE',
+  companyId: currentCompanyId,
+  lastActive: new Date().toISOString()
+});
 
 const APP_STORAGE_PREFIX = 'al_mohaseb_';
 const SUPABASE_STORAGE_PREFIX = 'sb-';
@@ -1818,12 +1831,45 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const logout = async () => {
     setCurrentUser(null);
     setCloudMemberships([]);
-    await supabase.auth.signOut();
+    const signOutPromises = [
+      ...(isFirebaseAuthEnabled && firebaseAuth ? [firebaseSignOut(firebaseAuth)] : []),
+      supabase.auth.signOut()
+    ];
+    await Promise.allSettled(signOutPromises);
   };
 
-  // Sync Supabase auth session with local user state
+  // Sync auth session with local user state
   useEffect(() => {
     let cancelled = false;
+
+    if (isFirebaseAuthEnabled && firebaseAuth) {
+      const syncFirebaseSession = (authUser: FirebaseAuthUser | null) => {
+        if (cancelled) return;
+
+        if (!authUser) {
+          setCloudMemberships([]);
+          setCurrentUser(null);
+          return;
+        }
+
+        let persistedCompanyId = 'cmp_default';
+        try {
+          persistedCompanyId = localStorage.getItem(STORAGE_KEYS.currentCompany) || currentCompanyId || 'cmp_default';
+        } catch {
+          persistedCompanyId = currentCompanyId || 'cmp_default';
+        }
+
+        setCloudMemberships([]);
+        setCurrentUser(mapFirebaseAuthUser(authUser, persistedCompanyId));
+      };
+
+      const unsubscribe = onAuthStateChanged(firebaseAuth, syncFirebaseSession);
+
+      return () => {
+        cancelled = true;
+        unsubscribe();
+      };
+    }
 
     const syncSupabaseSession = async (session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) => {
       if (!session?.user) {
@@ -1902,7 +1948,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [currentCompanyId]);
 
   useEffect(() => {
     if (!currentUser || !cloudMemberships.length || !currentCompanyId) return;
