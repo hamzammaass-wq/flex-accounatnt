@@ -9,6 +9,14 @@ import {
     Search, CornerDownLeft, Info, Settings2, FolderPlus, FilePlus, XCircle, Edit2, Globe, Coins
 } from 'lucide-react';
 
+const HIDDEN_ACCOUNT_ROOT_IDS = new Set(['acc_partner_drawings']);
+
+const isVisibleInAccountsTree = (account: Pick<Account, 'id' | 'parentId'>): boolean => (
+    !HIDDEN_ACCOUNT_ROOT_IDS.has(account.id)
+    && !HIDDEN_ACCOUNT_ROOT_IDS.has(account.parentId || '')
+    && !String(account.id || '').startsWith('acc_partner_drawings_')
+);
+
 const AccountsTree: React.FC = () => {
     const { accounts, addAccount, deleteAccount, updateAccount, currencies, baseCurrency, companySettings } = useAccounting();
     const [activeType, setActiveType] = useState<AccountType | 'ALL'>('ALL');
@@ -21,7 +29,6 @@ const AccountsTree: React.FC = () => {
         'acc_partners_accounts_group',
         'acc_partners_capital',
         'acc_partner_current',
-        'acc_partner_drawings',
         'acc_revenue_root',
         'acc_expense_root'
     ]));
@@ -69,6 +76,11 @@ const AccountsTree: React.FC = () => {
     const displayAccountName = (account: Pick<Account, 'id' | 'name' | 'code'>) =>
         getDisplayAccountName(account, isEnglish);
 
+    const visibleAccounts = useMemo(
+        () => accounts.filter(isVisibleInAccountsTree),
+        [accounts]
+    );
+
     const buildTree = (parentId: string | undefined, list: Account[]): any[] => {
         return list
             .filter(a => a.parentId === parentId)
@@ -80,19 +92,19 @@ const AccountsTree: React.FC = () => {
     };
 
     const treeData = useMemo(() => {
-        let filtered = accounts;
+        let filtered = visibleAccounts;
         if (activeType !== 'ALL') {
-            filtered = accounts.filter(a => a.type === activeType);
+            filtered = visibleAccounts.filter(a => a.type === activeType);
         }
         if (searchTerm) {
-            return accounts.filter(a =>
+            return visibleAccounts.filter(a =>
                 a.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 displayAccountName(a).toLowerCase().includes(searchTerm.toLowerCase()) ||
                 a.code.includes(searchTerm)
             );
         }
         return buildTree(undefined, filtered);
-    }, [accounts, activeType, searchTerm]);
+    }, [visibleAccounts, activeType, searchTerm]);
 
     const handleFormSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -377,7 +389,7 @@ const AccountsTree: React.FC = () => {
                                     className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-blue-50 transition-all appearance-none"
                                 >
                                     <option value="">{tr('-- حساب رئيسي مستقل --', '-- Standalone Main Account --')}</option>
-                                    {accounts.filter(a => a.isGroup && (activeType === 'ALL' || a.type === newType) && a.id !== editingId).map(a => (
+                                    {visibleAccounts.filter(a => a.isGroup && (activeType === 'ALL' || a.type === newType) && a.id !== editingId).map(a => (
                                         <option key={a.id} value={a.id}>{a.code} - {displayAccountName(a)}</option>
                                     ))}
                                 </select>

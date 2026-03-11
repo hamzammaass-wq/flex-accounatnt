@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'smart-accountant-v4';
+const CACHE_VERSION = 'aiflex-erp-v2';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const IS_DEV_SERVER =
   self.location.port === '3000' ||
@@ -9,6 +9,10 @@ const APP_SHELL_URLS = [
   '/index.html',
   '/index.css',
   '/manifest.webmanifest',
+  '/brand/aiflex-erp-logo.svg',
+  '/brand/aiflex-erp-mark.svg',
+  '/icons/icon-192.webp',
+  '/icons/icon-512.webp',
   '/icons/icon-192.svg',
   '/icons/icon-512.svg'
 ];

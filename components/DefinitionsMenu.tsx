@@ -720,7 +720,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `smart-accountant-backup-${payload.createdAt.slice(0, 10)}.json`;
+    link.download = `aiflex-erp-backup-${payload.createdAt.slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js';
-import { Building2, CheckCircle2, Lock, Mail, Sparkles, User } from 'lucide-react';
+import { Building2, CheckCircle2, Lock, Mail, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import type { UserRole } from '../types';
 import { translate } from '../utils/i18n';
@@ -386,11 +386,11 @@ const AuthScreen: React.FC = () => {
 
       <div className="w-full max-w-sm relative z-10 pt-10 pb-10">
         <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-10 duration-700">
-          <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl shadow-blue-500/20 ring-4 ring-blue-500/10">
-            <Sparkles className="text-white w-10 h-10" />
-          </div>
-          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">{t('auth.appName')}</h1>
-          <p className="text-gray-400 text-xs font-medium">{t('auth.tagline')}</p>
+          <img
+            src="/brand/aiflex-erp-logo.svg"
+            alt={t('auth.appName')}
+            className="w-full max-w-[23rem] mx-auto drop-shadow-[0_0_36px_rgba(34,211,238,0.2)]"
+          />
         </div>
 
         <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-2xl space-y-6 animate-in zoom-in-95 duration-500 delay-300">

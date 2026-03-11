@@ -429,10 +429,11 @@ const QuickAddProductModalLegacy: React.FC<{ onClose: () => void; onSave: (produ
 const InvoiceScreen: React.FC<{
     mode: 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'MANUAL_PURCHASE' | 'EXPENSES' | 'IMPORT_EXPENSES';
     sharedState: any;
+    onDateChange: (value: string) => void;
     onSuccess: () => void;
     linkedInvoiceId?: string;
     initialInvoiceId?: string;
-}> = ({ mode, sharedState, onSuccess, linkedInvoiceId: initialLinkedId, initialInvoiceId }) => {
+}> = ({ mode, sharedState, onDateChange, onSuccess, linkedInvoiceId: initialLinkedId, initialInvoiceId }) => {
     const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, currentCompanyId } = useAccounting();
 
     const isSales = mode === 'SALES';
@@ -1023,7 +1024,7 @@ const InvoiceScreen: React.FC<{
                     {tr('رجوع', 'Back')}
                 </button>
                 <div className="text-base font-black text-indigo-900">
-                    {isSales ? tr('بيع', 'Sales') : isPurchaseReturn ? tr('مرتجع شراء', 'Purchase Return') : isReturn ? tr('مرتجع بيع', 'Sales Return') : isPurchases ? tr('شراء', 'Purchase') : isExpenseStyle ? tr('مصروف', 'Expense') : isQuotation ? tr('عرض سعر', 'Quotation') : tr('سند', 'Voucher')}
+                    {isSales ? tr('بيع', 'Sales') : isPurchaseReturn ? tr('مرتجع شراء', 'Purchase Return') : isReturn ? tr('مرتجع بيع', 'Sales Return') : isPurchase ? tr('شراء', 'Purchase') : isExpenseStyle ? tr('مصروف', 'Expense') : isQuotation ? tr('عرض سعر', 'Quotation') : tr('سند', 'Voucher')}
                 </div>
                 <div className="flex items-center gap-1">
                     <button className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors">
@@ -1099,8 +1100,8 @@ const InvoiceScreen: React.FC<{
 
                     <div className="w-28 shrink-0 relative">
                         <EnglishDateInput
-                            value={date}
-                            onChange={setDate}
+                            value={sharedState.date}
+                            onChange={onDateChange}
                             className="w-full text-center text-[11px] font-black bg-gray-50 border border-gray-100 rounded-xl flex items-center justify-center p-0 h-[28px] focus:outline-none focus:border-indigo-300"
                         />
                     </div>
@@ -3157,7 +3158,14 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     initialVoucherId={initialVoucherId}
                 />
             ) : (
-                <InvoiceScreen mode={mode as any} sharedState={sharedState} onSuccess={handleFlowSuccess} linkedInvoiceId={initialLinkedInvoiceId} initialInvoiceId={initialInvoiceId} />
+                <InvoiceScreen
+                    mode={mode as any}
+                    sharedState={sharedState}
+                    onDateChange={value => setSharedState(prev => ({ ...prev, date: value }))}
+                    onSuccess={handleFlowSuccess}
+                    linkedInvoiceId={initialLinkedInvoiceId}
+                    initialInvoiceId={initialInvoiceId}
+                />
             )}
         </div>
     );

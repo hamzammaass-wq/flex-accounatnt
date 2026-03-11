@@ -61,7 +61,7 @@ export const getCloudProfileCompany = (profile: CloudProfileRow | null): Company
     taxNumber: '',
     address: '',
     phone: '',
-    logoUrl: '',
+    logoUrl: '/brand/aiflex-erp-mark.svg',
     createdAt,
     trialEndsAt: addDaysIso(createdAt, 14),
   };
@@ -75,7 +75,7 @@ const mapCompanyRowToProfile = (row: CompanyRow): CompanyProfile => {
     taxNumber: '',
     address: '',
     phone: '',
-    logoUrl: '',
+    logoUrl: '/brand/aiflex-erp-mark.svg',
     createdAt,
     trialEndsAt: addDaysIso(createdAt, 14),
   };

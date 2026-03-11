@@ -1,6 +1,6 @@
-# Smart Accountant
+# AIFLEX ERP
 
-Smart Accountant is a Vite + React + Capacitor application with Supabase-backed auth and Firebase Hosting deployment.
+AIFLEX ERP is a Vite + React + Capacitor application with Supabase-backed auth and Firebase Hosting deployment.
 
 ## Access From Anywhere
 

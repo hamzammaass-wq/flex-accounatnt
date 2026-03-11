@@ -1,5 +1,5 @@
 {
-  "name": "Copy of oo of Al-Mohaseb Al-Zaki (Smart Accountant)",
+  "name": "AIFLEX ERP",
   "description": "A mobile-first ERP and accounting application designed for small businesses and personal finance. It features transaction tracking, financial dashboards, and an AI-powered financial advisor using Gemini.",
   "requestFramePermissions": [
     "microphone",

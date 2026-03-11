@@ -1,9 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="120" fill="#0f172a"/>
-  <circle cx="384" cy="132" r="70" fill="#2563eb" opacity="0.9"/>
-  <circle cx="144" cy="398" r="90" fill="#10b981" opacity="0.85"/>
-  <path d="M136 122h240c17.673 0 32 14.327 32 32v204c0 17.673-14.327 32-32 32H136c-17.673 0-32-14.327-32-32V154c0-17.673 14.327-32 32-32Z" fill="#111827" stroke="#e2e8f0" stroke-width="16"/>
-  <path d="M162 208h188M162 268h92M312 268h36M162 328h128" stroke="#38bdf8" stroke-linecap="round" stroke-width="22"/>
-  <path d="M322 316c0-28.719 23.281-52 52-52s52 23.281 52 52-23.281 52-52 52-52-23.281-52-52Z" fill="#2563eb"/>
-  <path d="M356 316l20 20 36-46" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="18"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="markRing" x1="88" y1="80" x2="438" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#41F6EF"/>
+      <stop offset="0.48" stop-color="#1B8EFF"/>
+      <stop offset="1" stop-color="#C540FF"/>
+    </linearGradient>
+    <linearGradient id="markText" x1="178" y1="162" x2="360" y2="348" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8AFBFF"/>
+      <stop offset="0.38" stop-color="#2FA5FF"/>
+      <stop offset="1" stop-color="#9A5DFF"/>
+    </linearGradient>
+    <filter id="markGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#030B1A"/>
+  <circle cx="256" cy="256" r="210" fill="#07162F"/>
+  <circle cx="256" cy="256" r="195" stroke="#0B2349" stroke-width="2"/>
+  <path d="M80 234C111 129 230 76 337 85C405 91 450 114 470 152C490 188 485 247 444 312C401 381 285 430 156 401" stroke="url(#markRing)" stroke-width="18" stroke-linecap="round" filter="url(#markGlow)"/>
+  <path d="M110 328C176 365 266 367 345 341" stroke="url(#markRing)" stroke-width="12" stroke-linecap="round" filter="url(#markGlow)"/>
+  <path d="M96 243H141L171 213H208" stroke="#2BD8FF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M112 191H154L186 224H220" stroke="#4BCBFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M141 154L171 181H210" stroke="#86B9FF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M143 296H180L211 267H245" stroke="#74D9FF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="93" cy="243" r="13" fill="#2BD8FF" filter="url(#markGlow)"/>
+  <circle cx="112" cy="191" r="10" fill="#66B6FF"/>
+  <circle cx="141" cy="154" r="9" fill="#A5D9FF"/>
+  <circle cx="143" cy="296" r="9" fill="#9CFBFF"/>
+  <circle cx="171" cy="213" r="11" fill="#2AD5FF"/>
+  <circle cx="186" cy="224" r="9" fill="#DBF1FF"/>
+  <circle cx="171" cy="181" r="8" fill="#DBE8FF"/>
+  <circle cx="211" cy="267" r="10" fill="#6CCBFF"/>
+  <circle cx="220" cy="224" r="12" fill="#33D7FF"/>
+  <circle cx="208" cy="243" r="9" fill="#B9EAFF"/>
+  <circle cx="245" cy="267" r="11" fill="#3FCEFF"/>
+  <text x="208" y="304" fill="url(#markText)" font-family="Arial, Helvetica, sans-serif" font-size="208" font-style="italic" font-weight="900" letter-spacing="-10" filter="url(#markGlow)">A</text>
+  <text x="285" y="348" fill="#F4F7FF" font-family="Arial, Helvetica, sans-serif" font-size="56" font-style="italic" font-weight="800" letter-spacing="-2">ERP</text>
 </svg>

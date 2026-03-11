@@ -1690,10 +1690,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   ];
 
   const defaultCompanySettings: CompanySettings = {
-    name: 'مؤسسة المحاسب الذكي المحدودة',
+    name: 'AIFLEX ERP',
     taxNumber: '300012345600003',
     address: 'الرياض - حي الملز',
     phone: '920001234',
+    logoUrl: '/brand/aiflex-erp-mark.svg',
     annualLeaveDefaultOpenEndedDays: 21,
     annualLeaveDefaultFixedTermDays: 14,
     leaveAccrualPolicy: 'ANNUAL',
@@ -5452,7 +5453,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         taxNumber: profile.taxNumber || '',
         address: profile.address || '',
         phone: profile.phone || '',
-        logoUrl: profile.logoUrl
+        logoUrl: profile.logoUrl || defaultCompanySettings.logoUrl
       },
       users: seededCurrentUser,
       accounts: safeClone(initialAccounts),
@@ -6094,7 +6095,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const buildBackupFileName = (isoDate: string) =>
-    `smart-accountant-backup-${isoDate.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    `aiflex-erp-backup-${isoDate.slice(0, 19).replace(/[:T]/g, '-')}.json`;
 
   const buildBackupSnapshot = () => ({
     schemaVersion: 1,
@@ -6548,7 +6549,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const token = await requestGoogleAccessToken(true);
       const folderId = String(companySettings.googleDriveFolderId || '').trim();
       const queryParts = [
-        "name contains 'smart-accountant-backup-'",
+        "(name contains 'aiflex-erp-backup-' or name contains 'smart-accountant-backup-')",
         "mimeType = 'application/json'",
         'trashed = false'
       ];

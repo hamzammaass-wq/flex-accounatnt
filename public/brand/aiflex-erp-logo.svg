@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" fill="none">
+  <defs>
+    <linearGradient id="aiflexText" x1="270" y1="118" x2="810" y2="310" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#65F5FF"/>
+      <stop offset="0.35" stop-color="#1F9BFF"/>
+      <stop offset="0.7" stop-color="#6C7BFF"/>
+      <stop offset="1" stop-color="#D44DFF"/>
+    </linearGradient>
+    <linearGradient id="orbitStroke" x1="155" y1="70" x2="1035" y2="350" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3AF7F2"/>
+      <stop offset="0.45" stop-color="#1A8DFF"/>
+      <stop offset="1" stop-color="#C93CFF"/>
+    </linearGradient>
+    <linearGradient id="innerStroke" x1="210" y1="270" x2="785" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10D7FF"/>
+      <stop offset="0.5" stop-color="#3BE8D3"/>
+      <stop offset="1" stop-color="#1F6FFF"/>
+    </linearGradient>
+    <radialGradient id="nodeGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(210 197) rotate(90) scale(116 116)">
+      <stop offset="0" stop-color="#89F7FF"/>
+      <stop offset="0.6" stop-color="#42C7FF"/>
+      <stop offset="1" stop-color="#0B1F5D"/>
+    </radialGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="sparkleGlow" x="-300%" y="-300%" width="700%" height="700%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+
+  <g opacity="0.96">
+    <path
+      d="M186 145C304 58 515 30 767 41C919 48 1016 83 1051 145C1084 203 1064 279 986 325C902 374 766 392 583 379C373 364 230 324 166 258C126 217 134 177 186 145Z"
+      stroke="url(#orbitStroke)"
+      stroke-width="18"
+      stroke-linecap="round"
+      filter="url(#softGlow)"
+    />
+    <path
+      d="M211 294C307 344 470 353 678 320C735 311 783 298 821 283"
+      stroke="url(#innerStroke)"
+      stroke-width="14"
+      stroke-linecap="round"
+      filter="url(#softGlow)"
+    />
+    <path
+      d="M199 287C320 338 518 347 745 319"
+      stroke="#122C85"
+      stroke-opacity="0.88"
+      stroke-width="9"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <g transform="translate(58 84)">
+    <circle cx="152" cy="128" r="95" fill="url(#nodeGlow)" opacity="0.12"/>
+    <path d="M59 154H109L138 126H176" stroke="#27D7FF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M83 110H123L155 142H191" stroke="#27D7FF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M114 82L140 108H180" stroke="#63C8FF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M112 198H153L184 170H219" stroke="#56D5FF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M143 229L173 203H220" stroke="#6CEEFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M159 58L185 81H230" stroke="#8AB6FF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M190 51L214 74H252" stroke="#9AD6FF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M209 229L234 206H270" stroke="#8FAFFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M52 188H95L117 212" stroke="#1FC1FF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="49" cy="154" r="12" fill="#24D9FF" filter="url(#softGlow)"/>
+    <circle cx="84" cy="110" r="10" fill="#5FB4FF"/>
+    <circle cx="115" cy="82" r="8" fill="#6C9CFF"/>
+    <circle cx="109" cy="198" r="8" fill="#8CF8FF"/>
+    <circle cx="141" cy="229" r="9" fill="#87B7FF"/>
+    <circle cx="158" cy="58" r="8" fill="#97CEFF"/>
+    <circle cx="190" cy="51" r="7" fill="#C5E7FF"/>
+    <circle cx="117" cy="212" r="10" fill="#DFF4FF"/>
+    <circle cx="138" cy="126" r="11" fill="#29E7FF"/>
+    <circle cx="155" cy="142" r="8" fill="#A7DBFF"/>
+    <circle cx="173" cy="203" r="8" fill="#D8EEFF"/>
+    <circle cx="184" cy="170" r="9" fill="#6DCAFF"/>
+    <circle cx="185" cy="81" r="8" fill="#D9ECFF"/>
+    <circle cx="214" cy="74" r="7" fill="#C7ECFF"/>
+    <circle cx="230" cy="81" r="11" fill="#2AD0FF"/>
+    <circle cx="252" cy="74" r="8" fill="#39D7FF"/>
+    <circle cx="219" cy="170" r="10" fill="#63C8FF"/>
+    <circle cx="220" cy="203" r="10" fill="#8AD0FF"/>
+    <circle cx="270" cy="206" r="12" fill="#2BD0FF"/>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <path d="M265 146H1008" stroke="url(#orbitStroke)" stroke-opacity="0.15" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(0 2)">
+    <text
+      x="300"
+      y="243"
+      fill="url(#aiflexText)"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="172"
+      font-style="italic"
+      font-weight="900"
+      letter-spacing="-10"
+      filter="url(#softGlow)"
+    >AIFLEX</text>
+    <text
+      x="744"
+      y="304"
+      fill="#F4F7FF"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="82"
+      font-style="italic"
+      font-weight="800"
+      letter-spacing="-3"
+    >ERP</text>
+    <text
+      x="600"
+      y="378"
+      fill="#F7FAFF"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="39"
+      font-weight="700"
+      text-anchor="middle"
+    >Smart Accounting &amp; Business Management</text>
+  </g>
+
+  <g transform="translate(315 58)">
+    <circle cx="0" cy="0" r="4" fill="#D7FFFF" filter="url(#sparkleGlow)"/>
+    <path d="M0 -16V16M-16 0H16" stroke="#C8FFFF" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(865 344)">
+    <circle cx="0" cy="0" r="3" fill="#E3DDFF" filter="url(#sparkleGlow)"/>
+    <path d="M0 -12V12M-12 0H12" stroke="#E7DCFF" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+</svg>
