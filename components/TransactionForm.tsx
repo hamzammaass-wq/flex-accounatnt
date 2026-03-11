@@ -487,7 +487,7 @@ const InvoiceScreen: React.FC<{
     const [expenseAccountId, setExpenseAccountId] = useState('');
 
     const [taxEnabled, setTaxEnabled] = useState(taxVisibleInInvoices);
-    const [taxRateOverride, setTaxRateOverride] = useState(companySettings.defaultTaxRate.toString());
+    const [taxRateOverride, setTaxRateOverride] = useState(String(companySettings.defaultTaxRate ?? 0));
     const [separatePurchaseTaxFromAmount, setSeparatePurchaseTaxFromAmount] = useState(false);
     const [dueDate, setDueDate] = useState(sharedState.date);
     const [discount, setDiscount] = useState('');
@@ -628,7 +628,7 @@ const InvoiceScreen: React.FC<{
     }, [showBarcodeScanner, products]);
 
     useEffect(() => {
-        setTaxRateOverride(companySettings.defaultTaxRate.toString());
+        setTaxRateOverride(String(companySettings.defaultTaxRate ?? 0));
         if (!taxVisibleInInvoices) {
             setTaxEnabled(false);
         }
@@ -2461,7 +2461,7 @@ const JournalScreen: React.FC<{
             if (taxSplitBlocked) {
                 updated.splitPurchaseTax = false;
             } else if (updated.splitPurchaseTax && !updated.purchaseTaxRate) {
-                updated.purchaseTaxRate = companySettings.defaultTaxRate.toString();
+                updated.purchaseTaxRate = String(companySettings.defaultTaxRate ?? 0);
             }
 
             return updated;
@@ -2480,7 +2480,7 @@ const JournalScreen: React.FC<{
                 ...line,
                 splitPurchaseTax: nextEnabled,
                 purchaseTaxRate: nextEnabled
-                    ? (line.purchaseTaxRate || companySettings.defaultTaxRate.toString())
+                    ? (line.purchaseTaxRate || String(companySettings.defaultTaxRate ?? 0))
                     : line.purchaseTaxRate
             };
         }));
@@ -2817,7 +2817,7 @@ const JournalScreen: React.FC<{
                                                     <input
                                                         type="number" inputMode="decimal"
                                                         min={0}
-                                                        value={line.purchaseTaxRate || companySettings.defaultTaxRate.toString()}
+                                                        value={line.purchaseTaxRate || String(companySettings.defaultTaxRate ?? 0)}
                                                         onChange={e => setLinePurchaseTaxRate(line.id, e.target.value)}
                                                         className="w-full p-2 rounded-xl bg-white border border-indigo-100 text-xs font-black text-center dir-ltr outline-none"
                                                     />

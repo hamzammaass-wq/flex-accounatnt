@@ -513,43 +513,43 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
 
     return (
         <div
-            className={`app-page voucher-list-page p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`}
+            className={`app-page voucher-list-page px-2 py-3 font-tajawal sm:p-4 ${isEnglish ? 'text-left' : 'text-right'}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
         >
-            <section className="mb-4 rounded-[1.8rem] border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <section className="mb-3 rounded-[1.2rem] border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:mb-4 sm:rounded-[1.8rem] sm:px-5 sm:py-4">
+                <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                        <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+                        <p className="hidden text-[9px] font-black uppercase tracking-[0.18em] text-slate-400 sm:block sm:text-[11px] sm:tracking-[0.22em]">
                             {tr('الصفحة الحالية', 'Current page')}
                         </p>
-                        <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-900">
+                        <h1 className="mt-0.5 text-[1.35rem] font-black tracking-tight text-slate-900 sm:mt-1 sm:text-2xl">
                             {isReceipt ? tr('سندات القبض', 'Receipt Vouchers') : tr('سندات الصرف', 'Payment Vouchers')}
                         </h1>
                     </div>
 
-                    <div className={`rounded-[1.3rem] border px-4 py-3 ${isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'}`}>
-                        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                    <div className={`shrink-0 rounded-[0.95rem] border px-2.5 py-2 sm:rounded-[1.3rem] sm:px-4 sm:py-3 ${isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'}`}>
+                        <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400 sm:text-[11px] sm:tracking-[0.18em]">
                             {tr('إجمالي السندات المرحلة', 'Posted vouchers total')}
                         </p>
-                        <div className="mt-2 flex items-end gap-2">
-                            <span className={`text-2xl font-black dir-ltr ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        <div className="mt-1 flex items-end gap-1.5 sm:mt-2 sm:gap-2">
+                            <span className={`text-[1.35rem] font-black dir-ltr sm:text-2xl ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
                                 {formatAmount(totalPostedAmount)}
                             </span>
-                            <span className="pb-1 text-sm font-bold text-slate-500">{baseCurrency}</span>
+                            <span className="pb-0.5 text-[11px] font-bold text-slate-500 sm:pb-1 sm:text-sm">{baseCurrency}</span>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <section className="mb-4 rounded-[1.8rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+            <section className="mb-3 rounded-[1.2rem] border border-slate-200 bg-white p-2.5 shadow-sm sm:mb-4 sm:rounded-[1.8rem] sm:p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                    <div className="flex min-w-0 flex-1 items-center rounded-[1.3rem] border border-slate-200 bg-slate-50 px-3 py-2 focus-within:border-slate-300 focus-within:bg-white">
-                        <Search size={18} className="shrink-0 text-slate-400" />
+                    <div className="flex min-w-0 flex-1 items-center rounded-[1rem] border border-slate-200 bg-slate-50 px-2.5 py-1.5 focus-within:border-slate-300 focus-within:bg-white sm:rounded-[1.3rem] sm:px-3 sm:py-2">
+                        <Search size={16} className="shrink-0 text-slate-400 sm:h-[18px] sm:w-[18px]" />
                         <input
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             placeholder={tr('ابحث برقم السند أو الطرف...', 'Search by voucher number or contact...')}
-                            className="min-w-0 flex-1 bg-transparent px-3 text-sm font-bold text-slate-700 outline-none"
+                            className="min-w-0 flex-1 bg-transparent px-2 text-[13px] font-bold text-slate-700 outline-none sm:px-3 sm:text-sm"
                         />
                         {hasSearch && (
                             <button
@@ -567,9 +567,9 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         <button
                             type="button"
                             onClick={() => setIsFilterDialogOpen(true)}
-                            className="inline-flex items-center justify-center gap-2 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                            className="inline-flex items-center justify-center gap-1.5 rounded-[1rem] border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:gap-2 sm:rounded-[1.25rem] sm:px-4 sm:py-3 sm:text-sm"
                         >
-                            <SlidersHorizontal size={18} />
+                            <SlidersHorizontal size={16} className="sm:h-[18px] sm:w-[18px]" />
                             <span>{tr('فلتر', 'Filter')}</span>
                             {activeAdvancedFilterCount > 0 && (
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${isReceipt ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
@@ -581,24 +581,24 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         <button
                             type="button"
                             onClick={onAddNew}
-                            className={`${theme.button} inline-flex items-center justify-center gap-2 rounded-[1.25rem] px-4 py-3 text-sm font-black text-white shadow-sm transition active:scale-[0.98]`}
+                            className={`${theme.button} inline-flex items-center justify-center gap-1.5 rounded-[1rem] px-3 py-2.5 text-xs font-black text-white shadow-sm transition active:scale-[0.98] sm:gap-2 sm:rounded-[1.25rem] sm:px-4 sm:py-3 sm:text-sm`}
                         >
-                            <Plus size={18} />
+                            <Plus size={16} className="sm:h-[18px] sm:w-[18px]" />
                             <span>{tr('إضافة سند', 'Add voucher')}</span>
                         </button>
                     </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-600">
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-600 sm:px-3 sm:py-1.5 sm:text-xs">
                         {tr('النتائج', 'Results')}: {groupedVouchers.length}
                     </span>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-600 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs">
                         <span>{tr('الترتيب', 'Sort')}</span>
                         <select
                             value={sortMode}
                             onChange={(e) => setSortMode(e.target.value as typeof sortMode)}
-                            className="bg-transparent text-xs font-black text-slate-700 outline-none"
+                            className="bg-transparent text-[11px] font-black text-slate-700 outline-none sm:text-xs"
                         >
                             <option value="DATE_DESC">{tr('الأحدث أولاً', 'Newest first')}</option>
                             <option value="DATE_ASC">{tr('الأقدم أولاً', 'Oldest first')}</option>
@@ -608,7 +608,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         </select>
                     </div>
                     {hasAdvancedFilters && (
-                        <span className={`rounded-full border px-3 py-1.5 text-xs font-black ${isReceipt ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-rose-100 bg-rose-50 text-rose-700'}`}>
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black sm:px-3 sm:py-1.5 sm:text-xs ${isReceipt ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-rose-100 bg-rose-50 text-rose-700'}`}>
                             {tr('فلاتر نشطة', 'Active filters')}: {activeAdvancedFilterCount}
                         </span>
                     )}
@@ -616,7 +616,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         <button
                             type="button"
                             onClick={clearFilters}
-                            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:px-3 sm:py-1.5 sm:text-xs"
                         >
                             {tr('مسح الكل', 'Clear all')}
                         </button>
@@ -755,7 +755,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                 </div>
             </ResponsiveDialog>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5 sm:space-y-2">
                 <div className={`hidden md:grid items-center gap-3 rounded-[1rem] border border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 ${isEnglish ? 'grid-cols-[6.4rem_minmax(0,1fr)_4.1rem]' : 'grid-cols-[4.1rem_minmax(0,1fr)_6.4rem]'}`}>
                     <div className={`${isEnglish ? 'text-right' : 'text-left'}`}>{tr('المرجع', 'Reference')}</div>
                     <div>{tr('الطرف والبيان', 'Contact and note')}</div>
@@ -786,49 +786,49 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         return (
                             <article
                                 key={id}
-                                className={`list-card overflow-hidden rounded-[1rem] border bg-white shadow-sm transition ${isExpanded ? 'border-slate-300 ring-2 ring-slate-100' : 'border-slate-200 hover:border-slate-300'}`}
+                                className={`list-card overflow-hidden rounded-[0.95rem] border bg-white shadow-sm transition sm:rounded-[1rem] ${isExpanded ? 'border-slate-300 ring-2 ring-slate-100' : 'border-slate-200 hover:border-slate-300'}`}
                             >
                                 <div
                                     onClick={() => setSelectedVoucherId(isExpanded ? null : id)}
-                                    className="cursor-pointer p-3 sm:p-3.5"
+                                    className="cursor-pointer p-2.5 sm:p-3.5"
                                 >
-                                    <div className={`grid items-center gap-3 ${isEnglish ? 'grid-cols-[6.4rem_minmax(0,1fr)_4.1rem]' : 'grid-cols-[4.1rem_minmax(0,1fr)_6.4rem]'}`}>
-                                        <div className={`flex flex-col gap-2 ${isEnglish ? 'order-3 items-end' : 'order-1 items-start'}`}>
-                                            <div className={`flex flex-wrap gap-1.5 ${isEnglish ? 'justify-end' : 'justify-start'}`}>
-                                                <span className={`rounded-full px-3 py-1 text-[11px] font-black ${isDraft ? 'border border-amber-200 bg-amber-50 text-amber-700' : isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
+                                    <div className={`grid items-center gap-2 sm:gap-3 ${isEnglish ? 'grid-cols-[4.9rem_minmax(0,1fr)_2.9rem] sm:grid-cols-[6.4rem_minmax(0,1fr)_4.1rem]' : 'grid-cols-[2.9rem_minmax(0,1fr)_4.9rem] sm:grid-cols-[4.1rem_minmax(0,1fr)_6.4rem]'}`}>
+                                        <div className={`flex flex-col gap-1.5 ${isEnglish ? 'order-3 items-end' : 'order-1 items-start'}`}>
+                                            <div className={`flex flex-wrap gap-1 ${isEnglish ? 'justify-end' : 'justify-start'} sm:gap-1.5`}>
+                                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-black sm:px-3 sm:py-1 sm:text-[11px] ${isDraft ? 'border border-amber-200 bg-amber-50 text-amber-700' : isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
                                                     {isDraft ? tr('مسودة', 'Draft') : tr('مرحل', 'Posted')}
                                                 </span>
-                                                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-black text-slate-500">
+                                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-black text-slate-500 sm:px-3 sm:py-1 sm:text-[11px]">
                                                     {id}
                                                 </span>
                                             </div>
 
-                                            <div className={`flex h-12 w-12 items-center justify-center rounded-[1rem] ${isReceipt ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                {isReceipt ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}
+                                            <div className={`flex h-10 w-10 items-center justify-center rounded-[0.85rem] sm:h-12 sm:w-12 sm:rounded-[1rem] ${isReceipt ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                {isReceipt ? <ArrowDownLeft size={15} className="sm:h-[18px] sm:w-[18px]" /> : <ArrowUpRight size={15} className="sm:h-[18px] sm:w-[18px]" />}
                                             </div>
                                         </div>
 
                                         <div className={`min-w-0 ${isEnglish ? 'order-2 text-left' : 'order-2 text-right'}`}>
-                                            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">
+                                            <div className="hidden items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 sm:flex sm:gap-2 sm:text-[11px] sm:tracking-[0.16em]">
                                                 <User size={13} />
                                                 <span>{tr('الطرف', 'Contact')}</span>
                                             </div>
-                                            <div className="mt-1 text-base font-black text-slate-900">
+                                            <div className="text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base">
                                                 {getContactName(firstPart?.contactId)}
                                             </div>
-                                            <div className="mt-1 truncate text-xs font-bold text-slate-500">
+                                            <div className="mt-0.5 truncate text-[11px] font-bold leading-4 text-slate-500 sm:mt-1 sm:text-xs">
                                                 {summaryText}
                                             </div>
                                         </div>
 
-                                        <div className={`rounded-[1.2rem] border px-3 py-2.5 text-center ${isDraft ? 'border-slate-200 bg-slate-50' : isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'} ${isEnglish ? 'order-1' : 'order-3'}`}>
-                                            <div className="text-[11px] font-black text-slate-400">
+                                        <div className={`rounded-[0.95rem] border px-2 py-2 text-center sm:rounded-[1.2rem] sm:px-3 sm:py-2.5 ${isDraft ? 'border-slate-200 bg-slate-50' : isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'} ${isEnglish ? 'order-1' : 'order-3'}`}>
+                                            <div className="text-[10px] font-black text-slate-400 sm:text-[11px]">
                                                 {tr('قيمة السند', 'Voucher amount')}
                                             </div>
-                                            <div className={`mt-1.5 text-[1.9rem] font-black dir-ltr ${isDraft ? 'text-slate-600' : isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            <div className={`mt-1 text-[1.05rem] font-black leading-none dir-ltr sm:mt-1.5 sm:text-[1.9rem] ${isDraft ? 'text-slate-600' : isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
                                                 {formatAmount(totalAmount)}
                                             </div>
-                                            <div className="mt-0.5 text-xs font-bold text-slate-500">
+                                            <div className="mt-0.5 text-[11px] font-bold text-slate-500 sm:text-xs">
                                                 {firstPart?.currency || baseCurrency}
                                             </div>
                                         </div>
@@ -836,13 +836,13 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                 </div>
 
                                 {isExpanded && (
-                                    <div className="border-t border-slate-100 bg-slate-50/80 p-3 sm:p-3.5">
-                                        <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                                    <div className="border-t border-slate-100 bg-slate-50/80 p-2.5 sm:p-3.5">
+                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 sm:text-[11px] sm:tracking-[0.18em]">
                                             <TrendingUp size={14} className={isReceipt ? 'text-emerald-600' : 'text-rose-600'} />
                                             <span>{tr('تفاصيل السند', 'Voucher details')}</span>
                                         </div>
 
-                                        <div className="mt-2.5 space-y-2">
+                                        <div className="mt-2 space-y-1.5 sm:mt-2.5 sm:space-y-2">
                                             {parts.map((p, idx) => {
                                                 const relatedCheck = p.checkId ? checks.find(c => c.id === p.checkId) : null;
                                                 const paymentAccount = isReceipt
@@ -850,17 +850,17 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                     : accounts.find(a => a.id === p.creditAccountId);
 
                                                 return (
-                                                    <div key={idx} className="rounded-[1rem] border border-slate-200 bg-white p-2.5 shadow-sm">
+                                                    <div key={idx} className="rounded-[0.9rem] border border-slate-200 bg-white p-2 shadow-sm sm:rounded-[1rem] sm:p-2.5">
                                                         <div className="flex items-start justify-between gap-3">
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="flex items-center gap-2">
-                                                                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1.5 text-[10px] font-black text-slate-500">
+                                                                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1 text-[9px] font-black text-slate-500 sm:h-6 sm:min-w-6 sm:px-1.5 sm:text-[10px]">
                                                                         {idx + 1}
                                                                     </span>
                                                                     <div className="min-w-0">
-                                                                        <div className="text-xs font-black text-slate-900">{p.description}</div>
+                                                                        <div className="text-[11px] font-black text-slate-900 sm:text-xs">{p.description}</div>
                                                                         {paymentAccount && !relatedCheck && (
-                                                                            <div className="mt-0.5 text-[11px] font-bold text-slate-500">
+                                                                            <div className="mt-0.5 text-[10px] font-bold text-slate-500 sm:text-[11px]">
                                                                                 {isReceipt ? tr('تم التحصيل في', 'Received in') : tr('تم الصرف من', 'Paid from')}: {displayAccountName(paymentAccount)}
                                                                             </div>
                                                                         )}
@@ -868,7 +868,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                                 </div>
 
                                                                 {relatedCheck && (
-                                                                    <div className="mt-2 rounded-[0.9rem] border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] font-bold text-slate-600">
+                                                                    <div className="mt-1.5 rounded-[0.8rem] border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-bold text-slate-600 sm:mt-2 sm:rounded-[0.9rem] sm:px-2.5 sm:py-2 sm:text-[11px]">
                                                                         <div>{tr('رقم الشيك', 'Check #')}: {relatedCheck.checkNumber}</div>
                                                                         <div>{tr('البنك', 'Bank')}: {displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}</div>
                                                                         {relatedCheck.accountNumber && <div>{tr('رقم الحساب', 'Account #')}: {relatedCheck.accountNumber}</div>}
@@ -878,7 +878,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                             </div>
 
                                                             <div className="shrink-0 text-left">
-                                                                <div className="text-xs font-black dir-ltr text-slate-900">{formatAmount(p.amount)}</div>
+                                                                <div className="text-[11px] font-black dir-ltr text-slate-900 sm:text-xs">{formatAmount(p.amount)}</div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -886,14 +886,14 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                             })}
                                         </div>
 
-                                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                        <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:mt-3 sm:gap-2 sm:grid-cols-2 xl:grid-cols-4">
                                             {canMutateDirectly && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         onEditVoucher?.(id, type);
                                                     }}
-                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.95rem] border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
                                                 >
                                                     <Pencil size={16} />
                                                     {tr('تعديل', 'Edit')}
@@ -904,7 +904,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                 <button
                                                     onClick={(e) => handlePostGroup(id, e)}
                                                     disabled={processing}
-                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.95rem] bg-emerald-600 px-3 py-2.5 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] bg-emerald-600 px-3 py-2 text-[11px] font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
                                                 >
                                                     {processing ? <Clock size={16} className="animate-spin" /> : <CheckCircle size={16} />}
                                                     {processing ? tr('جاري الترحيل...', 'Posting...') : tr('اعتماد وترحيل', 'Post voucher')}
@@ -912,7 +912,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                             ) : (
                                                 <button
                                                     onClick={(e) => handleReverseGroup(parts, e)}
-                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.95rem] border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-xs font-black text-indigo-700 transition hover:bg-indigo-100"
+                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
                                                 >
                                                     <RotateCcw size={16} />
                                                     {tr('عكس القيد', 'Reverse')}
@@ -921,7 +921,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
 
                                             <button
                                                 onClick={(e) => handlePrintVoucher(id, parts, e)}
-                                                className="inline-flex items-center justify-center gap-2 rounded-[0.95rem] border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                                                className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
                                                 title={tr('طباعة السند', 'Print voucher')}
                                             >
                                                 <Printer size={16} />
@@ -931,7 +931,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                             <button
                                                 onClick={(e) => handleDeleteGroup(id, e)}
                                                 disabled={!canMutateDirectly}
-                                                className="inline-flex items-center justify-center gap-2 rounded-[0.95rem] border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-black text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                                                className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-black text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
                                                 title={tr('حذف السند', 'Delete voucher')}
                                             >
                                                 <Trash2 size={16} />
