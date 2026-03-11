@@ -1,97 +1,60 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { User as SupabaseAuthUser } from '@supabase/supabase-js';
-import { Building2, CheckCircle2, Lock, Mail, User } from 'lucide-react';
-import { useAccounting } from '../contexts/AccountingContext';
-import type { UserRole } from '../types';
-import { translate } from '../utils/i18n';
-import { supabase } from '@/supabaseClient';
 import {
-  createCloudCompanyMembership,
-  getCloudAccountState,
-  getCloudProfileCompany,
-  upsertCloudProfile,
-} from '../utils/cloudAccount';
+  createUserWithEmailAndPassword,
+  getRedirectResult,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+  updateProfile,
+} from 'firebase/auth';
+import { CheckCircle2, Lock, Mail, User } from 'lucide-react';
+import { useAccounting } from '../contexts/AccountingContext';
+import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
+import { translate } from '../utils/i18n';
 
 type AuthMode = 'LOGIN' | 'REGISTER';
-type OAuthProvider = 'google';
-type PendingCloudSetup = {
-  userId: string;
-  provider: OAuthProvider | null;
-  email: string;
-  fullName: string;
-  companyName: string;
-  role: UserRole;
+
+const shouldPreferRedirectAuth = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  return standalone || /android|iphone|ipad|ipod/.test(userAgent);
 };
 
-const AUTH_CALLBACK_QUERY_KEYS = ['code', 'error', 'error_code', 'error_description', 'state'];
+const getFirebaseErrorMessage = (error: unknown, language: 'AR' | 'EN'): string => {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: string }).code || '')
+    : '';
+  const fallback = typeof error === 'object' && error && 'message' in error
+    ? String((error as { message?: string }).message || '')
+    : '';
 
-const decodeUrlValue = (value: string): string => {
-  try {
-    return decodeURIComponent(value.replace(/\+/g, ' '));
-  } catch {
-    return value;
+  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+    return language === 'AR' ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' : 'Incorrect email or password.';
   }
-};
+  if (code === 'auth/email-already-in-use') {
+    return language === 'AR' ? 'هذا البريد الإلكتروني مستخدم بالفعل.' : 'This email is already in use.';
+  }
+  if (code === 'auth/weak-password') {
+    return language === 'AR' ? 'كلمة المرور ضعيفة. استخدم 6 أحرف على الأقل.' : 'Weak password. Use at least 6 characters.';
+  }
+  if (code === 'auth/popup-closed-by-user') {
+    return language === 'AR' ? 'تم إغلاق نافذة Google قبل إكمال تسجيل الدخول.' : 'The Google sign-in window was closed before completion.';
+  }
+  if (code === 'auth/account-exists-with-different-credential') {
+    return language === 'AR' ? 'هذا البريد مرتبط بطريقة تسجيل دخول مختلفة.' : 'This email is already linked to a different sign-in method.';
+  }
+  if (code === 'auth/too-many-requests') {
+    return language === 'AR' ? 'تم تعليق المحاولات مؤقتًا بسبب كثرة المحاولات. حاول لاحقًا.' : 'Too many attempts. Try again later.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return language === 'AR' ? 'تعذر الوصول إلى Firebase. تحقق من الاتصال بالإنترنت.' : 'Could not reach Firebase. Check your network connection.';
+  }
 
-const getAuthCallbackError = (): string => {
-  if (typeof window === 'undefined') return '';
-  const url = new URL(window.location.href);
-  const errorDescription = url.searchParams.get('error_description');
-  const errorCode = url.searchParams.get('error');
-  if (errorDescription) return decodeUrlValue(errorDescription);
-  if (errorCode) return decodeUrlValue(errorCode);
-  return '';
-};
-
-const clearAuthCallbackQuery = (): void => {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  let changed = false;
-  AUTH_CALLBACK_QUERY_KEYS.forEach((key) => {
-    if (url.searchParams.has(key)) {
-      url.searchParams.delete(key);
-      changed = true;
-    }
-  });
-  if (!changed) return;
-  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState({}, document.title, nextUrl);
-};
-
-const getAuthRedirectUrl = (): string => {
-  if (typeof window === 'undefined') return '';
-  return `${window.location.origin}${window.location.pathname}`;
-};
-
-const getProviderFromUser = (authUser: SupabaseAuthUser): OAuthProvider | null => {
-  const provider = authUser.app_metadata?.provider;
-  if (provider === 'google') return provider;
-  return null;
-};
-
-const getDefaultFullName = (authUser: SupabaseAuthUser): string => {
-  const metadata = authUser.user_metadata ?? {};
-  const candidates = [
-    metadata.full_name,
-    metadata.name,
-    metadata.display_name,
-    metadata.user_name
-  ];
-  const match = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
-  if (typeof match === 'string') return match.trim();
-  return authUser.email?.split('@')[0] || '';
-};
-
-const getDefaultCompanyName = (authUser: SupabaseAuthUser): string => {
-  const metadata = authUser.user_metadata ?? {};
-  const candidates = [
-    metadata.company_name,
-    metadata.company,
-    metadata.organization,
-    metadata.org_name
-  ];
-  const match = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
-  return typeof match === 'string' ? match.trim() : '';
+  return fallback || (language === 'AR'
+    ? 'حدث خطأ غير متوقع أثناء المصادقة.'
+    : 'Unexpected authentication error.');
 };
 
 const GoogleLogo: React.FC<{ className?: string }> = ({ className }) => (
@@ -105,160 +68,102 @@ const GoogleLogo: React.FC<{ className?: string }> = ({ className }) => (
 
 const AuthScreen: React.FC = () => {
   const { companySettings } = useAccounting();
+  const isFirebaseMode = isFirebaseAuthEnabled && Boolean(firebaseAuth);
   const [authMode, setAuthMode] = useState<AuthMode>('LOGIN');
   const [loading, setLoading] = useState(false);
   const [sessionCheckLoading, setSessionCheckLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
-  const [pendingCloudSetup, setPendingCloudSetup] = useState<PendingCloudSetup | null>(null);
-
-  const [regCompanyName, setRegCompanyName] = useState('');
   const [regFullName, setRegFullName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [biometricSupported, setBiometricSupported] = useState(false);
 
   const biometricEnabled = companySettings.biometricLoginEnabled ?? false;
   const isSecureContextForBiometric = useMemo(() => (typeof window !== 'undefined' ? window.isSecureContext : false), []);
-  const [biometricSupported, setBiometricSupported] = useState(false);
-
-  const appLanguage = companySettings.language ?? 'AR';
+  const appLanguage = (companySettings.language ?? 'AR') as 'AR' | 'EN';
   const authBusy = loading || sessionCheckLoading;
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(appLanguage, key, params);
-
-  const getProviderLabel = (provider: OAuthProvider | null): string => {
-    if (provider === 'google') return 'Google';
-    return appLanguage === 'AR' ? 'الحساب السحابي' : 'cloud account';
-  };
-
-  const buildPendingCloudSetup = (
-    authUser: SupabaseAuthUser,
-    profileCompanyName?: string
-  ): PendingCloudSetup => {
-    return {
-      userId: authUser.id,
-      provider: getProviderFromUser(authUser),
-      email: authUser.email || '',
-      fullName: getDefaultFullName(authUser),
-      companyName: profileCompanyName?.trim() || getDefaultCompanyName(authUser),
-      role: 'ADMIN'
-    };
-  };
 
   useEffect(() => {
     let cancelled = false;
 
-    const inspectCloudSession = async () => {
-      setSessionCheckLoading(true);
-
-      const callbackError = getAuthCallbackError();
-      if (callbackError && !cancelled) {
-        setErrorMessage(callbackError);
+    const checkRedirectResult = async () => {
+      if (!isFirebaseMode || !firebaseAuth) {
+        if (!cancelled) {
+          setSessionCheckLoading(false);
+          setErrorMessage(appLanguage === 'AR'
+            ? 'Firebase Authentication غير مهيأ في هذا المشروع.'
+            : 'Firebase Authentication is not configured for this project.');
+        }
+        return;
       }
 
+      setSessionCheckLoading(true);
       try {
-        let session = (await supabase.auth.getSession()).data.session;
-        const authCode = typeof window !== 'undefined'
-          ? new URL(window.location.href).searchParams.get('code')
-          : null;
-
-        if (!session && authCode) {
-          const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
-          if (error) throw new Error(error.message);
-          session = data.session;
-        }
-
-        if (!session?.user || cancelled) return;
-
-        const { profile, memberships } = await getCloudAccountState(session.user.id);
-        if (cancelled) return;
-
-        if (!memberships.length) {
-          const profileCompany = getCloudProfileCompany(profile);
-          setPendingCloudSetup(buildPendingCloudSetup(session.user, profileCompany?.name));
-          setAuthMode('REGISTER');
-        }
-      } catch (err: any) {
+        await getRedirectResult(firebaseAuth);
+      } catch (error) {
         if (!cancelled) {
-          setErrorMessage(err.message || 'تعذر التحقق من جلسة الدخول السحابية.');
+          setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
         }
       } finally {
-        clearAuthCallbackQuery();
         if (!cancelled) setSessionCheckLoading(false);
       }
     };
 
-    inspectCloudSession();
+    void checkRedirectResult();
     return () => { cancelled = true; };
-  }, []);
+  }, [appLanguage, isFirebaseMode]);
 
   useEffect(() => {
     let cancelled = false;
+
     const checkSupport = async () => {
       if (!biometricEnabled) {
         if (!cancelled) setBiometricSupported(false);
         return;
       }
+
       const hasWebAuthn = typeof window !== 'undefined' && 'PublicKeyCredential' in window && !!navigator.credentials;
       if (!hasWebAuthn || !isSecureContextForBiometric) {
         if (!cancelled) setBiometricSupported(false);
         return;
       }
+
       try {
         const platformFn = (window.PublicKeyCredential as any).isUserVerifyingPlatformAuthenticatorAvailable;
         const supported = typeof platformFn === 'function' ? await platformFn.call(window.PublicKeyCredential) : true;
-        if (!cancelled) setBiometricSupported(!!supported);
+        if (!cancelled) setBiometricSupported(Boolean(supported));
       } catch {
         if (!cancelled) setBiometricSupported(false);
       }
     };
-    checkSupport();
+
+    void checkSupport();
     return () => { cancelled = true; };
   }, [biometricEnabled, isSecureContextForBiometric]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!firebaseAuth) return;
+
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: regEmail,
-        password: regPassword,
-        options: {
-          data: {
-            full_name: regFullName.trim(),
-            company_name: regCompanyName.trim(),
-          }
-        }
-      });
-
-      if (authError) throw new Error(authError.message);
-      if (!authData.user) throw new Error('فشل إنشاء المستخدم.');
-
-      if (authData.session) {
-        await upsertCloudProfile({
-          id: authData.user.id,
-          fullName: regFullName.trim()
-        });
-        await createCloudCompanyMembership({
-          userId: authData.user.id,
-          company: { name: regCompanyName.trim() },
-          role: 'ADMIN'
-        });
-        window.location.reload();
-        return;
+      const credential = await createUserWithEmailAndPassword(firebaseAuth, regEmail.trim(), regPassword);
+      const fullName = regFullName.trim();
+      if (fullName) {
+        await updateProfile(credential.user, { displayName: fullName });
       }
-
-      setAuthMode('LOGIN');
-      setLoginEmail(regEmail);
-      setLoginPassword('');
-      setInfoMessage('تم إنشاء الحساب. فعّل البريد الإلكتروني ثم سجّل الدخول.');
-    } catch (err: any) {
-      setErrorMessage(err.message || 'حدث خطأ غير متوقع أثناء التسجيل.');
+      setInfoMessage(appLanguage === 'AR'
+        ? 'تم إنشاء الحساب بنجاح. سيتم تسجيل دخولك تلقائيًا.'
+        : 'Account created successfully. You will be signed in automatically.');
+    } catch (error) {
+      setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
     } finally {
       setLoading(false);
     }
@@ -266,118 +171,73 @@ const AuthScreen: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!firebaseAuth) return;
+
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
-      });
-
-      if (authError) throw new Error('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
-      if (!authData.user) throw new Error('تعذر إكمال تسجيل الدخول.');
-
-      const { profile, memberships } = await getCloudAccountState(authData.user.id);
-
-      if (!memberships.length) {
-        const profileCompany = getCloudProfileCompany(profile);
-        setPendingCloudSetup(buildPendingCloudSetup(authData.user, profileCompany?.name));
-        setAuthMode('REGISTER');
-        return;
-      }
-
-      window.location.reload();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'حدث خطأ غير متوقع أثناء الدخول.');
+      await signInWithEmailAndPassword(firebaseAuth, loginEmail.trim(), loginPassword);
+    } catch (error) {
+      setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    setLoading(true);
-    setErrorMessage('');
-    setInfoMessage('');
-
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: getAuthRedirectUrl(),
-          queryParams: { prompt: 'select_account' }
-        }
-      });
-
-      if (error) throw new Error(error.message);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'تعذر بدء تسجيل الدخول عبر Google.');
-      setLoading(false);
-    }
-  };
-
-  const handleCompleteCloudSetup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pendingCloudSetup) return;
-
-    const fullName = pendingCloudSetup.fullName.trim();
-    const companyName = pendingCloudSetup.companyName.trim();
-    if (!fullName || !companyName) {
-      setErrorMessage('أدخل الاسم الكامل واسم الشركة لإكمال التسجيل.');
-      return;
-    }
+    if (!firebaseAuth) return;
 
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
 
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user || session.user.id !== pendingCloudSetup.userId) {
-        throw new Error('انتهت جلسة الدخول. أعد المحاولة.');
+      if (shouldPreferRedirectAuth()) {
+        setInfoMessage(appLanguage === 'AR'
+          ? 'سيتم تحويلك إلى Google لإكمال تسجيل الدخول.'
+          : 'Redirecting to Google sign-in...');
+        await signInWithRedirect(firebaseAuth, provider);
+        return;
       }
 
-      await upsertCloudProfile({
-        id: session.user.id,
-        fullName
-      });
-      await createCloudCompanyMembership({
-        userId: session.user.id,
-        company: { name: companyName },
-        role: pendingCloudSetup.role
-      });
-
-      window.location.reload();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'تعذر إكمال تهيئة الحساب السحابي.');
-    } finally {
+      try {
+        await signInWithPopup(firebaseAuth, provider);
+      } catch (error) {
+        const code = typeof error === 'object' && error && 'code' in error
+          ? String((error as { code?: string }).code || '')
+          : '';
+        if (
+          code === 'auth/popup-blocked' ||
+          code === 'auth/cancelled-popup-request' ||
+          code === 'auth/operation-not-supported-in-this-environment'
+        ) {
+          setInfoMessage(appLanguage === 'AR'
+            ? 'سيتم تحويلك إلى Google لأن النافذة المنبثقة غير مدعومة هنا.'
+            : 'Switching to redirect-based Google sign-in...');
+          await signInWithRedirect(firebaseAuth, provider);
+          return;
+        }
+        throw error;
+      }
+    } catch (error) {
+      setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
       setLoading(false);
     }
   };
 
-  const handleCancelCloudSetup = async () => {
-    setLoading(true);
-    setErrorMessage('');
-    setInfoMessage('');
-
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw new Error(error.message);
-      setPendingCloudSetup(null);
-      setAuthMode('LOGIN');
-      clearAuthCallbackQuery();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'تعذر تسجيل الخروج.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const googleActionLabel = (): string => {
-    if (appLanguage !== 'AR') return 'Continue with Google';
-    return 'المتابعة عبر Google';
-  };
+  const loginTitle = appLanguage === 'AR' ? 'تسجيل الدخول' : 'Sign In';
+  const registerTitle = appLanguage === 'AR' ? 'إنشاء حساب' : 'Create Account';
+  const firebaseNote = appLanguage === 'AR'
+    ? 'هذه الشاشة تستخدم Firebase Authentication فقط.'
+    : 'This screen uses Firebase Authentication only.';
+  const registerHelper = appLanguage === 'AR'
+    ? 'يمكنك إنشاء الشركة وإعداد بياناتها بعد الدخول.'
+    : 'You can create and configure your company after signing in.';
 
   return (
     <div className="min-h-dvh bg-[#0f172a] flex flex-col items-center justify-center p-4 sm:p-6 font-tajawal relative overflow-x-hidden overflow-y-auto w-full">
@@ -394,22 +254,26 @@ const AuthScreen: React.FC = () => {
         </div>
 
         <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-2xl space-y-6 animate-in zoom-in-95 duration-500 delay-300">
-          {!pendingCloudSetup && !sessionCheckLoading && (
-            <div className="flex bg-gray-100 rounded-full p-1 mb-4">
-              <button
-                onClick={() => setAuthMode('LOGIN')}
-                className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'LOGIN' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                تسجيل الدخول
-              </button>
-              <button
-                onClick={() => setAuthMode('REGISTER')}
-                className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'REGISTER' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                إنشاء شركة
-              </button>
-            </div>
-          )}
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-center text-[11px] font-bold text-amber-700">
+            {firebaseNote}
+          </div>
+
+          <div className="flex bg-gray-100 rounded-full p-1">
+            <button
+              type="button"
+              onClick={() => setAuthMode('LOGIN')}
+              className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'LOGIN' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {loginTitle}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('REGISTER')}
+              className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'REGISTER' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {registerTitle}
+            </button>
+          </div>
 
           {errorMessage && (
             <div className="bg-red-50 text-red-600 text-[11px] font-bold p-3 rounded-xl border border-red-100 text-center">
@@ -427,88 +291,12 @@ const AuthScreen: React.FC = () => {
             <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
               <div className="w-10 h-10 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
               <div className="text-sm font-black text-slate-700">
-                {appLanguage === 'AR' ? 'جار التحقق من جلسة الدخول...' : 'Checking your session...'}
-              </div>
-              <div className="text-[11px] text-slate-500">
-                {appLanguage === 'AR' ? 'سيتم تحويلك تلقائيًا عند اكتمال التحقق.' : 'You will continue automatically once the check is complete.'}
+                {appLanguage === 'AR' ? 'جار التحقق من جلسة Firebase...' : 'Checking Firebase session...'}
               </div>
             </div>
-          ) : pendingCloudSetup ? (
-            <form onSubmit={handleCompleteCloudSetup} className="space-y-4">
-              <div className="text-center space-y-2">
-                <div className="text-lg font-black text-slate-900">
-                  {appLanguage === 'AR'
-                    ? `إكمال التسجيل عبر ${getProviderLabel(pendingCloudSetup.provider)}`
-                    : `Complete ${getProviderLabel(pendingCloudSetup.provider)} sign up`}
-                </div>
-                <div className="text-xs text-slate-500 font-medium">
-                  {appLanguage === 'AR'
-                    ? 'تم التحقق من الحساب السحابي. بقي ربطه باسمك وشركتك داخل النظام.'
-                    : 'Your cloud account is verified. Finish linking it to your company in the app.'}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="relative">
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <User className="w-4 h-4 text-gray-400" />
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={pendingCloudSetup.fullName}
-                    onChange={(e) => setPendingCloudSetup(prev => prev ? { ...prev, fullName: e.target.value } : prev)}
-                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                    placeholder="الاسم الكامل"
-                  />
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <Building2 className="w-4 h-4 text-gray-400" />
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={pendingCloudSetup.companyName}
-                    onChange={(e) => setPendingCloudSetup(prev => prev ? { ...prev, companyName: e.target.value } : prev)}
-                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                    placeholder="اسم الشركة / المؤسسة"
-                  />
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <Mail className="w-4 h-4 text-gray-400" />
-                  </div>
-                  <input
-                    type="email"
-                    value={pendingCloudSetup.email}
-                    readOnly
-                    className="w-full bg-gray-100 border border-gray-200 text-gray-500 text-sm rounded-xl block pr-10 p-3"
-                    placeholder="البريد الإلكتروني"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={authBusy}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm px-5 py-3.5 text-center flex items-center justify-center transition-all disabled:opacity-70"
-              >
-                {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : (appLanguage === 'AR' ? 'إكمال التفعيل السحابي' : 'Finish cloud setup')}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCancelCloudSetup}
-                disabled={authBusy}
-                className="w-full py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-600 font-bold text-xs hover:bg-gray-100 transition-all disabled:opacity-70"
-              >
-                {appLanguage === 'AR' ? 'العودة وتسجيل الخروج' : 'Cancel and sign out'}
-              </button>
-            </form>
           ) : (
             <>
-              {authMode === 'LOGIN' && (
+              {authMode === 'LOGIN' ? (
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-3">
                     <div className="relative">
@@ -519,9 +307,9 @@ const AuthScreen: React.FC = () => {
                         type="email"
                         required
                         value={loginEmail}
-                        onChange={e => setLoginEmail(e.target.value)}
+                        onChange={(e) => setLoginEmail(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder="البريد الإلكتروني"
+                        placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                       />
                     </div>
                     <div className="relative">
@@ -532,39 +320,24 @@ const AuthScreen: React.FC = () => {
                         type="password"
                         required
                         value={loginPassword}
-                        onChange={e => setLoginPassword(e.target.value)}
+                        onChange={(e) => setLoginPassword(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder="كلمة المرور"
+                        placeholder={appLanguage === 'AR' ? 'كلمة المرور' : 'Password'}
                       />
                     </div>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={authBusy}
+                    disabled={authBusy || !isFirebaseMode}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm px-5 py-3.5 text-center flex items-center justify-center transition-all disabled:opacity-70"
                   >
-                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'دخول مباشر'}
+                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : loginTitle}
                   </button>
                 </form>
-              )}
-
-              {authMode === 'REGISTER' && (
+              ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
                   <div className="space-y-3">
-                    <div className="relative">
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <Building2 className="w-4 h-4 text-gray-400" />
-                      </div>
-                      <input
-                        type="text"
-                        required
-                        value={regCompanyName}
-                        onChange={e => setRegCompanyName(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder="اسم الشركة / المؤسسة"
-                      />
-                    </div>
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                         <User className="w-4 h-4 text-gray-400" />
@@ -573,9 +346,9 @@ const AuthScreen: React.FC = () => {
                         type="text"
                         required
                         value={regFullName}
-                        onChange={e => setRegFullName(e.target.value)}
+                        onChange={(e) => setRegFullName(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder="الاسم الكامل لمدير النظام"
+                        placeholder={appLanguage === 'AR' ? 'الاسم الكامل' : 'Full name'}
                       />
                     </div>
                     <div className="relative">
@@ -586,9 +359,9 @@ const AuthScreen: React.FC = () => {
                         type="email"
                         required
                         value={regEmail}
-                        onChange={e => setRegEmail(e.target.value)}
+                        onChange={(e) => setRegEmail(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder="البريد الإلكتروني للإدارة"
+                        placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                       />
                     </div>
                     <div className="relative">
@@ -600,19 +373,23 @@ const AuthScreen: React.FC = () => {
                         required
                         minLength={6}
                         value={regPassword}
-                        onChange={e => setRegPassword(e.target.value)}
+                        onChange={(e) => setRegPassword(e.target.value)}
                         className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder="كلمة مرور الدخول للمنصة (6 أحرف على الأقل)"
+                        placeholder={appLanguage === 'AR' ? 'كلمة المرور (6 أحرف على الأقل)' : 'Password (at least 6 characters)'}
                       />
                     </div>
                   </div>
 
+                  <div className="text-[11px] font-medium text-slate-500 text-center">
+                    {registerHelper}
+                  </div>
+
                   <button
                     type="submit"
-                    disabled={authBusy}
+                    disabled={authBusy || !isFirebaseMode}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm px-5 py-3.5 text-center flex items-center justify-center transition-all disabled:opacity-70"
                   >
-                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'تسجيل وتفعيل النظام السحابي'}
+                    {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : registerTitle}
                   </button>
                 </form>
               )}
@@ -621,11 +398,11 @@ const AuthScreen: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleGoogleLogin}
-                  disabled={authBusy}
+                  disabled={authBusy || !isFirebaseMode}
                   className="w-full py-3 bg-white border border-gray-200 rounded-xl text-gray-700 font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-3 disabled:opacity-70"
                 >
                   <GoogleLogo className="w-5 h-5" />
-                  {googleActionLabel()}
+                  {appLanguage === 'AR' ? 'المتابعة عبر Google' : 'Continue with Google'}
                 </button>
               </div>
 
@@ -640,7 +417,7 @@ const AuthScreen: React.FC = () => {
 
         <div className="flex items-center justify-center gap-2 text-[10px] text-gray-400 font-bold mt-6">
           <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-          اتصال سحابي آمن ومشفر
+          {appLanguage === 'AR' ? 'اتصال آمن ومشفر عبر Firebase' : 'Secure encrypted access via Firebase'}
           {biometricSupported ? (
             <span className="text-[10px] text-blue-300">
               {appLanguage === 'AR' ? 'يدعم البصمة على هذا الجهاز' : 'Biometrics supported on this device'}
@@ -653,4 +430,3 @@ const AuthScreen: React.FC = () => {
 };
 
 export default AuthScreen;
-

@@ -1,6 +1,6 @@
 # AIFLEX ERP
 
-AIFLEX ERP is a Vite + React + Capacitor application with Supabase-backed auth and Firebase Hosting deployment.
+AIFLEX ERP is a Vite + React + Capacitor application with Firebase Authentication and Firebase Hosting deployment.
 
 ## Access From Anywhere
 
@@ -27,13 +27,8 @@ AIFLEX ERP is a Vite + React + Capacitor application with Supabase-backed auth a
 ## Required Secrets And External Settings
 
 - GitHub Actions secret: `FIREBASE_SERVICE_ACCOUNT_SMART_ACCOUNT_CC181`
-- Supabase publishable key if you want to override the fallback: `VITE_SUPABASE_ANON_KEY`
+- Firebase web app config values in `.env.local`
 - Gemini key for AI features: `GEMINI_API_KEY` or `VITE_GEMINI_API_KEY`
-
-Because OAuth redirects are generated from the current browser origin, add every real app URL to Supabase Auth redirect settings, including:
-
-- Your Firebase Hosting domain
-- Any GitHub Codespaces public URL you plan to use
 
 ## Deployment
 

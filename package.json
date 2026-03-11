@@ -33,7 +33,6 @@
     "@dataconnect/generated": "file:src/dataconnect-generated",
     "@google/genai": "^1.38.0",
     "firebase": "^11.3.0",
-    "@supabase/supabase-js": "^2.98.0",
     "framer-motion": "^12.31.0",
     "html5-qrcode": "2.3.8",
     "jsbarcode": "^3.12.3",

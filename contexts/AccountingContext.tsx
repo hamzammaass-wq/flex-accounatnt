@@ -17,8 +17,6 @@ import { decryptBackupPayload, encryptBackupPayload, isBackupPayloadV1 } from '.
 import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { buildProductPricingPatch } from '../utils/productPricing';
 import { isProfitLossAccount } from '../utils/fiscalYear';
-import { supabase } from '@/supabaseClient';
-import { createCloudCompanyMembership, getCloudAccountState } from '../utils/cloudAccount';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
 import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
 
@@ -497,7 +495,6 @@ const mapFirebaseAuthUser = (authUser: FirebaseAuthUser, currentCompanyId: strin
 });
 
 const APP_STORAGE_PREFIX = 'al_mohaseb_';
-const SUPABASE_STORAGE_PREFIX = 'sb-';
 const RESET_ALL_QUERY_PARAM = 'resetAllData';
 const RESET_SIGNAL_KEY = 'al_mohaseb_reset_signal';
 const BACKUP_HISTORY_KEY_PREFIX = 'al_mohaseb_backup_history_';
@@ -518,7 +515,7 @@ const clearAppBrowserStorage = async (): Promise<void> => {
   const removeMatchingKeys = (storage: Storage) => {
     const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
     keys.forEach((key) => {
-      if (key.startsWith(APP_STORAGE_PREFIX) || key.startsWith(SUPABASE_STORAGE_PREFIX)) {
+      if (key.startsWith(APP_STORAGE_PREFIX)) {
         storage.removeItem(key);
       }
     });
@@ -679,7 +676,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }
 
       try {
-        await supabase.auth.signOut();
+        if (isFirebaseAuthEnabled && firebaseAuth) {
+          await firebaseSignOut(firebaseAuth);
+        }
       } catch {
         // Ignore auth sign-out failures; storage cleanup below is the important part.
       }
@@ -1836,10 +1835,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const logout = async () => {
     setCurrentUser(null);
     setCloudMemberships([]);
-    const signOutPromises = [
-      ...(isFirebaseAuthEnabled && firebaseAuth ? [firebaseSignOut(firebaseAuth)] : []),
-      supabase.auth.signOut()
-    ];
+    const signOutPromises = isFirebaseAuthEnabled && firebaseAuth
+      ? [firebaseSignOut(firebaseAuth)]
+      : [];
     await Promise.allSettled(signOutPromises);
   };
 
@@ -1876,82 +1874,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       };
     }
 
-    const syncSupabaseSession = async (session: Awaited<ReturnType<typeof supabase.auth.getSession>>['data']['session']) => {
-      if (!session?.user) {
-        if (!cancelled) {
-          setCloudMemberships([]);
-          setCurrentUser(null);
-        }
-        return;
-      }
-
-      try {
-        const { profile, memberships } = await getCloudAccountState(session.user.id);
-        if (cancelled) return;
-
-        setCloudMemberships(memberships);
-        if (!memberships.length) {
-          setCurrentUser(null);
-          return;
-        }
-
-        const membershipCompanies = getMembershipCompanies(memberships);
-        if (membershipCompanies.length) {
-          setCompanies(membershipCompanies);
-        }
-
-        const preferredCompanyId = (() => {
-          try {
-            return localStorage.getItem(STORAGE_KEYS.currentCompany) || currentCompanyId;
-          } catch {
-            return currentCompanyId;
-          }
-        })();
-        const selectedMembership = selectCurrentMembership(memberships, preferredCompanyId);
-        if (!selectedMembership?.company?.id) {
-          setCurrentUser(null);
-          return;
-        }
-
-        setCurrentCompanyId(selectedMembership.companyId);
-        setCurrentUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          name: profile?.full_name || session.user.user_metadata?.full_name || session.user.email || 'User',
-          picture: typeof session.user.user_metadata?.avatar_url === 'string' ? session.user.user_metadata.avatar_url : undefined,
-          role: selectedMembership.role,
-          status: 'ACTIVE',
-          lastActive: new Date().toISOString(),
-          companyId: selectedMembership.companyId
-        });
-      } catch {
-        if (!cancelled) {
-          setCloudMemberships([]);
-          setCurrentUser(null);
-        }
-      }
-    };
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      void syncSupabaseSession(session);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_OUT' || !session) {
-          setCurrentUser(null);
-          setCloudMemberships([]);
-          return;
-        }
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          void syncSupabaseSession(session);
-        }
-      }
-    );
+    setCloudMemberships([]);
+    setCurrentUser(null);
 
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
     };
   }, [currentCompanyId]);
 
@@ -5804,35 +5731,18 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!name) return makeError('VALIDATION_ERROR', 'Company name is required.');
 
     try {
-      let profile: CompanyProfile;
-      let membership: CompanyMembership | null = null;
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (session?.user && currentUser?.id === session.user.id) {
-        const created = await createCloudCompanyMembership({
-          userId: session.user.id,
-          company: {
-            ...input,
-            name
-          },
-          role: 'ADMIN'
-        });
-        profile = created.company;
-        membership = created.membership;
-      } else {
-        const nowIso = new Date().toISOString();
-        const companyId = newId('cmp');
-        profile = {
-          id: companyId,
-          name,
-          taxNumber: input.taxNumber || '',
-          address: input.address || '',
-          phone: input.phone || '',
-          logoUrl: input.logoUrl,
-          createdAt: nowIso,
-          trialEndsAt: addDaysIso(nowIso, 14)
-        };
-      }
+      const nowIso = new Date().toISOString();
+      const companyId = newId('cmp');
+      const profile: CompanyProfile = {
+        id: companyId,
+        name,
+        taxNumber: input.taxNumber || '',
+        address: input.address || '',
+        phone: input.phone || '',
+        logoUrl: input.logoUrl,
+        createdAt: nowIso,
+        trialEndsAt: addDaysIso(nowIso, 14)
+      };
 
       saveCurrentWorkspaceSnapshot(currentCompanyId);
 
@@ -5840,21 +5750,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       localStorage.setItem(getCompanyWorkspaceKey(profile.id), JSON.stringify(snapshot));
 
       setCompanies(prev => [profile, ...prev.filter(company => company.id !== profile.id)]);
-      if (membership) {
-        setCloudMemberships(prev => {
-          const next = [...prev.filter(item => item.id !== membership?.id), membership];
-          return next.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-        });
-        setCurrentUser(prev => (
-          prev
-            ? {
-              ...prev,
-              companyId: profile.id,
-              role: membership.role
-            }
-            : prev
-        ));
-      }
+      setCurrentUser(prev => (
+        prev
+          ? {
+            ...prev,
+            companyId: profile.id
+          }
+          : prev
+      ));
       setCurrentCompanyId(profile.id);
       return makeSuccess();
     } catch (error: any) {

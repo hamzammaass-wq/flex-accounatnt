@@ -36,8 +36,6 @@ const shouldHandleRequest = (request) => {
   const url = new URL(request.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
 
-  if (url.hostname.endsWith('supabase.co')) return false;
-
   return request.mode === 'navigate' || STATIC_DESTINATIONS.has(request.destination);
 };
 
