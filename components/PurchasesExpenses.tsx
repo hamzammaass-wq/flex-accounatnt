@@ -32,6 +32,9 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
     getDisplayContactName(contact || undefined, isEnglish);
   const displayProductName = (product?: { id: string; name: string } | null) =>
     getDisplayProductName(product || undefined, isEnglish);
+  const asText = (value: unknown) => String(value ?? '');
+  const getInvoiceItems = (inv: { items?: unknown }) => Array.isArray(inv.items) ? inv.items : [];
+  const getInvoiceTotal = (inv: { totalAmount?: unknown }) => Number(inv.totalAmount || 0);
 
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return '';
@@ -70,18 +73,18 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
       .filter(inv => contactFilterId === 'ALL' || inv.customerId === contactFilterId)
       .filter(inv => !fromDateFilter || inv.date >= fromDateFilter)
       .filter(inv => !toDateFilter || inv.date <= toDateFilter)
-      .filter(inv => minAmount === null || Number(inv.totalAmount || 0) >= minAmount)
-      .filter(inv => maxAmount === null || Number(inv.totalAmount || 0) <= maxAmount)
+      .filter(inv => minAmount === null || getInvoiceTotal(inv) >= minAmount)
+      .filter(inv => maxAmount === null || getInvoiceTotal(inv) <= maxAmount)
       .filter(inv => {
         if (!q) return true;
         const contact = contacts.find(c => c.id === inv.customerId) || null;
         const contactRawName = contact?.name || '';
         const contactName = displayContactName(contact);
-        return inv.invoiceNumber.toLowerCase().includes(q) ||
+        return asText(inv.invoiceNumber).toLowerCase().includes(q) ||
           (inv.notes || '').toLowerCase().includes(q) ||
           contactRawName.toLowerCase().includes(q) ||
           contactName.toLowerCase().includes(q) ||
-          inv.items.some(i => String(i.description || '').toLowerCase().includes(q));
+          getInvoiceItems(inv).some((i: any) => asText(i?.description).toLowerCase().includes(q));
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [
@@ -97,7 +100,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
     isEnglish
   ]);
 
-  const totalExpenses = useMemo(() => expenses.reduce((sum, inv) => sum + inv.totalAmount, 0), [expenses]);
+  const totalExpenses = useMemo(() => expenses.reduce((sum, inv) => sum + getInvoiceTotal(inv), 0), [expenses]);
 
   const getContactName = (id?: string) => {
       if (!id) return tr('مصروف عام', 'General Expense');
@@ -239,6 +242,8 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
         {expenses.map((inv) => {
             const isExpanded = expandedId === inv.id;
             const canMutateDirectly = !inv.isReversal && !inv.reversedById;
+            const invoiceItems = getInvoiceItems(inv) as Array<{ productId?: string; description?: string; quantity?: number; total?: number }>;
+            const firstItem = invoiceItems[0];
             return (
                 <div key={inv.id} className={`bg-white p-5 rounded-[2.5rem] border shadow-sm transition-all ${isExpanded ? 'border-rose-100 ring-4 ring-rose-50' : 'border-gray-50'}`}>
                     <div className="flex justify-between items-start cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : inv.id)}>
@@ -248,10 +253,10 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                             </div>
                             <div>
                                 <h4 className="font-black text-slate-800 text-sm">
-                                    {(inv.items[0]?.productId
-                                        ? displayProductName((products.find(p => p.id === inv.items[0]?.productId) || null))
-                                        : inv.items[0]?.description) || tr('مصروف متنوع', 'Misc expense')}
-                                    {inv.items.length > 1 && ` + ${inv.items.length - 1} ${tr('بنود', 'items')}`}
+                                    {(firstItem?.productId
+                                        ? displayProductName((products.find(p => p.id === firstItem.productId) || null))
+                                        : firstItem?.description) || tr('مصروف متنوع', 'Misc expense')}
+                                    {invoiceItems.length > 1 && ` + ${invoiceItems.length - 1} ${tr('بنود', 'items')}`}
                                 </h4>
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="text-[9px] font-black text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-100">
@@ -263,7 +268,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                         </div>
                         <div className="text-end">
                             <span className="block font-black text-rose-600 dir-ltr text-lg tracking-tighter">
-                                {inv.totalAmount.toLocaleString()}
+                                {getInvoiceTotal(inv).toLocaleString()}
                             </span>
                             <span className="flex justify-end mt-1 text-gray-300">
                                 {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -275,14 +280,14 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                         <div className="mt-6 pt-6 border-t border-gray-50 animate-in slide-in-from-top-2">
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">{tr('تفاصيل الفاتورة', 'Invoice Details')}</p>
                             <div className="space-y-3 mb-4">
-                                {inv.items.map((item, idx) => (
+                                {invoiceItems.map((item, idx) => (
                                     <div key={idx} className="flex justify-between items-center text-xs bg-gray-50 p-3 rounded-xl border border-gray-100">
                                         <span className="font-bold text-gray-700">
                                             {item.productId ? displayProductName(products.find(p => p.id === item.productId) || null) : item.description}
                                         </span>
                                         <div className="flex items-center gap-3">
-                                            {item.quantity > 1 && <span className="text-[10px] text-gray-400 font-bold">x{item.quantity}</span>}
-                                            <span className="font-black text-rose-600 dir-ltr">{item.total.toLocaleString()}</span>
+                                            {(Number(item.quantity) || 0) > 1 && <span className="text-[10px] text-gray-400 font-bold">x{item.quantity}</span>}
+                                            <span className="font-black text-rose-600 dir-ltr">{Number(item.total || 0).toLocaleString()}</span>
                                         </div>
                                     </div>
                                 ))}

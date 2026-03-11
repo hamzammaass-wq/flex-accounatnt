@@ -49,6 +49,9 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
         getDisplayContactName(contact || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) =>
         getDisplayProductName(product || undefined, isEnglish);
+    const asText = (value: unknown) => String(value ?? '');
+    const getInvoiceItems = (invoice: Invoice) => Array.isArray(invoice.items) ? invoice.items : [];
+    const getInvoiceTotal = (invoice: Invoice) => Number(invoice.totalAmount || 0);
     const parseFilterNumber = (raw: string): number | null => {
         const normalized = toEnglishDigits(String(raw || ''))
             .replace(/[\u066C\u060C,]/g, '')
@@ -114,6 +117,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     }, [invoices]);
 
     const filteredList = useMemo(() => {
+        const normalizedSearch = searchTerm.toLowerCase();
         const minAmount = parseFilterNumber(filterMinAmount);
         const maxAmount = parseFilterNumber(filterMaxAmount);
         return invoices.filter(inv => {
@@ -126,9 +130,9 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             const contactRaw = (contact?.name || '').toLowerCase();
             const contactDisplay = displayContactName(contact || null).toLowerCase();
             const searchMatch = (
-                inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                contactRaw.includes(searchTerm.toLowerCase()) ||
-                contactDisplay.includes(searchTerm.toLowerCase())
+                asText(inv.invoiceNumber).toLowerCase().includes(normalizedSearch) ||
+                contactRaw.includes(normalizedSearch) ||
+                contactDisplay.includes(normalizedSearch)
             );
             const customerMatch = filterCustomerId === 'ALL' || inv.customerId === filterCustomerId;
             const statusMatch = filterStatus === 'ALL' || inv.status === filterStatus;
@@ -136,8 +140,9 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             const currencyMatch = filterCurrency === 'ALL' || inv.currency === filterCurrency;
             const dateFromMatch = !filterDateFrom || inv.date >= filterDateFrom;
             const dateToMatch = !filterDateTo || inv.date <= filterDateTo;
-            const minAmountMatch = minAmount === null || inv.totalAmount >= minAmount;
-            const maxAmountMatch = maxAmount === null || inv.totalAmount <= maxAmount;
+            const totalAmount = getInvoiceTotal(inv);
+            const minAmountMatch = minAmount === null || totalAmount >= minAmount;
+            const maxAmountMatch = maxAmount === null || totalAmount <= maxAmount;
 
             return typeMatch
                 && searchMatch
@@ -149,7 +154,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                 && dateToMatch
                 && minAmountMatch
                 && maxAmountMatch;
-        }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }).sort((a, b) => new Date(asText(b.date)).getTime() - new Date(asText(a.date)).getTime());
     }, [
         invoices, searchTerm, contacts, activeTab, isEnglish,
         filterCustomerId, filterStatus, filterPostingStatus, filterCurrency,
@@ -168,7 +173,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     };
 
     const stats = useMemo(() => {
-        const total = filteredList.reduce((sum, inv) => sum + (inv.postingStatus === 'POSTED' || activeTab === 'QUOTATIONS' ? inv.totalAmount : 0), 0);
+        const total = filteredList.reduce((sum, inv) => sum + (inv.postingStatus === 'POSTED' || activeTab === 'QUOTATIONS' ? getInvoiceTotal(inv) : 0), 0);
         return { total };
     }, [filteredList, activeTab]);
 
@@ -201,7 +206,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             ? `<p>${tr('تاريخ الإنتهاء', 'Expiry Date')}: ${formatDate(invoice.dueDate)}</p>`
             : '';
         const date = formatDate(invoice.date);
-        const itemsRows = invoice.items.map((item, index) => {
+        const itemsRows = getInvoiceItems(invoice).map((item, index) => {
             const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
             const itemLabel = product ? displayProductName(product) : item.description;
             const itemCode = product?.itemCode || product?.barcode || '-';
@@ -272,7 +277,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
         const customization = getThermalTemplateCustomization(currentCompanyId, 'INVOICE');
         const isCompactTemplate = template.style === 'COMPACT';
         const compactLimit = Math.max(3, Math.min(20, Math.floor(Number(customization.compactMaxItems || 8))));
-        const items = invoice.items.map((item, index) => {
+        const items = getInvoiceItems(invoice).map((item, index) => {
             const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
             const itemLabel = product ? displayProductName(product) : item.description;
             return {
@@ -532,6 +537,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                     const isDraft = inv.postingStatus === 'DRAFT';
                     const isExpanded = expandedInvoiceId === inv.id;
                     const canMutateDirectly = !inv.isReversal && !inv.reversedById;
+                    const invoiceItems = getInvoiceItems(inv);
 
                     return (
                         <div key={inv.id} className={`list-card bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm transition-all duration-300 ${isExpanded ? 'ring-4 ring-blue-50 shadow-xl border-blue-100 scale-[1.01]' : 'hover:shadow-md'}`}>
@@ -558,7 +564,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                                 </div>
                                 <div className="flex justify-between items-center border-t border-gray-50 pt-4">
                                     <div className="text-[10px] text-gray-400 font-bold flex items-center gap-1.5"><Calendar size={14} className="text-gray-300" />{formatDate(inv.date)}</div>
-                                    <div className="text-left"><span className="text-xl font-black text-gray-800 dir-ltr">{inv.totalAmount.toLocaleString()}</span></div>
+                                    <div className="text-left"><span className="text-xl font-black text-gray-800 dir-ltr">{getInvoiceTotal(inv).toLocaleString()}</span></div>
                                 </div>
                             </div>
 
@@ -566,7 +572,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                                 <div className="mt-4 pt-4 border-t border-gray-100 animate-in slide-in-from-top-2">
                                     <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">{tr('تفاصيل البنود', 'Items Details')}</h5>
                                     <div className="space-y-2 mb-4">
-                                        {inv.items.map((item, idx) => {
+                                        {invoiceItems.map((item, idx) => {
                                             const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
                                             const itemCode = product?.itemCode || product?.barcode || '';
                                             return (

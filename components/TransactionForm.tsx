@@ -546,7 +546,8 @@ const InvoiceScreen: React.FC<{
 
         setContactId(editingInvoice.customerId || defaultContactId);
         setWarehouseId(editingInvoice.warehouseId || '');
-        setItems(editingInvoice.items.map(({ id, returned, ...item }) => ({ ...item })));
+        const sourceItems = Array.isArray(editingInvoice.items) ? editingInvoice.items : [];
+        setItems(sourceItems.map(({ id, returned, ...item }) => ({ ...item })));
         setPaymentType(editingInvoice.paymentType);
         setPaymentAccountId(editingInvoice.paymentAccountId || '');
         setTaxEnabled(taxVisibleInInvoices && (Number(editingInvoice.taxAmount) || 0) > 0);
@@ -696,7 +697,7 @@ const InvoiceScreen: React.FC<{
             if (inv.warehouseId) setWarehouseId(inv.warehouseId); // Also set warehouse from original invoice
 
             // Load items from invoice
-            const loadedItems = inv.items.map(item => ({
+            const loadedItems = (Array.isArray(inv.items) ? inv.items : []).map(item => ({
                 productId: item.productId,
                 description: item.description,
                 quantity: item.quantity, // Default to full return? Maybe better to 0 or 1. Let's do full for ease, user reduces it.
@@ -1010,13 +1011,13 @@ const InvoiceScreen: React.FC<{
 
     return (
         <div
-            className="fixed inset-0 z-[100] bg-gray-50 flex flex-col h-[100dvh] overflow-hidden"
+            className="transaction-mobile-form app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
             dir={isEnglish ? 'ltr' : 'rtl'}
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
             {/* 1. Header Navigation Bar */}
-            <div className="flex items-center justify-between bg-white px-2 py-2 border-b border-gray-100 shrink-0">
+            <div className="flex items-center justify-between bg-white px-3 py-2 border border-gray-200 rounded-xl shadow-sm">
                 <button
                     onClick={onBack}
                     className="flex items-center gap-1 text-sm font-black text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-full transition-colors"
@@ -1035,7 +1036,7 @@ const InvoiceScreen: React.FC<{
             </div>
 
             {/* 2. Top Header Inputs (Fixed Height, compact) */}
-            <div className="bg-white px-3 py-2 shrink-0 space-y-2 border-b border-gray-100 relative z-10 shadow-sm">
+            <div className="bg-white px-3 py-3 space-y-2 border border-gray-200 rounded-xl relative z-10 shadow-sm">
 
                 {/* Type & Cash/Credit */}
                 <div className="flex gap-2">
@@ -1110,7 +1111,7 @@ const InvoiceScreen: React.FC<{
             </div>
 
             {/* 3. Inline Add Item Bar (Fixed) */}
-            <div className="px-3 py-2 shrink-0 bg-gray-100/50 border-b border-gray-200 z-10">
+            <div className="px-3 py-2 bg-white border border-gray-200 rounded-xl z-10 shadow-sm">
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
@@ -1181,49 +1182,85 @@ const InvoiceScreen: React.FC<{
                 </form>
             </div>
 
-            {/* 4. Scrollable Items List (flex-1) */}
-            <div className="flex-1 overflow-y-auto w-full bg-gray-50 p-2 space-y-2 relative pb-[120px]">
-                {items.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-full text-center opacity-30 pointer-events-none">
-                        <Layers size={48} className="mb-2 text-gray-400" />
-                        <p className="text-xs font-black text-gray-500 uppercase tracking-widest">{tr('لا توجد أصناف', 'No items')}</p>
-                    </div>
-                )}
-
-                {items.map((item, idx) => {
-                    const linkedProduct = item.productId ? products.find(p => p.id === item.productId) : null;
-                    const itemDisplayName = linkedProduct ? displayProductName(linkedProduct) : displayProductName({ id: '', name: item.description });
-
-                    return (
-                        <div key={idx} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-in slide-in-from-right-4">
-                            <div className="flex items-center justify-between bg-gray-50/50 p-2 border-b border-gray-100">
-                                <span className="text-[11px] font-black text-slate-800 flex-1 truncate">{idx + 1}. {itemDisplayName}</span>
-                                <button type="button" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="text-rose-400 hover:text-rose-600 p-1 bg-rose-50 rounded-lg shrink-0 ml-2">
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
-                            <div className="p-2 flex gap-2 items-center">
-                                <div className="flex-1 flex flex-col">
-                                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tight">{tr('السعر', 'Price')}</span>
-                                    <input type="number" inputMode="decimal" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', parseFloat(e.target.value))} className="w-full text-center text-[11px] font-black bg-white border border-gray-200 rounded-lg p-1 min-h-[30px] focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 appearance-none dir-ltr" />
-                                </div>
-                                <div className="shrink-0 flex items-center justify-center text-gray-300 font-bold px-0.5 text-[10px] mt-3">أ—</div>
-                                <div className="flex-1 flex flex-col">
-                                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tight">{tr('الكمية', 'Qty')}</span>
-                                    <input type="number" inputMode="decimal" value={item.quantity} onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value))} className="w-full text-center text-[11px] font-black bg-indigo-50/50 border border-indigo-100 text-indigo-700 rounded-lg p-1 min-h-[30px] focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 appearance-none" />
-                                </div>
-                                <div className="shrink-0 flex items-center justify-center text-indigo-300 font-bold px-0.5 text-[10px] mt-3">=</div>
-                                <div className="flex-1 flex flex-col items-end justify-center bg-slate-50 border border-slate-100 rounded-lg p-1 min-h-[30px] mt-4">
-                                    <span className="text-[11px] font-black text-slate-900 dir-ltr">{item.total.toLocaleString()}</span>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
+            {/* 4. Items Sheet (Excel-like) */}
+            <div className="w-full bg-white border border-gray-200 rounded-xl p-2 shadow-sm">
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full min-w-[620px] table-fixed text-[11px]">
+                        <thead className="bg-slate-100 text-slate-600">
+                            <tr>
+                                <th className="w-10 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">#</th>
+                                <th className="w-[42%] border-b border-slate-200 px-1.5 py-1.5 text-start font-black">{tr('الصنف/الوصف', 'Item / Description')}</th>
+                                <th className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('الكمية', 'Qty')}</th>
+                                <th className="w-20 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('السعر', 'Price')}</th>
+                                <th className="w-20 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('الإجمالي', 'Total')}</th>
+                                <th className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('المخزون', 'Stock')}</th>
+                                <th className="w-12 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('حذف', 'Delete')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {items.length === 0 && (
+                                <tr>
+                                    <td colSpan={7} className="px-3 py-6 text-center text-[11px] font-bold text-slate-400">
+                                        {tr('لا توجد بنود بعد. أضف البنود من الأعلى.', 'No lines yet. Add lines from above.')}
+                                    </td>
+                                </tr>
+                            )}
+                            {items.map((item, idx) => {
+                                const linkedProduct = item.productId ? products.find(p => p.id === item.productId) : null;
+                                const stockOk = checkStock(item.productId, Number(item.quantity) || 0);
+                                return (
+                                    <tr key={idx} className="odd:bg-white even:bg-slate-50/40">
+                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center font-black text-slate-500">{idx + 1}</td>
+                                        <td className="border-b border-slate-100 px-1.5 py-1">
+                                            <input
+                                                value={item.description}
+                                                onChange={e => setItems(prev => prev.map((it, i) => i === idx ? { ...it, description: e.target.value } : it))}
+                                                className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-bold outline-none focus:border-indigo-300"
+                                            />
+                                            <div className="mt-0.5 text-[9px] font-bold text-slate-400 truncate">
+                                                {linkedProduct ? `${linkedProduct.itemCode || linkedProduct.barcode || linkedProduct.id}` : tr('بند يدوي', 'Manual line')}
+                                            </div>
+                                        </td>
+                                        <td className="border-b border-slate-100 px-1.5 py-1">
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                value={item.quantity}
+                                                onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value))}
+                                                className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
+                                            />
+                                        </td>
+                                        <td className="border-b border-slate-100 px-1.5 py-1">
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                value={item.unitPrice}
+                                                onChange={e => updateItem(idx, 'unitPrice', parseFloat(e.target.value))}
+                                                className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
+                                            />
+                                        </td>
+                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center">
+                                            <span className="font-black text-[11px] text-slate-800 dir-ltr">{Number(item.total || 0).toLocaleString()}</span>
+                                        </td>
+                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black">
+                                            {item.productId
+                                                ? <span className={stockOk ? 'text-emerald-600' : 'text-rose-600'}>{stockOk ? tr('متاح', 'OK') : tr('غير كافٍ', 'Low')}</span>
+                                                : <span className="text-slate-400">{tr('—', '—')}</span>}
+                                        </td>
+                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center">
+                                            <button type="button" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-600 hover:bg-rose-100">
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-
             {/* 5. Fixed Totals Footer */}
-            <div className="absolute bottom-0 left-0 right-0 bg-slate-900 rounded-t-[1.5rem] text-white p-3 shadow-[0_-10px_40px_rgba(0,0,0,0.15)] z-20 layout-footer">
+            <div className="bg-slate-900 rounded-xl text-white p-3 shadow-lg z-20 layout-footer">
 
                 {/* Expandable Discount / Tax summary row */}
                 <div className="flex justify-between items-center mb-2 px-1">
@@ -1966,7 +2003,7 @@ const VoucherScreen: React.FC<{
 
     return (
         <div
-            className="transaction-mobile-form w-full max-w-full space-y-6 pb-[calc(var(--app-safe-bottom)+1rem)] overflow-x-hidden"
+            className="transaction-mobile-form app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
@@ -1975,7 +2012,7 @@ const VoucherScreen: React.FC<{
                     {amountNotice}
                 </div>
             )}
-            <div className="transaction-entry-section bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-100">
+            <div className="transaction-entry-section bg-white p-3 rounded-xl shadow-sm border border-gray-200">
                 <div className="flex bg-gray-50 p-1 rounded-2xl mb-4">
                     <button onClick={() => setVoucherType('RECEIPT')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${voucherType === 'RECEIPT' ? 'bg-white shadow text-emerald-600' : 'text-gray-400'}`}>{tr('سند قبض (وارد)', 'Receipt Voucher (Incoming)')}</button>
                     <button onClick={() => setVoucherType('PAYMENT')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${voucherType === 'PAYMENT' ? 'bg-white shadow text-rose-600' : 'text-gray-400'}`}>{tr('سند صرف (صادر)', 'Payment Voucher (Outgoing)')}</button>
@@ -2021,7 +2058,7 @@ const VoucherScreen: React.FC<{
             </div>
 
             {voucherInvoiceAllocationEnabled && contactId && allocationRows.length > 0 && (
-                <div className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-blue-100 space-y-3">
+                <div className="bg-white p-3 rounded-xl shadow-sm border border-blue-100 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <h3 className="font-black text-sm text-slate-700">{tr('تخصيص السداد على الفواتير', 'Allocate payment to invoices')}</h3>
@@ -2034,58 +2071,79 @@ const VoucherScreen: React.FC<{
                         </div>
                     </div>
 
-                    <div className="space-y-2 max-h-56 overflow-y-auto">
-                        {allocationRows.map(row => {
-                            const inv = row.invoice;
-                            const due = inv.dueDate || inv.date;
-                            const isOver = due < sharedState.date;
-                            return (
-                                <div key={inv.id} className="border border-gray-100 rounded-2xl p-3 bg-gray-50/40">
-                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                        <div className="min-w-0">
-                                            <div className="text-xs font-black text-slate-700 truncate">
-                                                {inv.invoiceNumber}
-                                                <span className="text-slate-400 font-bold mx-1">•</span>
-                                                {displayContactName(contacts.find(c => c.id === inv.customerId))}
-                                            </div>
-                                            <div className="text-[10px] font-bold text-slate-400 flex flex-wrap items-center gap-2">
-                                                <span>{tr('الاستحقاق', 'Due')}: {due}</span>
-                                                <span className={isOver ? 'text-rose-500' : ''}>{isOver ? tr('متأخرة', 'Overdue') : tr('مفتوحة', 'Open')}</span>
-                                            </div>
-                                        </div>
-                                        <div className="text-[10px] font-black text-slate-500 text-right">
-                                            <div>{tr('إجمالي', 'Total')}: <span className="dir-ltr">{(inv.totalAmount || 0).toLocaleString()} {inv.currency}</span></div>
-                                            <div>{tr('المتبقي', 'Remaining')}: <span className="dir-ltr text-amber-600">{row.remainingInvoiceCurrency.toLocaleString(undefined, { maximumFractionDigits: 2 })} {inv.currency}</span></div>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={invoiceAllocations.find(x => x.invoiceId === inv.id)?.amount || ''}
-                                            onChange={e => updateInvoiceAllocation(inv.id, e.target.value)}
-                                            onBlur={e => notifyAmountAdded(e.target.value)}
-                                            placeholder={tr('مبلغ مخصص', 'Allocated amount')}
-                                            className="flex-1 min-w-0 bg-white border border-blue-100 rounded-xl p-2 text-xs font-black text-center dir-ltr outline-none"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => updateInvoiceAllocation(inv.id, String(Number(row.maxAllocInVoucherCurrency.toFixed(2))))}
-                                            className="px-3 py-2 rounded-xl bg-blue-50 text-blue-600 text-[10px] font-black border border-blue-100 hover:bg-blue-100 transition-colors"
-                                        >
-                                            {tr('تعبئة المتبقي', 'Fill remaining')}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => updateInvoiceAllocation(inv.id, '')}
-                                            className="px-3 py-2 rounded-xl bg-gray-50 text-gray-500 text-[10px] font-black border border-gray-200 hover:bg-gray-100 transition-colors"
-                                        >
-                                            {tr('مسح', 'Clear')}
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                        <table className="w-full min-w-[760px] text-[11px]">
+                            <thead className="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th className="w-10 border-b border-slate-200 px-2 py-2 text-center font-black">#</th>
+                                    <th className="border-b border-slate-200 px-2 py-2 text-start font-black">{tr('الفاتورة', 'Invoice')}</th>
+                                    <th className="w-32 border-b border-slate-200 px-2 py-2 text-center font-black">{tr('الاستحقاق', 'Due')}</th>
+                                    <th className="w-40 border-b border-slate-200 px-2 py-2 text-center font-black">{tr('المتبقي', 'Remaining')}</th>
+                                    <th className="w-36 border-b border-slate-200 px-2 py-2 text-center font-black">{tr('المخصص', 'Allocated')}</th>
+                                    <th className="w-32 border-b border-slate-200 px-2 py-2 text-center font-black">{tr('إجراءات', 'Actions')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {allocationRows.map((row, idx) => {
+                                    const inv = row.invoice;
+                                    const due = inv.dueDate || inv.date;
+                                    const isOver = due < sharedState.date;
+                                    const allocatedValue = invoiceAllocations.find(x => x.invoiceId === inv.id)?.amount || '';
+                                    return (
+                                        <tr key={inv.id} className="odd:bg-white even:bg-slate-50/40">
+                                            <td className="border-b border-slate-100 px-2 py-1.5 text-center font-black text-slate-500">{idx + 1}</td>
+                                            <td className="border-b border-slate-100 px-2 py-1.5">
+                                                <div className="font-black text-slate-700 truncate">{inv.invoiceNumber}</div>
+                                                <div className="text-[10px] font-bold text-slate-400 truncate">{displayContactName(contacts.find(c => c.id === inv.customerId))}</div>
+                                            </td>
+                                            <td className="border-b border-slate-100 px-2 py-1.5 text-center">
+                                                <div className="font-black text-slate-700">{due}</div>
+                                                <div className={`text-[10px] font-bold ${isOver ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                                    {isOver ? tr('متأخرة', 'Overdue') : tr('مفتوحة', 'Open')}
+                                                </div>
+                                            </td>
+                                            <td className="border-b border-slate-100 px-2 py-1.5 text-center">
+                                                <div className="text-[10px] font-bold text-slate-400">
+                                                    {tr('إجمالي', 'Total')}: <span className="dir-ltr">{(inv.totalAmount || 0).toLocaleString()} {inv.currency}</span>
+                                                </div>
+                                                <div className="font-black text-amber-600 dir-ltr">
+                                                    {row.remainingInvoiceCurrency.toLocaleString(undefined, { maximumFractionDigits: 2 })} {inv.currency}
+                                                </div>
+                                            </td>
+                                            <td className="border-b border-slate-100 px-2 py-1.5">
+                                                <input
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    value={allocatedValue}
+                                                    onChange={e => updateInvoiceAllocation(inv.id, e.target.value)}
+                                                    onBlur={e => notifyAmountAdded(e.target.value)}
+                                                    placeholder={tr('مبلغ مخصص', 'Allocated amount')}
+                                                    className="w-full rounded-lg border border-blue-100 bg-white px-2 py-1.5 text-center text-[11px] font-black dir-ltr outline-none focus:border-blue-300"
+                                                />
+                                            </td>
+                                            <td className="border-b border-slate-100 px-2 py-1.5 text-center">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateInvoiceAllocation(inv.id, String(Number(row.maxAllocInVoucherCurrency.toFixed(2))))}
+                                                        className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-600 transition-colors hover:bg-blue-100"
+                                                    >
+                                                        {tr('تعبئة', 'Fill')}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateInvoiceAllocation(inv.id, '')}
+                                                        className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] font-black text-gray-500 transition-colors hover:bg-gray-100"
+                                                    >
+                                                        {tr('مسح', 'Clear')}
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}
@@ -2096,7 +2154,7 @@ const VoucherScreen: React.FC<{
                     <h3 className="font-black text-gray-600 text-sm">{tr('المدفوعات النقدية / التحويل', 'Cash / Transfer Lines')}</h3>
                     <button onClick={addCashLine} className="text-xs bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100 transition-colors">{tr('+ إضافة', '+ Add')}</button>
                 </div>
-                <div className="overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="hidden lg:grid lg:grid-cols-[3rem_minmax(0,2fr)_minmax(0,1fr)_3rem] gap-2 border-b border-slate-200 bg-slate-50">
                         <div className={`${sheetHeaderClass} text-center`}>#</div>
                         <div className={sheetHeaderClass}>{tr('الحساب المالي', 'Cash / Bank')}</div>
@@ -2140,7 +2198,7 @@ const VoucherScreen: React.FC<{
                             <button onClick={() => setShowEndorseSelect(false)} className="text-gray-400"><X size={16} /></button>
                         </div>
                         {availableChecks.length > 0 ? (
-                            <div className="max-h-40 overflow-y-auto space-y-2">
+                            <div className="space-y-2">
                                 {availableChecks.map(c => (
                                     <div key={c.id} onClick={() => addEndorsedCheckLine(c)} className="p-3 bg-purple-50/50 rounded-xl border border-purple-50 cursor-pointer hover:bg-purple-100 transition-colors flex justify-between items-center gap-2 min-w-0">
                                         <div className="min-w-0">
@@ -2157,7 +2215,7 @@ const VoucherScreen: React.FC<{
                     </div>
                 )}
 
-                <div className="overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="hidden xl:grid xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] gap-2 border-b border-slate-200 bg-slate-50">
                         <div className={`${sheetHeaderClass} text-center`}>#</div>
                         <div className={sheetHeaderClass}>{tr('رقم الشيك', 'Check no.')}</div>
@@ -2279,7 +2337,7 @@ const VoucherScreen: React.FC<{
             </div>
             {/* Sticky Total - FIXED: Use totalAmount instead of totals */}
             <div
-                className="bg-slate-900/98 backdrop-blur p-4 sm:p-5 rounded-[1.8rem] sm:rounded-[2.2rem] text-white shadow-2xl sticky keyboard-aware-sticky mx-auto z-30 border border-white/5"
+                className="bg-slate-900/98 backdrop-blur p-3 rounded-xl text-white shadow-lg mx-auto z-30 border border-white/5"
             >
                 <div className="flex justify-between items-center mb-4 text-xs font-bold">
                     <span className="text-gray-400 uppercase tracking-widest">{tr('إجمالي السند', 'Voucher Total')}</span>
@@ -3201,6 +3259,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
 };
 
 export default TransactionForm;
+
 
 
 

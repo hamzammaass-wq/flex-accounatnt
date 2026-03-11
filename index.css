@@ -65,20 +65,29 @@ input[type='time'] {
 
 /* ===== CSS VARIABLES ===== */
 :root {
-  --app-nav-height-mobile: 78px;
-  --app-nav-height-tablet: 86px;
-  --app-nav-height: 78px;
+  --app-nav-height-mobile: 62px;
+  --app-nav-height-tablet: 68px;
+  --app-nav-height: 62px;
   --app-safe-top: env(safe-area-inset-top);
   --app-safe-bottom: env(safe-area-inset-bottom);
   --app-keyboard-inset: 0px;
   --app-content-max-width-tablet-browser: 1080px;
 }
 
-/* ===== IOS ZOOM FIX: 16px on all inputs unconditionally ===== */
+/* ===== ULTRA COMPACT MODE ===== */
+html {
+  font-size: 13px;
+}
+
+body {
+  font-size: 0.92rem;
+}
+
+/* Keep inputs compact as requested by user */
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
 select,
 textarea {
-  font-size: 16px !important;
+  font-size: 13px !important;
 }
 
 /* ===== iOS Safari specific zoom prevention ===== */
@@ -87,7 +96,7 @@ textarea {
   input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
   select,
   textarea {
-    font-size: 16px !important;
+    font-size: 13px !important;
   }
 }
 
@@ -102,7 +111,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
 select,
 textarea,
 button {
-  min-height: 44px;
+  min-height: 34px;
 }
 
 /* Allow small UI controls to stay compact (checkboxes, radios, range) */
@@ -157,8 +166,8 @@ input[type='color'] {
   bottom: 0;
   z-index: 50;
   min-height: var(--app-nav-height-mobile);
-  padding-top: 0.75rem;
-  padding-bottom: calc(0.6rem + var(--app-safe-bottom));
+  padding-top: 0.45rem;
+  padding-bottom: calc(0.4rem + var(--app-safe-bottom));
 }
 
 html[data-device-class='tablet'] .app-main-scroll,
@@ -206,7 +215,7 @@ html[data-orientation='portrait'] .app-back-btn {
 
 /* ===== APP PAGE ===== */
 .app-page {
-  padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.75rem);
+  padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.45rem);
 }
 
 .keyboard-aware-sticky {
@@ -234,8 +243,8 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 /* ===== MOBILE BREAKPOINT ===== */
 @media (max-width: 767px) {
   :root {
-    --app-nav-height-mobile: 74px;
-    --app-nav-height: 74px;
+    --app-nav-height-mobile: 58px;
+    --app-nav-height: 58px;
   }
 
   .app-shell-frame {
@@ -247,21 +256,21 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   }
 
   .app-page {
-    padding-inline: 0.75rem !important;
-    padding-top: 0.5rem !important;
-    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.95rem) !important;
+    padding-inline: 0.45rem !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.55rem) !important;
   }
 
   .app-page h1 {
-    font-size: 1.4rem !important;
-    line-height: 1.85rem !important;
+    font-size: 1.02rem !important;
+    line-height: 1.32rem !important;
     letter-spacing: 0 !important;
     word-break: break-word;
   }
 
   .app-page h2 {
-    font-size: 1.1rem !important;
-    line-height: 1.55rem !important;
+    font-size: 0.9rem !important;
+    line-height: 1.2rem !important;
     letter-spacing: 0 !important;
     word-break: break-word;
   }
@@ -271,7 +280,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .app-page [class*='rounded-[2rem]'],
   .app-page [class*='rounded-[1.8rem]'],
   .app-page [class*='rounded-[1.6rem]'] {
-    border-radius: 1rem !important;
+    border-radius: 0.7rem !important;
   }
 
   /* Touch scrolling on overflow */
@@ -283,8 +292,8 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   /* Compact table cells on mobile */
   .app-page table th,
   .app-page table td {
-    font-size: 11px !important;
-    padding: 0.4rem 0.3rem !important;
+    font-size: 9px !important;
+    padding: 0.25rem 0.2rem !important;
     white-space: nowrap;
   }
 
@@ -309,26 +318,26 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   /* Reduce padding in cards on small screens */
   .app-page .card-compact {
-    padding: 0.875rem !important;
+    padding: 0.55rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-section,
   .transaction-mobile-form .invoice-submit-panel,
   .transaction-mobile-form .transaction-line-card {
-    border-radius: 1rem !important;
-    padding: 0.9rem !important;
+    border-radius: 0.7rem !important;
+    padding: 0.6rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-split {
     display: flex !important;
     flex-direction: column !important;
-    gap: 0.5rem !important;
+    gap: 0.3rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-plus {
     width: 100% !important;
     margin-top: 0 !important;
-    min-height: 44px !important;
+    min-height: 34px !important;
   }
 
   .transaction-mobile-form .entry-card-grid,
@@ -341,7 +350,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .transaction-mobile-form .invoice-submit-panel {
     position: sticky !important;
     z-index: 35 !important;
-    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.3rem) !important;
   }
 
   .dashboard-page .dashboard-primary-card,
@@ -351,16 +360,20 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .voucher-list-page .list-card,
   .journal-list-page .list-card,
   .definitions-page .settings-card {
-    border-radius: 1rem !important;
-    padding: 0.9rem !important;
+    border-radius: 0.7rem !important;
+    padding: 0.6rem !important;
   }
 }
 
 @media (min-width: 768px) and (max-width: 1199px) {
+  html {
+    font-size: 12.5px;
+  }
+
   .app-page {
-    padding-inline: 0.95rem !important;
-    padding-top: 0.65rem !important;
-    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.95rem) !important;
+    padding-inline: 0.65rem !important;
+    padding-top: 0.45rem !important;
+    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.55rem) !important;
   }
 
   .app-page [class*='rounded-[3.5rem]'],
@@ -370,20 +383,20 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .app-page [class*='rounded-[2.2rem]'],
   .app-page [class*='rounded-[2rem]'],
   .app-page [class*='rounded-[1.8rem]'] {
-    border-radius: 1.25rem !important;
+    border-radius: 0.85rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-section,
   .transaction-mobile-form .invoice-submit-panel,
   .transaction-mobile-form .transaction-line-card {
-    border-radius: 1.25rem !important;
-    padding: 1rem !important;
+    border-radius: 0.85rem !important;
+    padding: 0.7rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-split {
     display: flex !important;
     flex-direction: column !important;
-    gap: 0.625rem !important;
+    gap: 0.35rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-plus {
@@ -400,7 +413,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .transaction-mobile-form .invoice-submit-panel {
     position: sticky !important;
     z-index: 35 !important;
-    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.35rem) !important;
   }
 
   .dashboard-page .dashboard-primary-card,
@@ -410,26 +423,30 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .voucher-list-page .list-card,
   .journal-list-page .list-card,
   .definitions-page .settings-card {
-    border-radius: 1.2rem !important;
+    border-radius: 0.9rem !important;
   }
 }
 
 @media (min-width: 1200px) {
+  html {
+    font-size: 12px;
+  }
+
   .transaction-entry-page {
-    padding-bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.75rem) !important;
+    padding-bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.45rem) !important;
   }
 
   .transaction-mobile-form .transaction-entry-section {
-    padding: 1.1rem !important;
-    border-radius: 1.1rem !important;
+    padding: 0.75rem !important;
+    border-radius: 0.85rem !important;
   }
 
   .transaction-mobile-form .invoice-submit-panel {
     position: sticky !important;
-    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.5rem) !important;
+    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.35rem) !important;
     z-index: 35 !important;
-    border-radius: 1.1rem !important;
-    padding: 1rem !important;
+    border-radius: 0.85rem !important;
+    padding: 0.7rem !important;
   }
 }
 
