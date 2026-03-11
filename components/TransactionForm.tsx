@@ -474,11 +474,13 @@ const InvoiceScreen: React.FC<{
         [contacts, contactId]
     );
     const selectedContactLabel = selectedContact ? displayContactName(selectedContact) : '';
-    // Default to main warehouse if available
-    const [warehouseId, setWarehouseId] = useState(() => {
+    const resolvePreferredWarehouseId = () => {
         const main = warehouses.find(w => w.isMain);
         return main ? main.id : (warehouses[0]?.id || '');
-    });
+    };
+    const hasWarehouses = warehouses.length > 0;
+    // Default to main warehouse if available.
+    const [warehouseId, setWarehouseId] = useState(resolvePreferredWarehouseId);
 
     const [items, setItems] = useState<Omit<InvoiceItem, 'id'>[]>([]);
     const [paymentType, setPaymentType] = useState<'CASH' | 'CREDIT'>('CASH');
@@ -654,6 +656,23 @@ const InvoiceScreen: React.FC<{
     );
 
     const financialAccounts = useMemo(() => accounts.filter(a => !a.isGroup && (a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root')), [accounts]);
+
+    useEffect(() => {
+        if (isExpenseStyle || isQuotation) return;
+        if (!warehouseId || !warehouses.some(w => w.id === warehouseId)) {
+            setWarehouseId(resolvePreferredWarehouseId());
+        }
+    }, [warehouses, warehouseId, isExpenseStyle, isQuotation]);
+
+    useEffect(() => {
+        if (isQuotation || paymentType !== 'CASH') return;
+        const hasCurrent = paymentAccountId && financialAccounts.some(a => a.id === paymentAccountId);
+        if (hasCurrent) return;
+        const fallbackAccountId = financialAccounts.find(a => a.id === 'acc_cash')?.id || financialAccounts[0]?.id || '';
+        if (fallbackAccountId && fallbackAccountId !== paymentAccountId) {
+            setPaymentAccountId(fallbackAccountId);
+        }
+    }, [paymentType, isQuotation, paymentAccountId, financialAccounts]);
 
     const expenseAccounts = useMemo(() => accounts.filter(a => a.type === 'EXPENSE' && !a.isGroup), [accounts]);
 
@@ -850,11 +869,17 @@ const InvoiceScreen: React.FC<{
         if (!contactId && !isExpenseStyle) return alert(tr('يرجى اختيار العميل/المورد', 'Please select customer/supplier'));
         if (editBlockedReason) return alert(editBlockedReason);
 
-        // Warehouse validation for stock-related transactions
-        if (!isExpenseStyle && !isQuotation && !warehouseId) return alert(tr('يرجى اختيار المستودع', 'Please select warehouse'));
+        // Warehouse validation for stock-related transactions.
+        if (!isExpenseStyle && !isQuotation && hasWarehouses && !warehouseId) return alert(tr('يرجى اختيار المستودع', 'Please select warehouse'));
 
-        // Validation for payment: Required unless it's a Quotation
-        if (!isQuotation && paymentType === 'CASH' && !paymentAccountId) return alert(tr('يرجى تحديد الصندوق المالي المستلم/المصروف منه', 'Please select the cash/bank account'));
+        // Validation for payment: Required unless it's a Quotation.
+        const fallbackCashAccountId = financialAccounts.find(a => a.id === 'acc_cash')?.id || financialAccounts[0]?.id || '';
+        const effectivePaymentAccountId = paymentType === 'CASH'
+            ? (paymentAccountId || fallbackCashAccountId)
+            : paymentAccountId;
+        if (!isQuotation && paymentType === 'CASH' && !effectivePaymentAccountId) {
+            return alert(tr('يرجى تحديد الصندوق المالي المستلم/المصروف منه', 'Please select the cash/bank account'));
+        }
 
         if (items.length === 0) return alert(tr('Please add at least one item', 'Please add at least one item'));
         if (!(companySettings.allowNegativeSalesQuantity ?? false) && (isSales || isQuotation) && items.some(i => i.quantity < 0)) {
@@ -907,13 +932,13 @@ const InvoiceScreen: React.FC<{
             status: invoiceStatus,
             postingStatus: isQuotation ? 'DRAFT' : 'POSTED',
             paymentType: paymentType,
-            paymentAccountId: paymentAccountId,
+            paymentAccountId: effectivePaymentAccountId,
             currency: sharedState.currency,
             exchangeRate: sharedState.rate,
             notes: isImportExpenses
                 ? `${tr('مصاريف استيراد', 'Import expenses')}: ${notes}`
                 : (isExpenses ? `${tr('مصروفات', 'Expenses')}: ${notes}` : notes),
-            warehouseId: !isExpenseStyle ? warehouseId : undefined
+            warehouseId: (!isExpenseStyle && hasWarehouses) ? warehouseId : undefined
         };
 
         if (editingInvoice) {
@@ -1056,7 +1081,7 @@ const InvoiceScreen: React.FC<{
 
                 {/* Warehouse & Account (Row 2) */}
                 <div className="flex gap-2">
-                    {!isExpenseStyle && (
+                    {!isExpenseStyle && hasWarehouses && (
                         <div className="flex-1 relative">
                             <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full text-[11px] font-black bg-gray-50 border border-gray-100 rounded-xl p-1.5 pl-2 pr-6 appearance-none focus:outline-none focus:border-indigo-300">
                                 <option value="">{tr('المستودع', 'Warehouse')}</option>
