@@ -9,17 +9,18 @@ import {
   Plus, Search, FileText, User, Calendar,
   CheckCircle2, Clock, XCircle, ShoppingBag,
   ArrowDownRight, Printer, ChevronLeft,
-  TrendingUp, Calculator, PackageCheck, Tag, ChevronDown, ChevronUp, Info, Sparkles, Ship, Archive, CheckCircle, RotateCcw, Trash2, Filter
+  TrendingUp, Calculator, PackageCheck, Tag, ChevronDown, ChevronUp, Info, Sparkles, Ship, Archive, CheckCircle, RotateCcw, Trash2, Filter, Pencil
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
 
 interface PurchaseInvoiceListProps {
   onNavigate: (tab: TabView, formTab?: TransactionTabType) => void;
+  onEditInvoice?: (invoiceId: string, mode: TransactionTabType) => void;
   onAddImportExpense?: (invoiceId: string) => void;
 }
 
-const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, onAddImportExpense }) => {
+const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, onEditInvoice, onAddImportExpense }) => {
   const { invoices, contacts, products, baseCurrency, companySettings, postInvoice, deleteInvoice, returnInvoiceItem, reverseInvoice } = useAccounting();
   const [activeTab, setActiveTab] = useState<'INVOICES' | 'RETURNS'>('INVOICES');
   const [searchTerm, setSearchTerm] = useState('');
@@ -301,7 +302,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
   };
 
   const handleDelete = (id: string) => {
-    if (confirm(tr('هل أنت متأكد من حذف هذه المسودة نهائياً؟', 'Are you sure you want to permanently delete this draft?'))) {
+    if (confirm(tr('هل أنت متأكد من حذف هذه الفاتورة نهائياً؟', 'Are you sure you want to permanently delete this invoice?'))) {
       const result = deleteInvoice(id);
       if (!result.ok) alert(result.message);
     }
@@ -439,6 +440,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
               const status = getStatusConfig(inv.status);
               const isDraft = inv.postingStatus === 'DRAFT';
               const isExpanded = expandedInvoiceId === inv.id;
+              const canMutateDirectly = !inv.isReversal && !inv.reversedById;
 
               return (
                 <div key={inv.id} className={`list-card bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm transition-all duration-300 ${isExpanded ? 'ring-4 ring-purple-50 shadow-xl border-purple-100 scale-[1.01]' : 'hover:shadow-md'}`}>
@@ -509,14 +511,28 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                         })}
                       </div>
 
-                      {isDraft && (
-                        <div className="flex gap-2 mb-2">
+                      {canMutateDirectly && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditInvoice?.(inv.id, activeTab === 'RETURNS' ? 'PURCHASE_RETURN' : 'PURCHASES');
+                            }}
+                            className="py-3 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                          >
+                            <Pencil size={16} /> {tr('تعديل', 'Edit')}
+                          </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDelete(inv.id); }}
-                            className="flex-1 py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                            className="py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
                           >
-                            <Trash2 size={16} /> {tr('حذف المسودة', 'Delete Draft')}
+                            <Trash2 size={16} /> {tr('حذف', 'Delete')}
                           </button>
+                        </div>
+                      )}
+
+                      {isDraft && (
+                        <div className="flex gap-2 mb-2">
                           <button
                             onClick={(e) => { e.stopPropagation(); handlePost(inv.id); }}
                             className={`flex-[2] py-3 rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-2 text-white ${activeTab === 'RETURNS' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-purple-600 hover:bg-purple-700'}`}

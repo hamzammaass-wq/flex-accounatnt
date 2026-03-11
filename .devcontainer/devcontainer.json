@@ -1,0 +1,24 @@
+{
+  "name": "Smart Accountant",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "postCreateCommand": "bash -lc 'if [ ! -f .env.local ] && [ -f .env.example ]; then cp .env.example .env.local; fi; npm ci'",
+  "forwardPorts": [
+    3000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "Vite dev server",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "remoteEnv": {
+    "CHOKIDAR_USEPOLLING": "true"
+  }
+}

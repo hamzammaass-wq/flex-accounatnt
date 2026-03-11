@@ -1,28 +1,41 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Smart Accountant
 
-# Run and deploy your AI Studio app
+Smart Accountant is a Vite + React + Capacitor application with Supabase-backed auth and Firebase Hosting deployment.
 
-This contains everything you need to run your app locally.
+## Access From Anywhere
 
-View your app in AI Studio: https://ai.studio/apps/drive/1YKXRqZo3bwc7SycD5HPLuUBLS_jQ-4cT
+- Source code lives in GitHub and can be edited locally or in GitHub Codespaces.
+- Pushes to `main` deploy the web app to Firebase Hosting project `smart-account-cc181`.
+- Pull requests create Firebase Hosting preview deployments for review before merge.
 
-## Run Locally
+## Local Setup
 
-**Prerequisites:**  Node.js
+1. Install Node.js 22 or use the version in `.nvmrc`.
+2. Copy `.env.example` to `.env.local`.
+3. Replace placeholder values in `.env.local` as needed.
+4. Install dependencies with `npm ci`.
+5. Start the app with `npm run dev`.
+6. Open `http://localhost:3000`.
 
+## GitHub Codespaces
 
-1. Install dependencies:
-   `npm install`
-2. Copy `.env.example` to `.env.local` and set keys:
-   - Required: `GEMINI_API_KEY`
-   - Optional (for Firebase Auth): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`
-3. Run the app:
-   `npm run dev`
+1. Open the repository in a new Codespace.
+2. The dev container installs dependencies and creates `.env.local` from `.env.example` if it does not exist yet.
+3. Add repository or Codespaces secrets for any real keys you need, then update `.env.local`.
+4. Run `npm run dev` and open the forwarded port `3000`.
 
-## Firebase Auth setup
+## Required Secrets And External Settings
 
-- In Firebase Console, create a Web app and copy the configuration values.
-- Keep only the values you need available in `.env.local`.
-- If any Firebase variable is missing, the app will fall back to the existing Supabase flow.
+- GitHub Actions secret: `FIREBASE_SERVICE_ACCOUNT_SMART_ACCOUNT_CC181`
+- Supabase publishable key if you want to override the fallback: `VITE_SUPABASE_ANON_KEY`
+- Gemini key for AI features: `GEMINI_API_KEY` or `VITE_GEMINI_API_KEY`
+
+Because OAuth redirects are generated from the current browser origin, add every real app URL to Supabase Auth redirect settings, including:
+
+- Your Firebase Hosting domain
+- Any GitHub Codespaces public URL you plan to use
+
+## Deployment
+
+- Merge or push to `main` to deploy production to Firebase Hosting.
+- Open a pull request to get a preview deployment from GitHub Actions.

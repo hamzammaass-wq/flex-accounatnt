@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'smart-accountant-v3';
+const CACHE_VERSION = 'smart-accountant-v4';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const IS_DEV_SERVER =
   self.location.port === '3000' ||

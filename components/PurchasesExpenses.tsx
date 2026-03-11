@@ -5,7 +5,7 @@ import { TransactionType } from '../types';
 import { getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { 
-    Plus, Search, Receipt, ChevronDown, ChevronUp, Printer
+    Plus, Search, Receipt, ChevronDown, ChevronUp, Printer, Pencil, Trash2
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
@@ -13,10 +13,11 @@ import EnglishDateInput from './EnglishDateInput';
 
 interface PurchasesExpensesProps {
     onNavigate: (tab: TabView, formTab?: TransactionTabType, voucherType?: 'RECEIPT' | 'PAYMENT') => void;
+    onEditInvoice?: (invoiceId: string, mode: TransactionTabType) => void;
 }
 
-const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate }) => {
-  const { invoices, contacts, products, baseCurrency, companySettings } = useAccounting();
+const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEditInvoice }) => {
+  const { invoices, contacts, products, baseCurrency, companySettings, deleteInvoice } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED' | 'DRAFT'>('ALL');
   const [contactFilterId, setContactFilterId] = useState('ALL');
@@ -120,6 +121,12 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate }) => 
     setToDateFilter('');
     setMinAmountFilter('');
     setMaxAmountFilter('');
+  };
+
+  const handleDelete = (id: string) => {
+    if (!confirm(tr('هل أنت متأكد من حذف هذا المصروف نهائياً؟', 'Are you sure you want to permanently delete this expense?'))) return;
+    const result = deleteInvoice(id);
+    if (!result.ok) alert(result.message);
   };
 
   return (
@@ -231,6 +238,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate }) => 
       <div className="space-y-4">
         {expenses.map((inv) => {
             const isExpanded = expandedId === inv.id;
+            const canMutateDirectly = !inv.isReversal && !inv.reversedById;
             return (
                 <div key={inv.id} className={`bg-white p-5 rounded-[2.5rem] border shadow-sm transition-all ${isExpanded ? 'border-rose-100 ring-4 ring-rose-50' : 'border-gray-50'}`}>
                     <div className="flex justify-between items-start cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : inv.id)}>
@@ -282,6 +290,30 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate }) => 
                             {inv.notes && (
                                 <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-[10px] text-amber-800 font-bold mb-4">
                                     {tr('ملاحظات', 'Notes')}: {inv.notes}
+                                </div>
+                            )}
+                            {canMutateDirectly && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEditInvoice?.(inv.id, inv.category === 'import_expenses' ? 'IMPORT_EXPENSES' : 'EXPENSES');
+                                        }}
+                                        className="py-3 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Pencil size={16} /> {tr('تعديل', 'Edit')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDelete(inv.id);
+                                        }}
+                                        className="py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Trash2 size={16} /> {tr('حذف', 'Delete')}
+                                    </button>
                                 </div>
                             )}
                             <div className="flex justify-between items-center text-[10px] text-gray-400 font-black uppercase tracking-widest">

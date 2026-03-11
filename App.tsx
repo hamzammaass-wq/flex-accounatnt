@@ -45,7 +45,15 @@ export type TabView =
 
 // Fix: Added 'voice-ai' to OverlayView to match updated features
 export type OverlayView =
-  | 'add-sales' | 'add-purchase' | 'add-expense' | 'add-voucher-receipt' | 'add-voucher-payment' | 'add-manual-purchase' | 'add-journal' | 'add-import' | 'add-purchase-return' | 'add-sales-return' | 'add-quotation' | 'voice-ai' | null;
+  | 'add-sales' | 'add-purchase' | 'add-expense' | 'add-voucher-receipt' | 'add-voucher-payment' | 'add-manual-purchase' | 'add-journal' | 'add-import' | 'add-purchase-return' | 'add-sales-return' | 'add-quotation' | 'edit-transaction' | 'voice-ai' | null;
+
+type EditTransactionConfig = {
+  mode: TransactionTabType;
+  voucherType?: 'RECEIPT' | 'PAYMENT';
+  invoiceId?: string;
+  voucherId?: string;
+  linkedInvoiceId?: string;
+};
 
 const AppContent: React.FC = () => {
   const {
@@ -61,6 +69,7 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabView>('dashboard');
   const [tabHistory, setTabHistory] = useState<TabView[]>([]);
   const [overlay, setOverlay] = useState<OverlayView>(null);
+  const [editTransactionConfig, setEditTransactionConfig] = useState<EditTransactionConfig | null>(null);
   const [initialDefinitionsMode, setInitialDefinitionsMode] = useState<SettingsMode>('MENU');
   const [showCompanyMenu, setShowCompanyMenu] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
@@ -166,9 +175,14 @@ const AppContent: React.FC = () => {
   };
 
   const openOverlay = (view: OverlayView) => setOverlay(view);
+  const openEditTransaction = (config: EditTransactionConfig) => {
+    setEditTransactionConfig(config);
+    setOverlay('edit-transaction');
+  };
   const closeOverlay = () => {
     setOverlay(null);
     setSelectedInvoiceId('');
+    setEditTransactionConfig(null);
   };
 
   const handleSwitchCompany = (companyId: string) => {
@@ -284,6 +298,7 @@ const AppContent: React.FC = () => {
           else if (fTab === 'QUOTATION') openOverlay('add-quotation');
           else openOverlay('add-sales');
         }}
+        onEditInvoice={(invoiceId, mode) => openEditTransaction({ mode, invoiceId })}
         onCreateReturn={(id) => {
           setSelectedInvoiceId(id);
           openOverlay('add-sales-return');
@@ -295,6 +310,7 @@ const AppContent: React.FC = () => {
           else if (fTab === 'PURCHASES') openOverlay('add-purchase');
           else openOverlay('add-expense');
         }}
+        onEditInvoice={(invoiceId, mode) => openEditTransaction({ mode, invoiceId })}
         onAddImportExpense={(id) => {
           setImportDistributionInvoiceId(id);
           handleNavigate('import-list');
@@ -304,9 +320,9 @@ const AppContent: React.FC = () => {
         if (formTab === 'MANUAL_PURCHASE') openOverlay('add-manual-purchase');
         else if (formTab === 'PURCHASES') openOverlay('add-purchase');
         else if (formTab === 'EXPENSES') openOverlay('add-expense');
-      }} />;
-      case 'receipts-list': return <VoucherManager type="RECEIPT" onAddNew={() => openOverlay('add-voucher-receipt')} />;
-      case 'payments-list': return <VoucherManager type="PAYMENT" onAddNew={() => openOverlay('add-voucher-payment')} />;
+      }} onEditInvoice={(invoiceId, mode) => openEditTransaction({ mode, invoiceId })} />;
+      case 'receipts-list': return <VoucherManager type="RECEIPT" onAddNew={() => openOverlay('add-voucher-receipt')} onEditVoucher={(voucherId, voucherType) => openEditTransaction({ mode: 'VOUCHERS', voucherId, voucherType })} />;
+      case 'payments-list': return <VoucherManager type="PAYMENT" onAddNew={() => openOverlay('add-voucher-payment')} onEditVoucher={(voucherId, voucherType) => openEditTransaction({ mode: 'VOUCHERS', voucherId, voucherType })} />;
       case 'checks': return <CheckPortfolio />;
       case 'treasury': return <TreasuryManager />;
       case 'bank-reconciliation': return <BankReconciliationManager onBack={() => handleNavigate('dashboard')} />;
@@ -345,10 +361,14 @@ const AppContent: React.FC = () => {
       'add-import',
       'add-purchase-return',
       'add-sales-return',
-      'add-quotation'
+      'add-quotation',
+      'edit-transaction'
     ];
     const isTransactionOverlay = transactionOverlays.includes(overlay);
-    const isVoucherOverlay = overlay === 'add-voucher-receipt' || overlay === 'add-voucher-payment';
+    const isVoucherOverlay =
+      overlay === 'add-voucher-receipt'
+      || overlay === 'add-voucher-payment'
+      || (overlay === 'edit-transaction' && editTransactionConfig?.mode === 'VOUCHERS');
     const resolvedOverlayVariant = isMobile && isTransactionOverlay ? 'fullscreen' : overlayVariant;
 
     let content = null;
@@ -364,6 +384,18 @@ const AppContent: React.FC = () => {
       case 'add-purchase-return': content = <TransactionForm initialMode="PURCHASE_RETURN" onBack={closeOverlay} />; break;
       case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
       case 'add-quotation': content = <TransactionForm initialMode="QUOTATION" onBack={closeOverlay} />; break;
+      case 'edit-transaction':
+        content = editTransactionConfig ? (
+          <TransactionForm
+            initialMode={editTransactionConfig.mode}
+            initialVoucherType={editTransactionConfig.voucherType}
+            initialLinkedInvoiceId={editTransactionConfig.linkedInvoiceId}
+            initialInvoiceId={editTransactionConfig.invoiceId}
+            initialVoucherId={editTransactionConfig.voucherId}
+            onBack={closeOverlay}
+          />
+        ) : null;
+        break;
     }
 
     const panelClassName = resolvedOverlayVariant === 'fullscreen'

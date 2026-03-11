@@ -12,17 +12,18 @@ import {
     CheckCircle2, Clock, XCircle, TrendingUp,
     ArrowUpRight, DollarSign, ChevronLeft,
     Filter, Printer, Archive, CheckCircle,
-    ChevronDown, ChevronUp, Calculator, Tag, RotateCcw, FilePlus, CopyPlus, Trash2
+    ChevronDown, ChevronUp, Calculator, Tag, RotateCcw, FilePlus, CopyPlus, Trash2, Pencil
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
 
 interface SalesInvoiceListProps {
     onNavigate: (tab: TabView, formTab?: TransactionTabType) => void;
+    onEditInvoice?: (invoiceId: string, mode: TransactionTabType) => void;
     onCreateReturn?: (invoiceId: string) => void;
 }
 
-const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreateReturn }) => {
+const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditInvoice, onCreateReturn }) => {
     const { invoices, contacts, products, baseCurrency, companySettings, postInvoice, updateInvoice, deleteInvoice, returnInvoiceItem, reverseInvoice, currentCompanyId } = useAccounting();
     const [activeTab, setActiveTab] = useState<'INVOICES' | 'RETURNS' | 'QUOTATIONS'>('INVOICES');
     const [searchTerm, setSearchTerm] = useState('');
@@ -369,7 +370,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreat
     };
 
     const handleConvertToInvoice = (id: string) => {
-        if (confirm(tr('تحويل عرض السعر إلى فاتورة بيع مسودة؟', 'Convert quotation to draft sales invoice?'))) {
+        if (confirm(tr('تحويل عرض السعر إلى فاتورة بيع مرحلة؟', 'Convert quotation to posted sales invoice?'))) {
             const result = updateInvoice(id, {
                 status: 'PENDING',
                 postingStatus: 'DRAFT',
@@ -380,12 +381,17 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreat
                 alert(result.message);
                 return;
             }
+            const postResult = postInvoice(id);
+            if (!postResult.ok) {
+                alert(postResult.message);
+                return;
+            }
             setActiveTab('INVOICES');
         }
     };
 
     const handleDelete = (id: string) => {
-        if (confirm(tr('هل أنت متأكد من حذف هذه المسودة نهائياً؟', 'Are you sure you want to permanently delete this draft?'))) {
+        if (confirm(tr('هل أنت متأكد من حذف هذه الفاتورة نهائياً؟', 'Are you sure you want to permanently delete this invoice?'))) {
             const result = deleteInvoice(id);
             if (!result.ok) alert(result.message);
         }
@@ -525,6 +531,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreat
                     const status = getStatusConfig(inv.status);
                     const isDraft = inv.postingStatus === 'DRAFT';
                     const isExpanded = expandedInvoiceId === inv.id;
+                    const canMutateDirectly = !inv.isReversal && !inv.reversedById;
 
                     return (
                         <div key={inv.id} className={`list-card bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm transition-all duration-300 ${isExpanded ? 'ring-4 ring-blue-50 shadow-xl border-blue-100 scale-[1.01]' : 'hover:shadow-md'}`}>
@@ -595,14 +602,28 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreat
                                         })}
                                     </div>
 
-                                    {isDraft && activeTab !== 'QUOTATIONS' && (
-                                        <div className="flex gap-2">
+                                    {canMutateDirectly && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onEditInvoice?.(inv.id, activeTab === 'QUOTATIONS' ? 'QUOTATION' : activeTab === 'RETURNS' ? 'SALES_RETURN' : 'SALES');
+                                                }}
+                                                className="py-3 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <Pencil size={16} /> {tr('تعديل', 'Edit')}
+                                            </button>
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); handleDelete(inv.id); }}
-                                                className="flex-1 py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                                                className="py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
                                             >
-                                                <Trash2 size={16} /> {tr('حذف المسودة', 'Delete Draft')}
+                                                <Trash2 size={16} /> {tr('حذف', 'Delete')}
                                             </button>
+                                        </div>
+                                    )}
+
+                                    {isDraft && activeTab !== 'QUOTATIONS' && (
+                                        <div className="flex gap-2">
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); handlePost(inv.id); }}
                                                 className={`flex-[2] py-3 rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-2 text-white ${activeTab === 'RETURNS' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'}`}
@@ -614,12 +635,6 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onCreat
 
                                     {activeTab === 'QUOTATIONS' && (
                                         <div className="flex gap-2">
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleDelete(inv.id); }}
-                                                className="flex-1 py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <Trash2 size={16} /> {tr('حذف', 'Delete')}
-                                            </button>
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); handleConvertToInvoice(inv.id); }}
                                                 className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-2"

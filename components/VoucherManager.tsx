@@ -9,16 +9,17 @@ import { getSelectedThermalTemplate, getThermalTemplateCustomization } from '../
 import {
     Plus, Search, Wallet, ArrowDownLeft, ArrowUpRight,
     Calendar, User, Receipt,
-    TrendingUp, Clock, Trash2, Archive, CheckCircle, Printer, RotateCcw
+    TrendingUp, Clock, Trash2, Archive, CheckCircle, Printer, RotateCcw, Pencil
 } from 'lucide-react';
 import EnglishDateInput from './EnglishDateInput';
 
 interface VoucherManagerProps {
     type: 'RECEIPT' | 'PAYMENT';
     onAddNew: () => void;
+    onEditVoucher?: (voucherId: string, voucherType: 'RECEIPT' | 'PAYMENT') => void;
 }
 
-const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew }) => {
+const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditVoucher }) => {
     const { transactions, accounts, baseCurrency, postVoucher, deleteVoucher, reverseTransaction, contacts, checks, companySettings, currentCompanyId } = useAccounting();
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED' | 'DRAFT'>('ALL');
@@ -592,6 +593,18 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew }) => {
                         const isDraft = parts.some(p => p.status === 'DRAFT');
                         const isExpanded = selectedVoucherId === id;
                         const processing = isProcessing === id;
+                        const hasLockedCheckFlow = parts.some(part => {
+                            const relatedCheck = part.checkId ? checks.find(check => check.id === part.checkId) : null;
+                            if (!relatedCheck) return false;
+                            const isEndorsedSource = (
+                                part.category === 'voucher_payment'
+                                && part.creditAccountId === 'acc_cheques_hand'
+                                && relatedCheck.type === 'INCOMING'
+                                && relatedCheck.status === 'ENDORSED'
+                            );
+                            return isEndorsedSource ? false : relatedCheck.status !== 'PENDING';
+                        });
+                        const canMutateDirectly = parts.every(part => !part.isReversal && !part.reversedById) && !hasLockedCheckFlow;
 
                         return (
                             <div
@@ -702,6 +715,18 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew }) => {
                                         })}
 
                                         <div className="flex gap-3 pt-6">
+                                            {canMutateDirectly && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onEditVoucher?.(id, type);
+                                                    }}
+                                                    className="flex-[2] bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 py-4 rounded-2xl text-sm font-black flex items-center justify-center gap-2 transition-all active:scale-95"
+                                                >
+                                                    <Pencil size={18} />
+                                                    {tr('تعديل', 'Edit')}
+                                                </button>
+                                            )}
                                             {isDraft && (
                                                 <button
                                                     onClick={(e) => handlePostGroup(id, e)}
@@ -723,6 +748,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew }) => {
                                             )}
                                             <button
                                                 onClick={(e) => handleDeleteGroup(id, e)}
+                                                disabled={!canMutateDirectly}
                                                 className="flex-1 bg-gray-50 text-gray-400 hover:bg-rose-50 hover:text-rose-500 py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center"
                                                 title={tr('حذف السند', 'Delete voucher')}
                                             >

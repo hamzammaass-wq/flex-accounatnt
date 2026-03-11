@@ -1,23 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  createUserWithEmailAndPassword,
-  OAuthProvider,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
-  signOut as firebaseSignOut,
-  updateProfile,
-  onAuthStateChanged,
-  GoogleAuthProvider,
-  type User as FirebaseAuthUser
-} from 'firebase/auth';
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js';
-import { Apple, Building2, CheckCircle2, Lock, Mail, Shield, Sparkles, User } from 'lucide-react';
+import { Building2, CheckCircle2, Lock, Mail, Sparkles, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
-import type { User as AppUser, UserRole } from '../types';
+import type { UserRole } from '../types';
 import { translate } from '../utils/i18n';
 import { supabase } from '@/supabaseClient';
-import { firebaseAuth, isFirebaseAuthEnabled } from '@/firebaseClient';
 import {
   createCloudCompanyMembership,
   getCloudAccountState,
@@ -25,11 +12,11 @@ import {
   upsertCloudProfile,
 } from '../utils/cloudAccount';
 
-type AuthMode = 'LOGIN' | 'REGISTER' | 'DEMO';
-type AppOAuthProvider = 'google' | 'apple';
+type AuthMode = 'LOGIN' | 'REGISTER';
+type OAuthProvider = 'google';
 type PendingCloudSetup = {
   userId: string;
-  provider: AppOAuthProvider | null;
+  provider: OAuthProvider | null;
   email: string;
   fullName: string;
   companyName: string;
@@ -37,15 +24,6 @@ type PendingCloudSetup = {
 };
 
 const AUTH_CALLBACK_QUERY_KEYS = ['code', 'error', 'error_code', 'error_description', 'state'];
-const AUTH_CALLBACK_HASH_KEYS = [
-  'access_token',
-  'refresh_token',
-  'expires_at',
-  'expires_in',
-  'token_type',
-  'provider_token',
-  'provider_refresh_token'
-];
 
 const decodeUrlValue = (value: string): string => {
   try {
@@ -75,17 +53,6 @@ const clearAuthCallbackQuery = (): void => {
       changed = true;
     }
   });
-  if (url.hash.startsWith('#')) {
-    const hashParams = new URLSearchParams(url.hash.slice(1));
-    AUTH_CALLBACK_HASH_KEYS.forEach((key) => {
-      if (hashParams.has(key)) {
-        hashParams.delete(key);
-        changed = true;
-      }
-    });
-    const nextHash = hashParams.toString();
-    url.hash = nextHash ? `#${nextHash}` : '';
-  }
   if (!changed) return;
   const nextUrl = `${url.pathname}${url.search}${url.hash}`;
   window.history.replaceState({}, document.title, nextUrl);
@@ -96,39 +63,10 @@ const getAuthRedirectUrl = (): string => {
   return `${window.location.origin}${window.location.pathname}`;
 };
 
-const getFirebaseGoogleSetupMessage = (language: 'AR' | 'EN'): string => {
-  if (language === 'AR') {
-    return 'تسجيل الدخول عبر Google يحتاج إعداد Firebase Web App أولًا. أضف VITE_FIREBASE_API_KEY و VITE_FIREBASE_AUTH_DOMAIN و VITE_FIREBASE_PROJECT_ID و VITE_FIREBASE_APP_ID داخل .env.local ثم أعد تشغيل التطبيق.';
-  }
-  return 'Google sign-in requires Firebase Web App configuration first. Add VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID, and VITE_FIREBASE_APP_ID to .env.local, then restart the app.';
-};
-
-const getFirebaseOAuthSetupMessage = (provider: AppOAuthProvider, language: 'AR' | 'EN'): string => {
-  if (provider === 'google') return getFirebaseGoogleSetupMessage(language);
-  if (language === 'AR') {
-    return 'تسجيل الدخول عبر Apple يحتاج تفعيل Firebase Auth وإعداد Web App أولًا، ثم إعادة تشغيل التطبيق.';
-  }
-  return 'Apple sign-in requires Firebase Auth and Web App configuration first, then a dev server restart.';
-};
-
-const getProviderFromUser = (authUser: SupabaseAuthUser): AppOAuthProvider | null => {
+const getProviderFromUser = (authUser: SupabaseAuthUser): OAuthProvider | null => {
   const provider = authUser.app_metadata?.provider;
-  if (provider === 'google' || provider === 'apple') return provider;
+  if (provider === 'google') return provider;
   return null;
-};
-
-const mapFirebaseAuthUser = (authUser: FirebaseAuthUser, currentCompanyId: string): AppUser => {
-  const displayName = authUser.displayName?.trim();
-  return {
-    id: authUser.uid,
-    email: authUser.email || '',
-    name: displayName || authUser.email?.split('@')[0] || 'User',
-    picture: typeof authUser.photoURL === 'string' ? authUser.photoURL : undefined,
-    role: 'ADMIN',
-    status: 'ACTIVE',
-    companyId: currentCompanyId,
-    lastActive: new Date().toISOString()
-  };
 };
 
 const getDefaultFullName = (authUser: SupabaseAuthUser): string => {
@@ -166,7 +104,7 @@ const GoogleLogo: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const AuthScreen: React.FC = () => {
-  const { setCurrentUser, companySettings } = useAccounting();
+  const { companySettings } = useAccounting();
   const [authMode, setAuthMode] = useState<AuthMode>('LOGIN');
   const [loading, setLoading] = useState(false);
   const [sessionCheckLoading, setSessionCheckLoading] = useState(true);
@@ -185,15 +123,13 @@ const AuthScreen: React.FC = () => {
   const biometricEnabled = companySettings.biometricLoginEnabled ?? false;
   const isSecureContextForBiometric = useMemo(() => (typeof window !== 'undefined' ? window.isSecureContext : false), []);
   const [biometricSupported, setBiometricSupported] = useState(false);
-  const usingFirebaseAuth = isFirebaseAuthEnabled && !!firebaseAuth;
 
   const appLanguage = companySettings.language ?? 'AR';
   const authBusy = loading || sessionCheckLoading;
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(appLanguage, key, params);
 
-  const getProviderLabel = (provider: AppOAuthProvider | null): string => {
+  const getProviderLabel = (provider: OAuthProvider | null): string => {
     if (provider === 'google') return 'Google';
-    if (provider === 'apple') return 'Apple';
     return appLanguage === 'AR' ? 'الحساب السحابي' : 'cloud account';
   };
 
@@ -213,35 +149,6 @@ const AuthScreen: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-
-    if (usingFirebaseAuth && firebaseAuth) {
-      const callbackError = getAuthCallbackError();
-      if (callbackError) {
-        setErrorMessage(callbackError);
-      }
-
-      const unsubscribe = onAuthStateChanged(firebaseAuth, (authUser) => {
-        if (cancelled) return;
-        setSessionCheckLoading(false);
-        setPendingCloudSetup(null);
-        setAuthMode('LOGIN');
-
-        if (!authUser) return;
-
-        try {
-          const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
-          setCurrentUser(mapFirebaseAuthUser(authUser, storedCompanyId));
-        } catch {
-          // ignore
-        }
-      });
-
-      clearAuthCallbackQuery();
-      return () => {
-        cancelled = true;
-        unsubscribe();
-      };
-    }
 
     const inspectCloudSession = async () => {
       setSessionCheckLoading(true);
@@ -285,7 +192,7 @@ const AuthScreen: React.FC = () => {
 
     inspectCloudSession();
     return () => { cancelled = true; };
-  }, [usingFirebaseAuth]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,27 +218,6 @@ const AuthScreen: React.FC = () => {
     return () => { cancelled = true; };
   }, [biometricEnabled, isSecureContextForBiometric]);
 
-  const completeDemoLogin = () => {
-    setCurrentUser({
-      id: `demo_user_${Math.random().toString(36).slice(2, 9)}`,
-      name: appLanguage === 'AR' ? 'أحمد المحاسب' : 'Alex Accountant',
-      email: 'demo@example.com',
-      role: 'ADMIN',
-      status: 'ACTIVE',
-      picture: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop'
-    });
-  };
-
-  const handleDemoLogin = () => {
-    setLoading(true);
-    setErrorMessage('');
-    setInfoMessage('');
-    setTimeout(() => {
-      completeDemoLogin();
-      setLoading(false);
-    }, 1000);
-  };
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -339,24 +225,6 @@ const AuthScreen: React.FC = () => {
     setInfoMessage('');
 
     try {
-      if (usingFirebaseAuth && firebaseAuth) {
-        const { user } = await createUserWithEmailAndPassword(firebaseAuth, regEmail, regPassword);
-        if (!user) throw new Error('فشل إنشاء المستخدم.');
-
-        const fallbackName = regFullName.trim() || regEmail.split('@')[0];
-        const finalName = fallbackName.trim() || 'User';
-        if (finalName && user.displayName !== finalName) {
-          await updateProfile(user, { displayName: finalName });
-        }
-
-        const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
-        setCurrentUser({
-          ...mapFirebaseAuthUser(user, storedCompanyId),
-          name: finalName
-        });
-        return;
-      }
-
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: regEmail,
         password: regPassword,
@@ -403,15 +271,6 @@ const AuthScreen: React.FC = () => {
     setInfoMessage('');
 
     try {
-      if (usingFirebaseAuth && firebaseAuth) {
-        const { user } = await signInWithEmailAndPassword(firebaseAuth, loginEmail, loginPassword);
-        if (!user) throw new Error('تعذر إكمال تسجيل الدخول.');
-
-        const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
-        setCurrentUser(mapFirebaseAuthUser(user, storedCompanyId));
-        return;
-      }
-
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password: loginPassword,
@@ -437,43 +296,23 @@ const AuthScreen: React.FC = () => {
     }
   };
 
-  const handleOAuthLogin = async (provider: AppOAuthProvider) => {
+  const handleGoogleLogin = async () => {
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
 
     try {
-      if (usingFirebaseAuth && firebaseAuth) {
-        const authProvider = provider === 'google'
-          ? (() => {
-            const googleProvider = new GoogleAuthProvider();
-            googleProvider.setCustomParameters({ prompt: 'select_account' });
-            return googleProvider;
-          })()
-          : new OAuthProvider('apple.com');
-
-        try {
-          const { user } = await signInWithPopup(firebaseAuth, authProvider);
-          const storedCompanyId = localStorage.getItem('al_mohaseb_current_company') || 'cmp_default';
-          setCurrentUser(mapFirebaseAuthUser(user, storedCompanyId));
-          return;
-        } catch (err: any) {
-          const code = err?.code || '';
-          if (
-            provider === 'google' &&
-            typeof code === 'string' &&
-            (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request')
-          ) {
-            await signInWithRedirect(firebaseAuth, authProvider);
-            return;
-          }
-          throw err;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: getAuthRedirectUrl(),
+          queryParams: { prompt: 'select_account' }
         }
-      }
+      });
 
-      throw new Error(getFirebaseOAuthSetupMessage(provider, appLanguage));
+      if (error) throw new Error(error.message);
     } catch (err: any) {
-      setErrorMessage(err.message || `تعذر بدء تسجيل الدخول عبر ${provider}.`);
+      setErrorMessage(err.message || 'تعذر بدء تسجيل الدخول عبر Google.');
       setLoading(false);
     }
   };
@@ -522,20 +361,6 @@ const AuthScreen: React.FC = () => {
     setErrorMessage('');
     setInfoMessage('');
 
-    if (usingFirebaseAuth && firebaseAuth) {
-      try {
-        await firebaseSignOut(firebaseAuth);
-      } catch (err: any) {
-        setErrorMessage(err.message || 'تعذر تسجيل الخروج.');
-      } finally {
-        setPendingCloudSetup(null);
-        setAuthMode('LOGIN');
-        clearAuthCallbackQuery();
-        setLoading(false);
-      }
-      return;
-    }
-
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw new Error(error.message);
@@ -549,9 +374,9 @@ const AuthScreen: React.FC = () => {
     }
   };
 
-  const oauthActionLabel = (provider: AppOAuthProvider): string => {
-    if (appLanguage !== 'AR') return provider === 'google' ? 'Continue with Google' : 'Continue with Apple';
-    return provider === 'google' ? 'المتابعة عبر Google' : 'المتابعة عبر Apple';
+  const googleActionLabel = (): string => {
+    if (appLanguage !== 'AR') return 'Continue with Google';
+    return 'المتابعة عبر Google';
   };
 
   return (
@@ -795,29 +620,13 @@ const AuthScreen: React.FC = () => {
               <div className="space-y-2">
                 <button
                   type="button"
-                  onClick={() => handleOAuthLogin('google')}
+                  onClick={handleGoogleLogin}
                   disabled={authBusy}
                   className="w-full py-3 bg-white border border-gray-200 rounded-xl text-gray-700 font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-3 disabled:opacity-70"
                 >
                   <GoogleLogo className="w-5 h-5" />
-                  {oauthActionLabel('google')}
+                  {googleActionLabel()}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleOAuthLogin('apple')}
-                  disabled={authBusy}
-                  className="w-full py-3 bg-slate-900 border border-slate-900 rounded-xl text-white font-bold text-sm hover:bg-black transition-all flex items-center justify-center gap-3 disabled:opacity-70"
-                >
-                  <Apple className="w-5 h-5" />
-                  {oauthActionLabel('apple')}
-                </button>
-                {!usingFirebaseAuth && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700 text-center">
-                    {appLanguage === 'AR'
-                      ? 'زر Google لن يعمل عبر Firebase قبل إضافة مفاتيح VITE_FIREBASE_* داخل .env.local وإعادة تشغيل التطبيق.'
-                      : 'Google via Firebase stays disabled until VITE_FIREBASE_* values are added to .env.local and the app is restarted.'}
-                  </div>
-                )}
               </div>
 
               <div className="relative flex items-center py-2">
@@ -825,15 +634,6 @@ const AuthScreen: React.FC = () => {
                 <span className="flex-shrink mx-4 text-[10px] text-gray-300 font-bold uppercase tracking-widest">{t('auth.or')}</span>
                 <div className="flex-grow border-t border-gray-100"></div>
               </div>
-
-              <button
-                onClick={handleDemoLogin}
-                disabled={authBusy}
-                className="w-full py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-600 font-bold text-xs hover:bg-gray-100 transition-all flex items-center justify-center gap-2 group"
-              >
-                <Shield className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
-                الدخول للنسخة التجريبية (بيانات محلية)
-              </button>
             </>
           )}
         </div>

@@ -812,7 +812,7 @@ const Directory: React.FC = () => {
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('حساب الشريك الجاري', 'Partner Current Account')}</label>
                                 <div className="w-full p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-[11px] font-black text-emerald-800">
-                                    {tr('سيتم إنشاء حسابات الشريك تلقائيًا تحت: رأس مال الشركاء (331)، جاري الشركاء (332)، مسحوبات الشركاء (333).', 'Partner accounts are auto-created under: Partner Capital (331), Partner Current (332), and Partner Drawings (333).')}
+                                    {tr('سيتم إنشاء حسابات الشريك تلقائيًا، وتُرحّل الحركات اليومية على جاري الشريك، بينما تتم التسوية السنوية بين الجاري ورأس المال.', 'Partner accounts are auto-created. Daily activity is posted to partner current, while year-end settlement is between current and capital.')}
                                 </div>
                                 {editingContactId && newLinkedAccountId && (
                                     <div className="mt-2 w-full p-3 bg-white rounded-2xl border border-gray-200 text-[11px] font-black text-gray-700">

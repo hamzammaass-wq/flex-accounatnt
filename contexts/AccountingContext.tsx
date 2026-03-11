@@ -83,6 +83,10 @@ type EnsuredPartnerEquityAccountsResult = {
   changed: boolean;
 };
 
+type DeleteInvoiceOptions = {
+  preserveSettlements?: boolean;
+};
+
 interface AccountingContextType {
   currentUser: User | null;
   setCurrentUser: (user: User | null) => void;
@@ -105,9 +109,9 @@ interface AccountingContextType {
   setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
 
   invoices: Invoice[];
-  createInvoice: (invoiceData: Omit<Invoice, 'id'>) => Promise<MutationResult>;
+  createInvoice: (invoiceData: Omit<Invoice, 'id'> & { id?: string }) => Promise<MutationResult>;
   updateInvoice: (id: string, updates: Partial<Invoice>) => MutationResult;
-  deleteInvoice: (id: string) => MutationResult;
+  deleteInvoice: (id: string, options?: DeleteInvoiceOptions) => MutationResult;
   postInvoice: (id: string) => MutationResult;
   reverseInvoice: (invoiceId: string, reverseDate?: string) => MutationResult;
   returnInvoiceItem: (invoiceId: string, itemId: string) => MutationResult;
@@ -2973,18 +2977,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeError('VALIDATION_ERROR', 'Funding account is missing or non-posting.');
     }
 
-    const purpose = input.purpose === 'CURRENT' ? 'CURRENT' : 'DRAWINGS';
     const { resolvedName, ensured, accountSnapshot } = resolvePartnerPostingAccounts(input.partnerId, input.partnerName);
-    const debitAccountId = purpose === 'CURRENT' ? ensured.currentAccountId : ensured.drawingsAccountId;
-    const category = purpose === 'CURRENT' ? 'partner_current_payment' : 'partner_drawings_voucher';
 
     return commitTransaction({
       amount: Number(amount.toFixed(2)),
       description: `Partner cash disbursement - ${resolvedName}${input.note ? ` - ${input.note}` : ''}`,
-      category,
+      category: 'partner_current_payment',
       type: TransactionType.TRANSFER,
       date: input.date,
-      debitAccountId,
+      debitAccountId: ensured.currentAccountId,
       creditAccountId: input.fundingAccountId,
       contactId: input.partnerId,
       currency: baseCurrency,
@@ -3244,6 +3245,33 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
 
+  const resolveVoucherCheckFromTransaction = (transaction: Transaction): Check | undefined => {
+    if (transaction.checkId) {
+      return checks.find(check => check.id === transaction.checkId);
+    }
+
+    const accountTouchesChecks =
+      transaction.debitAccountId === 'acc_cheques_hand'
+      || transaction.creditAccountId === 'acc_cheques_hand'
+      || transaction.creditAccountId === 'acc_notes_payable';
+    if (!accountTouchesChecks) return undefined;
+
+    const hashIndex = String(transaction.description || '').indexOf('#');
+    if (hashIndex < 0) return undefined;
+    const tail = String(transaction.description || '').slice(hashIndex + 1);
+    const checkNumber = tail.split(' ')[0]?.split('-')[0]?.trim();
+    if (!checkNumber) return undefined;
+
+    return checks.find(check =>
+      String(check.checkNumber || '').trim() === checkNumber &&
+      Math.abs((Number(check.amount) || 0) - (Number(transaction.amount) || 0)) <= 0.005 &&
+      (
+        check.contactId === transaction.contactId ||
+        check.endorseeContactId === transaction.contactId
+      )
+    );
+  };
+
   const deleteVoucher = (voucherId: string): MutationResult => {
     const related = transactions.filter(t => t.voucherId === voucherId || t.id === voucherId);
     if (related.length === 0) return makeError('VALIDATION_ERROR', 'Voucher not found.');
@@ -3251,12 +3279,58 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const permission = enforcePermission('VOUCHERS', 'DELETE', 'Voucher Manager');
     if (!permission.ok) return permission;
 
-    if (strictPostedLockEnabled && related.some(t => t.status === 'POSTED')) {
-      return buildPostedLockedResult('voucher', voucherId);
+    if (related.some(t => t.isReversal || t.reversedById)) {
+      return makeError('VALIDATION_ERROR', 'Reversed vouchers cannot be edited or deleted directly.');
     }
+
+    const createdCheckIds = new Set<string>();
+    const endorsedCheckIds = new Set<string>();
+    const blockedCheck = related.find(tx => {
+      const check = resolveVoucherCheckFromTransaction(tx);
+      if (!check) return false;
+      const isEndorsedSource = (
+        tx.category === 'voucher_payment'
+        && tx.creditAccountId === 'acc_cheques_hand'
+        && check.type === 'INCOMING'
+        && check.status === 'ENDORSED'
+      );
+      return isEndorsedSource ? false : check.status !== 'PENDING';
+    });
+    if (blockedCheck) {
+      return makeError('VALIDATION_ERROR', 'Voucher includes checks with later movements. Delete is blocked.');
+    }
+
+    related.forEach(tx => {
+      const check = resolveVoucherCheckFromTransaction(tx);
+      if (!check) return;
+      const isEndorsedSource = (
+        tx.category === 'voucher_payment'
+        && tx.creditAccountId === 'acc_cheques_hand'
+        && check.type === 'INCOMING'
+        && check.status === 'ENDORSED'
+      );
+      if (isEndorsedSource) {
+        endorsedCheckIds.add(check.id);
+        return;
+      }
+      createdCheckIds.add(check.id);
+    });
 
     const removedSettlementInvoiceIds = invoiceSettlements.filter(s => s.voucherId === voucherId).map(s => s.invoiceId);
     setTransactions(prev => prev.filter(t => t.voucherId !== voucherId && t.id !== voucherId));
+    if (createdCheckIds.size > 0 || endorsedCheckIds.size > 0) {
+      setChecks(prev => prev
+        .filter(check => !createdCheckIds.has(check.id))
+        .map(check => endorsedCheckIds.has(check.id)
+          ? {
+            ...check,
+            status: 'PENDING',
+            endorseeContactId: undefined,
+            endorseeName: undefined
+          }
+          : check
+        ));
+    }
     if (removedSettlementInvoiceIds.length > 0) {
       const nextSettlements = invoiceSettlements.filter(s => s.voucherId !== voucherId);
       setInvoiceSettlements(nextSettlements);
@@ -3268,7 +3342,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       action: 'DELETE',
       screen: 'Voucher Manager',
       before: safeClone(related),
-      metadata: { removedSettlements: removedSettlementInvoiceIds.length }
+      metadata: {
+        removedSettlements: removedSettlementInvoiceIds.length,
+        removedChecks: createdCheckIds.size,
+        revertedEndorsements: endorsedCheckIds.size
+      }
     });
     return makeSuccess();
   };
@@ -3475,46 +3553,22 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return roundToFour(totalCost);
   };
 
-  const resolvePartnerDrawingsContextForInvoice = (
-    invoice: Pick<Invoice, 'customerId' | 'type' | 'category' | 'paymentType' | 'isPartnerDrawings' | 'partnerDrawingsMode'>
-  ): { partnerId: string; drawingsAccountId: string; mode: 'DIRECT_DRAWINGS' | 'AR_THEN_TRANSFER' } | null => {
-    if (!invoice.isPartnerDrawings) return null;
-    if (invoice.type !== TransactionType.INCOME) return null;
-    if (
-      invoice.category === 'sales_return'
-      || invoice.category === 'customer_credit_note'
-      || invoice.category === 'purchase_return'
-      || invoice.category === 'supplier_debit_note'
-    ) return null;
-    if (invoice.paymentType === 'CASH') return null;
+  const resolvePartnerCurrentAccountForInvoice = (
+    invoice: Pick<Invoice, 'customerId' | 'paymentType'>
+  ): string | null => {
+    if (!invoice.customerId || invoice.paymentType === 'CASH') return null;
 
     const partner = contacts.find(c => c.id === invoice.customerId && c.type === 'PARTNER');
     if (!partner) return null;
 
-    const normalizedPartnerId = String(partner.id || '')
-      .trim()
-      .replace(/[^a-zA-Z0-9_]/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .toLowerCase();
+    const { ensured, accountSnapshot } = resolvePartnerPostingAccounts(partner.id, partner.name);
+    const currentAccount = accountSnapshot.find(a => a.id === ensured.currentAccountId);
+    if (!currentAccount || currentAccount.isGroup) return null;
 
-    const drawingsAccountId =
-      partner.drawingsAccountId
-      || (normalizedPartnerId ? `acc_partner_drawings_${normalizedPartnerId}` : '')
-      || '';
-    if (!drawingsAccountId) return null;
-
-    const drawingsAccount = accounts.find(a => a.id === drawingsAccountId);
-    if (!drawingsAccount || drawingsAccount.isGroup) return null;
-
-    const mode = invoice.partnerDrawingsMode === 'DIRECT_DRAWINGS'
-      ? 'DIRECT_DRAWINGS'
-      : 'AR_THEN_TRANSFER';
-
-    return { partnerId: partner.id, drawingsAccountId: drawingsAccount.id, mode };
+    return currentAccount.id;
   };
 
-  const createInvoice = async (invoiceData: Omit<Invoice, 'id'>) => {
+  const createInvoice = async (invoiceData: Omit<Invoice, 'id'> & { id?: string }) => {
     const permission = enforcePermission(resolveInvoiceModule(invoiceData), 'ADD', 'Invoice Form');
     if (!permission.ok) return permission;
 
@@ -3531,10 +3585,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     const newInvoice: Invoice = {
       ...invoiceData,
-      id: newId('inv'),
+      id: invoiceData.id || newId('inv'),
       postingStatus: invoiceData.postingStatus || 'POSTED'
     };
-    const partnerDrawingsContext = resolvePartnerDrawingsContextForInvoice(newInvoice);
+    const partnerCurrentAccountId = resolvePartnerCurrentAccountForInvoice(newInvoice);
     setInvoices(prev => [newInvoice, ...prev]);
     appendAuditLog({
       entityType: 'invoice',
@@ -3556,40 +3610,36 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       debitAccount = 'acc_sales_returns';
       creditAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : 'acc_receivable';
+        : (partnerCurrentAccountId || 'acc_receivable');
       transactionCategory = 'sales_return';
     } else if (newInvoice.category === 'customer_credit_note') {
       // Customer credit note (discount/allowance): Debit contra revenue, Credit customer receivable
       debitAccount = 'acc_sales_discounts';
       creditAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : 'acc_receivable';
+        : (partnerCurrentAccountId || 'acc_receivable');
       transactionCategory = 'customer_credit_note';
     } else if (newInvoice.category === 'purchase_return') {
       // Purchase Return: Debit Supplier/Cash, Credit Inventory
       // This acts like a reversal of Purchase.
       debitAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : 'acc_payable';
+        : (partnerCurrentAccountId || 'acc_payable');
       creditAccount = 'acc_inventory';
       transactionCategory = 'purchase_return';
     } else if (newInvoice.category === 'supplier_debit_note') {
       // Supplier debit note (earned discount): Debit payable, Credit purchase returns/contra-expense
       debitAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : 'acc_payable';
+        : (partnerCurrentAccountId || 'acc_payable');
       creditAccount = 'acc_purchase_discounts_earned';
       transactionCategory = 'supplier_debit_note';
     } else if (newInvoice.type === TransactionType.INCOME) {
       // Sales Invoice
       creditAccount = 'acc_sales';
-      debitAccount = partnerDrawingsContext?.mode === 'DIRECT_DRAWINGS'
-        ? partnerDrawingsContext.drawingsAccountId
-        : (
-          newInvoice.paymentType === 'CASH'
-            ? (newInvoice.paymentAccountId || 'acc_cash')
-            : 'acc_receivable'
-        );
+      debitAccount = newInvoice.paymentType === 'CASH'
+        ? (newInvoice.paymentAccountId || 'acc_cash')
+        : (partnerCurrentAccountId || 'acc_receivable');
       transactionCategory = 'sales_invoice';
     } else {
       // Purchase or Expense
@@ -3605,7 +3655,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       creditAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : 'acc_payable';
+        : (partnerCurrentAccountId || 'acc_payable');
     }
 
     const contactName = contacts.find(c => c.id === newInvoice.customerId)?.name || 'عميل نقدي';
@@ -3799,23 +3849,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       });
     }
 
-    if (partnerDrawingsContext?.mode === 'AR_THEN_TRANSFER' && invoiceTotal > 0) {
-      addTransaction({
-        amount: Number(invoiceTotal.toFixed(2)),
-        description: `تحويل تلقائي لمسحوبات الشريك - فاتورة #${newInvoice.invoiceNumber}`,
-        category: 'partner_drawings_transfer',
-        type: TransactionType.TRANSFER,
-        date: newInvoice.date,
-        invoiceId: newInvoice.id,
-        // Keep contact empty to avoid double counting in contact sub-ledger statements.
-        debitAccountId: partnerDrawingsContext.drawingsAccountId,
-        creditAccountId: 'acc_receivable',
-        currency: newInvoice.currency,
-        exchangeRate: newInvoice.exchangeRate,
-        status: newInvoice.postingStatus
-      });
-    }
-
     // COGS Calculation for Sales Invoice (Cost of Goods Sold)
     if (newInvoice.type === TransactionType.INCOME && newInvoice.postingStatus === 'POSTED' && newInvoice.category !== 'sales_return' && newInvoice.category !== 'purchase_return') {
       const totalCost = calculateSalesInvoiceCost(newInvoice);
@@ -3887,6 +3920,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       upsertInvoiceSettlementForAdjustmentNotice(newInvoice);
     }
 
+    if (
+      newInvoice.postingStatus === 'POSTED' &&
+      newInvoice.paymentType === 'CREDIT' &&
+      newInvoice.status !== 'QUOTATION' &&
+      newInvoice.category !== 'sales_return' &&
+      newInvoice.category !== 'purchase_return'
+    ) {
+      normalizeInvoiceStatusesWithSettlements(invoiceSettlements, [newInvoice.id]);
+    }
+
     return makeSuccess();
   };
 
@@ -3935,6 +3978,45 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }));
   };
 
+  const applyReturnedInvoiceItemsStockEffect = (inv: Invoice, reverse = false) => {
+    if (!(inv.type === TransactionType.INCOME || inv.category === 'purchase_invoice')) return;
+    const returnedItems = inv.items.filter(item => item.returned && item.productId);
+    if (returnedItems.length === 0) return;
+
+    setProducts(prev => prev.map(product => {
+      const item = returnedItems.find(entry => entry.productId === product.id);
+      if (!item) return product;
+
+      const originalQtyChange = inv.type === TransactionType.INCOME ? item.quantity : -item.quantity;
+      const qtyChange = originalQtyChange * (reverse ? -1 : 1);
+      if (qtyChange === 0) return product;
+
+      let updatedWarehouseStock = product.warehouseStock || [];
+      if (inv.warehouseId) {
+        const index = updatedWarehouseStock.findIndex(entry => entry.warehouseId === inv.warehouseId);
+        if (index >= 0) {
+          updatedWarehouseStock = [...updatedWarehouseStock];
+          updatedWarehouseStock[index] = {
+            ...updatedWarehouseStock[index],
+            quantity: updatedWarehouseStock[index].quantity + qtyChange
+          };
+        } else {
+          updatedWarehouseStock = [...updatedWarehouseStock, { warehouseId: inv.warehouseId, quantity: qtyChange }];
+        }
+      }
+
+      const costOutcome = resolveNextInventoryCost(product, inv, item, qtyChange, reverse);
+      const pricingPatch = buildProductPricingPatch(product, costOutcome.nextCost);
+      return {
+        ...product,
+        ...pricingPatch,
+        stock: product.stock + qtyChange,
+        warehouseStock: updatedWarehouseStock,
+        fifoLayers: costOutcome.layers ?? product.fifoLayers
+      };
+    }));
+  };
+
   const updateInvoice = (id: string, updates: Partial<Invoice>): MutationResult => {
     const existing = invoices.find(inv => inv.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Invoice not found.');
@@ -3959,24 +4041,35 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
 
-  const deleteInvoice = (id: string): MutationResult => {
+  const deleteInvoice = (id: string, options: DeleteInvoiceOptions = {}): MutationResult => {
     const existing = invoices.find(inv => inv.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Invoice not found.');
 
     const permission = enforcePermission(resolveInvoiceModule(existing), 'DELETE', 'Invoice List');
     if (!permission.ok) return permission;
 
-    if (strictPostedLockEnabled && existing.postingStatus === 'POSTED') {
-      return buildPostedLockedResult('invoice', id);
+    if (existing.isReversal || existing.reversedById) {
+      return makeError('VALIDATION_ERROR', 'Reversed invoices cannot be edited or deleted directly.');
     }
 
     const relatedTx = transactions.filter(t => t.invoiceId === id);
-    const impactedSettlementInvoiceIds = Array.from(new Set<string>(
-      invoiceSettlements
-        .filter(s => s.invoiceId === id || s.voucherId === id)
-        .map(s => s.invoiceId)
-    ));
-    const remainingSettlements = invoiceSettlements.filter(s => s.invoiceId !== id && s.voucherId !== id);
+    if (relatedTx.some(tx => tx.isReversal || tx.reversedById)) {
+      return makeError('VALIDATION_ERROR', 'Invoice includes reversed accounting entries and cannot be deleted directly.');
+    }
+
+    if (existing.postingStatus === 'POSTED') {
+      applyInvoiceStockEffect(existing, true);
+      applyReturnedInvoiceItemsStockEffect(existing, true);
+    }
+
+    const preserveSettlements = options.preserveSettlements === true;
+    const removedSettlements = invoiceSettlements.filter(s =>
+      s.voucherId === id || (!preserveSettlements && s.invoiceId === id)
+    );
+    const impactedSettlementInvoiceIds = Array.from(new Set<string>(removedSettlements.map(s => s.invoiceId)));
+    const remainingSettlements = invoiceSettlements.filter(s =>
+      s.voucherId !== id && (preserveSettlements || s.invoiceId !== id)
+    );
     if (remainingSettlements.length !== invoiceSettlements.length) {
       setInvoiceSettlements(remainingSettlements);
       if (impactedSettlementInvoiceIds.length > 0) {
@@ -3992,7 +4085,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       action: 'DELETE',
       screen: 'Invoice List',
       before: safeClone(existing),
-      metadata: { removedTransactions: relatedTx.length }
+      metadata: {
+        removedTransactions: relatedTx.length,
+        removedSettlements: removedSettlements.length,
+        preservedSettlements: preserveSettlements
+      }
     });
     return makeSuccess();
   };
@@ -4011,27 +4108,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     if (isAdjustmentNoticeCategory(inv.category)) {
       upsertInvoiceSettlementForAdjustmentNotice({ ...inv, postingStatus: 'POSTED' });
-    }
-
-    const hasPartnerDrawingsTransfer = transactions.some(t => t.invoiceId === inv.id && t.category === 'partner_drawings_transfer');
-    const partnerDrawingsContext = resolvePartnerDrawingsContextForInvoice(inv);
-    if (!hasPartnerDrawingsTransfer && partnerDrawingsContext?.mode === 'AR_THEN_TRANSFER') {
-      const invoiceTotal = Math.max(0, Number(inv.totalAmount) || 0);
-      if (invoiceTotal > 0) {
-        addTransaction({
-          amount: Number(invoiceTotal.toFixed(2)),
-          description: `تحويل تلقائي لمسحوبات الشريك - فاتورة #${inv.invoiceNumber}`,
-          category: 'partner_drawings_transfer',
-          type: TransactionType.TRANSFER,
-          date: inv.date,
-          invoiceId: inv.id,
-          debitAccountId: partnerDrawingsContext.drawingsAccountId,
-          creditAccountId: 'acc_receivable',
-          currency: inv.currency,
-          exchangeRate: inv.exchangeRate,
-          status: 'POSTED'
-        });
-      }
     }
 
     if (inv.type === TransactionType.INCOME && inv.category !== 'sales_return' && inv.category !== 'purchase_return') {

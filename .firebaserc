@@ -1,7 +1,5 @@
 {
   "projects": {
     "default": "smart-account-cc181"
-  },
-  "targets": {},
-  "etags": {}
+  }
 }

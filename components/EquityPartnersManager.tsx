@@ -9,7 +9,6 @@ import {
   buildProfitDistributionDraft,
   calculateDrawingsBalance,
   createEquitySettlementPosting,
-  createPartnerDrawingsClosePosting,
   isIsoDate,
   isPostedTransaction,
   roundMoney,
@@ -64,9 +63,6 @@ type PartnerRow = {
   drawingsAccountId?: string;
   sharePercent: number;
   capital: number;
-  profitsAdded: number;
-  drawings: number;
-  settlements: number;
   current: number;
   net: number;
 };
@@ -136,7 +132,6 @@ const EquityPartnersManager: React.FC = () => {
   const [capitalFilterTo, setCapitalFilterTo] = useState('');
 
   const [ledgerPartnerId, setLedgerPartnerId] = useState('');
-  const [drawingsCloseDate, setDrawingsCloseDate] = useState(today());
 
   const [distPeriod, setDistPeriod] = useState(String(new Date().getFullYear()));
   const [distTotalProfit, setDistTotalProfit] = useState('');
@@ -178,7 +173,15 @@ const EquityPartnersManager: React.FC = () => {
     return account;
   }, [accountById]);
   const retainedEarningsAccountId = retainedEarningsAccount?.id || '';
-  const settlementAccounts = useMemo(() => equityAccounts, [equityAccounts]);
+  const settlementAccounts = useMemo(() => {
+    const partnerAccountIds = new Set(
+      contacts
+        .filter(contact => contact.type === 'PARTNER')
+        .flatMap(contact => [contact.capitalAccountId, contact.currentAccountId || contact.linkedAccountId])
+        .filter((value): value is string => Boolean(value))
+    );
+    return equityAccounts.filter(account => partnerAccountIds.has(account.id));
+  }, [equityAccounts, contacts]);
 
   const canCreateEntries = can('SETTLEMENTS', 'ADD') || currentUser?.role === 'ADMIN';
   const canPostEntries = can('SETTLEMENTS', 'POST') || currentUser?.role === 'ADMIN';
@@ -306,22 +309,10 @@ const EquityPartnersManager: React.FC = () => {
       const currentAccountId = partner.currentAccountId || partner.linkedAccountId;
       const drawingsAccountId = partner.drawingsAccountId;
       const capital = roundMoney(accountBalanceById.get(capitalAccountId || '') || 0);
-      const current = roundMoney(accountBalanceById.get(currentAccountId || '') || 0);
-      const drawings = calculateDrawingsBalance(postedTransactions, drawingsAccountId);
-      const profitsAdded = roundMoney(postedTransactions.reduce((sum, tx) => {
-        if (tx.category !== 'partner_profit_distribution') return sum;
-        if (tx.contactId === partner.id || (currentAccountId && tx.creditAccountId === currentAccountId)) {
-          if (tx.creditAccountId === currentAccountId) return sum + tx.amount;
-        }
-        return sum;
-      }, 0));
-      const settlements = roundMoney(postedTransactions.reduce((sum, tx) => {
-        if (tx.category !== 'equity_settlement' && tx.category !== 'equity_bulk_settlement') return sum;
-        if (!currentAccountId) return sum;
-        const debit = tx.debitAccountId === currentAccountId ? tx.amount : 0;
-        const credit = tx.creditAccountId === currentAccountId ? tx.amount : 0;
-        return sum + (credit - debit);
-      }, 0));
+      const current = roundMoney(
+        (accountBalanceById.get(currentAccountId || '') || 0)
+        - calculateDrawingsBalance(postedTransactions, drawingsAccountId)
+      );
       const partnerType = String(partnerMeta[partner.id]?.partnerType || (partner as unknown as { partnerType?: string }).partnerType || '').trim() || undefined;
       const sharePercent = roundMoney(Number(partnerMeta[partner.id]?.sharePercent || 0));
       return {
@@ -333,11 +324,8 @@ const EquityPartnersManager: React.FC = () => {
         drawingsAccountId,
         sharePercent,
         capital,
-        profitsAdded,
-        drawings,
-        settlements,
         current,
-        net: roundMoney(capital + profitsAdded - drawings + settlements)
+        net: roundMoney(capital + current)
       };
     });
     const totalCap = rows.reduce((s, r) => s + r.capital, 0);
@@ -349,37 +337,13 @@ const EquityPartnersManager: React.FC = () => {
 
   const partnerById = useMemo(() => new Map(partnerRows.map(p => [p.id, p])), [partnerRows]);
 
-  const drawingsCloseCandidates = useMemo(
-    () => partnerRows.filter(row => row.drawings > 0 && Boolean(row.currentAccountId) && Boolean(row.drawingsAccountId)),
-    [partnerRows]
-  );
-
-  const drawingsAlerts = useMemo(() => partnerRows
-    .map(row => {
-      const ceiling = roundMoney(Math.max(0, row.capital + row.profitsAdded + row.settlements));
-      const overBy = roundMoney(Math.max(0, row.drawings - ceiling));
-      const negativeGap = roundMoney(Math.max(0, -row.net));
-      return {
-        partnerId: row.id,
-        partnerName: row.name,
-        drawings: row.drawings,
-        ceiling,
-        overBy,
-        net: row.net,
-        negativeGap,
-        isOverCeiling: overBy > 0,
-        isLargeNegative: negativeGap > 0
-      };
-    })
-    .filter(item => item.isOverCeiling || item.isLargeNegative),
-    [partnerRows]);
-
   const totalCapital = roundMoney(partnerRows.reduce((s, p) => s + p.capital, 0));
   const totalRetained = roundMoney(accountBalanceById.get('acc_retained_earnings') || 0);
-  const totalDistributed = roundMoney(partnerRows.reduce((s, p) => s + p.profitsAdded, 0));
+  const totalDistributed = roundMoney(postedTransactions.reduce((sum, tx) => (
+    tx.category === 'partner_profit_distribution' ? sum + tx.amount : sum
+  ), 0));
   const totalCurrent = roundMoney(partnerRows.reduce((s, p) => s + p.current, 0));
-  const totalDrawings = roundMoney(partnerRows.reduce((s, p) => s + p.drawings, 0));
-  const netEquity = roundMoney(totalCapital + totalRetained - totalDrawings);
+  const netEquity = roundMoney(totalCapital + totalRetained + totalCurrent);
   const availableProfitPool = roundMoney(Math.max(0, totalRetained));
 
   const ledgerLines = useMemo(() => {
@@ -601,50 +565,6 @@ const EquityPartnersManager: React.FC = () => {
     alert(tr('تم ترحيل توزيع الأرباح.', 'Profit distribution posted.'));
   };
 
-  const postDrawingsPeriodClose = () => {
-    if (!canPostEntries) return alert(tr('لا تملك صلاحية الترحيل.', 'You do not have posting permission.'));
-    if (!isPostingDateAllowed(drawingsCloseDate)) return alert(tr('الفترة مقفلة لهذا التاريخ.', 'Period is closed for this date.'));
-    if (drawingsCloseCandidates.length === 0) return alert(tr('لا يوجد مسحوبات تحتاج إقفال.', 'No drawings require closing.'));
-    if (!confirm(tr('سيتم إقفال جميع المسحوبات المفتوحة حتى تاريخ الإقفال المحدد. هل تريد المتابعة؟', 'All open partner drawings will be closed at the selected date. Continue?'))) return;
-
-    const reference = buildRef('DCL');
-    const errors: string[] = [];
-    let postedCount = 0;
-    let totalAmount = 0;
-
-    drawingsCloseCandidates.forEach(row => {
-      const amount = roundMoney(row.drawings);
-      if (amount <= 0 || !row.currentAccountId || !row.drawingsAccountId) return;
-      const posting = createPartnerDrawingsClosePosting({
-        amount,
-        date: drawingsCloseDate,
-        partnerDrawingsAccountId: row.drawingsAccountId,
-        partnerCurrentAccountId: row.currentAccountId,
-        partnerId: row.id,
-        partnerName: row.name,
-        currency: baseCurrency,
-        reference,
-        note: 'period_end_auto_close'
-      });
-      const result = addTransaction(posting);
-      if (!result.ok) {
-        errors.push(`${row.name}: ${result.message}`);
-        return;
-      }
-      postedCount += 1;
-      totalAmount = roundMoney(totalAmount + amount);
-    });
-
-    if (errors.length > 0) return alert(errors.join('\n'));
-    appendAuditLog({
-      entityType: 'partner_drawings_close',
-      action: 'POST',
-      screen: 'Equity & Partners > Partner Accounts',
-      metadata: { reference, date: drawingsCloseDate, partners: postedCount, totalAmount }
-    });
-    alert(tr(`تم إقفال المسحوبات لعدد ${postedCount} شريك بقيمة ${fmt(totalAmount)}.`, `Drawings closed for ${postedCount} partners, total ${fmt(totalAmount)}.`));
-  };
-
   const readAttachments = async (list: FileList | null) => {
     if (!list || list.length === 0) return;
     const files = Array.from(list);
@@ -820,8 +740,8 @@ const EquityPartnersManager: React.FC = () => {
           <div className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm text-xs font-black text-slate-700">
             {tr('عرض فقط. القيم محسوبة من القيود المرحّلة.', 'Read-only. Values are calculated from posted ledger entries.')}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-            {[{ label: tr('إجمالي رأس المال', 'Total Capital'), value: totalCapital }, { label: tr('إجمالي الأرباح المتراكمة', 'Total Retained Earnings'), value: totalRetained }, { label: tr('الأرباح الموزعة', 'Distributed Profits'), value: totalDistributed }, { label: tr('صافي جاري الشركاء', 'Net Partners Current'), value: totalCurrent }, { label: tr('إجمالي المسحوبات', 'Total Drawings'), value: totalDrawings }].map(card => (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            {[{ label: tr('إجمالي رأس المال', 'Total Capital'), value: totalCapital }, { label: tr('إجمالي الأرباح المتراكمة', 'Total Retained Earnings'), value: totalRetained }, { label: tr('الأرباح الموزعة', 'Distributed Profits'), value: totalDistributed }, { label: tr('صافي جاري الشركاء', 'Net Partners Current'), value: totalCurrent }].map(card => (
               <div key={card.label} className="rounded-[1.6rem] border p-4 bg-slate-50 text-slate-700 border-slate-100">
                 <p className="text-[10px] font-black uppercase tracking-wider">{card.label}</p>
                 <p className="text-xl font-black dir-ltr text-right">{fmt(card.value)}</p>
@@ -831,7 +751,7 @@ const EquityPartnersManager: React.FC = () => {
           <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
             <div className="text-sm font-black text-slate-700 mb-2">{tr('صافي حقوق الملكية', 'Net Equity')}</div>
             <div className="text-2xl font-black text-indigo-700 dir-ltr text-right">{fmt(netEquity)} {baseCurrency}</div>
-            <p className="text-[11px] text-gray-500 font-bold mt-2">{tr('المعادلة: رأس المال + الأرباح المحتجزة - المسحوبات', 'Formula: Capital + Retained Earnings - Drawings')}</p>
+            <p className="text-[11px] text-gray-500 font-bold mt-2">{tr('المعادلة: رأس المال + الأرباح المحتجزة + جاري الشركاء', 'Formula: Capital + Retained Earnings + Partners Current')}</p>
           </div>
         </div>
       )}
@@ -918,60 +838,34 @@ const EquityPartnersManager: React.FC = () => {
 
       {tab === 'PARTNER_ACCOUNTS' && (
         <div className="space-y-4">
-          <div className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm text-xs font-black text-slate-700">{tr('عرض فقط. صافي الشريك = رأس المال + الأرباح - المسحوبات +/- التسويات', 'Read-only. Net partner = capital + profits - drawings +/- settlements')}</div>
-          <div className={`p-4 rounded-[2rem] border shadow-sm ${drawingsAlerts.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className={`text-xs font-black ${drawingsAlerts.length > 0 ? 'text-amber-900' : 'text-emerald-900'}`}>
-                {drawingsAlerts.length > 0
-                  ? tr('تنبيه: بعض الشركاء تجاوزوا سقف المسحوبات أو لديهم صافي سالب.', 'Alert: some partners exceeded drawings ceiling or have negative net balance.')
-                  : tr('لا يوجد تجاوز في المسحوبات حالياً.', 'No drawings ceiling breaches currently.')}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-2 w-full md:w-auto">
-                <EnglishDateInput value={drawingsCloseDate} onChange={setDrawingsCloseDate} displayFormat="YMD" className={`${inputClass} text-xs dir-ltr bg-white`} />
-                <button disabled={!canPostEntries || drawingsCloseCandidates.length === 0} onClick={postDrawingsPeriodClose} className="p-3 rounded-2xl bg-slate-900 text-white text-xs font-black disabled:opacity-60">
-                  {tr('إقفال المسحوبات تلقائياً نهاية الفترة', 'Auto Close Drawings at Period End')}
-                </button>
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] font-black text-slate-700">{tr('قيد الإقفال: مدين جاري الشريك / دائن مسحوبات الشريك', 'Closing entry: Dr Partner Current / Cr Partner Drawings')}</p>
-            <p className="mt-1 text-[11px] font-black text-slate-500">{tr('يمكن تنفيذ الإقفال شهرياً أو سنوياً حسب تاريخ نهاية الفترة.', 'You can run this close monthly or yearly based on period-end date.')}</p>
-            {drawingsAlerts.length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-[11px] font-black">
-                  <thead>
-                    <tr className="text-amber-900 border-b border-amber-200">
-                      <th className="py-2 px-2 text-right">{tr('الشريك', 'Partner')}</th>
-                      <th className="py-2 px-2 text-center">{tr('سقف المسحوبات', 'Drawings Ceiling')}</th>
-                      <th className="py-2 px-2 text-center">{tr('المسحوبات', 'Drawings')}</th>
-                      <th className="py-2 px-2 text-center">{tr('صافي الرصيد', 'Net Balance')}</th>
-                      <th className="py-2 px-2 text-center">{tr('التنبيه', 'Alert')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drawingsAlerts.map(item => (
-                      <tr key={item.partnerId} className="border-b border-amber-100 last:border-0">
-                        <td className="py-2 px-2">{item.partnerName}</td>
-                        <td className="py-2 px-2 text-center dir-ltr">{fmt(item.ceiling)}</td>
-                        <td className="py-2 px-2 text-center dir-ltr">{fmt(item.drawings)}</td>
-                        <td className="py-2 px-2 text-center dir-ltr">{fmt(item.net)}</td>
-                        <td className="py-2 px-2 text-center">
-                          <span className="inline-flex px-2 py-1 rounded-lg bg-amber-100 text-amber-900">
-                            {item.isOverCeiling && item.isLargeNegative
-                              ? tr('تجاوز + سالب', 'Over + Negative')
-                              : item.isOverCeiling
-                                ? tr('تجاوز السقف', 'Over Ceiling')
-                                : tr('رصيد سالب', 'Negative Balance')}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          <div className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm text-xs font-black text-slate-700">
+            {tr('عرض فقط. الحركات اليومية للشريك تُرحّل على الجاري، والتسوية السنوية تكون بين الجاري ورأس المال.', 'Read-only. Daily partner activity is posted to current, and year-end settlement is between current and capital.')}
           </div>
           <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
-            <table className="min-w-full text-[12px] font-black"><thead><tr className="text-gray-500 border-b border-gray-100"><th className="py-2 px-2 text-right">{tr('الشريك', 'Partner')}</th><th className="py-2 px-2 text-center">{tr('رأس المال', 'Capital')}</th><th className="py-2 px-2 text-center">{tr('الأرباح المضافة', 'Profits Added')}</th><th className="py-2 px-2 text-center">{tr('إجمالي المسحوبات', 'Total Drawings')}</th><th className="py-2 px-2 text-center">{tr('التسويات', 'Settlements')}</th><th className="py-2 px-2 text-center">{tr('صافي الرصيد', 'Net Balance')}</th><th className="py-2 px-2 text-center">{tr('Ledger', 'Ledger')}</th></tr></thead><tbody>{partnerRows.map(row => <tr key={row.id} className="border-b border-gray-50 last:border-0"><td className="py-2 px-2">{row.name}</td><td className="py-2 px-2 text-center dir-ltr">{fmt(row.capital)}</td><td className="py-2 px-2 text-center dir-ltr">{fmt(row.profitsAdded)}</td><td className="py-2 px-2 text-center dir-ltr">{fmt(row.drawings)}</td><td className="py-2 px-2 text-center dir-ltr">{fmt(row.settlements)}</td><td className="py-2 px-2 text-center dir-ltr">{fmt(row.net)}</td><td className="py-2 px-2 text-center"><button onClick={() => setLedgerPartnerId(row.id)} className="px-3 py-1.5 rounded-xl bg-slate-800 text-white text-[10px] font-black">{tr('عرض كشف حساب تفصيلي', 'Open Ledger')}</button></td></tr>)}</tbody></table>
+            <table className="min-w-full text-[12px] font-black">
+              <thead>
+                <tr className="text-gray-500 border-b border-gray-100">
+                  <th className="py-2 px-2 text-right">{tr('الشريك', 'Partner')}</th>
+                  <th className="py-2 px-2 text-center">{tr('رأس المال', 'Capital')}</th>
+                  <th className="py-2 px-2 text-center">{tr('جاري الشريك', 'Partner Current')}</th>
+                  <th className="py-2 px-2 text-center">{tr('Ledger', 'Ledger')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {partnerRows.map(row => (
+                  <tr key={row.id} className="border-b border-gray-50 last:border-0">
+                    <td className="py-2 px-2">{row.name}</td>
+                    <td className="py-2 px-2 text-center dir-ltr">{fmt(row.capital)}</td>
+                    <td className="py-2 px-2 text-center dir-ltr">{fmt(row.current)}</td>
+                    <td className="py-2 px-2 text-center">
+                      <button onClick={() => setLedgerPartnerId(row.id)} className="px-3 py-1.5 rounded-xl bg-slate-800 text-white text-[10px] font-black">
+                        {tr('عرض كشف حساب تفصيلي', 'Open Ledger')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
           {ledgerPartnerId && (
             <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">

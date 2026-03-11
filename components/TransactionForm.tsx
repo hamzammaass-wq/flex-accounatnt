@@ -10,9 +10,9 @@ import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, ge
 import {
     Wallet, ArrowLeft, Check, X, ChevronDown,
     Plus, Trash2, Package, CreditCard, PlusCircle, ArrowRightLeft, Percent,
-    UserPlus, Search, Save, Truck, User, LayoutGrid, Scale,
+    UserPlus, Search, Truck, User, LayoutGrid, Scale,
     ScrollText, ShoppingBag, FilePlus, Ship, Archive, Coins, Receipt,
-    ArrowDownLeft, ArrowUpRight, CheckCircle, AlertCircle, Info, Calculator, Layers, Building2, PackagePlus,
+    ArrowDownLeft, ArrowUpRight, CheckCircle, AlertCircle, Info, Calculator, Layers, Building2, PackagePlus, MoreVertical,
     Banknote, PlusSquare, AlertTriangle, CheckCircle2, ListChecks, Fingerprint, MapPin, Hash, TextQuote,
     Repeat, Tag, StickyNote, AlertOctagon, FileCheck, RefreshCw, Equal, Contact2, ScanBarcode, Forward, RotateCcw, Link as LinkIcon, Ruler, Upload
 } from 'lucide-react';
@@ -30,6 +30,8 @@ interface TransactionFormProps {
     initialVoucherType?: 'RECEIPT' | 'PAYMENT';
     initialCategory?: string;
     initialLinkedInvoiceId?: string;
+    initialInvoiceId?: string;
+    initialVoucherId?: string;
     onBack: () => void;
 }
 
@@ -83,6 +85,150 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
         reader.onerror = () => reject(reader.error || new Error('File read failed'));
         reader.readAsDataURL(file);
     });
+
+interface SearchableContactSelectProps {
+    contacts: Contact[];
+    selectedId: string;
+    selectedLabel: string;
+    onSelect: (id: string) => void;
+    displayContactName: (contact?: { id: string; name: string } | null) => string;
+    placeholder: string;
+    emptyLabel: string;
+    isEnglish: boolean;
+    className?: string;
+    inputClassName?: string;
+}
+
+const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
+    contacts,
+    selectedId,
+    selectedLabel,
+    onSelect,
+    displayContactName,
+    placeholder,
+    emptyLabel,
+    isEnglish,
+    className = '',
+    inputClassName = ''
+}) => {
+    const [query, setQuery] = useState(selectedLabel);
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        setQuery(selectedLabel);
+    }, [selectedId, selectedLabel]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const handlePointerDown = (event: PointerEvent) => {
+            if (!containerRef.current?.contains(event.target as Node)) {
+                setIsOpen(false);
+                setQuery(selectedLabel);
+            }
+        };
+        window.addEventListener('pointerdown', handlePointerDown);
+        return () => window.removeEventListener('pointerdown', handlePointerDown);
+    }, [isOpen, selectedLabel]);
+
+    const filteredContacts = useMemo(() => {
+        const effectiveQuery = isOpen && query === selectedLabel ? '' : query;
+        const keyword = effectiveQuery.trim().toLowerCase();
+        if (!keyword) return contacts;
+        return contacts.filter((contact) => {
+            const label = displayContactName(contact).toLowerCase();
+            return (
+                String(contact.name || '').toLowerCase().includes(keyword)
+                || label.includes(keyword)
+                || String(contact.phone || '').toLowerCase().includes(keyword)
+            );
+        });
+    }, [contacts, query, displayContactName, isOpen, selectedLabel]);
+
+    const handleSelect = (contactId: string) => {
+        const nextContact = contacts.find(contact => contact.id === contactId);
+        onSelect(contactId);
+        setQuery(nextContact ? displayContactName(nextContact) : '');
+        setIsOpen(false);
+    };
+
+    return (
+        <div ref={containerRef} className={`relative ${className}`}>
+            <Search className={`absolute ${isEnglish ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none z-10`} size={16} />
+            <input
+                value={query}
+                onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setQuery(nextValue);
+                    setIsOpen(true);
+                    if (!nextValue.trim()) onSelect('');
+                }}
+                onFocus={(event) => {
+                    setIsOpen(true);
+                    event.currentTarget.select();
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        setIsOpen(false);
+                        setQuery(selectedLabel);
+                        return;
+                    }
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        const normalizedQuery = query.trim().toLowerCase();
+                        const exactMatch = filteredContacts.find(contact => {
+                            const label = displayContactName(contact).trim().toLowerCase();
+                            return label === normalizedQuery || String(contact.phone || '').trim().toLowerCase() === normalizedQuery;
+                        });
+                        const targetContact = exactMatch || filteredContacts[0];
+                        if (targetContact) {
+                            handleSelect(targetContact.id);
+                        } else {
+                            setIsOpen(false);
+                            setQuery(selectedLabel);
+                        }
+                    }
+                }}
+                placeholder={placeholder}
+                autoComplete="off"
+                data-enter-skip="true"
+                className={inputClassName}
+            />
+            <button
+                type="button"
+                onClick={() => {
+                    setIsOpen(prev => !prev);
+                    if (!isOpen) setQuery(selectedLabel);
+                }}
+                className={`absolute ${isEnglish ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400 hover:text-slate-700 z-10`}
+                tabIndex={-1}
+            >
+                <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="absolute top-full left-0 right-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-[1.25rem] border border-gray-200 bg-white shadow-2xl">
+                    {filteredContacts.length > 0 ? filteredContacts.map(contact => (
+                        <button
+                            key={contact.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => handleSelect(contact.id)}
+                            className={`w-full px-4 py-3 text-start transition-colors hover:bg-blue-50 ${contact.id === selectedId ? 'bg-blue-50/80' : 'bg-white'}`}
+                        >
+                            <div className="truncate text-sm font-black text-slate-700">{displayContactName(contact)}</div>
+                            {contact.phone && (
+                                <div className="mt-0.5 text-[10px] font-bold text-slate-400 dir-ltr">{contact.phone}</div>
+                            )}
+                        </button>
+                    )) : (
+                        <div className="px-4 py-3 text-xs font-black text-slate-400">{emptyLabel}</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
 
 // --- Quick Add Contact Modal ---
 const QuickAddContactModal: React.FC<{ type: ContactType; onClose: () => void; onSave: (id: string) => void }> = ({ type, onClose, onSave }) => {
@@ -285,8 +431,9 @@ const InvoiceScreen: React.FC<{
     sharedState: any;
     onSuccess: () => void;
     linkedInvoiceId?: string;
-}> = ({ mode, sharedState, onSuccess, linkedInvoiceId: initialLinkedId }) => {
-    const { createInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, currentCompanyId } = useAccounting();
+    initialInvoiceId?: string;
+}> = ({ mode, sharedState, onSuccess, linkedInvoiceId: initialLinkedId, initialInvoiceId }) => {
+    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, currentCompanyId } = useAccounting();
 
     const isSales = mode === 'SALES';
     const isReturn = mode === 'SALES_RETURN';
@@ -320,20 +467,11 @@ const InvoiceScreen: React.FC<{
 
     const defaultContactId = (isSales || isReturn || isQuotation) ? 'cash_customer' : 'cash_supplier';
     const [contactId, setContactId] = useState(defaultContactId);
-    const [contactSearch, setContactSearch] = useState('');
     const selectedContact = useMemo(
         () => contacts.find(c => c.id === contactId),
         [contacts, contactId]
     );
-    const isPartnerSalesInvoice = Boolean(
-        selectedContact
-        && selectedContact.type === 'PARTNER'
-        && isSales
-        && !isReturn
-        && !isPurchaseReturn
-        && !isQuotation
-    );
-
+    const selectedContactLabel = selectedContact ? displayContactName(selectedContact) : '';
     // Default to main warehouse if available
     const [warehouseId, setWarehouseId] = useState(() => {
         const main = warehouses.find(w => w.isMain);
@@ -343,8 +481,6 @@ const InvoiceScreen: React.FC<{
     const [items, setItems] = useState<Omit<InvoiceItem, 'id'>[]>([]);
     const [paymentType, setPaymentType] = useState<'CASH' | 'CREDIT'>('CASH');
     const [paymentAccountId, setPaymentAccountId] = useState('');
-    const [isPartnerDrawingsInvoice, setIsPartnerDrawingsInvoice] = useState(false);
-    const [partnerDrawingsMode, setPartnerDrawingsMode] = useState<'DIRECT_DRAWINGS' | 'AR_THEN_TRANSFER'>('AR_THEN_TRANSFER');
 
     const [expenseAccountId, setExpenseAccountId] = useState('');
 
@@ -378,6 +514,17 @@ const InvoiceScreen: React.FC<{
         () => loadBarcodeReaderSettings(currentCompanyId),
         [currentCompanyId]
     );
+    const editingInvoice = useMemo(
+        () => initialInvoiceId ? invoices.find(inv => inv.id === initialInvoiceId) || null : null,
+        [initialInvoiceId, invoices]
+    );
+    const editBlockedReason = useMemo(() => {
+        if (!editingInvoice) return '';
+        if (editingInvoice.isReversal || editingInvoice.reversedById) {
+            return tr('لا يمكن تعديل فاتورة تم عكسها محاسبيًا.', 'Reversed invoices cannot be edited directly.');
+        }
+        return '';
+    }, [editingInvoice, isEnglish]);
 
     // EFFECT: Handle auto-linking on mount if ID is provided
     useEffect(() => {
@@ -385,6 +532,35 @@ const InvoiceScreen: React.FC<{
             handleLinkInvoice(initialLinkedId);
         }
     }, [initialLinkedId]);
+
+    useEffect(() => {
+        if (!editingInvoice) return;
+
+        const importPrefix = `${tr('مصاريف استيراد', 'Import expenses')}: `;
+        const expensePrefix = `${tr('مصروفات', 'Expenses')}: `;
+        let normalizedNotes = editingInvoice.notes || '';
+        if (normalizedNotes.startsWith(importPrefix)) normalizedNotes = normalizedNotes.slice(importPrefix.length);
+        if (normalizedNotes.startsWith(expensePrefix)) normalizedNotes = normalizedNotes.slice(expensePrefix.length);
+
+        setContactId(editingInvoice.customerId || defaultContactId);
+        setWarehouseId(editingInvoice.warehouseId || '');
+        setItems(editingInvoice.items.map(({ id, returned, ...item }) => ({ ...item })));
+        setPaymentType(editingInvoice.paymentType);
+        setPaymentAccountId(editingInvoice.paymentAccountId || '');
+        setTaxEnabled(taxVisibleInInvoices && (Number(editingInvoice.taxAmount) || 0) > 0);
+        setTaxRateOverride(String(editingInvoice.taxRate || companySettings.defaultTaxRate || 0));
+        setSeparatePurchaseTaxFromAmount(false);
+        setDueDate(editingInvoice.dueDate || editingInvoice.date);
+        setDiscount(editingInvoice.discountAmount ? String(editingInvoice.discountAmount) : '');
+        setNotes(normalizedNotes);
+        setLinkedInvoiceId(editingInvoice.linkedInvoiceId || '');
+    }, [
+        editingInvoice,
+        defaultContactId,
+        taxVisibleInInvoices,
+        companySettings.defaultTaxRate,
+        isEnglish
+    ]);
 
     useEffect(() => {
         if (!showBarcodeScanner) return;
@@ -467,45 +643,12 @@ const InvoiceScreen: React.FC<{
         if (!dueDate) setDueDate(sharedState.date);
     }, [sharedState.date, dueDate, invoiceExpiryDateEnabled]);
 
-    useEffect(() => {
-        if (!isPartnerSalesInvoice) {
-            setIsPartnerDrawingsInvoice(false);
-            setPartnerDrawingsMode('AR_THEN_TRANSFER');
-            return;
-        }
-        setIsPartnerDrawingsInvoice(prev => (prev ? prev : true));
-    }, [isPartnerSalesInvoice]);
-
-    useEffect(() => {
-        if (isPartnerDrawingsInvoice && paymentType !== 'CREDIT') {
-            setPaymentType('CREDIT');
-            setPaymentAccountId('');
-        }
-    }, [isPartnerDrawingsInvoice, paymentType]);
-
     const filteredContacts = contacts.filter(c =>
         c.type === 'CUSTOMER' ||
         c.type === 'SUPPLIER' ||
-        ((isSales || isReturn || isQuotation) && (c.type === 'EMPLOYEE' || c.type === 'PARTNER'))
+        c.type === 'PARTNER' ||
+        ((isSales || isReturn || isQuotation) && c.type === 'EMPLOYEE')
     );
-    const searchedContacts = useMemo(() => {
-        const keyword = contactSearch.trim().toLowerCase();
-        if (!keyword) return filteredContacts;
-        return filteredContacts.filter((contact) => {
-            const displayName = displayContactName(contact).toLowerCase();
-            return (
-                String(contact.name || '').toLowerCase().includes(keyword) ||
-                displayName.includes(keyword) ||
-                String(contact.phone || '').toLowerCase().includes(keyword)
-            );
-        });
-    }, [filteredContacts, contactSearch]);
-    const contactOptions = useMemo(() => {
-        if (!contactId) return searchedContacts;
-        if (searchedContacts.some(contact => contact.id === contactId)) return searchedContacts;
-        const selected = filteredContacts.find(contact => contact.id === contactId);
-        return selected ? [selected, ...searchedContacts] : searchedContacts;
-    }, [contactId, searchedContacts, filteredContacts]);
 
     const financialAccounts = useMemo(() => accounts.filter(a => !a.isGroup && (a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root')), [accounts]);
 
@@ -699,9 +842,10 @@ const InvoiceScreen: React.FC<{
         };
     }, [items, discount, taxEnabled, taxRateOverride, taxVisibleInInvoices, isExpenseStyle, separatePurchaseTaxFromAmount]);
 
-    const handleSubmit = async (status: 'DRAFT' | 'POSTED') => {
+    const handleSubmit = async () => {
         if (!sharedState.date) return alert(tr('يرجى تحديد تاريخ العملية', 'Please select operation date'));
         if (!contactId && !isExpenseStyle) return alert(tr('يرجى اختيار العميل/المورد', 'Please select customer/supplier'));
+        if (editBlockedReason) return alert(editBlockedReason);
 
         // Warehouse validation for stock-related transactions
         if (!isExpenseStyle && !isQuotation && !warehouseId) return alert(tr('يرجى اختيار المستودع', 'Please select warehouse'));
@@ -713,10 +857,6 @@ const InvoiceScreen: React.FC<{
         if (!(companySettings.allowNegativeSalesQuantity ?? false) && (isSales || isQuotation) && items.some(i => i.quantity < 0)) {
             return alert(tr('Negative quantity is disabled for sales invoices in settings.', 'Negative quantity is disabled for sales invoices in settings.'));
         }
-        if (isPartnerDrawingsInvoice && paymentType !== 'CREDIT') {
-            return alert(tr('فاتورة مسحوبات الشريك يجب أن تكون آجلة (على الحساب).', 'Partner drawings invoice must be credit (on account).'));
-        }
-
         let category = 'sales_invoice';
         if (isPurchase) {
             category = 'purchase_invoice';
@@ -746,8 +886,9 @@ const InvoiceScreen: React.FC<{
             });
         }
 
-        const result = await createInvoice({
-            invoiceNumber: `${isQuotation ? 'QT' : (isReturn || isPurchaseReturn) ? 'RET' : 'INV'}-${Date.now().toString().slice(-6)}`,
+        const invoicePayload = {
+            id: editingInvoice?.id,
+            invoiceNumber: editingInvoice?.invoiceNumber || `${isQuotation ? 'QT' : (isReturn || isPurchaseReturn) ? 'RET' : 'INV'}-${Date.now().toString().slice(-6)}`,
             customerId: contactId || undefined,
             linkedInvoiceId: linkedInvoiceId || undefined,
             type: (isSales || isQuotation || isPurchaseReturn) ? TransactionType.INCOME : TransactionType.EXPENSE, // Purchase Return uses Income type flow in logic to reverse expense
@@ -761,22 +902,37 @@ const InvoiceScreen: React.FC<{
             discountAmount: totals.disc,
             totalAmount: totals.total,
             status: invoiceStatus,
-            postingStatus: isQuotation ? 'DRAFT' : status, // Quotations are always draft in terms of posting
+            postingStatus: isQuotation ? 'DRAFT' : 'POSTED',
             paymentType: paymentType,
             paymentAccountId: paymentAccountId,
-            isPartnerDrawings: isPartnerDrawingsInvoice || undefined,
-            partnerDrawingsMode: isPartnerDrawingsInvoice ? partnerDrawingsMode : undefined,
             currency: sharedState.currency,
             exchangeRate: sharedState.rate,
             notes: isImportExpenses
                 ? `${tr('مصاريف استيراد', 'Import expenses')}: ${notes}`
                 : (isExpenses ? `${tr('مصروفات', 'Expenses')}: ${notes}` : notes),
             warehouseId: !isExpenseStyle ? warehouseId : undefined
-        });
+        };
+
+        if (editingInvoice) {
+            const preserveSettlements = editingInvoice.paymentType === 'CREDIT'
+                && invoicePayload.paymentType === 'CREDIT'
+                && editingInvoice.status !== 'QUOTATION'
+                && invoicePayload.status !== 'QUOTATION'
+                && editingInvoice.category !== 'sales_return'
+                && editingInvoice.category !== 'purchase_return'
+                && invoicePayload.category !== 'sales_return'
+                && invoicePayload.category !== 'purchase_return';
+            const deleteResult = deleteInvoice(editingInvoice.id, { preserveSettlements });
+            if (!deleteResult.ok) return alert(deleteResult.message);
+        }
+
+        const result = await createInvoice(invoicePayload);
         if (!result.ok) return alert(result.message);
-        alert((isQuotation || status === 'DRAFT')
-            ? tr('تم الحفظ بنجاح', 'Saved successfully')
-            : tr('تم الترحيل بنجاح', 'Posted successfully'));
+        alert(isQuotation
+            ? tr('تم حفظ عرض السعر بنجاح', 'Quotation saved successfully')
+            : editingInvoice
+                ? tr('تم تحديث الفاتورة وترحيلها بنجاح', 'Invoice updated and posted successfully')
+                : tr('تم الترحيل بنجاح', 'Posted successfully'));
         onSuccess();
     };
 
@@ -873,11 +1029,6 @@ const InvoiceScreen: React.FC<{
                     <button className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors">
                         <MoreVertical size={18} />
                     </button>
-                    {!isQuotation && (
-                        <button onClick={() => handleSubmit('DRAFT')} className="p-2 text-gray-400 hover:text-emerald-600 rounded-full hover:bg-emerald-50 transition-colors" title={tr('حفظ المسودة', 'Save Draft')}>
-                            <Save size={18} />
-                        </button>
-                    )}
                 </div>
             </div>
 
@@ -889,7 +1040,7 @@ const InvoiceScreen: React.FC<{
                     <div className="flex-1 flex gap-1 bg-gray-100 p-1 rounded-xl">
                         {!isQuotation && (
                             <>
-                                <button type="button" onClick={() => { if (!isPartnerDrawingsInvoice) setPaymentType('CASH'); }} className={`flex-1 py-1 text-[11px] font-black rounded-lg transition-all ${paymentType === 'CASH' ? 'bg-white shadow text-blue-600' : 'text-gray-500'} ${isPartnerDrawingsInvoice ? 'opacity-50' : ''}`}>
+                                <button type="button" onClick={() => setPaymentType('CASH')} className={`flex-1 py-1 text-[11px] font-black rounded-lg transition-all ${paymentType === 'CASH' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
                                     {tr('نقدي', 'Cash')}
                                 </button>
                                 <button type="button" onClick={() => setPaymentType('CREDIT')} className={`flex-1 py-1 text-[11px] font-black rounded-lg transition-all ${paymentType === 'CREDIT' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>
@@ -925,14 +1076,23 @@ const InvoiceScreen: React.FC<{
 
                 {/* Customer / Supplier & Date */}
                 <div className="flex gap-2 items-center">
-                    <div className="flex-1 relative flex items-center bg-gray-50 border border-gray-100 rounded-xl">
-                        <select value={contactId} onChange={e => { setContactId(e.target.value); setLinkedInvoiceId(''); }} className="flex-1 bg-transparent p-1.5 text-[11px] font-black text-gray-700 appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-300 rounded-l-xl z-10 w-full pl-6 pr-2">
-                            <option value="">{isExpenseStyle ? tr('مورد عام / بدون', 'Generic Supplier') : tr('اختر العميل/المورد', 'Select Contact')}</option>
-                            {contactOptions.map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
-                        </select>
-                        <User className={`absolute ${isEnglish ? 'left-2' : 'right-2'} top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-20`} size={12} />
-
-                        <button type="button" onClick={() => setShowQuickContact(true)} className="p-1.5 bg-gray-200 text-gray-600 rounded-r-xl border-l border-gray-300 active:bg-gray-300 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0 w-8">
+                    <div className="flex-1 relative flex items-center">
+                        <SearchableContactSelect
+                            contacts={filteredContacts}
+                            selectedId={contactId}
+                            selectedLabel={selectedContactLabel}
+                            onSelect={(nextId) => {
+                                setContactId(nextId);
+                                setLinkedInvoiceId('');
+                            }}
+                            displayContactName={displayContactName}
+                            placeholder={isExpenseStyle ? tr('مورد عام / بدون أو ابحث...', 'Generic supplier / search...') : tr('اختر الطرف أو ابحث...', 'Select or search contact...')}
+                            emptyLabel={tr('لا يوجد طرف مطابق.', 'No matching contact found.')}
+                            isEnglish={isEnglish}
+                            className="w-full"
+                            inputClassName={`w-full bg-gray-50 border border-gray-100 rounded-xl p-1.5 text-[11px] font-black text-gray-700 outline-none focus:ring-1 focus:ring-indigo-300 ${isEnglish ? 'pl-9 pr-9' : 'pr-9 pl-9'}`}
+                        />
+                        <button type="button" onClick={() => setShowQuickContact(true)} className="p-1.5 bg-gray-200 text-gray-600 rounded-xl active:bg-gray-300 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0 w-8">
                             <UserPlus size={14} />
                         </button>
                     </div>
@@ -1091,11 +1251,15 @@ const InvoiceScreen: React.FC<{
 
                 {/* Action Buttons */}
                 <button
-                    onClick={() => handleSubmit('POSTED')}
+                    onClick={handleSubmit}
                     className={`w-full py-2.5 rounded-xl font-black text-[13px] shadow-[0_4px_20px_rgba(0,0,0,0.3)] flex items-center justify-center gap-2 active:scale-95 transition-transform ${isQuotation ? 'bg-amber-600' : (isReturn || isPurchaseReturn) ? 'bg-rose-600' : 'bg-indigo-600'} text-white`}
                 >
                     <CheckCircle2 size={16} />
-                    {isQuotation ? tr('حفظ المعاملة', 'Save Transaction') : tr('ترحيل واعتماد الفاتورة', 'Post & Approve')}
+                    {isQuotation
+                        ? tr('حفظ المعاملة', 'Save Transaction')
+                        : editingInvoice
+                            ? tr('تحديث وترحيل الفاتورة', 'Update & Post Invoice')
+                            : tr('ترحيل واعتماد الفاتورة', 'Post & Approve')}
                 </button>
             </div>
 
@@ -1247,14 +1411,14 @@ const VoucherScreen: React.FC<{
     sharedState: any;
     updateCurrency: (code: string) => void;
     onSuccess: () => void;
-}> = ({ initialType = 'RECEIPT', sharedState, updateCurrency, onSuccess }) => {
+    initialVoucherId?: string;
+}> = ({ initialType = 'RECEIPT', sharedState, updateCurrency, onSuccess, initialVoucherId }) => {
     const {
-        addTransaction, contacts, accounts, addCheck, checks, updateCheck, baseCurrency, companySettings,
-        invoices, invoiceSettlements, upsertInvoiceSettlementsForVoucher
+        addTransaction, contacts, accounts, addCheck, checks, updateCheck, deleteVoucher, baseCurrency, companySettings,
+        invoices, invoiceSettlements, transactions, upsertInvoiceSettlementsForVoucher
     } = useAccounting();
     const [voucherType, setVoucherType] = useState<'RECEIPT' | 'PAYMENT'>(initialType);
     const [contactId, setContactId] = useState('');
-    const [contactSearch, setContactSearch] = useState('');
     const [description, setDescription] = useState('');
     const [showQuickContact, setShowQuickContact] = useState(false);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
@@ -1282,34 +1446,66 @@ const VoucherScreen: React.FC<{
         c.type === 'EMPLOYEE' ||
         c.type === 'PARTNER'
     );
-    const searchedContacts = useMemo(() => {
-        const keyword = contactSearch.trim().toLowerCase();
-        if (!keyword) return filteredContacts;
-        return filteredContacts.filter((contact) => {
-            const displayName = displayContactName(contact).toLowerCase();
-            return (
-                String(contact.name || '').toLowerCase().includes(keyword) ||
-                displayName.includes(keyword) ||
-                String(contact.phone || '').toLowerCase().includes(keyword)
-            );
-        });
-    }, [filteredContacts, contactSearch]);
-    const contactOptions = useMemo(() => {
-        if (!contactId) return searchedContacts;
-        if (searchedContacts.some(contact => contact.id === contactId)) return searchedContacts;
-        const selected = filteredContacts.find(contact => contact.id === contactId);
-        return selected ? [selected, ...searchedContacts] : searchedContacts;
-    }, [contactId, searchedContacts, filteredContacts]);
     const selectedContact = useMemo(
         () => contacts.find(c => c.id === contactId),
         [contacts, contactId]
     );
+    const selectedContactLabel = selectedContact ? displayContactName(selectedContact) : '';
+    const editingVoucherParts = useMemo(() => {
+        if (!initialVoucherId) return [] as Transaction[];
+        return transactions
+            .filter(tx => tx.voucherId === initialVoucherId || tx.id === initialVoucherId)
+            .slice()
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }, [initialVoucherId, transactions]);
+    const editBlockedReason = useMemo(() => {
+        if (editingVoucherParts.length === 0) return '';
+        if (editingVoucherParts.some(tx => tx.isReversal || tx.reversedById)) {
+            return tr('لا يمكن تعديل سند تم عكسه محاسبيًا.', 'Reversed vouchers cannot be edited directly.');
+        }
+        return '';
+    }, [editingVoucherParts, isEnglish]);
+    const resolveVoucherTransactionCheck = (transaction: Transaction) => {
+        if (transaction.checkId) {
+            return checks.find(check => check.id === transaction.checkId) || null;
+        }
+        const hashIndex = String(transaction.description || '').indexOf('#');
+        if (hashIndex < 0) return null;
+        const tail = String(transaction.description || '').slice(hashIndex + 1);
+        const checkNumber = tail.split(' ')[0]?.split('-')[0]?.trim();
+        if (!checkNumber) return null;
+        return checks.find(check =>
+            String(check.checkNumber || '').trim() === checkNumber &&
+            Math.abs((Number(check.amount) || 0) - (Number(transaction.amount) || 0)) <= 0.005 &&
+            (
+                check.contactId === transaction.contactId ||
+                check.endorseeContactId === transaction.contactId
+            )
+        ) || null;
+    };
+    const extractVoucherDescription = (parts: Transaction[], contactName: string) => {
+        const partnerNote = tr('الترحيل على جاري الشريك', 'Posted to partner current account');
+        for (const part of parts) {
+            const raw = String(part.description || '').trim();
+            if (!raw) continue;
+            const marker = contactName ? `${contactName} - ` : '';
+            let extracted = raw;
+            if (marker && raw.includes(marker)) {
+                extracted = raw.slice(raw.indexOf(marker) + marker.length).trim();
+            }
+            if (extracted === partnerNote) return '';
+            if (extracted.endsWith(` - ${partnerNote}`)) {
+                extracted = extracted.slice(0, -(` - ${partnerNote}`.length)).trim();
+            }
+            if (extracted && extracted !== raw) return extracted;
+        }
+        return '';
+    };
     const selectedCounterAccountId = useMemo(() => {
         if (!selectedContact) return voucherType === 'RECEIPT' ? 'acc_receivable' : 'acc_payable';
         if (selectedContact.type === 'EMPLOYEE') return 'acc_accrued_salaries';
         if (selectedContact.type === 'SUPPLIER') return 'acc_payable';
         if (selectedContact.type === 'PARTNER') {
-            if (voucherType === 'PAYMENT') return selectedContact.drawingsAccountId || selectedContact.currentAccountId || selectedContact.linkedAccountId || '';
             return selectedContact.currentAccountId || selectedContact.linkedAccountId || '';
         }
         if (selectedContact.type === 'CUSTOMER') return 'acc_receivable';
@@ -1348,11 +1544,69 @@ const VoucherScreen: React.FC<{
         setAmountNotice(tr(`تمت إضافة مبلغ ${formatted}`, `Amount ${formatted} added`));
     };
 
+    useEffect(() => {
+        if (editingVoucherParts.length === 0) return;
+
+        const first = editingVoucherParts[0];
+        const nextVoucherType = first.type === TransactionType.INCOME ? 'RECEIPT' : 'PAYMENT';
+        const nextContactId = first.contactId || '';
+        const contactName = displayContactName(contacts.find(contact => contact.id === nextContactId) || null);
+        const nextCashLines: CashLine[] = [];
+        const nextCheckLines: CheckLine[] = [];
+
+        editingVoucherParts.forEach((part, index) => {
+            const linkedCheck = resolveVoucherTransactionCheck(part);
+            if (linkedCheck) {
+                const isEndorsed = linkedCheck.type === 'INCOMING' && linkedCheck.status === 'ENDORSED'
+                    && (part.debitAccountId === 'acc_cheques_hand' || part.creditAccountId === 'acc_cheques_hand');
+                nextCheckLines.push({
+                    id: `edit-check-${index}`,
+                    bankName: linkedCheck.bankName,
+                    bankAccountId: linkedCheck.bankAccountId,
+                    accountNumber: linkedCheck.accountNumber,
+                    checkNumber: linkedCheck.checkNumber,
+                    dueDate: linkedCheck.dueDate,
+                    amount: String(linkedCheck.amount),
+                    imageUrls: linkedCheck.imageUrls || (linkedCheck.imageUrl ? [linkedCheck.imageUrl] : []),
+                    isEndorsed,
+                    originalCheckId: isEndorsed ? linkedCheck.id : undefined
+                });
+                return;
+            }
+
+            const accountId = nextVoucherType === 'RECEIPT' ? (part.debitAccountId || '') : (part.creditAccountId || '');
+            nextCashLines.push({
+                id: `edit-cash-${index}`,
+                accountId,
+                amount: String(part.amount || '')
+            });
+        });
+
+        setVoucherType(nextVoucherType);
+        setContactId(nextContactId);
+        setDescription(extractVoucherDescription(editingVoucherParts, contactName));
+        setCashLines(nextCashLines);
+        setCheckLines(nextCheckLines);
+        setInvoiceAllocations(
+            invoiceSettlements
+                .filter(settlement => settlement.voucherId === initialVoucherId)
+                .map(settlement => ({
+                    invoiceId: settlement.invoiceId,
+                    amount: String(settlement.amount)
+                }))
+        );
+    }, [editingVoucherParts, initialVoucherId, invoiceSettlements, contacts, isEnglish]);
+
     const voucherRate = Math.max(0, Number(sharedState.rate) || 0) || 1;
     const voucherCurrency = sharedState.currency || baseCurrency;
     const postedSettlements = useMemo(
-        () => invoiceSettlements.filter((s: InvoiceSettlement) => s && s.invoiceId && (Number(s.amountBase) || 0) > 0),
-        [invoiceSettlements]
+        () => invoiceSettlements.filter((s: InvoiceSettlement) =>
+            s
+            && s.invoiceId
+            && (Number(s.amountBase) || 0) > 0
+            && (!initialVoucherId || s.voucherId !== initialVoucherId)
+        ),
+        [invoiceSettlements, initialVoucherId]
     );
 
     const allocationCandidateInvoices = useMemo(() => {
@@ -1509,6 +1763,7 @@ const VoucherScreen: React.FC<{
     const handleSubmit = () => {
         if (!sharedState.date) return alert(tr('يرجى تحديد تاريخ السند', 'Please select voucher date'));
         if (totalAmount <= 0) return alert(tr('قيمة السند يجب أن تكون أكبر من صفر', 'Voucher total must be greater than zero'));
+        if (editBlockedReason) return alert(editBlockedReason);
 
         const normalizedAllocations = voucherInvoiceAllocationEnabled ? allocationRows
             .map(row => ({
@@ -1531,7 +1786,7 @@ const VoucherScreen: React.FC<{
             return alert(tr('إجمالي التخصيص على الفواتير أكبر من قيمة السند.', 'Total allocation exceeds voucher total.'));
         }
 
-        const voucherId = `VOU-${Date.now().toString().slice(-6)}`;
+        const voucherId = initialVoucherId || `VOU-${Date.now().toString().slice(-6)}`;
         const isReceipt = voucherType === 'RECEIPT';
         const fallbackContactId = isReceipt ? 'cash_customer' : 'cash_supplier';
         const resolvedContactId = contactId || (contacts.some(c => c.id === fallbackContactId) ? fallbackContactId : '');
@@ -1539,9 +1794,7 @@ const VoucherScreen: React.FC<{
         const contactName = displayContactName(contact) || tr('عام', 'General');
         const noteText = description.trim();
         const partnerFlowNote = contact?.type === 'PARTNER'
-            ? (isReceipt
-                ? tr('إضافة إلى جاري الشريك', 'Added to partner current account')
-                : tr('تسجيل مسحوبات على الشريك', 'Partner drawing recorded'))
+            ? tr('الترحيل على جاري الشريك', 'Posted to partner current account')
             : '';
         const lineExtraNote = [noteText, partnerFlowNote].filter(Boolean).join(' - ');
 
@@ -1551,17 +1804,17 @@ const VoucherScreen: React.FC<{
         } else if (contact?.type === 'SUPPLIER') {
             targetAccountId = 'acc_payable';
         } else if (contact?.type === 'PARTNER') {
-            targetAccountId = isReceipt
-                ? (contact.currentAccountId || contact.linkedAccountId || 'acc_partner_current')
-                : (contact.drawingsAccountId || contact.currentAccountId || contact.linkedAccountId || 'acc_partner_drawings');
+            targetAccountId = contact.currentAccountId || contact.linkedAccountId || 'acc_partner_current';
         } else if (contact?.type === 'CUSTOMER') {
             targetAccountId = 'acc_receivable';
         }
-        if (contact?.type === 'PARTNER' && (
-            !(contact.currentAccountId || contact.linkedAccountId) ||
-            (!isReceipt && !contact.drawingsAccountId)
-        )) {
-            return alert(tr('يرجى ربط الشريك بحساباته من شاشة الدليل أولاً (الجاري والمسحوبات).', 'Please link partner accounts from Directory first (current and drawings).'));
+        if (contact?.type === 'PARTNER' && !(contact.currentAccountId || contact.linkedAccountId)) {
+            return alert(tr('يرجى ربط الشريك بحسابه الجاري من شاشة الدليل أولاً.', 'Please link partner current account from Directory first.'));
+        }
+
+        if (initialVoucherId) {
+            const deleteResult = deleteVoucher(initialVoucherId);
+            if (!deleteResult.ok) return alert(deleteResult.message);
         }
 
         let createdEntries = 0;
@@ -1606,6 +1859,7 @@ const VoucherScreen: React.FC<{
                     // 2. Transaction: Debit Supplier, Credit Checks on Hand (Asset)
                     const result = addTransaction({
                         voucherId,
+                        checkId: line.originalCheckId,
                         amount: val,
                         description: `${tr('تجيير شيك رقم', 'Endorsed check #')} ${line.checkNumber} - ${displayBankName(line.bankName, line.bankAccountId)} - ${tr('للمستفيد', 'to')} ${contactName}${lineExtraNote ? ` - ${lineExtraNote}` : ''}`,
                         category: 'voucher_payment',
@@ -1724,22 +1978,17 @@ const VoucherScreen: React.FC<{
                 <div className="space-y-4">
                     <div className="transaction-entry-split flex gap-2 min-w-0">
                         <div className="flex-1 min-w-0 space-y-2">
-                            <div className="relative">
-                                <input
-                                    value={contactSearch}
-                                    onChange={e => setContactSearch(e.target.value)}
-                                    placeholder={tr('ابحث بالاسم أو الجوال...', 'Search by name or phone...')}
-                                    className={inputClass + " !py-3"}
-                                />
-                                <Search className={`absolute ${isEnglish ? 'left-4' : 'right-4'} top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none`} size={16} />
-                            </div>
-                            <div className="relative">
-                                <select value={contactId} onChange={e => setContactId(e.target.value)} className={selectClass}>
-                                    <option value="">{tr('-- اختر الطرف --', '-- Select Contact --')}</option>
-                                    {contactOptions.map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
-                                </select>
-                                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
-                            </div>
+                            <SearchableContactSelect
+                                contacts={filteredContacts}
+                                selectedId={contactId}
+                                selectedLabel={selectedContactLabel}
+                                onSelect={setContactId}
+                                displayContactName={displayContactName}
+                                placeholder={tr('اختر الطرف أو ابحث بالاسم أو الجوال...', 'Select or search by name or phone...')}
+                                emptyLabel={tr('لا يوجد طرف مطابق.', 'No matching contact found.')}
+                                isEnglish={isEnglish}
+                                inputClassName={inputClass + " !py-3"}
+                            />
                         </div>
                         <button onClick={() => setShowQuickContact(true)} className="transaction-entry-plus p-4 bg-blue-50 text-blue-600 rounded-[1.5rem] shrink-0 self-end"><UserPlus size={20} /></button>
                     </div>
@@ -1747,17 +1996,17 @@ const VoucherScreen: React.FC<{
                     {selectedContact?.type === 'PARTNER' && (
                         <div className={`rounded-2xl border p-3 text-[11px] font-black ${selectedCounterAccountId ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span>{voucherType === 'PAYMENT' ? tr('حساب مسحوبات الشريك', 'Partner drawings account') : tr('حساب جاري الشريك', 'Partner current account')}</span>
+                                <span>{tr('حساب جاري الشريك', 'Partner current account')}</span>
                                 <span className="dir-ltr">{selectedCounterAccount ? displayAccountName(selectedCounterAccount) : tr('غير مربوط', 'Not linked')}</span>
                             </div>
                             <div className="mt-1">
                                 {voucherType === 'PAYMENT'
-                                    ? tr('عند الصرف: يتم تسجيل المبلغ في مسحوبات الشريك مباشرة.', 'On payment: amount is posted directly to partner drawings.')
-                                    : tr('عند القبض: يتم الإضافة إلى حساب جاري الشريك مباشرة.', 'On receipt: amount is added directly to the partner current account.')}
+                                    ? tr('عند الصرف: يتم ترحيل المبلغ على جاري الشريك مباشرة.', 'On payment: amount is posted directly to partner current.')
+                                    : tr('عند القبض: يتم إضافة المبلغ إلى جاري الشريك مباشرة.', 'On receipt: amount is added directly to partner current.')}
                             </div>
-                            {(!selectedCounterAccountId || (voucherType === 'PAYMENT' && !selectedContact.drawingsAccountId)) && (
+                            {!selectedCounterAccountId && (
                                 <div className="mt-1">
-                                    {tr('يرجى ربط الشريك بحساباته من الدليل أولاً.', 'Please link this partner to accounts from Directory first.')}
+                                    {tr('يرجى ربط الشريك بحسابه الجاري من الدليل أولاً.', 'Please link this partner to current account from Directory first.')}
                                 </div>
                             )}
                         </div>
@@ -2008,7 +2257,7 @@ const VoucherScreen: React.FC<{
                     <span className="text-2xl sm:text-3xl font-black text-white dir-ltr">{totalAmount.toLocaleString()}</span>
                 </div>
                 <button onClick={handleSubmit} className="w-full bg-blue-600 hover:bg-blue-500 min-h-[54px] sm:min-h-[58px] py-3 rounded-2xl font-black text-base shadow-lg active:scale-[0.99] transition-all">
-                    {tr('ترحيل السند', 'Post Voucher')}
+                    {initialVoucherId ? tr('تحديث وترحيل السند', 'Update & Post Voucher') : tr('ترحيل السند', 'Post Voucher')}
                 </button>
             </div>
             {showQuickContact && (
@@ -2715,8 +2964,8 @@ const JournalScreen: React.FC<{
     );
 };
 
-const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialVoucherType, initialCategory, initialLinkedInvoiceId, onBack }) => {
-    const { companySettings, currencies, baseCurrency } = useAccounting();
+const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialVoucherType, initialCategory, initialLinkedInvoiceId, initialInvoiceId, initialVoucherId, onBack }) => {
+    const { companySettings, currencies, baseCurrency, invoices, transactions } = useAccounting();
     const [mode, setMode] = useState<TransactionTabType>(initialMode);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -2727,6 +2976,15 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
     const currencyOptions = currencies.length > 0
         ? currencies
         : [{ code: baseCurrency, name: baseCurrency, symbol: baseCurrency, rate: 1 }];
+    const editingInvoice = useMemo(
+        () => initialInvoiceId ? invoices.find(invoice => invoice.id === initialInvoiceId) || null : null,
+        [initialInvoiceId, invoices]
+    );
+    const editingVoucherLead = useMemo(
+        () => initialVoucherId ? transactions.find(tx => tx.voucherId === initialVoucherId || tx.id === initialVoucherId) || null : null,
+        [initialVoucherId, transactions]
+    );
+    const isEditing = Boolean(editingInvoice || editingVoucherLead);
     const getRateForCurrency = (code: string) => {
         if (code === baseCurrency) return 1;
         return currencies.find(c => c.code === code)?.rate || 1;
@@ -2749,7 +3007,27 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         setSharedState(prev => ({ ...prev, currency: code, rate: getRateForCurrency(code) }));
     };
 
+    useEffect(() => {
+        if (editingInvoice) {
+            setSharedState({
+                currency: editingInvoice.currency || baseCurrency,
+                rate: Number(editingInvoice.exchangeRate) || getRateForCurrency(editingInvoice.currency || baseCurrency),
+                date: editingInvoice.date || getTodayDateString()
+            });
+            return;
+        }
+        if (editingVoucherLead) {
+            const voucherCurrency = editingVoucherLead.currency || baseCurrency;
+            setSharedState({
+                currency: voucherCurrency,
+                rate: Number(editingVoucherLead.exchangeRate) || getRateForCurrency(voucherCurrency),
+                date: editingVoucherLead.date || getTodayDateString()
+            });
+        }
+    }, [editingInvoice, editingVoucherLead, baseCurrency]);
+
     const screenTitle = useMemo(() => {
+        const baseTitle = (() => {
         switch (mode) {
             case 'SALES': return tr('فاتورة مبيعات', 'Sales Invoice');
             case 'SALES_RETURN': return tr('مرتجع مبيعات', 'Sales Return');
@@ -2766,7 +3044,9 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
             case 'JOURNAL': return tr('قيد يومية', 'Journal Entry');
             default: return tr('عملية جديدة', 'New Transaction');
         }
-    }, [mode, initialVoucherType, isEnglish]);
+        })();
+        return isEditing ? `${tr('تعديل', 'Edit')} ${baseTitle}` : baseTitle;
+    }, [mode, initialVoucherType, isEnglish, isEditing]);
 
     const handleFlowSuccess = () => {
         setMode(initialMode);
@@ -2874,9 +3154,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     sharedState={sharedState}
                     updateCurrency={handleCurrencyChange}
                     onSuccess={handleFlowSuccess}
+                    initialVoucherId={initialVoucherId}
                 />
             ) : (
-                <InvoiceScreen mode={mode as any} sharedState={sharedState} onSuccess={handleFlowSuccess} linkedInvoiceId={initialLinkedInvoiceId} />
+                <InvoiceScreen mode={mode as any} sharedState={sharedState} onSuccess={handleFlowSuccess} linkedInvoiceId={initialLinkedInvoiceId} initialInvoiceId={initialInvoiceId} />
             )}
         </div>
     );
