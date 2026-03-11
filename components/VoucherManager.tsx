@@ -167,7 +167,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
 
     const getVoucherPreview = (parts: Transaction[]) => {
         const descriptions = Array.from(new Set(parts.map(part => String(part.description || '').trim()).filter(Boolean)));
-        if (descriptions.length === 0) return tr('ط¨ط¯ظˆظ† ظˆطµظپ ط¥ط¶ط§ظپظٹ', 'No extra description');
+        if (descriptions.length === 0) return tr('بدون وصف إضافي', 'No extra description');
         if (descriptions.length === 1) return descriptions[0];
         return isEnglish
             ? `${descriptions[0]} + ${descriptions.length - 1} more`
@@ -176,14 +176,14 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
 
     const getPrimaryAccountName = (parts: Transaction[]) => {
         const first = parts[0];
-        if (!first) return tr('ط؛ظٹط± ظ…ط­ط¯ط¯', 'Not set');
+        if (!first) return tr('غير محدد', 'Not set');
         const account = isReceipt
             ? accounts.find(a => a.id === first.debitAccountId)
             : accounts.find(a => a.id === first.creditAccountId);
-        return account ? displayAccountName(account) : tr('ط؛ظٹط± ظ…ط­ط¯ط¯', 'Not set');
+        return account ? displayAccountName(account) : tr('غير محدد', 'Not set');
     };
 
-    const getContactName = (id?: string) => displayContactName(contacts.find(c => c.id === id) || null) || tr('ط؛ظٹط± ظ…ط­ط¯ط¯', 'Unknown');
+    const getContactName = (id?: string) => displayContactName(contacts.find(c => c.id === id) || null) || tr('طرف غير محدد', 'Unknown');
 
     const handlePostGroup = async (vId: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -949,22 +949,42 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                     </div>
                                 )}
                             </article>
-                        );                    })
+                        );
+                    })
                 ) : (
-                    <div className="text-center py-28 bg-white rounded-[3.5rem] border border-dashed border-gray-100 animate-in fade-in">
-                        <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <Archive size={40} className="text-gray-200" />
+                    <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-sm">
+                        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-slate-100 text-slate-300">
+                            <Archive size={34} />
                         </div>
-                        <h3 className="text-gray-400 font-black text-lg">{tr('ظ„ط§ طھظˆط¬ط¯ ط³ظ†ط¯ط§طھ ظ„ط¹ط±ط¶ظ‡ط§', 'No vouchers to display')}</h3>
-                        <p className="text-gray-300 text-sm font-bold mt-2">
-                            {tr(isReceipt ? 'ط§ط¨ط¯ط£ ط¨ط¥ط¶ط§ظپط© ط£ظˆظ„ ط³ظ†ط¯ ظ‚ط¨ط¶ ط§ظ„ط¢ظ†' : 'ط§ط¨ط¯ط£ ط¨ط¥ط¶ط§ظپط© ط£ظˆظ„ ط³ظ†ط¯ طµط±ظپ ط§ظ„ط¢ظ†', isReceipt ? 'Start by adding your first receipt voucher' : 'Start by adding your first payment voucher')}
+                        <h3 className="mt-5 text-xl font-black text-slate-900">
+                            {hasActiveFilters ? tr('لا توجد نتائج مطابقة', 'No matching vouchers') : tr('لا توجد سندات لعرضها', 'No vouchers to display')}
+                        </h3>
+                        <p className="mx-auto mt-2 max-w-md text-sm font-bold leading-7 text-slate-500">
+                            {hasActiveFilters
+                                ? tr('جرّب تعديل البحث أو الفلاتر لعرض السندات المطلوبة.', 'Adjust your search or filters to reveal matching vouchers.')
+                                : tr(
+                                    isReceipt ? 'ابدأ بإضافة أول سند قبض لعرضه هنا.' : 'ابدأ بإضافة أول سند صرف لعرضه هنا.',
+                                    isReceipt ? 'Add your first receipt voucher to see it here.' : 'Add your first payment voucher to see it here.'
+                                )}
                         </p>
-                        <button
-                            onClick={onAddNew}
-                            className={`mt-8 px-10 py-4 rounded-2xl text-white font-black text-sm shadow-xl ${theme.button} active:scale-95 transition-all`}
-                        >
-                            {tr('ط¥ط¶ط§ظپط© ط³ظ†ط¯ ط¬ط¯ظٹط¯', 'Add New Voucher')}
-                        </button>
+                        <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+                            {hasActiveFilters && (
+                                <button
+                                    type="button"
+                                    onClick={clearFilters}
+                                    className="rounded-[1.1rem] border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                                >
+                                    {tr('مسح الفلاتر', 'Clear filters')}
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={onAddNew}
+                                className={`${theme.button} rounded-[1.1rem] px-5 py-3 text-sm font-black text-white transition`}
+                            >
+                                {tr('إضافة سند جديد', 'Add New Voucher')}
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
@@ -973,6 +993,11 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
 };
 
 export default VoucherManager;
+
+
+
+
+
 
 
 
