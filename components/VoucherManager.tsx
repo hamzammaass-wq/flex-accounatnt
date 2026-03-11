@@ -171,7 +171,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
         if (descriptions.length === 1) return descriptions[0];
         return isEnglish
             ? `${descriptions[0]} + ${descriptions.length - 1} more`
-            : `${descriptions[0]} + ${descriptions.length - 1} ط¥ط¶ط§ظپظٹط©`;
+            : `${descriptions[0]} + ${descriptions.length - 1} إضافية`;
     };
 
     const getPrimaryAccountName = (parts: Transaction[]) => {
@@ -993,6 +993,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
 };
 
 export default VoucherManager;
+
 
 
 
