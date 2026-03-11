@@ -644,8 +644,24 @@ type CompanyWorkspaceSnapshot = {
 
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
-    return savedUser ? JSON.parse(savedUser) : null;
+    try {
+      const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
+      if (!savedUser) return null;
+      const parsed = JSON.parse(savedUser);
+      if (!parsed || typeof parsed !== 'object') {
+        localStorage.removeItem(STORAGE_KEYS.currentUser);
+        return null;
+      }
+      return parsed as User;
+    } catch {
+      // Guard against corrupted localStorage that can crash app bootstrap.
+      try {
+        localStorage.removeItem(STORAGE_KEYS.currentUser);
+      } catch {
+        // ignore cleanup failure
+      }
+      return null;
+    }
   });
 
   useEffect(() => {
