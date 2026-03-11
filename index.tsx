@@ -11,7 +11,10 @@ forceEnglishDigits();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     if (import.meta.env.PROD) {
-      navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((registration) => registration.update().catch(() => undefined))
+        .catch(() => undefined);
       return;
     }
 
