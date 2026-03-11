@@ -322,7 +322,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
     if (activeTab === 'RETURNS') {
       onNavigate('purchases', 'PURCHASE_RETURN');
     } else {
-      onNavigate('dashboard', 'PURCHASES');
+      onNavigate('purchases', 'PURCHASES');
     }
   };
 

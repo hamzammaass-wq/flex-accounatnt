@@ -1930,12 +1930,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const can = (module: PermissionModule, action: PermissionAction): boolean => {
     if (!currentUser) return false;
 
+    const userOverride = permissions.userOverrides?.[currentUser.id]?.[module]?.[action];
+    if (currentUser.role === 'ADMIN') {
+      return typeof userOverride === 'boolean' ? userOverride : true;
+    }
+
     const rolePermissions = createRolePermissions(currentUser.role || 'VIEWER');
     const roleAllowed = rolePermissions[module]?.[action] ?? false;
     const configuredAllowed = permissions.modules?.[module]?.[action];
     let allowed = typeof configuredAllowed === 'boolean' ? configuredAllowed : roleAllowed;
 
-    const userOverride = permissions.userOverrides?.[currentUser.id]?.[module]?.[action];
     if (typeof userOverride === 'boolean') {
       allowed = userOverride;
     }
