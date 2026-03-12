@@ -8,13 +8,14 @@ import QuickAddProductModal from './QuickAddProductModal';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
 import {
-    Wallet, ArrowLeft, Check, X, ChevronDown,
+    Wallet, ArrowLeft, ArrowRight, Check, X, ChevronDown,
     Plus, Trash2, Package, CreditCard, PlusCircle, ArrowRightLeft, Percent,
     UserPlus, Search, Truck, User, LayoutGrid, Scale,
     ScrollText, ShoppingBag, FilePlus, Ship, Archive, Coins, Receipt,
     ArrowDownLeft, ArrowUpRight, CheckCircle, AlertCircle, Info, Calculator, Layers, Building2, PackagePlus, MoreVertical,
     Banknote, PlusSquare, AlertTriangle, CheckCircle2, ListChecks, Fingerprint, MapPin, Hash, TextQuote,
-    Repeat, Tag, StickyNote, AlertOctagon, FileCheck, RefreshCw, Equal, Contact2, ScanBarcode, Forward, RotateCcw, Link as LinkIcon, Ruler, Upload
+    Repeat, Tag, StickyNote, AlertOctagon, FileCheck, RefreshCw, Equal, Contact2, ScanBarcode, Forward, RotateCcw, Link as LinkIcon, Ruler, Upload,
+    Save, FileText, FileSpreadsheet, Share2, MessageSquareText, MessageCircle
 } from 'lucide-react';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { getInvoiceAllocatedAmount, getInvoiceRemainingBase } from '../utils/invoiceSettlement';
@@ -22,6 +23,8 @@ import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
 import { Html5Qrcode } from 'html5-qrcode';
 import { appendDeviceHubLog } from '../utils/deviceHub';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
+import { resolveInvoiceProductUnitPrice } from '../utils/invoicePricing';
+import { buildLastInvoicePriceMap } from '../utils/invoiceLastPrice';
 
 export type TransactionTabType = 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'EXPENSES' | 'VOUCHERS' | 'JOURNAL' | 'IMPORT_EXPENSES' | 'MANUAL_PURCHASE';
 
@@ -91,9 +94,15 @@ interface SearchableContactSelectProps {
     selectedId: string;
     selectedLabel: string;
     onSelect: (id: string) => void;
+    onCreateNew?: (query: string) => void;
+    onActionClick?: (query: string) => void;
+    actionIcon?: React.ReactNode;
+    actionLabel?: string;
+    actionButtonClassName?: string;
     displayContactName: (contact?: { id: string; name: string } | null) => string;
     placeholder: string;
     emptyLabel: string;
+    createNewLabel?: string;
     isEnglish: boolean;
     className?: string;
     inputClassName?: string;
@@ -104,9 +113,15 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
     selectedId,
     selectedLabel,
     onSelect,
+    onCreateNew,
+    onActionClick,
+    actionIcon,
+    actionLabel,
+    actionButtonClassName,
     displayContactName,
     placeholder,
     emptyLabel,
+    createNewLabel,
     isEnglish,
     className = '',
     inputClassName = ''
@@ -185,8 +200,14 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                         if (targetContact) {
                             handleSelect(targetContact.id);
                         } else {
-                            setIsOpen(false);
-                            setQuery(selectedLabel);
+                            const rawQuery = query.trim();
+                            if (onCreateNew && rawQuery) {
+                                onCreateNew(rawQuery);
+                                setIsOpen(false);
+                            } else {
+                                setIsOpen(false);
+                                setQuery(selectedLabel);
+                            }
                         }
                     }
                 }}
@@ -198,13 +219,18 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
             <button
                 type="button"
                 onClick={() => {
+                    if (onActionClick) {
+                        onActionClick(query.trim());
+                        return;
+                    }
                     setIsOpen(prev => !prev);
                     if (!isOpen) setQuery(selectedLabel);
                 }}
-                className={`absolute ${isEnglish ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-gray-400 hover:text-slate-700 z-10`}
-                tabIndex={-1}
+                className={`absolute ${isEnglish ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 z-10 ${actionButtonClassName || 'text-gray-400 hover:text-slate-700'}`}
+                tabIndex={onActionClick ? 0 : -1}
+                title={actionLabel}
             >
-                <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                {actionIcon || <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
             </button>
             {isOpen && (
                 <div className="absolute top-full left-0 right-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-[1.25rem] border border-gray-200 bg-white shadow-2xl">
@@ -222,7 +248,23 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                             )}
                         </button>
                     )) : (
-                        <div className="px-4 py-3 text-xs font-black text-slate-400">{emptyLabel}</div>
+                        <div className="px-4 py-3">
+                            <div className="text-xs font-black text-slate-400">{emptyLabel}</div>
+                            {onCreateNew && query.trim() && (
+                                <button
+                                    type="button"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => {
+                                        onCreateNew(query.trim());
+                                        setIsOpen(false);
+                                    }}
+                                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-black text-blue-700 transition-colors hover:bg-blue-100"
+                                >
+                                    <UserPlus size={14} />
+                                    {createNewLabel || (isEnglish ? 'Add New Contact' : 'إضافة طرف جديد')}
+                                </button>
+                            )}
+                        </div>
                     )}
                 </div>
             )}
@@ -430,12 +472,15 @@ const InvoiceScreen: React.FC<{
     mode: 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'MANUAL_PURCHASE' | 'EXPENSES' | 'IMPORT_EXPENSES';
     sharedState: any;
     onDateChange: (value: string) => void;
+    onCurrencyChange: (code: string) => void;
+    onRateChange: (value: number) => void;
+    onModeChange?: (nextMode: 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'MANUAL_PURCHASE') => void;
     onSuccess: () => void;
     onBack: () => void;
     linkedInvoiceId?: string;
     initialInvoiceId?: string;
-}> = ({ mode, sharedState, onDateChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId }) => {
-    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, currentCompanyId } = useAccounting();
+}> = ({ mode, sharedState, onDateChange, onCurrencyChange, onRateChange, onModeChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId }) => {
+    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, currentCompanyId, currencies, baseCurrency } = useAccounting();
 
     const isSales = mode === 'SALES';
     const isReturn = mode === 'SALES_RETURN';
@@ -458,6 +503,9 @@ const InvoiceScreen: React.FC<{
     const displayProductName = (product?: { id: string; name: string } | null) => getDisplayProductName(product || undefined, isEnglish);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayWarehouseName = (warehouse?: { id: string; name: string } | null) => getDisplayWarehouseName(warehouse || undefined, isEnglish);
+    const currencyOptions = currencies.length > 0
+        ? currencies
+        : [{ code: baseCurrency, name: baseCurrency, symbol: baseCurrency, rate: 1 }];
 
     // Theme Config based on mode
     const theme = useMemo(() => {
@@ -467,13 +515,52 @@ const InvoiceScreen: React.FC<{
         return { color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', shadow: 'shadow-blue-100', btn: 'bg-blue-600' };
     }, [mode]);
 
-    const defaultContactId = (isSales || isReturn || isQuotation) ? 'cash_customer' : 'cash_supplier';
+    const invoiceNumberPrefix = useMemo(() => {
+        if (isQuotation) return 'QT';
+        if (isReturn || isPurchaseReturn) return 'RET';
+        if (isImportExpenses) return 'IMP';
+        if (isExpenses) return 'EXP';
+        if (isPurchase) return 'PINV';
+        return 'INV';
+    }, [isQuotation, isReturn, isPurchaseReturn, isImportExpenses, isExpenses, isPurchase]);
+
+    const generateInvoiceNumber = () => `${invoiceNumberPrefix}-${Date.now().toString().slice(-6)}`;
+
+    const defaultContactId = 'cash_customer';
     const [contactId, setContactId] = useState(defaultContactId);
     const selectedContact = useMemo(
         () => contacts.find(c => c.id === contactId),
         [contacts, contactId]
     );
     const selectedContactLabel = selectedContact ? displayContactName(selectedContact) : '';
+    const lastInvoicePriceByProduct = useMemo(
+        () => buildLastInvoicePriceMap(invoices, {
+            contactId,
+            mode: (isPurchase || isPurchaseReturn) ? 'PURCHASE' : 'SALES',
+            excludeInvoiceId: initialInvoiceId
+        }),
+        [invoices, contactId, isPurchase, isPurchaseReturn, initialInvoiceId]
+    );
+    const selectedContactPriceTierLabel = selectedContact?.preferredPriceTier === 'WHOLESALE'
+        ? tr('\u062c\u0645\u0644\u0629', 'Wholesale')
+        : selectedContact?.preferredPriceTier === 'RETAIL'
+            ? tr('\u0645\u0641\u0631\u0642', 'Retail')
+            : '';
+    const resolvePreferredInvoicePrice = (product: Product) => (
+        resolveInvoiceProductUnitPrice(product, {
+            contact: selectedContact,
+            salesMode: isSales || isReturn || isQuotation
+        })
+    );
+    const resolveLastInvoicePrice = (productId?: string) => (
+        productId ? lastInvoicePriceByProduct.get(productId) : undefined
+    );
+    const resolveInvoiceEntryPrice = (product: Product) => {
+        const lastPrice = resolveLastInvoicePrice(product.id);
+        return typeof lastPrice === 'number' && lastPrice > 0
+            ? lastPrice
+            : resolvePreferredInvoicePrice(product);
+    };
     const resolvePreferredWarehouseId = () => {
         const main = warehouses.find(w => w.isMain);
         return main ? main.id : (warehouses[0]?.id || '');
@@ -494,6 +581,8 @@ const InvoiceScreen: React.FC<{
     const [dueDate, setDueDate] = useState(sharedState.date);
     const [discount, setDiscount] = useState('');
     const [notes, setNotes] = useState('');
+    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [showInvoiceActions, setShowInvoiceActions] = useState(false);
     const [search, setSearch] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
@@ -504,7 +593,9 @@ const InvoiceScreen: React.FC<{
     const [newItemPrice, setNewItemPrice] = useState('');
 
     const [showQuickContact, setShowQuickContact] = useState(false);
+    const [quickContactInitialName, setQuickContactInitialName] = useState('');
     const [showQuickProduct, setShowQuickProduct] = useState(false);
+    const [quickProductInitialName, setQuickProductInitialName] = useState('');
 
     // Manual Item State
     const [isManualItem, setIsManualItem] = useState(false);
@@ -529,6 +620,18 @@ const InvoiceScreen: React.FC<{
         }
         return '';
     }, [editingInvoice, isEnglish]);
+    const invoiceScreenTitle = useMemo(() => {
+        if (isSales) return tr('فاتورة بيع', 'Sales Invoice');
+        if (mode === 'MANUAL_PURCHASE') return tr('مشتريات يدوية', 'Manual Purchase');
+        if (isPurchaseReturn) return tr('مرتجع شراء', 'Purchase Return');
+        if (isReturn) return tr('مرتجع بيع', 'Sales Return');
+        if (isPurchase) return tr('فاتورة شراء', 'Purchase Invoice');
+        if (isExpenseStyle) return tr('سند مصروف', 'Expense Voucher');
+        if (isQuotation) return tr('عرض سعر', 'Quotation');
+        return tr('سند', 'Voucher');
+    }, [mode, isSales, isPurchaseReturn, isReturn, isPurchase, isExpenseStyle, isQuotation, isEnglish]);
+    const showSalesModeTabs = !editingInvoice && (isSales || isReturn || isQuotation);
+    const showPurchaseModeTabs = !editingInvoice && (mode === 'PURCHASES' || mode === 'PURCHASE_RETURN' || mode === 'MANUAL_PURCHASE');
 
     // EFFECT: Handle auto-linking on mount if ID is provided
     useEffect(() => {
@@ -558,6 +661,7 @@ const InvoiceScreen: React.FC<{
         setDueDate(editingInvoice.dueDate || editingInvoice.date);
         setDiscount(editingInvoice.discountAmount ? String(editingInvoice.discountAmount) : '');
         setNotes(normalizedNotes);
+        setInvoiceNumber(editingInvoice.invoiceNumber || '');
         setLinkedInvoiceId(editingInvoice.linkedInvoiceId || '');
     }, [
         editingInvoice,
@@ -566,6 +670,11 @@ const InvoiceScreen: React.FC<{
         companySettings.defaultTaxRate,
         isEnglish
     ]);
+
+    useEffect(() => {
+        if (editingInvoice) return;
+        setInvoiceNumber(prev => prev.trim() ? prev : generateInvoiceNumber());
+    }, [editingInvoice, invoiceNumberPrefix]);
 
     useEffect(() => {
         if (!showBarcodeScanner) return;
@@ -656,6 +765,10 @@ const InvoiceScreen: React.FC<{
     );
 
     const financialAccounts = useMemo(() => accounts.filter(a => !a.isGroup && (a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root')), [accounts]);
+    const fallbackCashAccountId = financialAccounts.find(a => a.id === 'acc_cash')?.id || financialAccounts[0]?.id || '';
+    const effectivePaymentAccountId = paymentType === 'CASH'
+        ? (paymentAccountId || fallbackCashAccountId)
+        : paymentAccountId;
 
     useEffect(() => {
         if (isExpenseStyle || isQuotation) return;
@@ -691,7 +804,7 @@ const InvoiceScreen: React.FC<{
             });
         }
         return filtered.slice(0, 10);
-    }, [search, products, isSearchFocused, isEnglish]);
+    }, [search, products, isSearchFocused, isEnglish, selectedContact?.preferredPriceTier, isSales, isReturn, isQuotation]);
 
     // Available Invoices to Link (for Returns)
     const availableInvoices = useMemo(() => {
@@ -731,9 +844,7 @@ const InvoiceScreen: React.FC<{
     };
 
     const addItem = (product: Product) => {
-        // For sales return/sales/quotation, use sellPrice. For purchase/purchase return use buyPrice.
-        const basePrice = (isSales || isReturn || isQuotation) ? product.sellPrice : product.buyPrice;
-        const price = autoAddItemPriceInInvoice ? basePrice : 0;
+        const price = autoAddItemPriceInInvoice ? resolveInvoiceEntryPrice(product) : 0;
         const existing = items.find(i => i.productId === product.id);
         if (existing) {
             setItems(prev => prev.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1, total: (i.quantity + 1) * i.unitPrice } : i));
@@ -759,6 +870,7 @@ const InvoiceScreen: React.FC<{
         setManualItemDesc('');
         setManualItemQty('1');
         setManualItemPrice('');
+        setIsManualItem(false);
     };
 
     const addExpenseItem = () => {
@@ -864,6 +976,287 @@ const InvoiceScreen: React.FC<{
         };
     }, [items, discount, taxEnabled, taxRateOverride, taxVisibleInInvoices, isExpenseStyle, separatePurchaseTaxFromAmount]);
 
+    const invoiceCategory = useMemo(() => {
+        if (isPurchase) return 'purchase_invoice';
+        if (isImportExpenses) return 'import_expenses';
+        if (isExpenses) return 'general_expense';
+        if (isReturn) return 'sales_return';
+        if (isPurchaseReturn) return 'purchase_return';
+        return 'sales_invoice';
+    }, [isPurchase, isImportExpenses, isExpenses, isReturn, isPurchaseReturn]);
+    const invoiceStatus = isQuotation ? 'QUOTATION' : (paymentType === 'CASH' ? 'PAID' : 'PENDING');
+    const storedNotes = notes.trim()
+        ? (isImportExpenses
+            ? `${tr('مصاريف استيراد', 'Import expenses')}: ${notes.trim()}`
+            : (isExpenses ? `${tr('مصروفات', 'Expenses')}: ${notes.trim()}` : notes.trim()))
+        : '';
+    const selectedWarehouse = warehouseId ? warehouses.find(warehouse => warehouse.id === warehouseId) || null : null;
+    const selectedPaymentAccount = effectivePaymentAccountId ? financialAccounts.find(account => account.id === effectivePaymentAccountId) || null : null;
+    const selectedCounterpartyLabel = selectedContactLabel
+        || (isSalesFlow ? tr('عميل نقدي', 'Walk-in Customer') : tr('مورد عام', 'Generic Supplier'));
+
+    const escapeHtml = (value: unknown) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const formatAmount = (value: number) => Number(value || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    });
+    const getEffectiveInvoiceNumber = () => invoiceNumber.trim() || editingInvoice?.invoiceNumber || generateInvoiceNumber();
+
+    const buildDraftInvoice = (): Invoice => ({
+        id: editingInvoice?.id || `draft-${Date.now()}`,
+        invoiceNumber: getEffectiveInvoiceNumber(),
+        customerId: contactId || undefined,
+        linkedInvoiceId: linkedInvoiceId || undefined,
+        type: (isSales || isQuotation || isPurchaseReturn) ? TransactionType.INCOME : TransactionType.EXPENSE,
+        category: invoiceCategory,
+        date: sharedState.date,
+        dueDate: invoiceExpiryDateEnabled ? dueDate : undefined,
+        items: items.map((item, index) => ({
+            id: editingInvoice?.items?.[index]?.id || `draft-item-${index + 1}`,
+            ...item
+        })),
+        subTotal: totals.subTotalForInvoice,
+        taxRate: totals.rate,
+        taxAmount: totals.tax,
+        discountAmount: totals.disc,
+        totalAmount: totals.total,
+        status: invoiceStatus,
+        postingStatus: editingInvoice?.postingStatus || 'DRAFT',
+        paymentType,
+        paymentAccountId: effectivePaymentAccountId || undefined,
+        notes: storedNotes,
+        currency: sharedState.currency,
+        exchangeRate: sharedState.rate,
+        warehouseId: (!isExpenseStyle && hasWarehouses) ? (warehouseId || undefined) : undefined
+    });
+
+    const buildInvoiceShareText = () => {
+        const draft = buildDraftInvoice();
+        const itemLines = draft.items.map((item, index) => {
+            const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
+            const itemLabel = product ? displayProductName(product) : item.description;
+            return `${index + 1}. ${itemLabel} x ${formatAmount(item.quantity)} = ${formatAmount(item.total)} ${draft.currency}`;
+        });
+        return [
+            invoiceScreenTitle,
+            `${tr('رقم الفاتورة', 'Invoice No.')}: ${draft.invoiceNumber}`,
+            `${tr('التاريخ', 'Date')}: ${draft.date}`,
+            `${isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier')}: ${selectedCounterpartyLabel}`,
+            selectedWarehouse ? `${tr('المخزن', 'Warehouse')}: ${displayWarehouseName(selectedWarehouse)}` : '',
+            selectedPaymentAccount ? `${tr('الحساب', 'Account')}: ${displayAccountName(selectedPaymentAccount)}` : '',
+            storedNotes ? `${tr('التفاصيل', 'Details')}: ${notes.trim()}` : '',
+            '',
+            ...itemLines,
+            '',
+            `${tr('الإجمالي قبل الضريبة', 'Subtotal')}: ${formatAmount(draft.subTotal)} ${draft.currency}`,
+            draft.discountAmount > 0 ? `${tr('الخصم', 'Discount')}: ${formatAmount(draft.discountAmount)} ${draft.currency}` : '',
+            draft.taxAmount > 0 ? `${tr('الضريبة', 'Tax')}: ${formatAmount(draft.taxAmount)} ${draft.currency}` : '',
+            `${tr('الصافي', 'Net')}: ${formatAmount(draft.totalAmount)} ${draft.currency}`
+        ].filter(Boolean).join('\n');
+    };
+
+    const handlePrintPreview = () => {
+        const draft = buildDraftInvoice();
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
+            return;
+        }
+        const printDir = isEnglish ? 'ltr' : 'rtl';
+        const printLang = isEnglish ? 'en' : 'ar';
+        const rowsHtml = draft.items.map((item, index) => {
+            const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
+            const itemLabel = escapeHtml(product ? displayProductName(product) : item.description);
+            const itemCode = escapeHtml(product?.itemCode || product?.barcode || '');
+            return `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td style="text-align:${isEnglish ? 'left' : 'right'};">${itemLabel}</td>
+                    <td dir="ltr">${itemCode || '-'}</td>
+                    <td dir="ltr">${formatAmount(item.quantity)}</td>
+                    <td dir="ltr">${formatAmount(item.unitPrice)}</td>
+                    <td dir="ltr">${formatAmount(item.total)}</td>
+                </tr>
+            `;
+        }).join('');
+        const notesBlock = notes.trim()
+            ? `<div class="notes"><strong>${escapeHtml(tr('التفاصيل', 'Details'))}:</strong> ${escapeHtml(notes.trim()).replace(/\n/g, '<br />')}</div>`
+            : '';
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html dir="${printDir}" lang="${printLang}">
+                <head>
+                    <meta charset="utf-8" />
+                    <title>${escapeHtml(invoiceScreenTitle)} - ${escapeHtml(draft.invoiceNumber)}</title>
+                    <style>
+                        body { font-family: ${isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif"}; margin: 0; padding: 32px; color: #0f172a; background: #f8fafc; }
+                        .sheet { max-width: 920px; margin: 0 auto; background: #fff; border-radius: 24px; padding: 28px; box-shadow: 0 16px 50px rgba(15, 23, 42, 0.08); }
+                        .header { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 2px solid #e2e8f0; }
+                        .title { font-size: 28px; font-weight: 900; margin: 0 0 8px; color: #1d4ed8; }
+                        .muted { margin: 0; color: #64748b; font-size: 13px; }
+                        .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 22px 0; }
+                        .meta-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px 16px; }
+                        .meta-card strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 6px; }
+                        .meta-card span { font-size: 16px; font-weight: 800; }
+                        .notes { margin: 18px 0 0; padding: 14px 16px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 24px; overflow: hidden; border-radius: 18px; }
+                        th { background: #0f172a; color: #fff; font-size: 12px; padding: 12px 10px; }
+                        td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center; }
+                        .totals { margin-top: 22px; display: flex; justify-content: flex-end; }
+                        .totals-box { min-width: 280px; background: #0f172a; color: #fff; border-radius: 20px; padding: 18px 20px; }
+                        .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+                        .totals-row.total { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.18); font-size: 18px; font-weight: 900; }
+                    </style>
+                </head>
+                <body>
+                    <div class="sheet">
+                        <div class="header">
+                            <div>
+                                <h1 class="title">${escapeHtml(invoiceScreenTitle)}</h1>
+                                <p class="muted">${escapeHtml(companySettings.name || '')}</p>
+                            </div>
+                            <div style="text-align:${isEnglish ? 'left' : 'right'};">
+                                <p class="muted">${escapeHtml(tr('رقم الفاتورة', 'Invoice No.'))}: <strong>${escapeHtml(draft.invoiceNumber)}</strong></p>
+                                <p class="muted">${escapeHtml(tr('التاريخ', 'Date'))}: <strong>${escapeHtml(draft.date)}</strong></p>
+                                <p class="muted">${escapeHtml(tr('العملة', 'Currency'))}: <strong>${escapeHtml(draft.currency)}</strong></p>
+                            </div>
+                        </div>
+                        <div class="meta">
+                            <div class="meta-card">
+                                <strong>${escapeHtml(isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier'))}</strong>
+                                <span>${escapeHtml(selectedCounterpartyLabel)}</span>
+                            </div>
+                            <div class="meta-card">
+                                <strong>${escapeHtml(tr('نوع الدفع', 'Payment'))}</strong>
+                                <span>${escapeHtml(paymentType === 'CASH' ? tr('نقدي', 'Cash') : tr('آجل', 'Credit'))}</span>
+                            </div>
+                            <div class="meta-card">
+                                <strong>${escapeHtml(tr('المخزن', 'Warehouse'))}</strong>
+                                <span>${escapeHtml(selectedWarehouse ? displayWarehouseName(selectedWarehouse) : '-')}</span>
+                            </div>
+                            <div class="meta-card">
+                                <strong>${escapeHtml(tr('الحساب', 'Account'))}</strong>
+                                <span>${escapeHtml(selectedPaymentAccount ? displayAccountName(selectedPaymentAccount) : '-')}</span>
+                            </div>
+                        </div>
+                        ${notesBlock}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>${escapeHtml(tr('الصنف / الوصف', 'Item / Description'))}</th>
+                                    <th>${escapeHtml(tr('الرمز', 'Code'))}</th>
+                                    <th>${escapeHtml(tr('الكمية', 'Qty'))}</th>
+                                    <th>${escapeHtml(tr('السعر', 'Price'))}</th>
+                                    <th>${escapeHtml(tr('الإجمالي', 'Total'))}</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHtml || `<tr><td colspan="6">${escapeHtml(tr('لا توجد بنود بعد', 'No line items yet'))}</td></tr>`}</tbody>
+                        </table>
+                        <div class="totals">
+                            <div class="totals-box">
+                                <div class="totals-row"><span>${escapeHtml(tr('الإجمالي قبل الضريبة', 'Subtotal'))}</span><strong>${formatAmount(draft.subTotal)} ${escapeHtml(draft.currency)}</strong></div>
+                                <div class="totals-row"><span>${escapeHtml(tr('الخصم', 'Discount'))}</span><strong>${formatAmount(draft.discountAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                                <div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><strong>${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                                <div class="totals-row total"><span>${escapeHtml(tr('الصافي', 'Net'))}</span><strong>${formatAmount(draft.totalAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    <script>window.onload = function () { window.print(); };</script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
+    };
+
+    const handleDownloadExcel = () => {
+        const draft = buildDraftInvoice();
+        const csvEscape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const header = [
+            tr('رقم الفاتورة', 'Invoice No.'),
+            tr('التاريخ', 'Date'),
+            tr('الطرف', 'Counterparty'),
+            tr('الصنف', 'Item'),
+            tr('الرمز', 'Code'),
+            tr('الكمية', 'Qty'),
+            tr('السعر', 'Price'),
+            tr('الإجمالي', 'Total'),
+            tr('العملة', 'Currency')
+        ];
+        const rows = draft.items.map((item) => {
+            const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
+            return [
+                draft.invoiceNumber,
+                draft.date,
+                selectedCounterpartyLabel,
+                product ? displayProductName(product) : item.description,
+                product?.itemCode || product?.barcode || '',
+                item.quantity,
+                item.unitPrice,
+                item.total,
+                draft.currency
+            ];
+        });
+        const csv = '\uFEFF' + [header, ...rows].map(cols => cols.map(csvEscape).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${draft.invoiceNumber || 'invoice'}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    };
+
+    const handleShareInvoice = async () => {
+        const text = buildInvoiceShareText();
+        setShowInvoiceActions(false);
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: getEffectiveInvoiceNumber(), text });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') return;
+            }
+        }
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                alert(tr('تم نسخ بيانات الفاتورة إلى الحافظة.', 'Invoice details copied to clipboard.'));
+                return;
+            } catch {
+                // Fall through to prompt when clipboard is unavailable.
+            }
+        }
+        window.prompt(tr('انسخ بيانات الفاتورة التالية', 'Copy the invoice details below'), text);
+    };
+
+    const handleShareWhatsApp = () => {
+        setShowInvoiceActions(false);
+        window.open(`https://wa.me/?text=${encodeURIComponent(buildInvoiceShareText())}`, '_blank');
+    };
+
+    const handleShareSms = () => {
+        setShowInvoiceActions(false);
+        window.open(`sms:?&body=${encodeURIComponent(buildInvoiceShareText())}`, '_blank');
+    };
+
+    const handleDeleteCurrentInvoice = () => {
+        if (!editingInvoice) return;
+        setShowInvoiceActions(false);
+        if (!confirm(tr('هل أنت متأكد من حذف هذه الفاتورة نهائياً؟', 'Are you sure you want to permanently delete this invoice?'))) return;
+        const result = deleteInvoice(editingInvoice.id);
+        if (!result.ok) {
+            alert(result.message);
+            return;
+        }
+        alert(tr('تم حذف الفاتورة بنجاح.', 'Invoice deleted successfully.'));
+        onSuccess();
+    };
+
     const handleSubmit = async () => {
         if (!sharedState.date) return alert(tr('يرجى تحديد تاريخ العملية', 'Please select operation date'));
         if (!contactId && !isExpenseStyle) return alert(tr('يرجى اختيار العميل/المورد', 'Please select customer/supplier'));
@@ -873,10 +1266,6 @@ const InvoiceScreen: React.FC<{
         if (!isExpenseStyle && !isQuotation && hasWarehouses && !warehouseId) return alert(tr('يرجى اختيار المستودع', 'Please select warehouse'));
 
         // Validation for payment: Required unless it's a Quotation.
-        const fallbackCashAccountId = financialAccounts.find(a => a.id === 'acc_cash')?.id || financialAccounts[0]?.id || '';
-        const effectivePaymentAccountId = paymentType === 'CASH'
-            ? (paymentAccountId || fallbackCashAccountId)
-            : paymentAccountId;
         if (!isQuotation && paymentType === 'CASH' && !effectivePaymentAccountId) {
             return alert(tr('يرجى تحديد الصندوق المالي المستلم/المصروف منه', 'Please select the cash/bank account'));
         }
@@ -885,23 +1274,6 @@ const InvoiceScreen: React.FC<{
         if (!(companySettings.allowNegativeSalesQuantity ?? false) && (isSales || isQuotation) && items.some(i => i.quantity < 0)) {
             return alert(tr('Negative quantity is disabled for sales invoices in settings.', 'Negative quantity is disabled for sales invoices in settings.'));
         }
-        let category = 'sales_invoice';
-        if (isPurchase) {
-            category = 'purchase_invoice';
-        } else if (isImportExpenses) {
-            category = 'import_expenses';
-        } else if (isExpenses) {
-            category = 'general_expense';
-        } else if (isReturn) {
-            category = 'sales_return';
-        } else if (isPurchaseReturn) {
-            category = 'purchase_return';
-        }
-
-        // Determine Final Status
-        let invoiceStatus: any = paymentType === 'CASH' ? 'PAID' : 'PENDING';
-        if (isQuotation) invoiceStatus = 'QUOTATION';
-
         if ((companySettings.updateSalesPriceOnInvoiceEntry ?? false) && isSales) {
             const latestPriceByProduct = new Map<string, number>();
             items.forEach((item) => {
@@ -916,11 +1288,11 @@ const InvoiceScreen: React.FC<{
 
         const invoicePayload = {
             id: editingInvoice?.id,
-            invoiceNumber: editingInvoice?.invoiceNumber || `${isQuotation ? 'QT' : (isReturn || isPurchaseReturn) ? 'RET' : 'INV'}-${Date.now().toString().slice(-6)}`,
+            invoiceNumber: getEffectiveInvoiceNumber(),
             customerId: contactId || undefined,
             linkedInvoiceId: linkedInvoiceId || undefined,
             type: (isSales || isQuotation || isPurchaseReturn) ? TransactionType.INCOME : TransactionType.EXPENSE, // Purchase Return uses Income type flow in logic to reverse expense
-            category: category,
+            category: invoiceCategory,
             date: sharedState.date,
             dueDate: invoiceExpiryDateEnabled ? dueDate : undefined,
             items: items.map(i => ({ ...i, id: Math.random().toString() })),
@@ -935,9 +1307,7 @@ const InvoiceScreen: React.FC<{
             paymentAccountId: effectivePaymentAccountId,
             currency: sharedState.currency,
             exchangeRate: sharedState.rate,
-            notes: isImportExpenses
-                ? `${tr('مصاريف استيراد', 'Import expenses')}: ${notes}`
-                : (isExpenses ? `${tr('مصروفات', 'Expenses')}: ${notes}` : notes),
+            notes: storedNotes,
             warehouseId: (!isExpenseStyle && hasWarehouses) ? warehouseId : undefined
         };
 
@@ -1034,6 +1404,17 @@ const InvoiceScreen: React.FC<{
         return true;
     };
 
+    const getAvailableStock = (productId?: string) => {
+        if (!productId) return null;
+        const product = products.find(prod => prod.id === productId);
+        if (!product) return null;
+        if (warehouseId) {
+            const warehouseQty = product.warehouseStock?.find(entry => entry.warehouseId === warehouseId)?.quantity;
+            if (warehouseQty !== undefined) return warehouseQty;
+        }
+        return product.stock ?? 0;
+    };
+
     return (
         <div
             className="transaction-mobile-form app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
@@ -1041,6 +1422,7 @@ const InvoiceScreen: React.FC<{
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
+            <div className="sticky top-2 z-30 space-y-3 rounded-2xl bg-gray-50/95 pb-1 backdrop-blur">
             {/* 1. Header Navigation Bar */}
             <div className="flex items-center justify-between bg-white px-3 py-2 border border-gray-200 rounded-xl shadow-sm">
                 <button
@@ -1050,14 +1432,177 @@ const InvoiceScreen: React.FC<{
                     <ArrowRight size={18} className={isEnglish ? "rotate-180" : ""} />
                     {tr('رجوع', 'Back')}
                 </button>
-                <div className="text-base font-black text-indigo-900">
-                    {isSales ? tr('بيع', 'Sales') : isPurchaseReturn ? tr('مرتجع شراء', 'Purchase Return') : isReturn ? tr('مرتجع بيع', 'Sales Return') : isPurchase ? tr('شراء', 'Purchase') : isExpenseStyle ? tr('مصروف', 'Expense') : isQuotation ? tr('عرض سعر', 'Quotation') : tr('سند', 'Voucher')}
+                <div className="min-w-0 flex-1 px-2 text-center">
+                    <div className="truncate text-base font-black text-indigo-900">{invoiceScreenTitle}</div>
+                    <div className="truncate text-[10px] font-bold text-slate-400 dir-ltr">{getEffectiveInvoiceNumber()}</div>
                 </div>
-                <div className="flex items-center gap-1">
-                    <button className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors">
+                <div className="relative flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={handlePrintPreview}
+                        className="rounded-full bg-orange-50 p-2 text-orange-600 transition-colors hover:bg-orange-100"
+                        title={tr('PDF / طباعة', 'PDF / Print')}
+                    >
+                        <FileText size={16} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void handleSubmit()}
+                        className="rounded-full bg-slate-100 p-2 text-slate-700 transition-colors hover:bg-slate-200"
+                        title={tr('حفظ الفاتورة', 'Save Invoice')}
+                    >
+                        <Save size={16} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setShowInvoiceActions(prev => !prev)}
+                        className="rounded-full p-2 text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                        title={tr('إجراءات إضافية', 'More Actions')}
+                    >
                         <MoreVertical size={18} />
                     </button>
+                    {showInvoiceActions && (
+                        <>
+                            <button
+                                type="button"
+                                className="fixed inset-0 z-[180] cursor-default bg-transparent"
+                                onClick={() => setShowInvoiceActions(false)}
+                                aria-label={tr('إغلاق القائمة', 'Close menu')}
+                            />
+                            <div className={`absolute top-full z-[190] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'right-0' : 'left-0'}`}>
+                                {editingInvoice && (
+                                    <button type="button" onClick={handleDeleteCurrentInvoice} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-rose-600 transition-colors hover:bg-rose-50">
+                                        <Trash2 size={16} />
+                                        {tr('حذف', 'Delete')}
+                                    </button>
+                                )}
+                                <button type="button" onClick={() => { setShowInvoiceActions(false); handleDownloadExcel(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                    <FileSpreadsheet size={16} />
+                                    {tr('إكسل', 'Excel')}
+                                </button>
+                                <button type="button" onClick={() => void handleShareInvoice()} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                    <Share2 size={16} />
+                                    {tr('مشاركة', 'Share')}
+                                </button>
+                                <button type="button" onClick={handleShareSms} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                    <MessageSquareText size={16} />
+                                    {tr('إشعار رسالة', 'SMS')}
+                                </button>
+                                <button type="button" onClick={handleShareWhatsApp} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                    <MessageCircle size={16} />
+                                    {tr('إشعار واتساب', 'WhatsApp')}
+                                </button>
+                            </div>
+                        </>
+                    )}
                 </div>
+            </div>
+
+            {showSalesModeTabs && onModeChange && (
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('SALES')}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${isSales ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        {tr('فاتورة بيع', 'Sales')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('QUOTATION')}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${isQuotation ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        {tr('عرض سعر', 'Quotation')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('SALES_RETURN')}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${isReturn ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        {tr('مرتجع', 'Return')}
+                    </button>
+                </div>
+            )}
+
+            {showPurchaseModeTabs && onModeChange && (
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('PURCHASES')}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${mode === 'PURCHASES' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        {tr('فاتورة شراء', 'Purchase')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('PURCHASE_RETURN')}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${mode === 'PURCHASE_RETURN' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        {tr('مرتجع شراء', 'Return')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onModeChange('MANUAL_PURCHASE')}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${mode === 'MANUAL_PURCHASE' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        {tr('يدوي', 'Manual')}
+                    </button>
+                </div>
+            )}
+
+            <div className="bg-white px-3 py-3 border border-gray-200 rounded-xl shadow-sm">
+                <div className="header-fields-grid grid grid-cols-3 gap-2 items-start">
+                    <div className="min-w-0">
+                        <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
+                            {tr('تاريخ العملية', 'Operation Date')}
+                        </label>
+                        <EnglishDateInput
+                            value={sharedState.date}
+                            onChange={onDateChange}
+                            className="w-full py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50"
+                            aria-label={tr('تاريخ العملية', 'Operation date')}
+                        />
+                    </div>
+                    <div className="min-w-0">
+                        <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
+                            {tr('العملة', 'Currency')}
+                        </label>
+                        <div className="relative">
+                            <select
+                                value={sharedState.currency}
+                                onChange={e => onCurrencyChange(e.target.value)}
+                                className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
+                            >
+                                {currencyOptions.map(currency => (
+                                    <option key={currency.code} value={currency.code}>
+                                        {currency.code} - {currency.symbol}
+                                    </option>
+                                ))}
+                            </select>
+                            <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
+                        </div>
+                    </div>
+                    <div className="min-w-0">
+                        <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
+                            {tr('سعر الصرف', 'Exchange Rate')} ({tr('مقابل', 'vs')} {baseCurrency})
+                        </label>
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            min="0.0001"
+                            step="0.0001"
+                            value={sharedState.rate}
+                            onChange={e => {
+                                const parsed = parseFloat(e.target.value);
+                                onRateChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
+                            }}
+                            disabled={sharedState.currency === baseCurrency}
+                            className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 disabled:bg-gray-50 disabled:text-gray-400 dir-ltr"
+                            aria-label={tr('سعر الصرف', 'Exchange rate')}
+                        />
+                    </div>
+                </div>
+            </div>
             </div>
 
             {/* 2. Top Header Inputs (Fixed Height, compact) */}
@@ -1102,9 +1647,9 @@ const InvoiceScreen: React.FC<{
                     )}
                 </div>
 
-                {/* Customer / Supplier & Date */}
+                {/* Customer / Supplier */}
                 <div className="flex gap-2 items-center">
-                    <div className="flex-1 relative flex items-center">
+                    <div className="flex-1 min-w-0 relative flex items-center">
                         <SearchableContactSelect
                             contacts={filteredContacts}
                             selectedId={contactId}
@@ -1113,23 +1658,51 @@ const InvoiceScreen: React.FC<{
                                 setContactId(nextId);
                                 setLinkedInvoiceId('');
                             }}
+                            onCreateNew={(nextName) => {
+                                setQuickContactInitialName(nextName);
+                                setShowQuickContact(true);
+                            }}
                             displayContactName={displayContactName}
                             placeholder={isExpenseStyle ? tr('مورد عام / بدون أو ابحث...', 'Generic supplier / search...') : tr('اختر الطرف أو ابحث...', 'Select or search contact...')}
                             emptyLabel={tr('لا يوجد طرف مطابق.', 'No matching contact found.')}
+                            createNewLabel={(isSales || isReturn || isQuotation)
+                                ? tr('إضافة عميل جديد', 'Add New Customer')
+                                : tr('إضافة مورد جديد', 'Add New Supplier')}
                             isEnglish={isEnglish}
                             className="w-full"
                             inputClassName={`w-full bg-gray-50 border border-gray-100 rounded-xl p-1.5 text-[11px] font-black text-gray-700 outline-none focus:ring-1 focus:ring-indigo-300 ${isEnglish ? 'pl-9 pr-9' : 'pr-9 pl-9'}`}
                         />
-                        <button type="button" onClick={() => setShowQuickContact(true)} className="p-1.5 bg-gray-200 text-gray-600 rounded-xl active:bg-gray-300 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0 w-8">
+                        <button type="button" onClick={() => { setQuickContactInitialName(''); setShowQuickContact(true); }} className="p-1.5 bg-gray-200 text-gray-600 rounded-xl active:bg-gray-300 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0 w-8">
                             <UserPlus size={14} />
                         </button>
                     </div>
-
-                    <div className="w-28 shrink-0 relative">
-                        <EnglishDateInput
-                            value={sharedState.date}
-                            onChange={onDateChange}
-                            className="w-full text-center text-[11px] font-black bg-gray-50 border border-gray-100 rounded-xl flex items-center justify-center p-0 h-[28px] focus:outline-none focus:border-indigo-300"
+                </div>
+                {selectedContact
+                    && (selectedContact.type === 'CUSTOMER' || selectedContact.type === 'SUPPLIER')
+                    && selectedContact.preferredPriceTier && (
+                    <div className="mt-1 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[10px] font-black text-indigo-700">
+                        {tr('\u062a\u0633\u0639\u064a\u0631 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0647\u0630\u0627 \u0627\u0644\u0637\u0631\u0641', 'Invoice pricing for this contact')}: {selectedContactPriceTierLabel}
+                    </div>
+                )}
+                <div className="grid grid-cols-[minmax(0,1fr)_126px] gap-2 sm:grid-cols-[minmax(0,1.25fr)_180px]">
+                    <div className="relative min-w-0">
+                        <TextQuote className={`absolute top-1/2 -translate-y-1/2 text-slate-300 ${isEnglish ? 'left-3' : 'right-3'}`} size={14} />
+                        <input
+                            type="text"
+                            value={notes}
+                            onChange={e => setNotes(e.target.value)}
+                            placeholder={tr('التفاصيل / الملاحظات', 'Details / notes')}
+                            className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2 text-[11px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-right'}`}
+                        />
+                    </div>
+                    <div className="relative min-w-0">
+                        <Hash className={`absolute top-1/2 -translate-y-1/2 text-slate-300 ${isEnglish ? 'left-3' : 'right-3'}`} size={14} />
+                        <input
+                            type="text"
+                            value={invoiceNumber}
+                            onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
+                            placeholder={tr('رقم الفاتورة', 'Invoice number')}
+                            className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2 text-[11px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 dir-ltr ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-left'}`}
                         />
                     </div>
                 </div>
@@ -1140,25 +1713,28 @@ const InvoiceScreen: React.FC<{
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
-                        if (search.trim() || manualItemDesc.trim()) setShowQuickProduct(true);
+                        if (isManualItem) {
+                            if (manualItemDesc.trim()) setShowQuickProduct(true);
+                            return;
+                        }
+                        const rawQuery = search.trim();
+                        if (!rawQuery) return;
+                        setQuickProductInitialName(rawQuery);
+                        setShowQuickProduct(true);
                     }}
-                    className="flex gap-2 items-center relative"
+                    className="grid grid-cols-[auto,minmax(0,1fr),auto] gap-2 items-start relative rounded-2xl border border-slate-200 bg-slate-50/70 p-1.5"
                 >
                     <button
-                        type="button"
-                        onClick={() => {
-                            if ((companySettings.barcodeEnabled ?? true) && barcodeSettings.allowCameraScannerInInvoices) {
-                                setShowBarcodeScanner(true);
-                            } else {
-                                setShowQuickProduct(true);
-                            }
-                        }}
-                        className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm active:-translate-y-0.5 active:scale-95 transition-all outline-none"
+                        type="submit"
+                        className="flex w-[60px] shrink-0 flex-col items-center gap-1 text-center"
                     >
-                        {(companySettings.barcodeEnabled ?? true) && barcodeSettings.allowCameraScannerInInvoices ? <ScanBarcode size={16} /> : <Plus size={16} />}
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 text-white shadow active:-translate-y-0.5 active:scale-95 transition-all">
+                            <Plus size={18} />
+                        </span>
+                        <span className="text-[9px] font-black text-slate-500">{tr('إضافة صنف', 'Add item')}</span>
                     </button>
 
-                    <div className="flex-1 relative">
+                    <div className="flex-1 min-w-0 relative">
                         <input
                             value={isManualItem ? manualItemDesc : search}
                             onChange={e => isManualItem ? setManualItemDesc(e.target.value) : setSearch(e.target.value)}
@@ -1167,19 +1743,27 @@ const InvoiceScreen: React.FC<{
                                 if (!isManualItem) setIsSearchFocused(true);
                             }}
                             placeholder={isManualItem ? tr('وصف البند اليدوي...', 'Manual item desc...') : tr('أدخل إسم الصنف أو الباركود', 'Enter item name or barcode')}
-                            className="w-full p-2 text-xs font-black bg-white border border-gray-200 shadow-inner rounded-xl appearance-none focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 transition-all pl-10"
+                            className={`w-full h-10 text-sm font-black bg-white border border-transparent shadow-inner rounded-xl appearance-none focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all ${isEnglish ? 'px-3 text-left' : 'px-3 text-right'}`}
                         />
-                        <button type="button" onClick={() => setIsManualItem(!isManualItem)} className={`absolute ${isEnglish ? 'left-2' : 'right-2'} top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors ${isManualItem ? 'text-amber-500 bg-amber-50' : 'text-gray-400 hover:text-indigo-500'}`} title={tr('تبديل يدوي/مخزني', 'Toggle Manual/Stock')}>
-                            {isManualItem ? <Layers size={14} /> : <Package size={14} />}
-                        </button>
                     </div>
 
-                    <button type="submit" className="p-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl shadow active:-translate-y-0.5 active:scale-95 transition-all flex items-center justify-center min-w-[3rem]">
-                        <Plus size={18} />
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setIsSearchFocused(false);
+                            setIsManualItem(true);
+                            setShowQuickProduct(true);
+                        }}
+                        className="flex w-[60px] shrink-0 flex-col items-center gap-1 text-center"
+                    >
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shadow-sm active:-translate-y-0.5 active:scale-95 transition-all hover:bg-amber-100">
+                            <Package size={16} />
+                        </span>
+                        <span className="text-[9px] font-black text-slate-500">{tr('إضافة بند يدوي', 'Manual line')}</span>
                     </button>
 
                     {/* Autocomplete Dropdown */}
-                    {!isManualItem && isSearchFocused && search && (
+                    {!isManualItem && isSearchFocused && (
                         <>
                             <div className="fixed inset-0 z-[190]" onClick={() => setIsSearchFocused(false)}></div>
                             <div className="absolute top-full left-0 right-0 z-[200] mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in max-h-[30vh] overflow-y-auto">
@@ -1194,12 +1778,36 @@ const InvoiceScreen: React.FC<{
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="text-left font-black text-indigo-600 text-[11px] dir-ltr">
-                                            {(isSales || isReturn || isQuotation ? p.sellPrice : p.buyPrice).toLocaleString()}
+                                        <div className="text-left">
+                                            <div className="font-black text-indigo-600 text-[11px] dir-ltr">
+                                                {resolveInvoiceEntryPrice(p).toLocaleString()}
+                                            </div>
+                                            {typeof resolveLastInvoicePrice(p.id) === 'number' && (
+                                                <div className="mt-0.5 text-[9px] font-bold text-emerald-600">
+                                                    {tr('آخر سعر', 'Last price')}: {resolveLastInvoicePrice(p.id)?.toLocaleString()}
+                                                </div>
+                                            )}
                                         </div>
                                     </button>
                                 )) : (
                                     <div className="p-4 text-center text-gray-400 text-[10px] font-bold">{tr('لا يوجد تطابق', 'No match')}</div>
+                                )}
+                                {searchResults.length === 0 && search.trim() && (
+                                    <div className="px-4 pb-4">
+                                        <button
+                                            type="button"
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            onClick={() => {
+                                                setQuickProductInitialName(search.trim());
+                                                setShowQuickProduct(true);
+                                                setIsSearchFocused(false);
+                                            }}
+                                            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-black text-indigo-700 transition-colors hover:bg-indigo-100"
+                                        >
+                                            <PackagePlus size={14} />
+                                            {tr('إضافة صنف جديد', 'Add New Item')}
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </>
@@ -1209,16 +1817,16 @@ const InvoiceScreen: React.FC<{
 
             {/* 4. Items Sheet (Excel-like) */}
             <div className="w-full bg-white border border-gray-200 rounded-xl p-2 shadow-sm">
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="w-full min-w-[620px] table-fixed text-[11px]">
+                <div className="invoice-items-shell overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="invoice-items-table w-full min-w-full table-fixed text-[10px] sm:text-[11px] md:min-w-[620px]">
                         <thead className="bg-slate-100 text-slate-600">
                             <tr>
-                                <th className="w-10 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">#</th>
+                                <th className="w-[6%] border-b border-slate-200 px-1 py-1.5 text-center font-black">#</th>
                                 <th className="w-[42%] border-b border-slate-200 px-1.5 py-1.5 text-start font-black">{tr('الصنف/الوصف', 'Item / Description')}</th>
                                 <th className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('الكمية', 'Qty')}</th>
                                 <th className="w-20 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('السعر', 'Price')}</th>
                                 <th className="w-20 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('الإجمالي', 'Total')}</th>
-                                <th className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('المخزون', 'Stock')}</th>
+                                <th aria-label={tr('المخزون', 'Stock')} className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black"></th>
                                 <th className="w-12 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('حذف', 'Delete')}</th>
                             </tr>
                         </thead>
@@ -1233,6 +1841,8 @@ const InvoiceScreen: React.FC<{
                             {items.map((item, idx) => {
                                 const linkedProduct = item.productId ? products.find(p => p.id === item.productId) : null;
                                 const stockOk = checkStock(item.productId, Number(item.quantity) || 0);
+                                const availableStock = getAvailableStock(item.productId);
+                                const lastInvoicePrice = resolveLastInvoicePrice(item.productId);
                                 return (
                                     <tr key={idx} className="odd:bg-white even:bg-slate-50/40">
                                         <td className="border-b border-slate-100 px-1.5 py-1 text-center font-black text-slate-500">{idx + 1}</td>
@@ -1263,11 +1873,19 @@ const InvoiceScreen: React.FC<{
                                                 onChange={e => updateItem(idx, 'unitPrice', parseFloat(e.target.value))}
                                                 className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
                                             />
+                                            {typeof lastInvoicePrice === 'number' && (
+                                                <div className="mt-0.5 text-center text-[9px] font-bold text-indigo-500 dir-ltr">
+                                                    {tr('آخر سعر', 'Last price')}: {lastInvoicePrice.toLocaleString()}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="border-b border-slate-100 px-1.5 py-1 text-center">
                                             <span className="font-black text-[11px] text-slate-800 dir-ltr">{Number(item.total || 0).toLocaleString()}</span>
                                         </td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black">
+                                        <td
+                                            className={`invoice-stock-cell border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black ${item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
+                                            data-stock={item.productId ? (availableStock?.toLocaleString() ?? '0') : '—'}
+                                        >
                                             {item.productId
                                                 ? <span className={stockOk ? 'text-emerald-600' : 'text-rose-600'}>{stockOk ? tr('متاح', 'OK') : tr('غير كافٍ', 'Low')}</span>
                                                 : <span className="text-slate-400">{tr('—', '—')}</span>}
@@ -1355,24 +1973,43 @@ const InvoiceScreen: React.FC<{
                         <div className="flex-1 overflow-y-auto">
                             <ContactEditorDialog
                                 mode="INVOICE"
+                                initialName={quickContactInitialName}
                                 initialType={(isSales || isReturn || isQuotation) ? 'CUSTOMER' : 'SUPPLIER'}
                                 allowedTypes={['CUSTOMER', 'SUPPLIER']}
-                                onClose={() => setShowQuickContact(false)}
-                                onSave={(contact) => { setContactId(contact.id); setShowQuickContact(false); }}
+                                onClose={() => { setQuickContactInitialName(''); setShowQuickContact(false); }}
+                                onSave={(contact) => {
+                                    setContactId(contact.id);
+                                    setQuickContactInitialName('');
+                                    setShowQuickContact(false);
+                                }}
                             />
                         </div>
                     </div>
                 </div>
             )}
 
-            {showQuickProduct && (
+            {showQuickProduct && !isManualItem && (
+                <QuickAddProductModal
+                    mode="INVOICE"
+                    initialName={quickProductInitialName || search.trim()}
+                    onClose={() => { setQuickProductInitialName(''); setShowQuickProduct(false); }}
+                    onSave={(product) => {
+                        addItem(product);
+                        setQuickProductInitialName('');
+                        setSearch('');
+                        setShowQuickProduct(false);
+                    }}
+                />
+            )}
+
+            {showQuickProduct && isManualItem && (
                 <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm flex items-center justify-center animate-in fade-in p-4">
                     <div className="bg-white w-full max-w-[320px] rounded-[1.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 p-4 flex flex-col gap-3">
                         <div className="flex justify-between items-center px-1 mb-1">
                             <h3 className="text-[13px] font-black text-slate-800">
                                 {isManualItem ? tr('تفاصيل البند', 'Item Details') : tr('إضافة صنف', 'Add Item')}
                             </h3>
-                            <button onClick={() => setShowQuickProduct(false)} className="text-gray-400 hover:text-slate-700 bg-gray-100 p-1.5 rounded-full"><X size={14} /></button>
+                            <button onClick={() => { setShowQuickProduct(false); setIsManualItem(false); }} className="text-gray-400 hover:text-slate-700 bg-gray-100 p-1.5 rounded-full"><X size={14} /></button>
                         </div>
 
                         {!isManualItem && (
@@ -1485,6 +2122,7 @@ const VoucherScreen: React.FC<{
     const [contactId, setContactId] = useState('');
     const [description, setDescription] = useState('');
     const [showQuickContact, setShowQuickContact] = useState(false);
+    const [quickContactInitialName, setQuickContactInitialName] = useState('');
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayContactName = (contact?: { id: string; name: string } | null) => getDisplayContactName(contact || undefined, isEnglish);
@@ -1852,7 +2490,7 @@ const VoucherScreen: React.FC<{
 
         const voucherId = initialVoucherId || `VOU-${Date.now().toString().slice(-6)}`;
         const isReceipt = voucherType === 'RECEIPT';
-        const fallbackContactId = isReceipt ? 'cash_customer' : 'cash_supplier';
+        const fallbackContactId = 'cash_customer';
         const resolvedContactId = contactId || (contacts.some(c => c.id === fallbackContactId) ? fallbackContactId : '');
         const contact = contacts.find(c => c.id === resolvedContactId);
         const contactName = displayContactName(contact) || tr('عام', 'General');
@@ -2051,14 +2689,25 @@ const VoucherScreen: React.FC<{
                                 selectedId={contactId}
                                 selectedLabel={selectedContactLabel}
                                 onSelect={setContactId}
+                                onCreateNew={(nextName) => {
+                                    setQuickContactInitialName(nextName);
+                                    setShowQuickContact(true);
+                                }}
                                 displayContactName={displayContactName}
                                 placeholder={tr('اختر الطرف أو ابحث بالاسم أو الجوال...', 'Select or search by name or phone...')}
                                 emptyLabel={tr('لا يوجد طرف مطابق.', 'No matching contact found.')}
+                                createNewLabel={tr('إضافة طرف جديد', 'Add New Contact')}
+                                onActionClick={(nextName) => {
+                                    setQuickContactInitialName(nextName || '');
+                                    setShowQuickContact(true);
+                                }}
+                                actionIcon={<UserPlus size={16} />}
+                                actionLabel={tr('إضافة طرف جديد', 'Add New Contact')}
+                                actionButtonClassName="text-blue-500 hover:text-blue-600"
                                 isEnglish={isEnglish}
                                 inputClassName={inputClass + " !py-3"}
                             />
                         </div>
-                        <button onClick={() => setShowQuickContact(true)} className="transaction-entry-plus p-4 bg-blue-50 text-blue-600 rounded-[1.5rem] shrink-0 self-end"><UserPlus size={20} /></button>
                     </div>
                     <input value={description} onChange={e => setDescription(e.target.value)} placeholder={tr('البيان / ملاحظات السند...', 'Voucher description / notes...')} className={inputClass} />
                     {selectedContact?.type === 'PARTNER' && (
@@ -2375,10 +3024,15 @@ const VoucherScreen: React.FC<{
             {showQuickContact && (
                 <ContactEditorDialog
                     mode="INVOICE"
+                    initialName={quickContactInitialName}
                     initialType={voucherType === 'RECEIPT' ? 'CUSTOMER' : 'SUPPLIER'}
                     allowedTypes={['CUSTOMER', 'SUPPLIER']}
-                    onClose={() => setShowQuickContact(false)}
-                    onSave={(contact) => setContactId(contact.id)}
+                    onClose={() => { setQuickContactInitialName(''); setShowQuickContact(false); }}
+                    onSave={(contact) => {
+                        setContactId(contact.id);
+                        setQuickContactInitialName('');
+                        setShowQuickContact(false);
+                    }}
                 />
             )}
         </div>
@@ -3167,6 +3821,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
 
     const isEntryDateLocked = mode === 'JOURNAL' && !allowEditEntryDate;
     const devUiMarker = import.meta.env.DEV ? 'UI-2026-03-08' : '';
+    const usesOuterHeader = mode === 'JOURNAL' || mode === 'VOUCHERS';
 
     return (
         <div
@@ -3174,6 +3829,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
+            {usesOuterHeader && (
             <div className="sticky top-2 z-30 bg-gray-50/95 backdrop-blur rounded-2xl border border-gray-100 shadow-sm px-3 py-2">
                 <div className="flex items-center justify-between gap-2 min-w-0">
                     <button
@@ -3191,9 +3847,9 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     <div className="w-[64px] sm:w-[78px] shrink-0" />
                 </div>
                 <div className="mt-2">
-                    <div className="header-fields-grid grid grid-cols-1 lg:grid-cols-3 gap-2">
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5">
+                    <div className="header-fields-grid grid grid-cols-3 gap-2 items-start">
+                        <div className="min-w-0">
+                            <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
                                 {tr('تاريخ العملية', 'Operation Date')}
                             </label>
                             <EnglishDateInput
@@ -3214,8 +3870,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                                 </div>
                             )}
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5">
+                        <div className="min-w-0">
+                            <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
                                 {tr('العملة', 'Currency')}
                             </label>
                             <div className="relative">
@@ -3233,8 +3889,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                                 <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
                             </div>
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5">
+                        <div className="min-w-0">
+                            <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
                                 {tr('سعر الصرف', 'Exchange Rate')} ({tr('مقابل', 'vs')} {baseCurrency})
                             </label>
                             <input
@@ -3257,6 +3913,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     </div>
                 </div>
             </div>
+            )}
 
             {mode === 'JOURNAL' ? (
                 <JournalScreen sharedState={sharedState} onSuccess={handleFlowSuccess} />
@@ -3270,9 +3927,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                 />
             ) : (
                 <InvoiceScreen
+                    key={`${mode}:${initialInvoiceId || 'new'}`}
                     mode={mode as any}
                     sharedState={sharedState}
                     onDateChange={value => setSharedState(prev => ({ ...prev, date: value }))}
+                    onCurrencyChange={handleCurrencyChange}
+                    onRateChange={value => setSharedState(prev => ({ ...prev, rate: value }))}
+                    onModeChange={nextMode => setMode(nextMode)}
                     onSuccess={handleFlowSuccess}
                     onBack={onBack}
                     linkedInvoiceId={initialLinkedInvoiceId}

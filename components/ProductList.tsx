@@ -3,8 +3,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { 
   Package, Trash2, Plus, Search, Tag, AlertCircle, 
-  LayoutGrid, X, Check, Edit2, ArrowUpDown,
-  FolderPlus, Settings, BellRing, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer
+  LayoutGrid, X, Check, Edit2, ArrowUpDown, SlidersHorizontal,
+  FolderPlus, Settings, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer
 } from 'lucide-react';
 import { Product } from '../types';
 import ProductCard from './ProductCard';
@@ -38,6 +38,7 @@ const ProductList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [groupFilter, setGroupFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState<'LATEST' | 'NAME_ASC' | 'STOCK_LOW' | 'VALUE_HIGH'>('LATEST');
+  const [stockFilter, setStockFilter] = useState<'ALL' | 'IN_STOCK' | 'OUT_OF_STOCK' | 'WITH_BARCODE' | 'WITH_IMAGE'>('ALL');
   const [viewProductId, setViewProductId] = useState<string | null>(null);
   const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
 
@@ -64,7 +65,6 @@ const ProductList: React.FC = () => {
   const [expiryPeriodDays, setExpiryPeriodDays] = useState('');
   const [expiryAlertLeadDays, setExpiryAlertLeadDays] = useState('');
   const [lowStockAlertQty, setLowStockAlertQty] = useState('');
-  const [reorderQty, setReorderQty] = useState('');
   const [barcode, setBarcode] = useState('');
   const [itemCode, setItemCode] = useState('');
   const [itemCodeMode, setItemCodeMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
@@ -159,7 +159,6 @@ const ProductList: React.FC = () => {
       setExpiryPeriodDays('');
       setExpiryAlertLeadDays('');
       setLowStockAlertQty('');
-      setReorderQty('');
       setBarcode('');
       setItemCode('');
       setItemCodeMode('AUTO');
@@ -190,7 +189,6 @@ const ProductList: React.FC = () => {
       setExpiryPeriodDays(product.expiryPeriodDays !== undefined ? String(product.expiryPeriodDays) : '');
       setExpiryAlertLeadDays(product.expiryAlertLeadDays !== undefined ? String(product.expiryAlertLeadDays) : '');
       setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
-      setReorderQty(product.reorderQty !== undefined ? String(product.reorderQty) : '');
       setBarcode(product.barcode || '');
       setItemCode(product.itemCode || '');
       setItemCodeMode(product.itemCode ? 'MANUAL' : 'AUTO');
@@ -207,14 +205,10 @@ const ProductList: React.FC = () => {
     if (!name.trim()) return;
 
     const parsedLowStockAlertQty = parseLocalizedPositiveInt(lowStockAlertQty);
-    const parsedReorderQty = parseLocalizedPositiveInt(reorderQty);
     const parsedExpiryPeriodDays = parseLocalizedPositiveInt(expiryPeriodDays);
     const parsedExpiryAlertLeadDays = parseLocalizedPositiveInt(expiryAlertLeadDays);
     const normalizedLowStockAlertQty = Number.isFinite(parsedLowStockAlertQty) && parsedLowStockAlertQty >= 0
       ? parsedLowStockAlertQty
-      : undefined;
-    const normalizedReorderQty = Number.isFinite(parsedReorderQty) && parsedReorderQty > 0
-      ? parsedReorderQty
       : undefined;
     const normalizedExpiryPeriodDays = Number.isFinite(parsedExpiryPeriodDays) && parsedExpiryPeriodDays > 0
       ? parsedExpiryPeriodDays
@@ -278,7 +272,7 @@ const ProductList: React.FC = () => {
       expiryPeriodDays: normalizedExpiryPeriodDays,
       expiryAlertLeadDays: normalizedExpiryAlertLeadDays,
       lowStockAlertQty: normalizedLowStockAlertQty,
-      reorderQty: normalizedReorderQty,
+      reorderQty: undefined,
       barcode
     };
 
@@ -324,11 +318,20 @@ const ProductList: React.FC = () => {
     return p.stock <= threshold;
   }).length, [products, lowStockThreshold]);
 
-  const orderNowCount = useMemo(() => products.filter(p => {
-    const threshold = Number.isFinite(Number(p.lowStockAlertQty)) ? Math.max(0, Number(p.lowStockAlertQty)) : lowStockThreshold;
-    const suggested = Number.isFinite(Number(p.reorderQty)) ? Math.max(0, Number(p.reorderQty)) : 0;
-    return suggested > 0 && p.stock <= threshold;
-  }).length, [products, lowStockThreshold]);
+  const visibleItemGroups = useMemo(
+    () => itemGroups.filter((group) => {
+      const normalizedName = (group.name || '').trim().toLowerCase();
+      return normalizedName !== 'اطلب الآن' && normalizedName !== 'order now';
+    }),
+    [itemGroups]
+  );
+
+  useEffect(() => {
+    if (groupFilter === 'ALL' || groupFilter === 'LOW_STOCK') return;
+    if (!visibleItemGroups.some((group) => group.id === groupFilter)) {
+      setGroupFilter('ALL');
+    }
+  }, [groupFilter, visibleItemGroups]);
 
   const filteredProducts = useMemo(() => products.filter(p => {
     const displayName = displayProductName(p);
@@ -338,17 +341,29 @@ const ProductList: React.FC = () => {
                          p.itemCode?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const threshold = Number.isFinite(Number(p.lowStockAlertQty)) ? Math.max(0, Number(p.lowStockAlertQty)) : lowStockThreshold;
-    if (groupFilter === 'LOW_STOCK') {
-        return matchesSearch && p.stock <= threshold;
-    }
-    if (groupFilter === 'ORDER_NOW') {
-        const suggested = Number.isFinite(Number(p.reorderQty)) ? Math.max(0, Number(p.reorderQty)) : 0;
-        return matchesSearch && suggested > 0 && p.stock <= threshold;
-    }
+    const normalizedStock = Math.max(0, Number(p.stock) || 0);
+    const matchesStockFilter = (() => {
+      switch (stockFilter) {
+        case 'IN_STOCK':
+          return normalizedStock > 0;
+        case 'OUT_OF_STOCK':
+          return normalizedStock <= 0;
+        case 'WITH_BARCODE':
+          return !!p.barcode?.trim();
+        case 'WITH_IMAGE':
+          return !!p.imageUrl?.trim();
+        case 'ALL':
+        default:
+          return true;
+      }
+    })();
 
+    if (groupFilter === 'LOW_STOCK') {
+        return matchesSearch && matchesStockFilter && p.stock <= threshold;
+    }
     const matchesGroup = groupFilter === 'ALL' || p.category === groupFilter;
-    return matchesSearch && matchesGroup;
-  }), [products, searchTerm, groupFilter, lowStockThreshold, isEnglish]);
+    return matchesSearch && matchesGroup && matchesStockFilter;
+  }), [products, searchTerm, groupFilter, lowStockThreshold, stockFilter, isEnglish]);
 
   const totalProductsCount = products.length;
   const totalUnitsInStock = useMemo(
@@ -431,6 +446,7 @@ const ProductList: React.FC = () => {
     return new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
   };
   const metricDividerClass = isEnglish ? 'border-l border-gray-100' : 'border-r border-gray-100';
+  const hasActiveFilters = !!searchTerm || groupFilter !== 'ALL' || stockFilter !== 'ALL' || sortBy !== 'LATEST';
 
   const draftPricingPreview = useMemo(() => {
     const draftRetailInput = parseLocalizedPositiveDecimal(sellPrice);
@@ -524,26 +540,26 @@ const ProductList: React.FC = () => {
       )}
 
       {/* Inventory Snapshot */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 lg:gap-4 mb-5">
-          <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{tr('إجمالي الأصناف', 'Total Items')}</p>
-              <p className="text-xl font-black text-slate-800 dir-ltr">{formatCurrency(totalProductsCount)}</p>
-              <p className="text-[9px] font-bold text-slate-400 mt-1">{tr('نتائج الفلتر', 'Filtered Results')}: {formatCurrency(sortedProducts.length)}</p>
+      <div className="grid grid-cols-4 gap-2 sm:gap-3 lg:gap-4 mb-5">
+          <div className="bg-white rounded-2xl border border-slate-100 p-3 sm:p-4 shadow-sm min-w-0">
+              <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-4">{tr('إجمالي الأصناف', 'Total Items')}</p>
+              <p className="text-lg sm:text-xl font-black text-slate-800 dir-ltr truncate">{formatCurrency(totalProductsCount)}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 mt-1 leading-4">{tr('نتائج الفلتر', 'Filtered Results')}: {formatCurrency(sortedProducts.length)}</p>
           </div>
-          <div className="bg-white rounded-2xl border border-emerald-100 p-4 shadow-sm">
-              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">{tr('وحدات بالمخزون', 'Units In Stock')}</p>
-              <p className="text-xl font-black text-emerald-700 dir-ltr">{formatCurrency(totalUnitsInStock)}</p>
-              <p className="text-[9px] font-bold text-emerald-500/80 mt-1">{tr('حسب الفلتر', 'Filtered')}: {formatCurrency(filteredUnitsInStock)}</p>
+          <div className="bg-white rounded-2xl border border-emerald-100 p-3 sm:p-4 shadow-sm min-w-0">
+              <p className="text-[9px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 leading-4">{tr('وحدات بالمخزون', 'Units In Stock')}</p>
+              <p className="text-lg sm:text-xl font-black text-emerald-700 dir-ltr truncate">{formatCurrency(totalUnitsInStock)}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-emerald-500/80 mt-1 leading-4">{tr('حسب الفلتر', 'Filtered')}: {formatCurrency(filteredUnitsInStock)}</p>
           </div>
-          <div className="bg-white rounded-2xl border border-violet-100 p-4 shadow-sm">
-              <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest mb-1">{tr('قيمة المخزون', 'Inventory Value')}</p>
-              <p className="text-xl font-black text-violet-700 dir-ltr">{formatCurrency(totalInventoryValue)}</p>
-              <p className="text-[9px] font-bold text-violet-500/80 mt-1">{baseCurrency} - {tr('الفلتر', 'Filter')}: {formatCurrency(filteredInventoryValue)}</p>
+          <div className="bg-white rounded-2xl border border-violet-100 p-3 sm:p-4 shadow-sm min-w-0">
+              <p className="text-[9px] sm:text-[10px] font-black text-violet-600 uppercase tracking-widest mb-1 leading-4">{tr('قيمة المخزون', 'Inventory Value')}</p>
+              <p className="text-lg sm:text-xl font-black text-violet-700 dir-ltr truncate">{formatCurrency(totalInventoryValue)}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-violet-500/80 mt-1 leading-4">{baseCurrency} - {tr('الفلتر', 'Filter')}: {formatCurrency(filteredInventoryValue)}</p>
           </div>
-          <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm">
-              <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">{tr('تنبيهات النقص', 'Shortage Alerts')}</p>
-              <p className="text-xl font-black text-amber-700 dir-ltr">{formatCurrency(lowStockCount)}</p>
-              <p className="text-[9px] font-bold text-sky-600 mt-1">{tr('اطلب الآن', 'Order Now')}: {formatCurrency(orderNowCount)}</p>
+          <div className="bg-white rounded-2xl border border-amber-100 p-3 sm:p-4 shadow-sm min-w-0">
+              <p className="text-[9px] sm:text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1 leading-4">{tr('تنبيهات النقص', 'Shortage Alerts')}</p>
+              <p className="text-lg sm:text-xl font-black text-amber-700 dir-ltr truncate">{formatCurrency(lowStockCount)}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-amber-500/80 mt-1 leading-4">{tr('حسب حد النقص', 'Based on low stock threshold')}</p>
           </div>
       </div>
 
@@ -566,16 +582,7 @@ const ProductList: React.FC = () => {
             {lowStockCount > 0 && <span className={`mr-1 px-2 py-0.5 rounded-lg text-[8px] ${groupFilter === 'LOW_STOCK' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'}`}>{lowStockCount}</span>}
           </button>
 
-          <button 
-            onClick={() => setGroupFilter('ORDER_NOW')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap border transition-all ${groupFilter === 'ORDER_NOW' ? 'bg-sky-600 text-white border-sky-600 shadow-lg shadow-sky-100' : 'bg-white text-slate-400 border-slate-100'}`}
-          >
-            <BellRing size={14} />
-            {tr('اطلب الآن', 'Order Now')}
-            {orderNowCount > 0 && <span className={`mr-1 px-2 py-0.5 rounded-lg text-[8px] ${groupFilter === 'ORDER_NOW' ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-600'}`}>{orderNowCount}</span>}
-          </button>
-
-          {itemGroups.map(group => (
+          {visibleItemGroups.map(group => (
             <button 
                 key={group.id}
                 onClick={() => setGroupFilter(group.id)}
@@ -603,6 +610,21 @@ const ProductList: React.FC = () => {
 
               <div className="flex items-center gap-2 shrink-0 flex-wrap">
                   <div className="relative">
+                      <SlidersHorizontal className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                          value={stockFilter}
+                          onChange={(e) => setStockFilter(e.target.value as typeof stockFilter)}
+                          className="h-12 pr-9 pl-3 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-black text-slate-600 outline-none appearance-none"
+                      >
+                          <option value="ALL">{tr('التصفية: الكل', 'Filter: All')}</option>
+                          <option value="IN_STOCK">{tr('التصفية: متوفر', 'Filter: In Stock')}</option>
+                          <option value="OUT_OF_STOCK">{tr('التصفية: نافد', 'Filter: Out Of Stock')}</option>
+                          <option value="WITH_BARCODE">{tr('التصفية: له باركود', 'Filter: Has Barcode')}</option>
+                          <option value="WITH_IMAGE">{tr('التصفية: له صورة', 'Filter: Has Image')}</option>
+                      </select>
+                  </div>
+
+                  <div className="relative">
                       <ArrowUpDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <select
                           value={sortBy}
@@ -616,13 +638,18 @@ const ProductList: React.FC = () => {
                       </select>
                   </div>
 
-                  {searchTerm && (
+                  {hasActiveFilters && (
                       <button
                           type="button"
-                          onClick={() => setSearchTerm('')}
+                          onClick={() => {
+                            setSearchTerm('');
+                            setGroupFilter('ALL');
+                            setStockFilter('ALL');
+                            setSortBy('LATEST');
+                          }}
                           className="h-12 px-4 rounded-xl bg-rose-50 text-rose-600 font-black text-[11px] border border-rose-100 hover:bg-rose-100 transition-all"
                       >
-                          {tr('مسح', 'Clear')}
+                          {tr('إلغاء التصفية', 'Reset')}
                       </button>
                   )}
 
@@ -641,7 +668,6 @@ const ProductList: React.FC = () => {
             const pricing = resolveProductPricing(product);
             const productLowStockThreshold = Number.isFinite(Number(product.lowStockAlertQty)) ? Math.max(0, Number(product.lowStockAlertQty)) : lowStockThreshold;
             const isLowStock = product.stock <= productLowStockThreshold;
-            const canOrderNow = Number.isFinite(Number(product.reorderQty)) && Number(product.reorderQty) > 0 && isLowStock;
             const isEditing = editingId === product.id;
 
             return (
@@ -662,11 +688,9 @@ const ProductList: React.FC = () => {
                                     {displayGroupName(group)}
                                 </span>
                                 {product.lowStockAlertQty !== undefined && <span className="text-[8px] font-mono text-orange-500">{tr('حد نقص', 'Low Threshold')} {product.lowStockAlertQty}</span>}
-                                {product.reorderQty !== undefined && product.reorderQty > 0 && <span className="text-[8px] font-mono text-sky-600">{tr('إعادة طلب', 'Reorder')} {product.reorderQty}</span>}
                                 {product.expiryPeriodDays !== undefined && product.expiryPeriodDays > 0 && <span className="text-[8px] font-mono text-violet-600">{tr('صلاحية', 'Shelf Life')} {product.expiryPeriodDays} {tr('يوم', 'day')}</span>}
                                 {product.expiryAlertLeadDays !== undefined && product.expiryAlertLeadDays >= 0 && <span className="text-[8px] font-mono text-rose-500">{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays} {tr('يوم', 'day')}</span>}
                                 {product.expiryDate && <span className="text-[8px] font-mono text-emerald-600">{tr('انتهاء', 'Expiry')} {product.expiryDate}</span>}
-                                {canOrderNow && <span className="text-[8px] font-black text-white bg-sky-600 px-1.5 py-0.5 rounded-md">{tr('اطلب الآن', 'Order Now')}</span>}
                                 {product.itemCode && <span className="text-[8px] font-mono text-indigo-400">{product.itemCode}</span>}
                                 {product.barcode && <span className="text-[8px] font-mono text-slate-300">{product.barcode}</span>}
                             </div>
@@ -693,7 +717,7 @@ const ProductList: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center bg-gray-50/50 rounded-[1.5rem] p-3 border border-gray-50 group-hover:bg-white group-hover:border-gray-100 transition-all">
-                    <div className={metricDividerClass}>
+                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-1`}>
                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('سعر المفرق', 'Retail Price')}</span>
                         {isEditing ? (
                             <div className="flex items-center justify-center gap-1 px-1">
@@ -713,7 +737,7 @@ const ProductList: React.FC = () => {
                             </div>
                         ) : (
                             <div className="flex items-center justify-center gap-1 group/price" onClick={(e) => startEditing(e, product)}>
-                                <div className="font-black text-slate-700 text-sm dir-ltr">{formatCurrency(pricing.retailPrice)}</div>
+                                <div className="w-full text-center font-black text-slate-700 text-sm dir-ltr">{formatCurrency(pricing.retailPrice)}</div>
                                 <Edit2 size={10} className="text-gray-300 group-hover/price:text-blue-500" />
                             </div>
                         )}
@@ -722,26 +746,26 @@ const ProductList: React.FC = () => {
                         )}
                     </div>
 
-                    <div className={metricDividerClass}>
+                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-1`}>
                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('سعر الجملة', 'Wholesale Price')}</span>
-                        <div className="font-black text-violet-700 text-sm dir-ltr">{formatCurrency(pricing.wholesalePrice)}</div>
+                        <div className="w-full text-center font-black text-violet-700 text-sm dir-ltr">{formatCurrency(pricing.wholesalePrice)}</div>
                         {pricing.wholesalePricingMode === 'MARKUP' && (
                           <div className="text-[8px] font-black text-violet-600 mt-1">+{pricing.wholesaleMarkupPercent}%</div>
                         )}
                     </div>
 
-                    <div className={metricDividerClass}>
+                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-1`}>
                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('التكلفة الصافية', 'Net Cost')}</span>
-                        <div className="font-black text-blue-700 text-sm dir-ltr">{formatCurrency(pricing.cost)}</div>
+                        <div className="w-full text-center font-black text-blue-700 text-sm dir-ltr">{formatCurrency(pricing.cost)}</div>
                     </div>
 
-                    <div>
+                    <div className="flex flex-col items-center justify-center min-w-0 px-1">
                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('المخزون', 'Stock')}</span>
-                        <div className={`font-black text-sm dir-ltr flex items-center justify-center gap-1 ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <div className={`w-full text-center font-black text-sm dir-ltr flex items-center justify-center gap-1 ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
                             {product.stock}
                             <span className="text-[9px] text-gray-400 font-bold">{unit?.code}</span>
                         </div>
-                        <div className="text-[8px] font-black text-gray-400 mt-1 dir-ltr">
+                        <div className="w-full text-center text-[8px] font-black text-gray-400 mt-1 dir-ltr">
                           {formatCurrency(product.stock * pricing.cost)}
                         </div>
                     </div>
@@ -755,10 +779,15 @@ const ProductList: React.FC = () => {
                 <h3 className="text-gray-400 font-black text-lg">{tr('لا توجد أصناف مطابقة', 'No matching items')}</h3>
                 <div className="mt-6 flex items-center justify-center gap-2">
                     <button onClick={handleOpenAdd} className="px-8 py-3 bg-blue-50 text-blue-600 rounded-2xl font-black text-xs hover:bg-blue-100 transition-all">{tr('إضافة صنف جديد', 'Add New Item')}</button>
-                    {(groupFilter !== 'ALL' || searchTerm) && (
+                    {(groupFilter !== 'ALL' || searchTerm || stockFilter !== 'ALL' || sortBy !== 'LATEST') && (
                         <button
                             type="button"
-                            onClick={() => { setGroupFilter('ALL'); setSearchTerm(''); }}
+                            onClick={() => {
+                              setGroupFilter('ALL');
+                              setSearchTerm('');
+                              setStockFilter('ALL');
+                              setSortBy('LATEST');
+                            }}
                             className="px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs hover:bg-slate-200 transition-all"
                         >
                             {tr('إلغاء الفلاتر', 'Reset filters')}
@@ -1070,31 +1099,17 @@ const ProductList: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-2 px-1">{tr('حد تنبيه نفاد المخزون (كمية)', 'Low Stock Alert Threshold (qty)')}</label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={lowStockAlertQty}
-                                onChange={e => setLowStockAlertQty(toEnglishDigits(e.target.value))}
-                                className="w-full p-4 bg-amber-50/40 rounded-2xl border border-amber-100 outline-none font-black text-lg text-center dir-ltr text-amber-700 focus:bg-white focus:ring-4 focus:ring-amber-50 transition-all"
-                                placeholder={tr('اختياري - مثال: 5', 'Optional - example: 5')}
-                            />
-                            <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('إذا تُرك فارغًا سيتم استخدام الحد العام من الإعدادات.', 'If empty, the global threshold from settings is used.')}</p>
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-black text-sky-600 uppercase tracking-widest block mb-2 px-1">{tr('كمية إعادة الطلب', 'Reorder Quantity')}</label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={reorderQty}
-                                onChange={e => setReorderQty(toEnglishDigits(e.target.value))}
-                                className="w-full p-4 bg-sky-50/40 rounded-2xl border border-sky-100 outline-none font-black text-lg text-center dir-ltr text-sky-700 focus:bg-white focus:ring-4 focus:ring-sky-50 transition-all"
-                                placeholder={tr('اختياري - مثال: 20', 'Optional - example: 20')}
-                            />
-                            <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('عند وصول المخزون للحد يظهر تنبيه "اطلب الآن" بهذا المقترح.', 'When stock hits the threshold, an "Order Now" alert appears with this suggestion.')}</p>
-                        </div>
+                    <div>
+                        <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-2 px-1">{tr('حد تنبيه نفاد المخزون (كمية)', 'Low Stock Alert Threshold (qty)')}</label>
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            value={lowStockAlertQty}
+                            onChange={e => setLowStockAlertQty(toEnglishDigits(e.target.value))}
+                            className="w-full p-4 bg-amber-50/40 rounded-2xl border border-amber-100 outline-none font-black text-lg text-center dir-ltr text-amber-700 focus:bg-white focus:ring-4 focus:ring-amber-50 transition-all"
+                            placeholder={tr('اختياري - مثال: 5', 'Optional - example: 5')}
+                        />
+                        <p className="text-[9px] font-bold text-slate-400 mt-1 px-1">{tr('إذا تُرك فارغًا سيتم استخدام الحد العام من الإعدادات.', 'If empty, the global threshold from settings is used.')}</p>
                     </div>
 
                     <button type="submit" className="w-full bg-slate-900 text-white font-black py-4.5 rounded-[1.8rem] shadow-2xl shadow-slate-300 hover:bg-slate-800 active:scale-95 transition-all mt-4 flex items-center justify-center gap-2">

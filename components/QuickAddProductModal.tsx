@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
+import { Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
@@ -27,9 +27,10 @@ type QuickAddProductModalProps = {
   onSave: (product: Product) => void;
   mode?: 'INVOICE' | 'DIRECTORY';
   product?: Product | null;
+  initialName?: string;
 };
 
-const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, onSave, mode = 'INVOICE', product = null }) => {
+const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, onSave, mode = 'INVOICE', product = null, initialName = '' }) => {
   const { addProduct, addItemGroup, addUnit, updateProduct, baseCurrency, companySettings, itemGroups, products, units } = useAccounting();
   const [name, setName] = useState('');
   const [groupId, setGroupId] = useState('');
@@ -50,7 +51,6 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   const [expiryPeriodDays, setExpiryPeriodDays] = useState('');
   const [expiryAlertLeadDays, setExpiryAlertLeadDays] = useState('');
   const [lowStockAlertQty, setLowStockAlertQty] = useState('');
-  const [reorderQty, setReorderQty] = useState('');
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [showUnitForm, setShowUnitForm] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -92,7 +92,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
 
   useEffect(() => {
     if (!product) {
-      setName('');
+      setName(initialName);
       setGroupId('');
       setUnitId('');
       setItemCode('');
@@ -111,7 +111,6 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       setExpiryPeriodDays('');
       setExpiryAlertLeadDays('');
       setLowStockAlertQty('');
-      setReorderQty('');
       return;
     }
 
@@ -134,8 +133,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setExpiryPeriodDays(product.expiryPeriodDays !== undefined ? String(product.expiryPeriodDays) : '');
     setExpiryAlertLeadDays(product.expiryAlertLeadDays !== undefined ? String(product.expiryAlertLeadDays) : '');
     setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
-    setReorderQty(product.reorderQty !== undefined ? String(product.reorderQty) : '');
-  }, [product]);
+  }, [product, initialName]);
 
   const handlePickImage = async (file?: File | null) => {
     if (!file) return;
@@ -207,14 +205,10 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     if (!name.trim()) return;
 
     const parsedLowStockAlertQty = parseLocalizedPositiveInt(lowStockAlertQty);
-    const parsedReorderQty = parseLocalizedPositiveInt(reorderQty);
     const parsedExpiryPeriodDays = parseLocalizedPositiveInt(expiryPeriodDays);
     const parsedExpiryAlertLeadDays = parseLocalizedPositiveInt(expiryAlertLeadDays);
     const normalizedLowStockAlertQty = Number.isFinite(parsedLowStockAlertQty) && parsedLowStockAlertQty >= 0
       ? parsedLowStockAlertQty
-      : undefined;
-    const normalizedReorderQty = Number.isFinite(parsedReorderQty) && parsedReorderQty > 0
-      ? parsedReorderQty
       : undefined;
     const normalizedExpiryPeriodDays = Number.isFinite(parsedExpiryPeriodDays) && parsedExpiryPeriodDays > 0
       ? parsedExpiryPeriodDays
@@ -270,7 +264,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       expiryPeriodDays: normalizedExpiryPeriodDays,
       expiryAlertLeadDays: normalizedExpiryAlertLeadDays,
       lowStockAlertQty: normalizedLowStockAlertQty,
-      reorderQty: normalizedReorderQty,
+      reorderQty: undefined,
       imageUrl: imageUrl || undefined,
       sellPrice: pricing.retailPrice,
       retailPrice: pricing.retailPrice,
@@ -302,408 +296,427 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       size="xl"
       zIndexClassName="z-[300]"
       backdropClassName="bg-black/70 backdrop-blur-md"
-      panelClassName="bg-white rounded-[2.5rem] p-4 sm:p-8 shadow-2xl"
+      panelClassName="bg-white rounded-[2.5rem] p-4 sm:p-6 shadow-2xl !overflow-hidden"
     >
-      <form onSubmit={handleSubmit} className="animate-in zoom-in-95" dir={isEnglish ? 'ltr' : 'rtl'}>
-        <div className="flex justify-between items-center mb-6">
+      <form onSubmit={handleSubmit} className="animate-in zoom-in-95 flex max-h-[calc(100dvh-5rem)] flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
+        <div className="flex justify-between items-center gap-3 mb-4">
           <h3 className="font-black text-gray-800 text-lg">{title}</h3>
           <button type="button" onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400">
             <X size={20} />
           </button>
         </div>
 
-        <div className="space-y-5 max-h-[78dvh] overflow-y-auto pr-1">
-          <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-1">
-              {tr('اسم الصنف', 'Item Name')}
-            </label>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={tr('مثال: آيفون 15 برو ماكس', 'Example: iPhone 15 Pro Max')}
-              className={inputClass}
-            />
-          </div>
-
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/20 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block px-1">
-                {tr('ترميز الصنف', 'Item Code')}
+        <div className="flex-1 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+            <div className="min-[560px]:col-span-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-1">
+                {tr('\u0627\u0633\u0645 \u0627\u0644\u0635\u0646\u0641', 'Item Name')}
               </label>
-              <div className="inline-flex items-center gap-1 rounded-xl border border-indigo-100 bg-white p-1">
-                <button
-                  type="button"
-                  onClick={() => setItemCodeMode('AUTO')}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${itemCodeMode === 'AUTO' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                >
-                  {tr('تلقائي', 'Auto')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setItemCodeMode('MANUAL')}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${itemCodeMode === 'MANUAL' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                >
-                  {tr('يدوي', 'Manual')}
-                </button>
-              </div>
-            </div>
-
-            {itemCodeMode === 'AUTO' ? (
-              <div className="rounded-xl border border-indigo-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  {tr('سيتم توليده تلقائيًا', 'It will be generated automatically')}
-                </span>
-                <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{autoItemCodePreview}</span>
-              </div>
-            ) : (
               <input
-                type="text"
-                value={itemCode}
-                onChange={(e) => setItemCode(normalizeItemCode(e.target.value))}
-                placeholder="ITM-125"
-                className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-black text-sm text-center dir-ltr text-indigo-700 focus:ring-4 focus:ring-indigo-50 transition-all"
-              />
-            )}
-
-            {itemCodeMode === 'MANUAL' && (
-              <p className="text-[10px] font-bold text-slate-400 px-1">
-                {tr('اتركه فارغًا إذا كنت لا تريد ترميزًا للصنف.', 'Leave it blank if you do not want an item code.')}
-              </p>
-            )}
-          </div>
-
-          {barcodeEnabled && (
-            <div className="relative">
-              <input
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                placeholder={tr('الباركود (اختياري)', 'Barcode (optional)')}
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={tr('\u0645\u062b\u0627\u0644: \u0622\u064a\u0641\u0648\u0646 15 \u0628\u0631\u0648 \u0645\u0627\u0643\u0633', 'Example: iPhone 15 Pro Max')}
                 className={inputClass}
               />
-              <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
             </div>
-          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
-                {tr('مجموعة الصنف', 'Item Group')}
-              </label>
-              <div className="flex h-14">
-                <select
-                  value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
-                  className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-indigo-200 transition-all text-slate-700"
-                >
-                  <option value="">{tr('اختر مجموعة', 'Select group')}</option>
-                  {itemGroups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {displayGroupName(group)}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowGroupForm(true)}
-                  className="w-12 bg-indigo-50 text-indigo-600 rounded-l-2xl rounded-r-md border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center"
-                >
-                  <Plus size={18} />
-                </button>
+            <div className={`rounded-2xl border border-indigo-100 bg-indigo-50/20 p-3 space-y-3 ${barcodeEnabled ? '' : 'min-[560px]:col-span-2'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block px-1">
+                  {tr('\u062a\u0631\u0645\u064a\u0632 \u0627\u0644\u0635\u0646\u0641', 'Item Code')}
+                </label>
+                <div className="inline-flex items-center gap-1 rounded-xl border border-indigo-100 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setItemCodeMode('AUTO')}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${itemCodeMode === 'AUTO' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                  >
+                    {tr('\u062a\u0644\u0642\u0627\u0626\u064a', 'Auto')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setItemCodeMode('MANUAL')}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${itemCodeMode === 'MANUAL' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                  >
+                    {tr('\u064a\u062f\u0648\u064a', 'Manual')}
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
-                {tr('وحدة القياس', 'Unit')}
-              </label>
-              <div className="flex h-14">
-                <select
-                  value={unitId}
-                  onChange={(e) => setUnitId(e.target.value)}
-                  className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-orange-200 transition-all text-slate-700"
-                >
-                  <option value="">{tr('اختر الوحدة', 'Select unit')}</option>
-                  {units.map((unit) => (
-                    <option key={unit.id} value={unit.id}>
-                      {displayUnitName(unit)} ({unit.code})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowUnitForm(true)}
-                  className="w-12 bg-orange-50 text-orange-600 rounded-l-2xl rounded-r-md border border-orange-100 hover:bg-orange-100 transition-all flex items-center justify-center"
-                >
-                  <Plus size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="h-28 rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden flex items-center justify-center">
-              {imageUrl ? (
-                <img src={imageUrl} alt={tr('صورة الصنف', 'Item image')} className="w-full h-full object-cover" />
+              {itemCodeMode === 'AUTO' ? (
+                <div className="rounded-xl border border-indigo-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    {tr('\u0633\u064a\u062a\u0645 \u062a\u0648\u0644\u064a\u062f\u0647 \u062a\u0644\u0642\u0627\u0626\u064a\u064b\u0627', 'It will be generated automatically')}
+                  </span>
+                  <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{autoItemCodePreview}</span>
+                </div>
               ) : (
-                <span className="text-[10px] font-bold text-gray-300">{tr('لا توجد صورة', 'No image')}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-black border border-indigo-100 bg-indigo-50 text-indigo-600 cursor-pointer hover:bg-indigo-100 transition-colors">
-                <Upload size={12} />
-                {imageUrl ? tr('تغيير الصورة', 'Replace image') : tr('إضافة صورة', 'Add image')}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    await handlePickImage(file);
-                    event.currentTarget.value = '';
-                  }}
-                />
-              </label>
-              {imageUrl && (
-                <button
-                  type="button"
-                  onClick={() => setImageUrl('')}
-                  className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-black border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
-                >
-                  {tr('حذف الصورة', 'Remove image')}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-black text-rose-600 uppercase tracking-widest block mb-2 px-1">
-              {tr('تكلفة الشراء / التكلفة الصافية', 'Purchase Cost / Net Cost')}
-            </label>
-            <input
-              type="text"
-              inputMode="decimal"
-              lang="en"
-              value={buyPrice}
-              onChange={(e) => setBuyPrice(toEnglishDigits(e.target.value))}
-              className="w-full p-4 bg-rose-50/50 rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all"
-              placeholder="0.00"
-            />
-          </div>
-
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/20 p-4 space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h4 className="text-xs font-black text-emerald-700">{tr('قائمة الأسعار', 'Price List')}</h4>
-                <p className="text-[10px] font-bold text-slate-400 mt-1">
-                  {tr('يمكن تحديد كل سعر كقيمة ثابتة أو كنسبة هامش من التكلفة.', 'Each price can be fixed or based on cost markup percentage.')}
-                </p>
-              </div>
-              <Scale size={16} className="text-emerald-500 shrink-0" />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="bg-white border border-violet-100 rounded-2xl p-3 space-y-3">
-                <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block">
-                  {tr('سعر الجملة', 'Wholesale Price')}
-                </label>
-                <div className="inline-flex items-center gap-1 rounded-xl border border-violet-100 bg-violet-50/30 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setWholesalePricingMode('FIXED')}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${wholesalePricingMode === 'FIXED' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
-                  >
-                    {tr('ثابت', 'Fixed')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWholesalePricingMode('MARKUP')}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${wholesalePricingMode === 'MARKUP' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
-                  >
-                    {tr('نسبة', 'Markup %')}
-                  </button>
-                </div>
-                {wholesalePricingMode === 'FIXED' ? (
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    lang="en"
-                    value={wholesalePrice}
-                    onChange={(e) => setWholesalePrice(toEnglishDigits(e.target.value))}
-                    className="w-full p-3 bg-violet-50/50 rounded-xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700"
-                    placeholder="0.00"
-                  />
-                ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      lang="en"
-                      value={wholesaleMarkupPercent}
-                      onChange={(e) => setWholesaleMarkupPercent(toEnglishDigits(e.target.value))}
-                      className="w-full p-3 pl-8 bg-violet-50/50 rounded-xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700"
-                      placeholder="20"
-                    />
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 font-black">%</span>
-                  </div>
-                )}
-                <div className="text-[11px] font-black text-violet-700 dir-ltr">
-                  = {draftPricingPreview.wholesalePrice.toLocaleString()} {baseCurrency}
-                </div>
-              </div>
-
-              <div className="bg-white border border-emerald-100 rounded-2xl p-3 space-y-3">
-                <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block">
-                  {tr('سعر المفرق', 'Retail Price')}
-                </label>
-                <div className="inline-flex items-center gap-1 rounded-xl border border-emerald-100 bg-emerald-50/30 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setRetailPricingMode('FIXED')}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${retailPricingMode === 'FIXED' ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-100'}`}
-                  >
-                    {tr('ثابت', 'Fixed')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRetailPricingMode('MARKUP')}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${retailPricingMode === 'MARKUP' ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-100'}`}
-                  >
-                    {tr('نسبة', 'Markup %')}
-                  </button>
-                </div>
-                {retailPricingMode === 'FIXED' ? (
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    lang="en"
-                    value={sellPrice}
-                    onChange={(e) => setSellPrice(toEnglishDigits(e.target.value))}
-                    className="w-full p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
-                    placeholder="0.00"
-                  />
-                ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      lang="en"
-                      value={retailMarkupPercent}
-                      onChange={(e) => setRetailMarkupPercent(toEnglishDigits(e.target.value))}
-                      className="w-full p-3 pl-8 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
-                      placeholder="30"
-                    />
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-black">%</span>
-                  </div>
-                )}
-                <div className="text-[11px] font-black text-emerald-700 dir-ltr">
-                  = {draftPricingPreview.retailPrice.toLocaleString()} {baseCurrency}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2 px-1">
-              {tr('الكمية الافتتاحية', 'Opening Quantity')}
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              lang="en"
-              value={stock}
-              onChange={(e) => setStock(toEnglishDigits(e.target.value))}
-              className="w-full p-4 bg-blue-50/30 rounded-2xl border border-blue-100 outline-none font-black text-lg text-center dir-ltr text-blue-800 focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all"
-              placeholder="0"
-            />
-          </div>
-
-          <div className="rounded-2xl border border-violet-100 bg-violet-50/20 p-4 space-y-4">
-            <div>
-              <h4 className="text-xs font-black text-violet-700">{tr('الصلاحية والتنبيهات', 'Expiry and Alerts')}</h4>
-              <p className="text-[10px] font-bold text-slate-400 mt-1">
-                {tr('يمكنك تحديد تاريخ انتهاء مباشر أو فترة صلاحية بالأيام والتنبيه قبل الانتهاء.', 'Set a direct expiry date or shelf-life period in days and pre-expiry alerts.')}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block mb-2 px-1">
-                  {tr('تاريخ الانتهاء', 'Expiry Date')}
-                </label>
-                <EnglishDateInput
-                  value={expiryDate}
-                  onChange={setExpiryDate}
-                  className="w-full p-4 bg-white rounded-2xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700 focus:ring-4 focus:ring-violet-50 transition-all"
-                  wrapperClassName="w-full"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2 px-1">
-                  {tr('فترة الصلاحية (أيام)', 'Shelf-Life (days)')}
-                </label>
                 <input
                   type="text"
-                  inputMode="numeric"
-                  value={expiryPeriodDays}
-                  onChange={(e) => setExpiryPeriodDays(toEnglishDigits(e.target.value))}
-                  className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-black text-lg text-center dir-ltr text-indigo-700 focus:bg-white focus:ring-4 focus:ring-indigo-50 transition-all"
-                  placeholder={tr('اختياري - مثال: 180', 'Optional - example: 180')}
+                  value={itemCode}
+                  onChange={(e) => setItemCode(normalizeItemCode(e.target.value))}
+                  placeholder="ITM-125"
+                  className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-black text-sm text-center dir-ltr text-indigo-700 focus:ring-4 focus:ring-indigo-50 transition-all"
                 />
+              )}
+
+              {itemCodeMode === 'MANUAL' && (
+                <p className="text-[10px] font-bold text-slate-400 px-1">
+                  {tr('\u0627\u062a\u0631\u0643\u0647 \u0641\u0627\u0631\u063a\u064b\u0627 \u0625\u0630\u0627 \u0643\u0646\u062a \u0644\u0627 \u062a\u0631\u064a\u062f \u062a\u0631\u0645\u064a\u0632\u064b\u0627 \u0644\u0644\u0635\u0646\u0641.', 'Leave it blank if you do not want an item code.')}
+                </p>
+              )}
+            </div>
+
+            {barcodeEnabled && (
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-1">
+                  {tr('\u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062f', 'Barcode')}
+                </label>
+                <div className="relative">
+                  <input
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    placeholder={tr('\u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062f (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)', 'Barcode (optional)')}
+                    className={inputClass}
+                  />
+                  <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
+                </div>
+              </div>
+            )}
+
+            <div className="min-[560px]:col-span-2 grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
+                  {tr('\u0645\u062c\u0645\u0648\u0639\u0629 \u0627\u0644\u0635\u0646\u0641', 'Item Group')}
+                </label>
+                <div className="flex h-14">
+                  <select
+                    value={groupId}
+                    onChange={(e) => setGroupId(e.target.value)}
+                    className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-indigo-200 transition-all text-slate-700"
+                  >
+                    <option value="">{tr('\u0627\u062e\u062a\u0631 \u0645\u062c\u0645\u0648\u0639\u0629', 'Select group')}</option>
+                    {itemGroups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {displayGroupName(group)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupForm(true)}
+                    className="w-12 bg-indigo-50 text-indigo-600 rounded-l-2xl rounded-r-md border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
+                  {tr('\u0648\u062d\u062f\u0629 \u0627\u0644\u0642\u064a\u0627\u0633', 'Unit')}
+                </label>
+                <div className="flex h-14">
+                  <select
+                    value={unitId}
+                    onChange={(e) => setUnitId(e.target.value)}
+                    className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-orange-200 transition-all text-slate-700"
+                  >
+                    <option value="">{tr('\u0627\u062e\u062a\u0631 \u0627\u0644\u0648\u062d\u062f\u0629', 'Select unit')}</option>
+                    {units.map((unit) => (
+                      <option key={unit.id} value={unit.id}>
+                        {displayUnitName(unit)} ({unit.code})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowUnitForm(true)}
+                    className="w-12 bg-orange-50 text-orange-600 rounded-l-2xl rounded-r-md border border-orange-100 hover:bg-orange-100 transition-all flex items-center justify-center"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
               </div>
             </div>
 
             <div>
               <label className="text-[10px] font-black text-rose-600 uppercase tracking-widest block mb-2 px-1">
-                {tr('التنبيه قبل الانتهاء (أيام)', 'Alert Before Expiry (days)')}
+                {tr('\u062a\u0643\u0644\u0641\u0629 \u0627\u0644\u0634\u0631\u0627\u0621 / \u0627\u0644\u062a\u0643\u0644\u0641\u0629 \u0627\u0644\u0635\u0627\u0641\u064a\u0629', 'Purchase Cost / Net Cost')}
               </label>
               <input
                 type="text"
-                inputMode="numeric"
-                value={expiryAlertLeadDays}
-                onChange={(e) => setExpiryAlertLeadDays(toEnglishDigits(e.target.value))}
-                className="w-full p-4 bg-white rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all"
-                placeholder={tr('اختياري - مثال: 30', 'Optional - example: 30')}
+                inputMode="decimal"
+                lang="en"
+                value={buyPrice}
+                onChange={(e) => setBuyPrice(toEnglishDigits(e.target.value))}
+                className="w-full p-4 bg-rose-50/50 rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all"
+                placeholder="0.00"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-2 px-1">
-                {tr('حد تنبيه نفاد المخزون', 'Low Stock Alert Threshold')}
+              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2 px-1">
+                {tr('\u0627\u0644\u0643\u0645\u064a\u0629 \u0627\u0644\u0627\u0641\u062a\u062a\u0627\u062d\u064a\u0629', 'Opening Quantity')}
               </label>
               <input
                 type="text"
                 inputMode="numeric"
-                value={lowStockAlertQty}
-                onChange={(e) => setLowStockAlertQty(toEnglishDigits(e.target.value))}
-                className="w-full p-4 bg-amber-50/40 rounded-2xl border border-amber-100 outline-none font-black text-lg text-center dir-ltr text-amber-700 focus:bg-white focus:ring-4 focus:ring-amber-50 transition-all"
-                placeholder={tr('اختياري - مثال: 5', 'Optional - example: 5')}
+                lang="en"
+                value={stock}
+                onChange={(e) => setStock(toEnglishDigits(e.target.value))}
+                className="w-full p-4 bg-blue-50/30 rounded-2xl border border-blue-100 outline-none font-black text-lg text-center dir-ltr text-blue-800 focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all"
+                placeholder="0"
               />
             </div>
-            <div>
-              <label className="text-[10px] font-black text-sky-600 uppercase tracking-widest block mb-2 px-1">
-                {tr('كمية إعادة الطلب', 'Reorder Quantity')}
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={reorderQty}
-                onChange={(e) => setReorderQty(toEnglishDigits(e.target.value))}
-                className="w-full p-4 bg-sky-50/40 rounded-2xl border border-sky-100 outline-none font-black text-lg text-center dir-ltr text-sky-700 focus:bg-white focus:ring-4 focus:ring-sky-50 transition-all"
-                placeholder={tr('اختياري - مثال: 20', 'Optional - example: 20')}
-              />
-            </div>
-          </div>
 
-          <button type="submit" className="w-full min-h-[44px] py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-200 mt-2 flex items-center justify-center gap-2">
+            <div className="min-[560px]:col-span-2 rounded-2xl border border-gray-100 bg-gray-50/80 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block px-1">
+                    {tr('\u0635\u0648\u0631\u0629 \u0627\u0644\u0635\u0646\u0641', 'Item Image')}
+                  </label>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1 px-1">
+                    {tr('\u062d\u0642\u0644 \u0627\u062e\u062a\u064a\u0627\u0631\u064a. \u064a\u0645\u0643\u0646\u0643 \u0625\u0636\u0627\u0641\u0629 \u0627\u0644\u0635\u0648\u0631\u0629 \u0627\u0644\u0622\u0646 \u0623\u0648 \u0644\u0627\u062d\u0642\u064b\u0627.', 'Optional field. You can add the image now or later.')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-black border border-indigo-100 bg-indigo-50 text-indigo-600 cursor-pointer hover:bg-indigo-100 transition-colors">
+                    <Upload size={12} />
+                    {imageUrl ? tr('\u062a\u063a\u064a\u064a\u0631 \u0627\u0644\u0635\u0648\u0631\u0629', 'Replace image') : tr('\u0625\u0636\u0627\u0641\u0629 \u0635\u0648\u0631\u0629', 'Add image')}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        await handlePickImage(file);
+                        event.currentTarget.value = '';
+                      }}
+                    />
+                  </label>
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setImageUrl('')}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-[11px] font-black border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
+                    >
+                      {tr('\u062d\u0630\u0641 \u0627\u0644\u0635\u0648\u0631\u0629', 'Remove image')}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-100 bg-white px-3 py-2 flex items-center gap-3">
+                <div className="h-14 w-14 shrink-0 rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden flex items-center justify-center">
+                  {imageUrl ? (
+                    <img src={imageUrl} alt={tr('\u0635\u0648\u0631\u0629 \u0627\u0644\u0635\u0646\u0641', 'Item image')} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] font-bold text-gray-300">{tr('\u0644\u0627 \u062a\u0648\u062c\u062f', 'Empty')}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black text-slate-700">
+                    {imageUrl ? tr('\u062a\u0645\u062a \u0625\u0636\u0627\u0641\u0629 \u0635\u0648\u0631\u0629 \u0644\u0644\u0635\u0646\u0641', 'Image attached to the item') : tr('\u0644\u0627 \u062a\u0648\u062c\u062f \u0635\u0648\u0631\u0629 \u0645\u0631\u062a\u0628\u0637\u0629', 'No image attached yet')}
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1">
+                    {tr('\u0627\u0644\u0635\u0648\u0631\u0629 \u0627\u062e\u062a\u064a\u0627\u0631\u064a\u0629 \u0648\u0644\u0646 \u062a\u0645\u0646\u0639 \u062d\u0641\u0638 \u0627\u0644\u0635\u0646\u0641.', 'The image is optional and will not block saving the item.')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="min-[560px]:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50/20 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-black text-emerald-700">{tr('\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0623\u0633\u0639\u0627\u0631', 'Price List')}</h4>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1">
+                    {tr('\u064a\u0645\u0643\u0646 \u062a\u062d\u062f\u064a\u062f \u0643\u0644 \u0633\u0639\u0631 \u0643\u0642\u064a\u0645\u0629 \u062b\u0627\u0628\u062a\u0629 \u0623\u0648 \u0643\u0646\u0633\u0628\u0629 \u0647\u0627\u0645\u0634 \u0645\u0646 \u0627\u0644\u062a\u0643\u0644\u0641\u0629.', 'Each price can be fixed or based on cost markup percentage.')}
+                  </p>
+                </div>
+                <Scale size={16} className="text-emerald-500 shrink-0" />
+              </div>
+
+              <div className="grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+                <div className="bg-white border border-violet-100 rounded-2xl p-3 space-y-3">
+                  <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block">
+                    {tr('\u0633\u0639\u0631 \u0627\u0644\u062c\u0645\u0644\u0629', 'Wholesale Price')}
+                  </label>
+                  <div className="inline-flex items-center gap-1 rounded-xl border border-violet-100 bg-violet-50/30 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setWholesalePricingMode('FIXED')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${wholesalePricingMode === 'FIXED' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
+                    >
+                      {tr('\u062b\u0627\u0628\u062a', 'Fixed')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWholesalePricingMode('MARKUP')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${wholesalePricingMode === 'MARKUP' ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
+                    >
+                      {tr('\u0646\u0633\u0628\u0629', 'Markup %')}
+                    </button>
+                  </div>
+                  {wholesalePricingMode === 'FIXED' ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      lang="en"
+                      value={wholesalePrice}
+                      onChange={(e) => setWholesalePrice(toEnglishDigits(e.target.value))}
+                      className="w-full p-3 bg-violet-50/50 rounded-xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700"
+                      placeholder="0.00"
+                    />
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        lang="en"
+                        value={wholesaleMarkupPercent}
+                        onChange={(e) => setWholesaleMarkupPercent(toEnglishDigits(e.target.value))}
+                        className="w-full p-3 pl-8 bg-violet-50/50 rounded-xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700"
+                        placeholder="20"
+                      />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-500 font-black">%</span>
+                    </div>
+                  )}
+                  <div className="text-[11px] font-black text-violet-700 dir-ltr">
+                    = {draftPricingPreview.wholesalePrice.toLocaleString()} {baseCurrency}
+                  </div>
+                </div>
+
+                <div className="bg-white border border-emerald-100 rounded-2xl p-3 space-y-3">
+                  <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block">
+                    {tr('\u0633\u0639\u0631 \u0627\u0644\u0645\u0641\u0631\u0642', 'Retail Price')}
+                  </label>
+                  <div className="inline-flex items-center gap-1 rounded-xl border border-emerald-100 bg-emerald-50/30 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setRetailPricingMode('FIXED')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${retailPricingMode === 'FIXED' ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-100'}`}
+                    >
+                      {tr('\u062b\u0627\u0628\u062a', 'Fixed')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRetailPricingMode('MARKUP')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${retailPricingMode === 'MARKUP' ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-100'}`}
+                    >
+                      {tr('\u0646\u0633\u0628\u0629', 'Markup %')}
+                    </button>
+                  </div>
+                  {retailPricingMode === 'FIXED' ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      lang="en"
+                      value={sellPrice}
+                      onChange={(e) => setSellPrice(toEnglishDigits(e.target.value))}
+                      className="w-full p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
+                      placeholder="0.00"
+                    />
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        lang="en"
+                        value={retailMarkupPercent}
+                        onChange={(e) => setRetailMarkupPercent(toEnglishDigits(e.target.value))}
+                        className="w-full p-3 pl-8 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
+                        placeholder="30"
+                      />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-black">%</span>
+                    </div>
+                  )}
+                  <div className="text-[11px] font-black text-emerald-700 dir-ltr">
+                    = {draftPricingPreview.retailPrice.toLocaleString()} {baseCurrency}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details className="min-[560px]:col-span-2 rounded-2xl border border-violet-100 bg-violet-50/20 p-3 group">
+              <summary className="flex items-center justify-between gap-3 cursor-pointer list-none">
+                <div>
+                  <h4 className="text-xs font-black text-violet-700">{tr('\u062e\u064a\u0627\u0631\u0627\u062a \u0625\u0636\u0627\u0641\u064a\u0629', 'Additional Options')}</h4>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1">
+                    {tr('\u0627\u0641\u062a\u062d \u0647\u0630\u0627 \u0627\u0644\u0642\u0633\u0645 \u0625\u0630\u0627 \u0643\u0646\u062a \u062a\u0631\u064a\u062f \u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0629 \u0648\u062a\u0646\u0628\u064a\u0647\u0627\u062a \u0646\u0641\u0627\u062f \u0627\u0644\u0645\u062e\u0632\u0648\u0646.', 'Open this section for expiry settings and stock alerts.')}
+                  </p>
+                </div>
+                <ChevronDown size={18} className="text-violet-500 transition-transform duration-200 group-open:rotate-180" />
+              </summary>
+
+              <div className="mt-4 grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block mb-2 px-1">
+                    {tr('\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0627\u0646\u062a\u0647\u0627\u0621', 'Expiry Date')}
+                  </label>
+                  <EnglishDateInput
+                    value={expiryDate}
+                    onChange={setExpiryDate}
+                    className="w-full p-4 bg-white rounded-2xl border border-violet-100 outline-none font-black text-center dir-ltr text-violet-700 focus:ring-4 focus:ring-violet-50 transition-all"
+                    wrapperClassName="w-full"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2 px-1">
+                    {tr('\u0641\u062a\u0631\u0629 \u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0629 (\u0623\u064a\u0627\u0645)', 'Shelf-Life (days)')}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={expiryPeriodDays}
+                    onChange={(e) => setExpiryPeriodDays(toEnglishDigits(e.target.value))}
+                    className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-black text-lg text-center dir-ltr text-indigo-700 focus:bg-white focus:ring-4 focus:ring-indigo-50 transition-all"
+                    placeholder={tr('\u0627\u062e\u062a\u064a\u0627\u0631\u064a - \u0645\u062b\u0627\u0644: 180', 'Optional - example: 180')}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-rose-600 uppercase tracking-widest block mb-2 px-1">
+                    {tr('\u0627\u0644\u062a\u0646\u0628\u064a\u0647 \u0642\u0628\u0644 \u0627\u0644\u0627\u0646\u062a\u0647\u0627\u0621 (\u0623\u064a\u0627\u0645)', 'Alert Before Expiry (days)')}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={expiryAlertLeadDays}
+                    onChange={(e) => setExpiryAlertLeadDays(toEnglishDigits(e.target.value))}
+                    className="w-full p-4 bg-white rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all"
+                    placeholder={tr('\u0627\u062e\u062a\u064a\u0627\u0631\u064a - \u0645\u062b\u0627\u0644: 30', 'Optional - example: 30')}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-2 px-1">
+                    {tr('\u062d\u062f \u062a\u0646\u0628\u064a\u0647 \u0646\u0641\u0627\u062f \u0627\u0644\u0645\u062e\u0632\u0648\u0646', 'Low Stock Alert Threshold')}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={lowStockAlertQty}
+                    onChange={(e) => setLowStockAlertQty(toEnglishDigits(e.target.value))}
+                    className="w-full p-4 bg-white rounded-2xl border border-amber-100 outline-none font-black text-lg text-center dir-ltr text-amber-700 focus:bg-white focus:ring-4 focus:ring-amber-50 transition-all"
+                    placeholder={tr('\u0627\u062e\u062a\u064a\u0627\u0631\u064a - \u0645\u062b\u0627\u0644: 5', 'Optional - example: 5')}
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div className="pt-3 mt-4 border-t border-gray-100 bg-white">
+          <button type="submit" className="w-full min-h-[44px] py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-200 flex items-center justify-center gap-2">
             <Check size={18} />
             {submitLabel}
           </button>
         </div>
       </form>
+
 
       {showGroupForm && (
         <ResponsiveDialog

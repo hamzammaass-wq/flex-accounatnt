@@ -516,23 +516,26 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
             className={`app-page voucher-list-page px-2 py-3 font-tajawal sm:p-4 ${isEnglish ? 'text-left' : 'text-right'}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
         >
-            <section className="mb-3 rounded-[1.2rem] border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:mb-4 sm:rounded-[1.8rem] sm:px-5 sm:py-4">
-                <div className="flex items-center justify-between gap-3">
+            <section className="mb-3 rounded-[1.2rem] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.05)] sm:mb-4 sm:rounded-[1.8rem] sm:px-5 sm:py-4">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
                     <div className="min-w-0">
-                        <p className="hidden text-[9px] font-black uppercase tracking-[0.18em] text-slate-400 sm:block sm:text-[11px] sm:tracking-[0.22em]">
-                            {tr('الصفحة الحالية', 'Current page')}
+                        <p className="text-[10px] font-black tracking-[0.08em] text-slate-400 sm:text-[11px]">
+                            {tr('إدارة السندات اليومية', 'Daily voucher workspace')}
                         </p>
-                        <h1 className="mt-0.5 text-[1.35rem] font-black tracking-tight text-slate-900 sm:mt-1 sm:text-2xl">
+                        <h1 className="mt-1 text-[1.28rem] font-black tracking-tight text-slate-900 sm:text-2xl">
                             {isReceipt ? tr('سندات القبض', 'Receipt Vouchers') : tr('سندات الصرف', 'Payment Vouchers')}
                         </h1>
+                        <p className="mt-1 text-[11px] font-bold leading-5 text-slate-500 sm:text-sm">
+                            {tr('البحث والإضافة والترحيل من شاشة واحدة مرتبة للجوال.', 'Search, add, and post vouchers from one mobile-friendly screen.')}
+                        </p>
                     </div>
 
-                    <div className={`shrink-0 rounded-[0.95rem] border px-2.5 py-2 sm:rounded-[1.3rem] sm:px-4 sm:py-3 ${isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'}`}>
-                        <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400 sm:text-[11px] sm:tracking-[0.18em]">
+                    <div className={`shrink-0 min-w-[6.5rem] rounded-[1rem] border px-3 py-2.5 shadow-sm sm:min-w-[8.5rem] sm:rounded-[1.3rem] sm:px-4 sm:py-3 ${isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'}`}>
+                        <p className="text-[9px] font-black tracking-[0.08em] text-slate-400 sm:text-[11px]">
                             {tr('إجمالي السندات المرحلة', 'Posted vouchers total')}
                         </p>
                         <div className="mt-1 flex items-end gap-1.5 sm:mt-2 sm:gap-2">
-                            <span className={`text-[1.35rem] font-black dir-ltr sm:text-2xl ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            <span className={`text-[1.25rem] font-black dir-ltr sm:text-2xl ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
                                 {formatAmount(totalPostedAmount)}
                             </span>
                             <span className="pb-0.5 text-[11px] font-bold text-slate-500 sm:pb-1 sm:text-sm">{baseCurrency}</span>
@@ -541,15 +544,15 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                 </div>
             </section>
 
-            <section className="mb-3 rounded-[1.2rem] border border-slate-200 bg-white p-2.5 shadow-sm sm:mb-4 sm:rounded-[1.8rem] sm:p-4">
+            <section className="mb-3 rounded-[1.2rem] border border-slate-200/90 bg-white p-2.5 shadow-[0_10px_26px_rgba(15,23,42,0.04)] sm:mb-4 sm:rounded-[1.8rem] sm:p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                    <div className="flex min-w-0 flex-1 items-center rounded-[1rem] border border-slate-200 bg-slate-50 px-2.5 py-1.5 focus-within:border-slate-300 focus-within:bg-white sm:rounded-[1.3rem] sm:px-3 sm:py-2">
+                    <div className="flex min-w-0 flex-1 items-center rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2 focus-within:border-slate-300 focus-within:bg-white sm:rounded-[1.3rem] sm:px-3.5 sm:py-2.5">
                         <Search size={16} className="shrink-0 text-slate-400 sm:h-[18px] sm:w-[18px]" />
                         <input
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             placeholder={tr('ابحث برقم السند أو الطرف...', 'Search by voucher number or contact...')}
-                            className="min-w-0 flex-1 bg-transparent px-2 text-[13px] font-bold text-slate-700 outline-none sm:px-3 sm:text-sm"
+                            className="min-w-0 flex-1 bg-transparent px-2.5 text-[13px] font-bold text-slate-700 outline-none sm:px-3 sm:text-sm"
                         />
                         {hasSearch && (
                             <button
@@ -563,7 +566,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 lg:grid-cols-[auto_auto]">
+                    <div className="grid grid-cols-[0.9fr_1.1fr] gap-2 lg:grid-cols-[auto_auto]">
                         <button
                             type="button"
                             onClick={() => setIsFilterDialogOpen(true)}
@@ -589,7 +592,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                     </div>
                 </div>
 
-                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2">
+                <div className="hidden mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2">
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black text-slate-600 sm:px-3 sm:py-1.5 sm:text-xs">
                         {tr('النتائج', 'Results')}: {groupedVouchers.length}
                     </span>
@@ -755,7 +758,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                 </div>
             </ResponsiveDialog>
 
-            <div className="space-y-1.5 sm:space-y-2">
+            <div className="space-y-2 sm:space-y-2.5">
                 <div className={`hidden md:grid items-center gap-3 rounded-[1rem] border border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 ${isEnglish ? 'grid-cols-[6.4rem_minmax(0,1fr)_4.1rem]' : 'grid-cols-[4.1rem_minmax(0,1fr)_6.4rem]'}`}>
                     <div className={`${isEnglish ? 'text-right' : 'text-left'}`}>{tr('المرجع', 'Reference')}</div>
                     <div>{tr('الطرف والبيان', 'Contact and note')}</div>
@@ -769,7 +772,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         const processing = isProcessing === id;
                         const firstPart = parts[0];
                         const previewText = getVoucherPreview(parts);
-                        const summaryText = `${isReceipt ? tr('سند قبض', 'Receipt voucher') : tr('سند صرف', 'Payment voucher')} ${id} - ${previewText}`;
+                        const summaryText = previewText;
                         const hasLockedCheckFlow = parts.some(part => {
                             const relatedCheck = part.checkId ? checks.find(check => check.id === part.checkId) : null;
                             if (!relatedCheck) return false;
@@ -786,13 +789,13 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         return (
                             <article
                                 key={id}
-                                className={`list-card overflow-hidden rounded-[0.95rem] border bg-white shadow-sm transition sm:rounded-[1rem] ${isExpanded ? 'border-slate-300 ring-2 ring-slate-100' : 'border-slate-200 hover:border-slate-300'}`}
+                                className={`list-card overflow-hidden rounded-[1rem] border bg-white transition sm:rounded-[1.1rem] ${isExpanded ? 'border-slate-300 shadow-[0_18px_40px_rgba(15,23,42,0.08)] ring-1 ring-slate-100' : 'border-slate-200 shadow-[0_10px_24px_rgba(15,23,42,0.05)] hover:border-slate-300'}`}
                             >
                                 <div
                                     onClick={() => setSelectedVoucherId(isExpanded ? null : id)}
                                     className="cursor-pointer p-2.5 sm:p-3.5"
                                 >
-                                    <div className={`grid items-center gap-2 sm:gap-3 ${isEnglish ? 'grid-cols-[4.9rem_minmax(0,1fr)_2.9rem] sm:grid-cols-[6.4rem_minmax(0,1fr)_4.1rem]' : 'grid-cols-[2.9rem_minmax(0,1fr)_4.9rem] sm:grid-cols-[4.1rem_minmax(0,1fr)_6.4rem]'}`}>
+                                    <div className={`grid items-start gap-2.5 sm:gap-3 ${isEnglish ? 'grid-cols-[4.95rem_minmax(0,1fr)_2.75rem] sm:grid-cols-[6.4rem_minmax(0,1fr)_4.4rem]' : 'grid-cols-[2.75rem_minmax(0,1fr)_4.95rem] sm:grid-cols-[4.4rem_minmax(0,1fr)_6.4rem]'}`}>
                                         <div className={`flex flex-col gap-1.5 ${isEnglish ? 'order-3 items-end' : 'order-1 items-start'}`}>
                                             <div className={`flex flex-wrap gap-1 ${isEnglish ? 'justify-end' : 'justify-start'} sm:gap-1.5`}>
                                                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-black sm:px-3 sm:py-1 sm:text-[11px] ${isDraft ? 'border border-amber-200 bg-amber-50 text-amber-700' : isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
@@ -802,33 +805,48 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                     {id}
                                                 </span>
                                             </div>
-
-                                            <div className={`flex h-10 w-10 items-center justify-center rounded-[0.85rem] sm:h-12 sm:w-12 sm:rounded-[1rem] ${isReceipt ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                {isReceipt ? <ArrowDownLeft size={15} className="sm:h-[18px] sm:w-[18px]" /> : <ArrowUpRight size={15} className="sm:h-[18px] sm:w-[18px]" />}
-                                            </div>
                                         </div>
 
                                         <div className={`min-w-0 ${isEnglish ? 'order-2 text-left' : 'order-2 text-right'}`}>
-                                            <div className="hidden items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 sm:flex sm:gap-2 sm:text-[11px] sm:tracking-[0.16em]">
-                                                <User size={13} />
-                                                <span>{tr('الطرف', 'Contact')}</span>
+                                            <div className={`flex items-start gap-2.5 ${isEnglish ? 'flex-row' : 'flex-row-reverse'} sm:gap-3`}>
+                                                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.95rem] sm:h-11 sm:w-11 ${isReceipt ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                    {isReceipt ? <ArrowDownLeft size={15} className="sm:h-[18px] sm:w-[18px]" /> : <ArrowUpRight size={15} className="sm:h-[18px] sm:w-[18px]" />}
+                                                </div>
+
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 sm:gap-2 sm:text-[11px] sm:tracking-[0.16em]">
+                                                        <User size={13} />
+                                                        <span>{tr('الطرف', 'Contact')}</span>
+                                                    </div>
+                                                    <div className="mt-0.5 text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base">
+                                                        {getContactName(firstPart?.contactId)}
+                                                    </div>
+                                                    <div className="mt-0.5 truncate text-[11px] font-bold leading-4 text-slate-500 sm:mt-1 sm:text-xs">
+                                                        {summaryText}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base">
-                                                {getContactName(firstPart?.contactId)}
-                                            </div>
-                                            <div className="mt-0.5 truncate text-[11px] font-bold leading-4 text-slate-500 sm:mt-1 sm:text-xs">
-                                                {summaryText}
+
+                                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-black text-slate-500 sm:text-[11px]">
+                                                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
+                                                    <Calendar size={12} />
+                                                    <span>{formatDate(firstPart?.date) || '-'}</span>
+                                                </span>
+                                                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
+                                                    <Receipt size={12} />
+                                                    <span>{parts.length} {tr('بنود', 'lines')}</span>
+                                                </span>
                                             </div>
                                         </div>
 
-                                        <div className={`rounded-[0.95rem] border px-2 py-2 text-center sm:rounded-[1.2rem] sm:px-3 sm:py-2.5 ${isDraft ? 'border-slate-200 bg-slate-50' : isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'} ${isEnglish ? 'order-1' : 'order-3'}`}>
-                                            <div className="text-[10px] font-black text-slate-400 sm:text-[11px]">
+                                        <div className={`rounded-[1rem] border px-2.5 py-2.5 text-center sm:rounded-[1.2rem] sm:px-3 sm:py-3 ${isDraft ? 'border-slate-200 bg-slate-50' : isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'} ${isEnglish ? 'order-1' : 'order-3'}`}>
+                                            <div className="text-[9px] font-black tracking-[0.08em] text-slate-400 sm:text-[11px]">
                                                 {tr('قيمة السند', 'Voucher amount')}
                                             </div>
-                                            <div className={`mt-1 text-[1.05rem] font-black leading-none dir-ltr sm:mt-1.5 sm:text-[1.9rem] ${isDraft ? 'text-slate-600' : isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            <div className={`mt-1.5 text-[1.05rem] font-black leading-none dir-ltr sm:mt-2 sm:text-[1.65rem] ${isDraft ? 'text-slate-600' : isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
                                                 {formatAmount(totalAmount)}
                                             </div>
-                                            <div className="mt-0.5 text-[11px] font-bold text-slate-500 sm:text-xs">
+                                            <div className="mt-1 text-[10px] font-black text-slate-500 sm:text-xs">
                                                 {firstPart?.currency || baseCurrency}
                                             </div>
                                         </div>

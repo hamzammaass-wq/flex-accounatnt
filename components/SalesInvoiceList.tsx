@@ -4,15 +4,17 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { TransactionType, Invoice } from '../types';
 import { getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
 import EnglishDateInput from './EnglishDateInput';
+import ResponsiveDialog from './layout/ResponsiveDialog';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { executeDeviceHubCommand } from '../utils/deviceHub';
 import { getSelectedThermalTemplate, getThermalTemplateCustomization } from '../utils/thermalPrintTemplates';
+import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
 import {
     Plus, Search, FileText, User, Calendar,
     CheckCircle2, Clock, XCircle, TrendingUp,
     ArrowUpRight, DollarSign, ChevronLeft,
     Filter, Printer, Archive, CheckCircle,
-    ChevronDown, ChevronUp, Calculator, Tag, RotateCcw, FilePlus, CopyPlus, Trash2, Pencil
+    ChevronDown, ChevronUp, Calculator, Tag, RotateCcw, FilePlus, CopyPlus, Trash2, Pencil, X
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
@@ -35,6 +37,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     const [filterDateTo, setFilterDateTo] = useState('');
     const [filterMinAmount, setFilterMinAmount] = useState('');
     const [filterMaxAmount, setFilterMaxAmount] = useState('');
+    const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
     const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const taxVisibleInInvoices = (companySettings.showTaxInInvoices ?? true) && !(companySettings.hideSalesTax ?? false);
@@ -50,7 +53,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     const displayProductName = (product?: { id: string; name: string } | null) =>
         getDisplayProductName(product || undefined, isEnglish);
     const asText = (value: unknown) => String(value ?? '');
-    const getInvoiceItems = (invoice: Invoice) => Array.isArray(invoice.items) ? invoice.items : [];
+    const getInvoiceItems = (invoice: Invoice) => sanitizeInvoiceItems(invoice.items);
     const getInvoiceTotal = (invoice: Invoice) => Number(invoice.totalAmount || 0);
     const parseFilterNumber = (raw: string): number | null => {
         const normalized = toEnglishDigits(String(raw || ''))
@@ -170,6 +173,31 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
         setFilterDateTo('');
         setFilterMinAmount('');
         setFilterMaxAmount('');
+    };
+    const hasSearch = !!searchTerm.trim();
+    const hasAdvancedFilters =
+        filterCustomerId !== 'ALL' ||
+        filterStatus !== 'ALL' ||
+        filterPostingStatus !== 'ALL' ||
+        filterCurrency !== 'ALL' ||
+        !!filterDateFrom ||
+        !!filterDateTo ||
+        !!filterMinAmount ||
+        !!filterMaxAmount;
+    const hasActiveFilters = hasSearch || hasAdvancedFilters;
+    const activeAdvancedFilterCount = [
+        filterCustomerId !== 'ALL',
+        filterStatus !== 'ALL',
+        filterPostingStatus !== 'ALL',
+        filterCurrency !== 'ALL',
+        !!filterDateFrom,
+        !!filterDateTo,
+        !!filterMinAmount,
+        !!filterMaxAmount
+    ].filter(Boolean).length;
+    const clearAllFilters = () => {
+        setSearchTerm('');
+        resetFilters();
     };
 
     const stats = useMemo(() => {
@@ -465,71 +493,165 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                 <Search className="w-5 h-5 text-gray-400 absolute top-1/2 -translate-y-1/2 right-4 pointer-events-none" />
             </div>
 
-            <div className="list-card bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm mb-6">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2 text-gray-600">
-                        <Filter size={16} className="text-blue-500" />
-                        <span className="text-xs font-black">{tr('تصفية الفواتير', 'Invoice Filters')}</span>
-                    </div>
+            <div className="list-card bg-white p-3 sm:p-4 rounded-[2rem] border border-gray-100 shadow-sm mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                     <button
                         type="button"
-                        onClick={resetFilters}
-                        className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-[11px] font-black text-gray-600 hover:bg-gray-100"
+                        onClick={() => setIsFilterDialogOpen(true)}
+                        className="inline-flex items-center gap-2 rounded-[1rem] border border-gray-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 transition hover:border-gray-300 hover:bg-gray-50"
                     >
-                        {tr('مسح الفلاتر', 'Clear Filters')}
+                        <Filter size={16} className={activeTab === 'RETURNS' ? 'text-rose-500' : activeTab === 'QUOTATIONS' ? 'text-amber-500' : 'text-blue-500'} />
+                        <span>{tr('فلتر', 'Filter')}</span>
+                        {activeAdvancedFilterCount > 0 && (
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${activeTab === 'RETURNS' ? 'bg-rose-50 text-rose-700' : activeTab === 'QUOTATIONS' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                                {activeAdvancedFilterCount}
+                            </span>
+                        )}
                     </button>
+
+                    {hasActiveFilters && (
+                        <button
+                            type="button"
+                            onClick={clearAllFilters}
+                            className="rounded-full border border-gray-200 bg-white px-3 py-2 text-[11px] font-black text-slate-600 transition hover:border-gray-300 hover:bg-gray-50"
+                        >
+                            {tr('مسح الكل', 'Clear all')}
+                        </button>
+                    )}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                    <select value={filterCustomerId} onChange={(e) => setFilterCustomerId(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
-                        <option value="ALL">{tr('كل العملاء', 'All Customers')}</option>
-                        {availableCustomers.map(contact => (
-                            <option key={contact.id} value={contact.id}>{displayContactName(contact)}</option>
-                        ))}
-                    </select>
-                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
-                        <option value="ALL">{tr('كل حالات السداد', 'All Payment Statuses')}</option>
-                        {availableStatuses.map(status => (
-                            <option key={status} value={status}>{getInvoiceStatusLabel(status)}</option>
-                        ))}
-                    </select>
-                    <select value={filterPostingStatus} onChange={(e) => setFilterPostingStatus(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
-                        <option value="ALL">{tr('كل حالات الترحيل', 'All Posting Statuses')}</option>
-                        {availablePostingStatuses.map(status => (
-                            <option key={status} value={status}>{getPostingStatusLabel(status)}</option>
-                        ))}
-                    </select>
-                    <select value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
-                        <option value="ALL">{tr('كل العملات', 'All Currencies')}</option>
-                        {availableCurrencies.map(currency => (
-                            <option key={currency} value={currency}>{currency}</option>
-                        ))}
-                    </select>
-                    <div>
-                        <p className="text-[10px] font-black text-gray-500 mb-1">{tr('من تاريخ', 'Date From')}</p>
-                        <EnglishDateInput value={filterDateFrom} onChange={setFilterDateFrom} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none" />
+
+                {hasAdvancedFilters && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-3 py-1.5 text-[11px] font-black ${activeTab === 'RETURNS' ? 'border-rose-100 bg-rose-50 text-rose-700' : activeTab === 'QUOTATIONS' ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-blue-100 bg-blue-50 text-blue-700'}`}>
+                            {tr('فلاتر نشطة', 'Active filters')}: {activeAdvancedFilterCount}
+                        </span>
                     </div>
-                    <div>
-                        <p className="text-[10px] font-black text-gray-500 mb-1">{tr('إلى تاريخ', 'Date To')}</p>
-                        <EnglishDateInput value={filterDateTo} onChange={setFilterDateTo} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none" />
-                    </div>
-                    <input
-                        type="text"
-                        inputMode="decimal"
-                        value={filterMinAmount}
-                        onChange={(e) => setFilterMinAmount(toEnglishDigits(e.target.value))}
-                        placeholder={tr('حد أدنى للمبلغ', 'Min Amount')}
-                        className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none dir-ltr"
-                    />
-                    <input
-                        type="text"
-                        inputMode="decimal"
-                        value={filterMaxAmount}
-                        onChange={(e) => setFilterMaxAmount(toEnglishDigits(e.target.value))}
-                        placeholder={tr('حد أعلى للمبلغ', 'Max Amount')}
-                        className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none dir-ltr"
-                    />
-                </div>
+                )}
             </div>
+
+            <ResponsiveDialog
+                open={isFilterDialogOpen}
+                onClose={() => setIsFilterDialogOpen(false)}
+                size="lg"
+                panelClassName="font-tajawal bg-white"
+            >
+                <div className={`p-4 sm:p-6 ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <h2 className="text-xl font-black text-slate-900">{tr('تصفية الفواتير', 'Invoice filters')}</h2>
+                            <p className="mt-1 text-sm font-bold text-slate-500">
+                                {tr('افتح الفلاتر فقط عند الحاجة للحفاظ على الشاشة مرتبة.', 'Open filters only when needed to keep the screen focused.')}
+                            </p>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setIsFilterDialogOpen(false)}
+                            className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={tr('إغلاق', 'Close')}
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('العميل', 'Customer')}</label>
+                            <select value={filterCustomerId} onChange={(e) => setFilterCustomerId(e.target.value)} className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white">
+                                <option value="ALL">{tr('كل العملاء', 'All Customers')}</option>
+                                {availableCustomers.map(contact => (
+                                    <option key={contact.id} value={contact.id}>{displayContactName(contact)}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('حالة السداد', 'Payment status')}</label>
+                            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white">
+                                <option value="ALL">{tr('كل حالات السداد', 'All Payment Statuses')}</option>
+                                {availableStatuses.map(status => (
+                                    <option key={status} value={status}>{getInvoiceStatusLabel(status)}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('حالة الترحيل', 'Posting status')}</label>
+                            <select value={filterPostingStatus} onChange={(e) => setFilterPostingStatus(e.target.value)} className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white">
+                                <option value="ALL">{tr('كل حالات الترحيل', 'All Posting Statuses')}</option>
+                                {availablePostingStatuses.map(status => (
+                                    <option key={status} value={status}>{getPostingStatusLabel(status)}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('العملة', 'Currency')}</label>
+                            <select value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)} className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white">
+                                <option value="ALL">{tr('كل العملات', 'All Currencies')}</option>
+                                {availableCurrencies.map(currency => (
+                                    <option key={currency} value={currency}>{currency}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('من تاريخ', 'Date from')}</label>
+                            <EnglishDateInput value={filterDateFrom} onChange={setFilterDateFrom} displayFormat="YMD" wrapperClassName="w-full" className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr" />
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('إلى تاريخ', 'Date to')}</label>
+                            <EnglishDateInput value={filterDateTo} onChange={setFilterDateTo} displayFormat="YMD" wrapperClassName="w-full" className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr" />
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('حد أدنى للمبلغ', 'Min amount')}</label>
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={filterMinAmount}
+                                onChange={(e) => setFilterMinAmount(toEnglishDigits(e.target.value))}
+                                className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('حد أعلى للمبلغ', 'Max amount')}</label>
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                value={filterMaxAmount}
+                                onChange={(e) => setFilterMaxAmount(toEnglishDigits(e.target.value))}
+                                className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="mt-5 flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="text-sm font-black text-slate-500">
+                            {tr('النتائج الحالية', 'Current results')}: <span className="text-slate-900">{filteredList.length}</span>
+                        </span>
+
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                            <button
+                                type="button"
+                                onClick={resetFilters}
+                                className="rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                            >
+                                {tr('مسح الفلاتر', 'Clear filters')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsFilterDialogOpen(false)}
+                                className={`rounded-[1.1rem] px-4 py-3 text-sm font-black text-white transition ${activeTab === 'RETURNS' ? 'bg-rose-600 hover:bg-rose-700' : activeTab === 'QUOTATIONS' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}
+                            >
+                                {tr('عرض النتائج', 'Show results')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </ResponsiveDialog>
 
             <div className="space-y-4">
                 {filteredList.map((inv) => {

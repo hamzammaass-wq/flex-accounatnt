@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, MapPin, Phone, X } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
-import { Contact, ContactType } from '../types';
+import { Contact, ContactPreferredPriceTier, ContactType } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName } from '../utils/displayNames';
 
@@ -9,6 +9,7 @@ type ContactEditorDialogProps = {
   onClose: () => void;
   onSave?: (contact: Contact) => void;
   contact?: Contact | null;
+  initialName?: string;
   initialType?: ContactType;
   allowedTypes?: ContactType[];
   mode?: 'INVOICE' | 'DIRECTORY';
@@ -18,6 +19,7 @@ const ContactEditorDialog: React.FC<ContactEditorDialogProps> = ({
   onClose,
   onSave,
   contact,
+  initialName = '',
   initialType = 'CUSTOMER',
   allowedTypes = ['CUSTOMER', 'SUPPLIER', 'PARTNER'],
   mode = 'DIRECTORY'
@@ -27,6 +29,7 @@ const ContactEditorDialog: React.FC<ContactEditorDialogProps> = ({
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [type, setType] = useState<ContactType>(initialType);
+  const [preferredPriceTier, setPreferredPriceTier] = useState<ContactPreferredPriceTier>(initialType === 'SUPPLIER' ? 'WHOLESALE' : 'RETAIL');
 
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -39,13 +42,15 @@ const ContactEditorDialog: React.FC<ContactEditorDialogProps> = ({
       setPhone(contact.phone || '');
       setAddress(contact.address || '');
       setType(contact.type);
+      setPreferredPriceTier(contact.preferredPriceTier || (contact.type === 'SUPPLIER' ? 'WHOLESALE' : 'RETAIL'));
       return;
     }
-    setName('');
+    setName(initialName);
     setPhone('');
     setAddress('');
     setType(initialType);
-  }, [contact, initialType]);
+    setPreferredPriceTier(initialType === 'SUPPLIER' ? 'WHOLESALE' : 'RETAIL');
+  }, [contact, initialName, initialType]);
 
   const visibleTypes = useMemo(
     () => allowedTypes.filter((value, index, self) => self.indexOf(value) === index),
@@ -85,6 +90,8 @@ const ContactEditorDialog: React.FC<ContactEditorDialogProps> = ({
     return 'bg-white shadow text-purple-600';
   };
 
+  const showPreferredPricing = type === 'CUSTOMER' || type === 'SUPPLIER';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -93,7 +100,8 @@ const ContactEditorDialog: React.FC<ContactEditorDialogProps> = ({
       name: name.trim(),
       phone: phone.trim() || undefined,
       address: address.trim() || undefined,
-      type
+      type,
+      preferredPriceTier: showPreferredPricing ? preferredPriceTier : undefined
     };
 
     if (contact) {
@@ -177,6 +185,33 @@ const ContactEditorDialog: React.FC<ContactEditorDialogProps> = ({
             <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
           </div>
         </div>
+
+        {showPreferredPricing && (
+          <div>
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">
+              {tr('\u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0627\u0641\u062a\u0631\u0627\u0636\u064a \u0641\u064a \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629', 'Default Invoice Price')}
+            </label>
+            <div className="flex bg-gray-50 p-1 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setPreferredPriceTier('RETAIL')}
+                className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${preferredPriceTier === 'RETAIL' ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}
+              >
+                {tr('\u0645\u0641\u0631\u0642', 'Retail')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreferredPriceTier('WHOLESALE')}
+                className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${preferredPriceTier === 'WHOLESALE' ? 'bg-white shadow text-emerald-600' : 'text-gray-400'}`}
+              >
+                {tr('\u062c\u0645\u0644\u0629', 'Wholesale')}
+              </button>
+            </div>
+            <p className="mt-2 px-1 text-[10px] font-bold text-slate-400">
+              {tr('\u0633\u064a\u062a\u0645 \u0627\u0639\u062a\u0645\u0627\u062f \u0647\u0630\u0627 \u0627\u0644\u0633\u0639\u0631 \u062a\u0644\u0642\u0627\u0626\u064a\u064b\u0627 \u0639\u0646\u062f \u0625\u0636\u0627\u0641\u0629 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0641\u064a \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629.', 'This price tier will be used automatically when adding items in the invoice.')}
+            </p>
+          </div>
+        )}
 
         {type === 'PARTNER' && (
           <div>

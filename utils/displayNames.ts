@@ -227,21 +227,21 @@ const currencyNameEnByCode: Record<string, string> = {
 
 const contactNameEn: Record<string, string> = {
   cash_customer: 'Cash Customer',
-  cash_supplier: 'Cash Supplier',
+  cash_supplier: 'Cash Customer',
   c1: 'Modern Supply Company',
   c2: 'Success Trading Establishment'
 };
 
 const contactNameEnByArabic: Record<string, string> = {
   'عميل نقدي': 'Cash Customer',
-  'مورد نقدي': 'Cash Supplier',
+  'مورد نقدي': 'Cash Customer',
   'شركة التوريدات الحديثة': 'Modern Supply Company',
   'مؤسسة النجاح التجارية': 'Success Trading Establishment'
 };
 
 Object.assign(contactNameEnByArabic, {
   'عميل نقدي': 'Cash Customer',
-  'مورد نقدي': 'Cash Supplier',
+  'مورد نقدي': 'Cash Customer',
   'شركة التوريدات الحديثة': 'Modern Supply Company',
   'مؤسسة النجاح التجارية': 'Success Trading Establishment'
 });
@@ -639,7 +639,7 @@ export const getDisplayContactName = (
     contactNameEnByArabic[normalizedName] ||
     fallbackTranslateArabicLabel(normalizedName, [
       { pattern: /^\u0639\u0645\u064A\u0644\s+\u0646\u0642\u062F\u064A$/u, value: 'Cash Customer' },
-      { pattern: /^\u0645\u0648\u0631\u062F\s+\u0646\u0642\u062F\u064A$/u, value: 'Cash Supplier' }
+      { pattern: /^\u0645\u0648\u0631\u062F\s+\u0646\u0642\u062F\u064A$/u, value: 'Cash Customer' }
     ]) ||
     contact.name
   );

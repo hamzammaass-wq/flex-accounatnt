@@ -117,8 +117,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const coreActions = [
     { label: t('dashboard.action.receipt'), icon: <ArrowDownLeft className="w-6 h-6" />, color: 'text-emerald-600', bg: 'bg-emerald-50', action: () => onNavigate('receipts-list') },
     { label: t('dashboard.action.payment'), icon: <ArrowUpRight className="w-6 h-6" />, color: 'text-rose-600', bg: 'bg-rose-50', action: () => onNavigate('payments-list') },
-    { label: t('dashboard.action.salesInvoice'), icon: <ScrollText className="w-6 h-6" />, color: 'text-blue-600', bg: 'bg-blue-50', action: () => onNavigate('sales', 'SALES') },
-    { label: t('dashboard.action.purchaseInvoice'), icon: <ShoppingBag className="w-6 h-6" />, color: 'text-purple-600', bg: 'bg-purple-50', action: () => onNavigate('purchases', 'PURCHASES') },
+    { label: t('dashboard.action.salesInvoice'), icon: <ScrollText className="w-6 h-6" />, color: 'text-blue-600', bg: 'bg-blue-50', action: () => onNavigate('sales') },
+    { label: t('dashboard.action.purchaseInvoice'), icon: <ShoppingBag className="w-6 h-6" />, color: 'text-purple-600', bg: 'bg-purple-50', action: () => onNavigate('purchases') },
     { label: t('dashboard.action.expenses'), icon: <Receipt className="w-6 h-6" />, color: 'text-orange-600', bg: 'bg-orange-50', action: () => onNavigate('purchases-expenses', 'EXPENSES') }
   ];
 

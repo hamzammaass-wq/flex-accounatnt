@@ -727,6 +727,13 @@ const Directory: React.FC = () => {
                                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${contact.type === 'CUSTOMER' ? 'bg-blue-50 text-blue-600' : contact.type === 'SUPPLIER' ? 'bg-orange-50 text-orange-600' : contact.type === 'PARTNER' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'}`}>
                                                 {typeBadgeLabel(contact.type)}
                                             </span>
+                                            {(contact.type === 'CUSTOMER' || contact.type === 'SUPPLIER') && contact.preferredPriceTier && (
+                                                <span className="text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider bg-indigo-50 text-indigo-600">
+                                                    {contact.preferredPriceTier === 'WHOLESALE'
+                                                        ? tr('\u062c\u0645\u0644\u0629', 'Wholesale')
+                                                        : tr('\u0645\u0641\u0631\u0642', 'Retail')}
+                                                </span>
+                                            )}
                                             {contact.phone && <span className="text-[10px] text-gray-400 font-bold flex items-center gap-1"><Phone size={10} /> {contact.phone}</span>}
                                         </div>
                                     </div>

@@ -15,6 +15,7 @@ import {
 import { validateInvoiceInput, validateTransactionInput } from '../utils/validationRules';
 import { decryptBackupPayload, encryptBackupPayload, isBackupPayloadV1 } from '../utils/backupCrypto';
 import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
+import { sanitizeInvoices } from '../utils/invoiceSanitizer';
 import { buildProductPricingPatch } from '../utils/productPricing';
 import { isProfitLossAccount } from '../utils/fiscalYear';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
@@ -453,6 +454,64 @@ const safeClone = <T,>(value: T): T => {
   }
 };
 
+const normalizeLegacyCashContactId = (id?: string): string | undefined => (
+  id === 'cash_supplier' ? 'cash_customer' : id
+);
+
+const normalizeContactsList = (source: Contact[]): Contact[] => {
+  const cashContactSource = source.find(contact => contact.id === 'cash_customer')
+    || source.find(contact => contact.id === 'cash_supplier');
+  const seen = new Set<string>();
+  const normalized: Contact[] = [];
+
+  const cashCustomer: Contact = {
+    ...(cashContactSource || {}),
+    id: 'cash_customer',
+    name: 'عميل نقدي',
+    type: 'CUSTOMER',
+    phone: cashContactSource?.phone || '0000000000',
+    preferredPriceTier: cashContactSource?.preferredPriceTier || 'RETAIL'
+  };
+
+  normalized.push(cashCustomer);
+  seen.add('cash_customer');
+
+  source.forEach(contact => {
+    const normalizedId = normalizeLegacyCashContactId(contact.id);
+    if (!normalizedId || seen.has(normalizedId)) return;
+    normalized.push({
+      ...contact,
+      id: normalizedId
+    });
+    seen.add(normalizedId);
+  });
+
+  return normalized;
+};
+
+const normalizeContactIdReferences = <T extends { contactId?: string }>(items: T[]): T[] => (
+  items.map(item => {
+    const nextContactId = normalizeLegacyCashContactId(item.contactId);
+    return nextContactId === item.contactId ? item : { ...item, contactId: nextContactId };
+  })
+);
+
+const normalizeInvoiceCustomerReferences = (items: Invoice[]): Invoice[] => (
+  items.map(item => {
+    const nextCustomerId = normalizeLegacyCashContactId(item.customerId);
+    return nextCustomerId === item.customerId ? item : { ...item, customerId: nextCustomerId };
+  })
+);
+
+const normalizeWorkspaceSnapshotCashContact = (snapshot: CompanyWorkspaceSnapshot): CompanyWorkspaceSnapshot => ({
+  ...snapshot,
+  contacts: normalizeContactsList(snapshot.contacts || []),
+  invoices: sanitizeInvoices(normalizeInvoiceCustomerReferences(snapshot.invoices || [])),
+  transactions: normalizeContactIdReferences(snapshot.transactions || []),
+  invoiceSettlements: normalizeContactIdReferences(snapshot.invoiceSettlements || []),
+  checks: normalizeContactIdReferences(snapshot.checks || [])
+});
+
 const getMembershipCompanies = (memberships: CompanyMembership[]): CompanyProfile[] => {
   const seen = new Set<string>();
   return memberships.reduce<CompanyProfile[]>((acc, membership) => {
@@ -795,10 +854,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   ];
 
   const initialContacts: Contact[] = [
-    { id: 'cash_customer', name: 'عميل نقدي', type: 'CUSTOMER', phone: '0000000000' },
-    { id: 'cash_supplier', name: 'مورد نقدي', type: 'SUPPLIER', phone: '0000000000' },
-    { id: 'c1', name: 'شركة التوريدات الحديثة', type: 'SUPPLIER', phone: '0501234567' },
-    { id: 'c2', name: 'مؤسسة النجاح التجارية', type: 'CUSTOMER', phone: '0559876543' },
+    { id: 'cash_customer', name: 'عميل نقدي', type: 'CUSTOMER', phone: '0000000000', preferredPriceTier: 'RETAIL' },
+    { id: 'c1', name: 'شركة التوريدات الحديثة', type: 'SUPPLIER', phone: '0501234567', preferredPriceTier: 'WHOLESALE' },
+    { id: 'c2', name: 'مؤسسة النجاح التجارية', type: 'CUSTOMER', phone: '0559876543', preferredPriceTier: 'RETAIL' },
   ];
 
   const initialEmployees: Employee[] = [
@@ -1015,7 +1073,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     {
       id: 'inv_expense_001',
       invoiceNumber: 'EXP-260206',
-      customerId: 'cash_supplier',
+      customerId: 'cash_customer',
       type: TransactionType.EXPENSE,
       category: 'general_expense',
       date: '2026-02-06',
@@ -1366,7 +1424,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       type: TransactionType.EXPENSE,
       date: '2026-02-06',
       invoiceId: 'inv_expense_001',
-      contactId: 'cash_supplier',
+      contactId: 'cash_customer',
       debitAccountId: 'acc_exp_electricity',
       creditAccountId: 'acc_cash',
       currency: baseCurrency,
@@ -1569,7 +1627,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       issueDate: '2026-01-02',
       type: 'OUTGOING',
       status: 'BOUNCED',
-      contactId: 'cash_supplier',
+      contactId: 'cash_customer',
       description: 'Bounced outgoing check'
     }
   ];
@@ -5411,7 +5469,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       products: [],
       itemGroups: safeClone(defaultItemGroups),
       units: safeClone(initialUnits),
-      contacts: safeClone(initialContacts.filter(contact => contact.id === 'cash_customer' || contact.id === 'cash_supplier')),
+      contacts: safeClone(initialContacts.filter(contact => contact.id === 'cash_customer')),
       employees: [],
       employeeContracts: [],
       salaryHistory: [],
@@ -5488,7 +5546,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (!raw) return null;
       const parsed = JSON.parse(raw) as Partial<CompanyWorkspaceSnapshot>;
       if (!parsed || parsed.companyId !== companyId) return null;
-      return {
+      return normalizeWorkspaceSnapshotCashContact({
         schemaVersion: 1,
         companyId,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
@@ -5497,7 +5555,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         users: Array.isArray(parsed.users) ? parsed.users : safeClone(initialUsers),
         accounts: Array.isArray(parsed.accounts) ? parsed.accounts : safeClone(initialAccounts),
         transactions: Array.isArray(parsed.transactions) ? parsed.transactions : safeClone(initialTransactions),
-        invoices: Array.isArray(parsed.invoices) ? parsed.invoices : safeClone(initialInvoices),
+        invoices: Array.isArray(parsed.invoices) ? sanitizeInvoices(parsed.invoices) : safeClone(initialInvoices),
         invoiceSettlements: Array.isArray((parsed as any).invoiceSettlements) ? ((parsed as any).invoiceSettlements as InvoiceSettlement[]) : [],
         importExpenseDistributions: Array.isArray(parsed.importExpenseDistributions) ? parsed.importExpenseDistributions : [],
         products: Array.isArray(parsed.products) ? parsed.products : safeClone(seededProducts),
@@ -5523,44 +5581,45 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         productionOrders: Array.isArray(parsed.productionOrders) ? parsed.productionOrders : safeClone(initialProductionOrders),
         permissions: parsed.permissions || { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} },
         auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : []
-      };
+      });
     } catch {
       return null;
     }
   };
 
   const applyWorkspaceSnapshot = (snapshot: CompanyWorkspaceSnapshot) => {
-    setBaseCurrency(snapshot.baseCurrency || 'ILS');
-    setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(snapshot.companySettings || {}) }));
-    setUsers(snapshot.users || []);
-    setAccounts(snapshot.accounts || []);
-    setTransactions(snapshot.transactions || []);
-    setInvoices(snapshot.invoices || []);
-    setInvoiceSettlements((snapshot as any).invoiceSettlements || []);
-    setImportExpenseDistributions(snapshot.importExpenseDistributions || []);
-    setProducts(snapshot.products || []);
-    setItemGroups(snapshot.itemGroups || []);
-    setUnits(snapshot.units || []);
-    setContacts(snapshot.contacts || []);
-    setEmployees(snapshot.employees || []);
-    setEmployeeContracts((snapshot as any).employeeContracts || []);
-    setSalaryHistory((snapshot as any).salaryHistory || []);
-    setEmployeeLeaveRequests((snapshot as any).employeeLeaveRequests || []);
-    setEmployeeRecurringDeductions((snapshot as any).employeeRecurringDeductions || []);
-    setFingerprintDevices((snapshot as any).fingerprintDevices || []);
-    setFingerprintAttendanceBatches((snapshot as any).fingerprintAttendanceBatches || []);
-    setDepartments(snapshot.departments || []);
-    setTickets(snapshot.tickets || []);
-    setFixedAssets(snapshot.fixedAssets || []);
-    setAssetGroups(snapshot.assetGroups || []);
-    setChecks(snapshot.checks || []);
-    setCurrencies(snapshot.currencies || []);
-    setWarehouses(snapshot.warehouses || []);
-    setStockTransfers(snapshot.stockTransfers || []);
-    setBoms(snapshot.boms || []);
-    setProductionOrders(snapshot.productionOrders || []);
-    setPermissions(snapshot.permissions || { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} });
-    setAuditLogs(snapshot.auditLogs || []);
+    const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
+    setBaseCurrency(normalizedSnapshot.baseCurrency || 'ILS');
+    setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
+    setUsers(normalizedSnapshot.users || []);
+    setAccounts(normalizedSnapshot.accounts || []);
+    setTransactions(normalizedSnapshot.transactions || []);
+    setInvoices(normalizedSnapshot.invoices || []);
+    setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
+    setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
+    setProducts(normalizedSnapshot.products || []);
+    setItemGroups(normalizedSnapshot.itemGroups || []);
+    setUnits(normalizedSnapshot.units || []);
+    setContacts(normalizedSnapshot.contacts || []);
+    setEmployees(normalizedSnapshot.employees || []);
+    setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
+    setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
+    setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
+    setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
+    setFingerprintDevices((normalizedSnapshot as any).fingerprintDevices || []);
+    setFingerprintAttendanceBatches((normalizedSnapshot as any).fingerprintAttendanceBatches || []);
+    setDepartments(normalizedSnapshot.departments || []);
+    setTickets(normalizedSnapshot.tickets || []);
+    setFixedAssets(normalizedSnapshot.fixedAssets || []);
+    setAssetGroups(normalizedSnapshot.assetGroups || []);
+    setChecks(normalizedSnapshot.checks || []);
+    setCurrencies(normalizedSnapshot.currencies || []);
+    setWarehouses(normalizedSnapshot.warehouses || []);
+    setStockTransfers(normalizedSnapshot.stockTransfers || []);
+    setBoms(normalizedSnapshot.boms || []);
+    setProductionOrders(normalizedSnapshot.productionOrders || []);
+    setPermissions(normalizedSnapshot.permissions || { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} });
+    setAuditLogs(normalizedSnapshot.auditLogs || []);
   };
 
   const saveCurrentWorkspaceSnapshot = (companyId: string) => {
@@ -6395,14 +6454,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       setCompanySettings(restoredSettings);
       setUsers(Array.isArray(data.users) ? (data.users as User[]) : users);
       setAccounts(Array.isArray(data.accounts) ? (data.accounts as Account[]) : accounts);
-      setTransactions(Array.isArray(data.transactions) ? (data.transactions as Transaction[]) : transactions);
-      setInvoices(Array.isArray(data.invoices) ? (data.invoices as Invoice[]) : invoices);
-      setInvoiceSettlements(Array.isArray((data as any).invoiceSettlements) ? ((data as any).invoiceSettlements as InvoiceSettlement[]) : invoiceSettlements);
+      setTransactions(Array.isArray(data.transactions) ? normalizeContactIdReferences(data.transactions as Transaction[]) : transactions);
+      setInvoices(Array.isArray(data.invoices) ? sanitizeInvoices(normalizeInvoiceCustomerReferences(data.invoices as Invoice[])) : invoices);
+      setInvoiceSettlements(Array.isArray((data as any).invoiceSettlements) ? normalizeContactIdReferences((data as any).invoiceSettlements as InvoiceSettlement[]) : invoiceSettlements);
       setImportExpenseDistributions(Array.isArray(data.importExpenseDistributions) ? (data.importExpenseDistributions as ImportExpenseDistribution[]) : importExpenseDistributions);
       setProducts(Array.isArray(data.products) ? (data.products as Product[]) : products);
       setItemGroups(Array.isArray(data.itemGroups) ? (data.itemGroups as ItemGroup[]) : itemGroups);
       setUnits(Array.isArray(data.units) ? (data.units as UnitOfMeasure[]) : units);
-      setContacts(Array.isArray(data.contacts) ? (data.contacts as Contact[]) : contacts);
+      setContacts(Array.isArray(data.contacts) ? normalizeContactsList(data.contacts as Contact[]) : contacts);
       setEmployees(Array.isArray(data.employees) ? (data.employees as Employee[]) : employees);
       setEmployeeContracts(Array.isArray((data as any).employeeContracts) ? ((data as any).employeeContracts as EmployeeContract[]) : employeeContracts);
       setSalaryHistory(Array.isArray((data as any).salaryHistory) ? ((data as any).salaryHistory as SalaryHistoryEntry[]) : salaryHistory);
@@ -6414,7 +6473,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       setTickets(Array.isArray(data.tickets) ? (data.tickets as SupportTicket[]) : tickets);
       setFixedAssets(Array.isArray(data.fixedAssets) ? (data.fixedAssets as FixedAsset[]) : fixedAssets);
       setAssetGroups(Array.isArray(data.assetGroups) ? (data.assetGroups as FixedAssetGroup[]) : assetGroups);
-      setChecks(Array.isArray(data.checks) ? (data.checks as Check[]) : checks);
+      setChecks(Array.isArray(data.checks) ? normalizeContactIdReferences(data.checks as Check[]) : checks);
       setCurrencies(Array.isArray(data.currencies) ? (data.currencies as Currency[]) : currencies);
       setWarehouses(Array.isArray(data.warehouses) ? (data.warehouses as Warehouse[]) : warehouses);
       setStockTransfers(Array.isArray(data.stockTransfers) ? (data.stockTransfers as StockTransfer[]) : stockTransfers);

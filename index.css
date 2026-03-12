@@ -19,6 +19,18 @@
   direction: ltr;
 }
 
+.invoice-stock-cell {
+  font-size: 0 !important;
+}
+
+.invoice-stock-cell::after {
+  content: attr(data-stock);
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -342,9 +354,76 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   .transaction-mobile-form .entry-card-grid,
   .transaction-mobile-form .voucher-line-grid,
-  .transaction-mobile-form .journal-line-grid,
-  .transaction-mobile-form .header-fields-grid {
+  .transaction-mobile-form .journal-line-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .transaction-mobile-form .header-fields-grid {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr) minmax(0, 0.9fr) !important;
+  }
+
+  .transaction-mobile-form .invoice-items-shell {
+    overflow-x: visible !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table {
+    min-width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th,
+  .transaction-mobile-form .invoice-items-table td {
+    padding-inline: 0.2rem !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th:nth-child(1),
+  .transaction-mobile-form .invoice-items-table td:nth-child(1) {
+    width: 6% !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th:nth-child(2),
+  .transaction-mobile-form .invoice-items-table td:nth-child(2) {
+    width: 30% !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th:nth-child(3),
+  .transaction-mobile-form .invoice-items-table td:nth-child(3) {
+    width: 12% !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th:nth-child(4),
+  .transaction-mobile-form .invoice-items-table td:nth-child(4),
+  .transaction-mobile-form .invoice-items-table th:nth-child(5),
+  .transaction-mobile-form .invoice-items-table td:nth-child(5) {
+    width: 15% !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th:nth-child(6),
+  .transaction-mobile-form .invoice-items-table td:nth-child(6) {
+    width: 12% !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table th:nth-child(7),
+  .transaction-mobile-form .invoice-items-table td:nth-child(7) {
+    width: 10% !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table input {
+    padding: 0.24rem !important;
+    font-size: 10px !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table td:nth-child(2) > div {
+    font-size: 8px !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table td:nth-child(5) > span,
+  .transaction-mobile-form .invoice-stock-cell::after {
+    font-size: 9px !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table td:nth-child(7) button {
+    padding: 0.25rem !important;
   }
 
   .transaction-mobile-form .invoice-submit-panel {
@@ -362,6 +441,11 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .definitions-page .settings-card {
     border-radius: 0.7rem !important;
     padding: 0.6rem !important;
+  }
+
+  .voucher-list-page .list-card {
+    border-radius: 0.95rem !important;
+    padding: 0 !important;
   }
 }
 
@@ -404,10 +488,13 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     margin-top: 0 !important;
   }
 
-  .transaction-mobile-form .header-fields-grid,
   .transaction-mobile-form .voucher-line-grid,
   .transaction-mobile-form .journal-line-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .transaction-mobile-form .header-fields-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 0.95fr) !important;
   }
 
   .transaction-mobile-form .invoice-submit-panel {
@@ -424,6 +511,10 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .journal-list-page .list-card,
   .definitions-page .settings-card {
     border-radius: 0.9rem !important;
+  }
+
+  .voucher-list-page .list-card {
+    border-radius: 1rem !important;
   }
 }
 

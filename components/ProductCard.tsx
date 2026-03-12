@@ -166,12 +166,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                                     <span>{tr('حد نقص', 'Low stock')} {lowStockThreshold}</span>
                                 </div>
                             )}
-                            {Number.isFinite(Number(product.reorderQty)) && Number(product.reorderQty) > 0 && (
-                                <div className={`flex items-center gap-1.5 text-[9px] font-black w-fit px-2.5 py-1 rounded-lg border ${isLowStock ? 'text-sky-100 bg-sky-500/20 border-sky-300/30' : 'text-white/70 bg-white/10 border-white/10'}`}>
-                                    <ShoppingBag size={12} />
-                                    <span>{tr('إعادة طلب', 'Reorder')} {Number(product.reorderQty)}</span>
-                                </div>
-                            )}
                         </div>
 
                         <div className="flex gap-3 mt-2">

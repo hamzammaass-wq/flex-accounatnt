@@ -263,7 +263,9 @@ const AppContent: React.FC = () => {
   const renderMainContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigate={(tab, formTab, vType, defMode) => {
-        if (formTab === 'SALES') openOverlay('add-sales');
+        if (tab === 'sales') handleNavigate('sales');
+        else if (tab === 'purchases') handleNavigate('purchases');
+        else if (formTab === 'SALES') openOverlay('add-sales');
         else if (formTab === 'PURCHASES') openOverlay('add-purchase');
         else if (formTab === 'MANUAL_PURCHASE') handleNavigate('purchases-expenses');
         else if (formTab === 'EXPENSES') openOverlay('add-expense');

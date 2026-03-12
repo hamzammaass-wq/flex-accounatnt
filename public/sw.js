@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'aiflex-erp-v5';
+const CACHE_VERSION = 'aiflex-erp-v6';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const IS_DEV_SERVER =
   self.location.port === '3000' ||

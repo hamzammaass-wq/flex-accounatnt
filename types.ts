@@ -134,6 +134,7 @@ export interface ItemGroup {
 }
 
 export type ContactType = 'CUSTOMER' | 'SUPPLIER' | 'PARTNER' | 'EMPLOYEE';
+export type ContactPreferredPriceTier = 'RETAIL' | 'WHOLESALE';
 
 export interface Contact {
   id: string;
@@ -141,6 +142,7 @@ export interface Contact {
   type: ContactType;
   phone?: string;
   address?: string;
+  preferredPriceTier?: ContactPreferredPriceTier;
   linkedAccountId?: string;
   currentAccountId?: string;
   capitalAccountId?: string;
