@@ -3,7 +3,6 @@ import {
   BadgePercent,
   Calendar,
   CheckCircle2,
-  Clock,
   FileText,
   Link2,
   Plus,
@@ -30,7 +29,6 @@ const AdjustmentNoticesManager: React.FC = () => {
     baseCurrency,
     invoiceSettlements,
     createInvoice,
-    postInvoice,
     deleteInvoice
   } = useAccounting();
 
@@ -48,7 +46,7 @@ const AdjustmentNoticesManager: React.FC = () => {
   const [noticeNotes, setNoticeNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'POSTED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED'>('ALL');
   const [partyFilterId, setPartyFilterId] = useState('ALL');
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
@@ -121,7 +119,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     const kindCategory = activeKind === 'CREDIT_NOTE' ? 'customer_credit_note' : 'supplier_debit_note';
     return allNotices
       .filter(inv => inv.category === kindCategory)
-      .filter(inv => statusFilter === 'ALL' || inv.postingStatus === statusFilter)
+      .filter(inv => statusFilter === 'ALL' || (inv.postingStatus || 'POSTED') === statusFilter)
       .filter(inv => partyFilterId === 'ALL' || inv.customerId === partyFilterId)
       .filter(inv => !fromDateFilter || inv.date >= fromDateFilter)
       .filter(inv => !toDateFilter || inv.date <= toDateFilter)
@@ -147,7 +145,6 @@ const AdjustmentNoticesManager: React.FC = () => {
       total: allNotices.length,
       creditCount: credit.length,
       debitCount: debit.length,
-      drafts: allNotices.filter(n => n.postingStatus === 'DRAFT').length,
       posted: allNotices.filter(n => n.postingStatus === 'POSTED').length,
       creditAmount: credit.reduce((s, n) => s + (Number(n.totalAmount) || 0), 0),
       debitAmount: debit.reduce((s, n) => s + (Number(n.totalAmount) || 0), 0),
@@ -200,7 +197,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     }
   };
 
-  const createNotice = async (postingStatus: 'DRAFT' | 'POSTED') => {
+  const createNotice = async () => {
     if (!selectedPartyId) {
       alert(tr('اختر العميل/المورد أولاً.', 'Select the customer/supplier first.'));
       return;
@@ -250,8 +247,8 @@ const AdjustmentNoticesManager: React.FC = () => {
         taxAmount: 0,
         discountAmount: 0,
         totalAmount: amount,
-        status: postingStatus === 'POSTED' ? 'PAID' : 'PENDING',
-        postingStatus,
+        status: 'PAID',
+        postingStatus: 'POSTED',
         paymentType: 'CREDIT',
         notes: noteText,
         currency,
@@ -264,11 +261,9 @@ const AdjustmentNoticesManager: React.FC = () => {
       }
 
       alert(
-        postingStatus === 'POSTED'
-          ? (linkedInvoice
-              ? tr('تم ترحيل الإشعار وربطه بالفاتورة بنجاح.', 'Notice posted and linked to invoice successfully.')
-              : tr('تم ترحيل الإشعار بنجاح.', 'Notice posted successfully.'))
-          : tr('تم حفظ الإشعار كمسودة بنجاح.', 'Notice saved as draft successfully.')
+        linkedInvoice
+          ? tr('تم ترحيل الإشعار وربطه بالفاتورة بنجاح.', 'Notice posted and linked to invoice successfully.')
+          : tr('تم ترحيل الإشعار بنجاح.', 'Notice posted successfully.')
       );
       setShowForm(false);
       resetForm(activeKind);
@@ -277,16 +272,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     }
   };
 
-  const handlePostDraft = (inv: Invoice) => {
-    const res = postInvoice(inv.id);
-    if (!res.ok) {
-      alert(res.message);
-      return;
-    }
-    alert(tr('تم ترحيل الإشعار بنجاح.', 'Notice posted successfully.'));
-  };
-
-  const handleDeleteDraft = (inv: Invoice) => {
+  const handleDeleteNotice = (inv: Invoice) => {
     if (!confirm(tr('هل تريد حذف هذا الإشعار؟', 'Delete this notice?'))) return;
     const res = deleteInvoice(inv.id);
     if (!res.ok) {
@@ -347,8 +333,8 @@ const AdjustmentNoticesManager: React.FC = () => {
     `${Number(n || 0).toLocaleString(isEnglish ? 'en-US' : 'ar-EG-u-nu-latn')} ${currency || ''}`.trim();
 
   return (
-    <div className="app-page animate-in fade-in duration-300 p-4 md:p-5 space-y-4">
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 md:p-5">
+    <div className="app-page animate-in fade-in duration-300 p-3 md:p-5 space-y-3 md:space-y-4">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-3.5 md:p-5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="min-w-0">
             <h1 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">
@@ -379,17 +365,17 @@ const AdjustmentNoticesManager: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <div className="bg-white rounded-2xl border border-gray-100 p-3"><div className="text-[10px] text-gray-400 font-black">{tr('إجمالي الإشعارات', 'Total Notices')}</div><div className="text-lg font-black">{summary.total}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-3"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات دائنة', 'Credit Notes')}</div><div className="text-lg font-black text-emerald-600">{summary.creditCount}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-3"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات مدينة', 'Debit Notes')}</div><div className="text-lg font-black text-indigo-600">{summary.debitCount}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-3"><div className="text-[10px] text-gray-400 font-black">{tr('مسودات', 'Drafts')}</div><div className="text-lg font-black text-amber-600">{summary.drafts}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-3"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة الدائن', 'Credit Amount')}</div><div className="text-sm font-black text-emerald-600">{formatAmount(summary.creditAmount)}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-3"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة المدين', 'Debit Amount')}</div><div className="text-sm font-black text-indigo-600">{formatAmount(summary.debitAmount)}</div></div>
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
+        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('إجمالي الإشعارات', 'Total Notices')}</div><div className="text-lg font-black">{summary.total}</div></div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات دائنة', 'Credit Notes')}</div><div className="text-lg font-black text-emerald-600">{summary.creditCount}</div></div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات مدينة', 'Debit Notes')}</div><div className="text-lg font-black text-indigo-600">{summary.debitCount}</div></div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('مرحّل', 'Posted')}</div><div className="text-lg font-black text-blue-600">{summary.posted}</div></div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة الدائن', 'Credit Amount')}</div><div className="text-sm font-black text-emerald-600">{formatAmount(summary.creditAmount)}</div></div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة المدين', 'Debit Amount')}</div><div className="text-sm font-black text-indigo-600">{formatAmount(summary.debitAmount)}</div></div>
       </div>
 
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-3.5 md:p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-2 items-center">
           <button
             type="button"
             onClick={() => {
@@ -415,18 +401,17 @@ const AdjustmentNoticesManager: React.FC = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={tr('بحث برقم الإشعار أو البيان أو الطرف...', 'Search by notice no, description, or party...')}
-            className="flex-1 min-w-[220px] p-3 rounded-xl bg-gray-50 border border-gray-200 text-sm font-bold outline-none"
+            className="col-span-2 w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-sm font-bold outline-none"
           />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'DRAFT' | 'POSTED')}
+            onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'POSTED')}
             className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
           >
             <option value="ALL">{tr('كل الحالات', 'All statuses')}</option>
             <option value="POSTED">{tr('مرحّل فقط', 'Posted only')}</option>
-            <option value="DRAFT">{tr('مسودة فقط', 'Draft only')}</option>
           </select>
           <select
             value={partyFilterId}
@@ -515,16 +500,6 @@ const AdjustmentNoticesManager: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-3 flex-wrap">
-                  {isDraft && (
-                    <button
-                      type="button"
-                      onClick={() => handlePostDraft(inv)}
-                      className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black flex items-center gap-2"
-                    >
-                      <Send className="w-4 h-4" />
-                      {tr('ترحيل الإشعار', 'Post Notice')}
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => handlePrintNotice(inv)}
@@ -533,16 +508,14 @@ const AdjustmentNoticesManager: React.FC = () => {
                     <Printer className="w-4 h-4" />
                     {tr('طباعة', 'Print')}
                   </button>
-                  {isDraft && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDraft(inv)}
-                      className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-black flex items-center gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {tr('حذف', 'Delete')}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteNotice(inv)}
+                    className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-black flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {tr('حذف', 'Delete')}
+                  </button>
                 </div>
               </div>
             );
@@ -679,16 +652,7 @@ const AdjustmentNoticesManager: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-end gap-2">
               <button
                 type="button"
-                onClick={() => createNotice('DRAFT')}
-                disabled={submitting}
-                className={`px-4 py-3 rounded-xl text-sm font-black border flex items-center justify-center gap-2 ${submitting ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white border-gray-200 text-gray-700'}`}
-              >
-                <Clock className="w-4 h-4" />
-                {tr('حفظ كمسودة', 'Save Draft')}
-              </button>
-              <button
-                type="button"
-                onClick={() => createNotice('POSTED')}
+                onClick={() => createNotice()}
                 disabled={submitting}
                 className={`px-4 py-3 rounded-xl text-sm font-black text-white flex items-center justify-center gap-2 ${activeKind === 'CREDIT_NOTE' ? 'bg-emerald-600' : 'bg-indigo-600'} ${submitting ? 'opacity-70' : ''}`}
               >

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Cairo:wght@200;300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -50,6 +50,24 @@
 body {
   direction: inherit;
   min-height: 100dvh;
+  font-family: var(--font-app-en);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-kerning: normal;
+}
+
+html[lang^='ar'] body {
+  font-family: var(--font-app-ar);
+  letter-spacing: 0;
+}
+
+html[lang^='ar'] :where(h1, h2, h3, h4, h5, h6, button, input, select, textarea) {
+  font-family: var(--font-app-ar);
+}
+
+.font-tajawal {
+  font-family: var(--font-app-ar) !important;
 }
 
 html {
@@ -84,6 +102,9 @@ input[type='time'] {
   --app-safe-bottom: env(safe-area-inset-bottom);
   --app-keyboard-inset: 0px;
   --app-content-max-width-tablet-browser: 1080px;
+  --font-app-ar: "Cairo", "Tajawal", "Segoe UI", sans-serif;
+  --font-app-en: "Segoe UI", Arial, sans-serif;
+  --font-app-print-ar: "Tajawal", "Cairo", sans-serif;
 }
 
 /* ===== ULTRA COMPACT MODE ===== */
@@ -123,7 +144,7 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
 select,
 textarea,
 button {
-  min-height: 34px;
+  min-height: 36px;
 }
 
 /* Allow small UI controls to stay compact (checkboxes, radios, range) */
@@ -132,6 +153,72 @@ input[type='radio'],
 input[type='range'],
 input[type='color'] {
   min-height: auto;
+}
+
+/* ===== UNIFIED FORM CONTROLS (safe baseline) ===== */
+:root {
+  --app-control-height: 40px;
+  --app-control-radius: 0.75rem;
+  --app-control-focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea) {
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+/* keep explicit Tailwind height/padding untouched */
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select):not([class*='h-']):not([class*='py-']) {
+  min-height: var(--app-control-height);
+}
+
+.app-page :where(textarea):not([class*='min-h-']) {
+  min-height: 72px;
+}
+
+/* apply neutral backgrounds only when component did not set bg classes */
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):not([class*='bg-']) {
+  background-color: #ffffff;
+}
+
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):not([class*='border-']) {
+  border: 1px solid #e2e8f0;
+}
+
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):not([class*='rounded']) {
+  border-radius: var(--app-control-radius);
+}
+
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea)::placeholder {
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):focus-visible {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: var(--app-control-focus-ring);
+}
+
+.app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
 }
 
 /* ===== APP SHELL ===== */
@@ -309,6 +396,39 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     white-space: nowrap;
   }
 
+  /* Reports: keep all report tables inside the viewport without horizontal scrolling */
+  .financial-reports-page {
+    overflow-x: hidden;
+  }
+
+  .financial-reports-page table {
+    width: 100% !important;
+    min-width: 100% !important;
+    table-layout: fixed !important;
+  }
+
+  .financial-reports-page table th,
+  .financial-reports-page table td,
+  .financial-reports-page table .whitespace-nowrap {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.25 !important;
+    padding: 0.32rem 0.18rem !important;
+    font-size: 8px !important;
+    vertical-align: top;
+  }
+
+  .financial-reports-page table .truncate {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
+
+  .financial-reports-page .overflow-x-auto:has(table) {
+    overflow-x: hidden !important;
+  }
+
   /* Ensure all inputs/selects/textarea/buttons don't overflow */
   .app-page input,
   .app-page select,
@@ -336,8 +456,8 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .transaction-mobile-form .transaction-entry-section,
   .transaction-mobile-form .invoice-submit-panel,
   .transaction-mobile-form .transaction-line-card {
-    border-radius: 0.7rem !important;
-    padding: 0.6rem !important;
+    border-radius: 0.78rem !important;
+    padding: 0.7rem !important;
   }
 
   .transaction-mobile-form .transaction-entry-split {
@@ -359,7 +479,12 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   }
 
   .transaction-mobile-form .header-fields-grid {
-    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr) minmax(0, 0.9fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+  }
+
+  .transaction-mobile-form .header-fields-grid > :last-child {
+    grid-column: 1 / -1 !important;
   }
 
   .transaction-mobile-form .invoice-items-shell {
@@ -373,7 +498,8 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   .transaction-mobile-form .invoice-items-table th,
   .transaction-mobile-form .invoice-items-table td {
-    padding-inline: 0.2rem !important;
+    padding-inline: 0.28rem !important;
+    font-size: 10px !important;
   }
 
   .transaction-mobile-form .invoice-items-table th:nth-child(1),
@@ -409,8 +535,8 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   }
 
   .transaction-mobile-form .invoice-items-table input {
-    padding: 0.24rem !important;
-    font-size: 10px !important;
+    padding: 0.32rem !important;
+    font-size: 10.5px !important;
   }
 
   .transaction-mobile-form .invoice-items-table td:nth-child(2) > div {
@@ -430,6 +556,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     position: sticky !important;
     z-index: 35 !important;
     bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.3rem) !important;
+    padding: 0.72rem !important;
   }
 
   .dashboard-page .dashboard-primary-card,
@@ -541,6 +668,133 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   }
 }
 
+/* ===== DARK THEME ===== */
+html[data-app-theme='dark'] {
+  color-scheme: dark;
+  --app-control-focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.28);
+}
+
+html[data-app-theme='dark'] body {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(168, 85, 247, 0.12), transparent 26%),
+    linear-gradient(180deg, #06101c 0%, #0b1220 100%);
+  color: #e5eefb;
+}
+
+html[data-app-theme='dark'] .app-shell-root,
+html[data-app-theme='dark'] .app-shell-frame,
+html[data-app-theme='dark'] .app-main-scroll,
+html[data-app-theme='dark'] .app-page {
+  background-color: transparent;
+  color: #e5eefb;
+}
+
+html[data-app-theme='dark'] .app-shell-frame {
+  background: rgba(6, 13, 26, 0.92);
+}
+
+html[data-app-theme='dark'][data-device-class='tablet'][data-launch-mode='browser'] .app-shell-frame--centered,
+html[data-app-theme='dark'][data-device-class='desktop'][data-launch-mode='browser'] .app-shell-frame--centered {
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.55);
+}
+
+html[data-app-theme='dark'] .app-bottom-nav {
+  background: rgba(8, 15, 28, 0.96) !important;
+  border-color: rgba(51, 65, 85, 0.95) !important;
+  box-shadow: 0 -10px 24px rgba(2, 6, 23, 0.45) !important;
+}
+
+html[data-app-theme='dark'] .bg-white,
+html[data-app-theme='dark'] [class*='bg-white/70'],
+html[data-app-theme='dark'] [class*='bg-white/80'],
+html[data-app-theme='dark'] [class*='bg-white/85'],
+html[data-app-theme='dark'] [class*='bg-white/90'],
+html[data-app-theme='dark'] [class*='bg-white/95'] {
+  background-color: rgba(15, 23, 42, 0.94) !important;
+}
+
+html[data-app-theme='dark'] .bg-gray-50,
+html[data-app-theme='dark'] .bg-gray-100,
+html[data-app-theme='dark'] .bg-gray-200,
+html[data-app-theme='dark'] .bg-slate-50,
+html[data-app-theme='dark'] .bg-slate-100,
+html[data-app-theme='dark'] .bg-slate-200,
+html[data-app-theme='dark'] [class*='bg-gray-50/'],
+html[data-app-theme='dark'] [class*='bg-gray-100/'],
+html[data-app-theme='dark'] [class*='bg-gray-200/'],
+html[data-app-theme='dark'] [class*='bg-slate-50/'],
+html[data-app-theme='dark'] [class*='bg-slate-100/'],
+html[data-app-theme='dark'] [class*='bg-slate-200/'] {
+  background-color: rgba(15, 23, 42, 0.72) !important;
+}
+
+html[data-app-theme='dark'] .border-gray-50,
+html[data-app-theme='dark'] .border-gray-100,
+html[data-app-theme='dark'] .border-gray-200,
+html[data-app-theme='dark'] .border-gray-300,
+html[data-app-theme='dark'] .border-slate-100,
+html[data-app-theme='dark'] .border-slate-200,
+html[data-app-theme='dark'] .border-slate-300 {
+  border-color: rgba(71, 85, 105, 0.7) !important;
+}
+
+html[data-app-theme='dark'] .text-black,
+html[data-app-theme='dark'] .text-gray-900,
+html[data-app-theme='dark'] .text-gray-800,
+html[data-app-theme='dark'] .text-gray-700,
+html[data-app-theme='dark'] .text-slate-900,
+html[data-app-theme='dark'] .text-slate-800,
+html[data-app-theme='dark'] .text-slate-700 {
+  color: #e5eefb !important;
+}
+
+html[data-app-theme='dark'] .text-gray-600,
+html[data-app-theme='dark'] .text-gray-500,
+html[data-app-theme='dark'] .text-gray-400,
+html[data-app-theme='dark'] .text-slate-600,
+html[data-app-theme='dark'] .text-slate-500,
+html[data-app-theme='dark'] .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html[data-app-theme='dark'] .hover\:bg-white:hover,
+html[data-app-theme='dark'] .hover\:bg-gray-50:hover,
+html[data-app-theme='dark'] .hover\:bg-slate-50:hover {
+  background-color: rgba(30, 41, 59, 0.96) !important;
+}
+
+html[data-app-theme='dark'] :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea) {
+  color: #e5eefb;
+  caret-color: #93c5fd;
+}
+
+html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):not([class*='bg-']) {
+  background-color: rgba(15, 23, 42, 0.9);
+}
+
+html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):not([class*='border-']) {
+  border-color: rgba(71, 85, 105, 0.7);
+}
+
+html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea)::placeholder {
+  color: #64748b;
+}
+
+html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea):focus-visible {
+  border-color: #60a5fa;
+}
+
 /* ===== PRINT ===== */
 @media print {
   body.equity-partners-print-locked .equity-partners-no-print {
@@ -557,7 +811,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     position: fixed;
     inset: 0;
     padding: 24px;
-    font-family: "Cairo", sans-serif;
+    font-family: var(--font-app-print-ar);
     font-size: 14px;
     color: #0f172a;
     background: #fff;

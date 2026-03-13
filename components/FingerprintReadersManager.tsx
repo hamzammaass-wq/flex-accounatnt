@@ -325,7 +325,7 @@ const FingerprintReadersManager: React.FC = () => {
       setManualFileName(file.name);
       setManualMsg(
         parsed.length
-          ? tr(`طھظ… طھط­ظ„ظٹظ„ ${parsed.length} ط³ط¬ظ„`, `Parsed ${parsed.length} rows`)
+          ? tr(`تم تحليل ${parsed.length} سجل`, `Parsed ${parsed.length} rows`)
           : tr('لم يتم العثور على سجلات صالحة', 'No valid attendance rows found')
       );
     } catch {

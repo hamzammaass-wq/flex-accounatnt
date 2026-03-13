@@ -1,8 +1,10 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Circle,
   Lightbulb,
   Landmark,
@@ -15,9 +17,11 @@ import {
 } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import EnglishDateInput from './EnglishDateInput';
+import DocumentActions from './DocumentActions';
 import { BankMatchSuggestion, TransactionType } from '../types';
 import { buildBankMatchSuggestions } from '../utils/bankAutoMatch';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
+import { downloadElementAsHtml, exportElementAsCsv } from '../utils/documentExport';
 import {
   BANK_STATEMENT_PROFILES,
   BankStatementColumnMapping,
@@ -102,6 +106,10 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
   const [statementHeaders, setStatementHeaders] = useState<string[]>([]);
   const [statementFileName, setStatementFileName] = useState('');
   const [statementImportMsg, setStatementImportMsg] = useState('');
+  const [showStatementImportTools, setShowStatementImportTools] = useState(false);
+  const autoReconcileAppliedScopesRef = useRef<Set<string>>(new Set());
+  const reconciliationSnapshotRef = useRef<HTMLDivElement | null>(null);
+  const reconciliationExportTableRef = useRef<HTMLTableElement | null>(null);
 
   useEffect(() => {
     if (!selectedBankId && bankAccounts.length > 0) {
@@ -183,6 +191,23 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
     [bankTransactions, currentBankCleared, periodEndDate, contacts]
   );
 
+  useEffect(() => {
+    if (!selectedBankId || rowsWithCleared.length === 0) return;
+    const scopeKey = `${selectedBankId}_${periodStartDate}_${periodEndDate}`;
+    if (autoReconcileAppliedScopesRef.current.has(scopeKey)) return;
+    autoReconcileAppliedScopesRef.current.add(scopeKey);
+
+    updateClearedForCurrentBank(prev => {
+      const next = { ...prev };
+      rowsWithCleared.forEach(row => {
+        if (!next[row.tx.id]) {
+          next[row.tx.id] = periodEndDate;
+        }
+      });
+      return next;
+    });
+  }, [selectedBankId, periodStartDate, periodEndDate, rowsWithCleared]);
+
   const filteredRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     return rowsWithCleared.filter(row => {
@@ -243,7 +268,9 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
   );
   const clearedRateByValue = totalMovementValue > 0 ? Math.round((clearedMovementValue / totalMovementValue) * 100) : 0;
 
-  const parsedStatementBalance = parseFloat(statementBalance) || 0;
+  const parsedStatementBalance = statementBalance.trim() === ''
+    ? clearedBookBalance
+    : (parseFloat(statementBalance) || 0);
   const reconciliationDifference = Number((parsedStatementBalance - clearedBookBalance).toFixed(2));
 
   const updateClearedForCurrentBank = (updater: (prev: Record<string, string>) => Record<string, string>) => {
@@ -516,6 +543,35 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
     reportWindow.print();
   };
 
+  const reconciliationTitle = tr('كشف مطابقة البنك', 'Bank Reconciliation Statement');
+  const reconciliationShareText = [
+    reconciliationTitle,
+    `${tr('الحساب البنكي', 'Bank Account')}: ${displayAccountName(selectedBank || null) || '-'}`,
+    `${tr('الفترة', 'Period')}: ${formatDate(periodStartDate)} - ${formatDate(periodEndDate)}`,
+    `${tr('فرق المطابقة', 'Difference')}: ${reconciliationDifference >= 0 ? '+' : '-'}${formatAmount(Math.abs(reconciliationDifference))} ${currencyCode}`,
+    `${tr('الصفوف المعروضة', 'Visible Rows')}: ${filteredRows.length}/${rowsWithCleared.length}`
+  ].join('\n');
+
+  const handleSaveReconciliationSnapshot = () => {
+    if (!reconciliationSnapshotRef.current) return;
+    downloadElementAsHtml(reconciliationSnapshotRef.current, {
+      title: `${reconciliationTitle} - ${displayAccountName(selectedBank || null) || 'bank'} - ${periodEndDate}`,
+      fileName: `${reconciliationTitle}-${displayAccountName(selectedBank || null) || selectedBankId || 'bank'}-${periodEndDate}`,
+      dir: isEnglish ? 'ltr' : 'rtl',
+      lang: isEnglish ? 'en' : 'ar'
+    });
+  };
+
+  const handleExportReconciliationExcel = () => {
+    const success = exportElementAsCsv(
+      reconciliationExportTableRef.current,
+      `${reconciliationTitle}-${displayAccountName(selectedBank || null) || selectedBankId || 'bank'}-${periodEndDate}`
+    );
+    if (!success) {
+      alert(tr('تعذر تصدير كشف المطابقة حاليًا.', 'Could not export the reconciliation statement right now.'));
+    }
+  };
+
   const adjustmentAccounts = useMemo(
     () =>
       accounts.filter(
@@ -528,24 +584,28 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
   );
 
   return (
-    <div className={`app-page animate-in fade-in p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
-      <header className="mb-5 flex items-center justify-between gap-3 px-1">
+    <div className={`app-page animate-in fade-in p-3 md:p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+      <header className="mb-3 flex items-center justify-between gap-3 px-1">
         <div className="min-w-0">
-          <h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('مطابقة البنك', 'Bank Reconciliation')}</h1>
-          <p className="text-gray-400 text-[10px] font-black mt-2 uppercase tracking-[0.2em]">
+          <h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('مطابقة البنك', 'Bank Reconciliation')}</h1>
+          <p className="text-gray-400 text-[10px] font-black mt-1.5 uppercase tracking-[0.2em]">
             {tr('كشف مطابقة احترافي مع متابعة القيود المعلقة والتسويات', 'Professional reconciliation statement with pending entries and adjustments')}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={printReconciliation}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white text-gray-700 border border-gray-100 shadow-sm hover:bg-gray-50"
-          >
-            <Printer size={16} />
-            <span className="text-xs font-black">{tr('طباعة', 'Print')}</span>
-          </button>
+          <DocumentActions
+            title={reconciliationTitle}
+            shareText={reconciliationShareText}
+            isEnglish={isEnglish}
+            tr={tr}
+            onPrint={printReconciliation}
+            onSave={handleSaveReconciliationSnapshot}
+            onExcel={handleExportReconciliationExcel}
+            saveTitle={tr('تنزيل كشف المطابقة', 'Download reconciliation statement')}
+            showSaveButton={false}
+          />
           {onBack ? (
-            <button onClick={onBack} className="app-back-btn p-3 bg-white text-gray-500 rounded-2xl shadow-sm border border-gray-100 hover:bg-gray-50">
+            <button onClick={onBack} className="app-back-btn p-2.5 bg-white text-gray-500 rounded-xl shadow-sm border border-gray-100 hover:bg-gray-50">
               <ArrowRight size={22} />
             </button>
           ) : (
@@ -556,14 +616,15 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
         </div>
       </header>
 
-      <section className="bg-white rounded-[2.5rem] p-5 border border-gray-100 shadow-sm mb-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <div className="md:col-span-2">
+      <div ref={reconciliationSnapshotRef}>
+      <section className="bg-white rounded-3xl p-3 md:p-4 border border-gray-100 shadow-sm mb-3 space-y-2.5">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 items-end">
+          <div>
             <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block mb-1">{tr('الحساب البنكي', 'Bank Account')}</label>
             <select
               value={selectedBankId}
               onChange={e => setSelectedBankId(e.target.value)}
-              className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
+              className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
             >
               <option value="">{tr('-- اختر الحساب البنكي --', '-- Select bank account --')}</option>
               {bankAccounts.map(account => (
@@ -578,7 +639,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
             <EnglishDateInput
               value={statementStartDate}
               onChange={setStatementStartDate}
-              className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
+              className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
               aria-label={tr('من تاريخ', 'From Date')}
             />
           </div>
@@ -587,7 +648,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
             <EnglishDateInput
               value={statementDate}
               onChange={setStatementDate}
-              className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
+              className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
               aria-label={tr('إلى تاريخ', 'To Date')}
             />
           </div>
@@ -598,7 +659,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
               value={statementBalance}
               onChange={e => setStatementBalance(e.target.value)}
               placeholder="0.00"
-              className="w-full p-3 bg-gray-50 rounded-xl text-sm font-black outline-none border border-gray-100 dir-ltr"
+              className="w-full h-10 px-3 bg-gray-50 rounded-xl text-sm font-black outline-none border border-gray-100 dir-ltr"
             />
           </div>
         </div>
@@ -608,17 +669,17 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
           </p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 items-center">
           <div className="relative md:col-span-2">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
             <input
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder={tr('ابحث في البيان أو المرجع أو الطرف...', 'Search description, reference, or counterparty...')}
-              className="w-full p-3 pl-10 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
+              className="w-full h-10 px-3 pl-10 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
             />
           </div>
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl p-1">
+          <div className="col-span-1 md:col-span-2 flex items-center gap-1 bg-gray-50 border border-gray-100 rounded-xl p-1">
             {([
               { key: 'ALL', ar: 'الكل', en: 'All' },
               { key: 'CLEARED', ar: 'مطابق', en: 'Cleared' },
@@ -627,7 +688,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
               <button
                 key={filter.key}
                 onClick={() => setStatusFilter(filter.key)}
-                className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-colors ${
+                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${
                   statusFilter === filter.key ? 'bg-white shadow text-indigo-600' : 'text-gray-500'
                 }`}
               >
@@ -637,24 +698,24 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-1.5 text-[10px] text-gray-500 font-black bg-slate-50 border border-slate-100 px-2.5 py-1.5 rounded-lg">
+        <div className="flex items-center justify-between gap-2">
+          <div className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-gray-500 font-black bg-slate-50 border border-slate-100 px-2.5 py-1.5 rounded-lg">
             <SlidersHorizontal size={12} />
             {tr('الصفوف المعروضة', 'Visible Rows')}: <span className="text-slate-700">{filteredRows.length}</span> / <span className="text-slate-700">{rowsWithCleared.length}</span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-1">
             <button
               onClick={applyHighConfidenceSuggestions}
-              className="text-[10px] font-black px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 hover:bg-amber-100 inline-flex items-center gap-1.5"
+              className="shrink-0 text-[10px] font-black px-2.5 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 hover:bg-amber-100 inline-flex items-center gap-1.5"
               title={tr('تطابق تلقائي باعتماد الاقتراحات عالية الثقة فقط', 'Auto-match using high confidence suggestions only')}
             >
               <Lightbulb size={12} />
               {tr('تطابق تلقائي (ثقة عالية)', 'Auto Match (High Confidence)')}
             </button>
-            <button onClick={() => markVisibleRows(true)} className="text-[10px] font-black px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+            <button onClick={() => markVisibleRows(true)} className="shrink-0 text-[10px] font-black px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
               {tr('تمييز المعروض مطابق', 'Mark Visible as Cleared')}
             </button>
-            <button onClick={() => markVisibleRows(false)} className="text-[10px] font-black px-3 py-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200">
+            <button onClick={() => markVisibleRows(false)} className="shrink-0 text-[10px] font-black px-2.5 py-1.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200">
               {tr('إلغاء المعروض', 'Clear Visible')}
             </button>
           </div>
@@ -663,136 +724,140 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
 
       <section className="bg-white rounded-[2.5rem] p-5 border border-gray-100 shadow-sm mb-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="font-black text-sm text-gray-800">{tr('استيراد كشف بنك (Profiles + Mapping)', 'Bank Statement Import (Profiles + Mapping)')}</h3>
-            <p className="text-[10px] text-gray-500 font-bold mt-1">
-              {tr('اختر Profile جاهز للبنك، عدّل Mapping إن لزم، ثم طبّق المطابقة تلقائيًا.', 'Choose a ready bank profile, adjust mapping if needed, then auto-apply matching.')}
-            </p>
+          <div className="flex items-start gap-2.5 min-w-0">
+            <div className="mt-0.5 p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+              <Upload size={14} />
+            </div>
+            <div>
+              <h3 className="font-black text-sm text-gray-800">{tr('استيراد كشف بنك (Profiles + Mapping)', 'Bank Statement Import (Profiles + Mapping)')}</h3>
+              <p className="text-[10px] text-gray-500 font-bold mt-1">
+                {tr('الخيار متاح كإعداد إضافي، ويتم إخفاء التفاصيل افتراضيًا.', 'This is an optional advanced feature, hidden by default.')}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={saveStatementMapping}
-              className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-[11px] font-black inline-flex items-center gap-1.5"
-            >
-              <Save size={12} />
-              {tr('حفظ Mapping', 'Save Mapping')}
-            </button>
-            <button
-              type="button"
-              onClick={applyImportedStatement}
-              disabled={statementEntries.length === 0}
-              className={`px-3 py-2 rounded-xl text-[11px] font-black inline-flex items-center gap-1.5 ${
-                statementEntries.length === 0
-                  ? 'bg-gray-100 text-gray-400 border border-gray-200'
-                  : 'bg-blue-600 text-white'
-              }`}
-            >
-              <CheckCircle2 size={12} />
-              {tr('تطبيق المطابقة', 'Apply Matching')}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowStatementImportTools(prev => !prev)}
+            className="px-3 py-2 rounded-xl bg-gray-50 text-gray-700 border border-gray-200 text-[11px] font-black inline-flex items-center gap-1.5"
+          >
+            {showStatementImportTools ? tr('إخفاء التفاصيل', 'Hide Details') : tr('خيار إضافي', 'Optional Option')}
+            {showStatementImportTools ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
-            <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest px-1 block mb-1">{tr('Bank Profile', 'Bank Profile')}</label>
-            <select
-              value={statementProfileId}
-              onChange={e => setStatementProfileId(e.target.value)}
-              className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
-            >
-              {BANK_STATEMENT_PROFILES.map(profile => (
-                <option key={profile.id} value={profile.id}>
-                  {isEnglish ? profile.nameEn : profile.nameAr}
-                </option>
-              ))}
-            </select>
+        {!showStatementImportTools ? (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-bold text-gray-500">
+            {tr('تم إخفاء بيانات استيراد كشف البنك حتى لا تظهر جميع تفاصيل الكشف في الشاشة.', 'Bank statement import details are hidden so full statement data is not shown on screen.')}
           </div>
-          <div className="md:col-span-2">
-            <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest px-1 block mb-1">{tr('ملف الكشف', 'Statement File')}</label>
-            <label className="w-full p-3 rounded-xl border border-dashed border-blue-200 bg-blue-50 text-xs font-black text-blue-700 flex items-center justify-between gap-2 cursor-pointer">
-              <span className="truncate">{statementFileName || tr('اختر ملف Excel/CSV', 'Choose Excel/CSV file')}</span>
-              <span className="inline-flex items-center gap-1.5 shrink-0"><Upload size={14} />{tr('استعراض', 'Browse')}</span>
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={async e => {
-                  await parseStatementFromFile(e.target.files?.[0] || null);
-                  e.currentTarget.value = '';
-                }}
-              />
-            </label>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-          {([
-            { key: 'date', ar: 'عمود التاريخ', en: 'Date Column' },
-            { key: 'amount', ar: 'عمود المبلغ الصافي', en: 'Net Amount Column' },
-            { key: 'debit', ar: 'عمود المدين (اختياري)', en: 'Debit Column (Optional)' },
-            { key: 'credit', ar: 'عمود الدائن (اختياري)', en: 'Credit Column (Optional)' },
-            { key: 'reference', ar: 'عمود المرجع', en: 'Reference Column' },
-            { key: 'description', ar: 'عمود البيان', en: 'Description Column' },
-            { key: 'balance', ar: 'عمود الرصيد', en: 'Balance Column' }
-          ] as { key: keyof BankStatementColumnMapping; ar: string; en: string }[]).map(field => (
-            <div key={field.key} className="bg-gray-50 border border-gray-100 rounded-xl p-2.5">
-              <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest px-1 block mb-1">
-                {tr(field.ar, field.en)}
-              </label>
-              <select
-                value={statementMapping[field.key] || ''}
-                onChange={e => setStatementMapping(prev => ({ ...prev, [field.key]: e.target.value }))}
-                className="w-full p-2.5 bg-white rounded-lg text-xs font-bold outline-none border border-gray-200"
+        ) : (
+          <>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={saveStatementMapping}
+                className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-[11px] font-black inline-flex items-center gap-1.5"
               >
-                <option value="">{tr('-- غير مخصص --', '-- Unmapped --')}</option>
-                {statementHeaders.map(header => (
-                  <option key={`${field.key}-${header}`} value={header}>
-                    {header}
-                  </option>
-                ))}
-              </select>
+                <Save size={12} />
+                {tr('حفظ Mapping', 'Save Mapping')}
+              </button>
+              <button
+                type="button"
+                onClick={applyImportedStatement}
+                disabled={statementEntries.length === 0}
+                className={`px-3 py-2 rounded-xl text-[11px] font-black inline-flex items-center gap-1.5 ${
+                  statementEntries.length === 0
+                    ? 'bg-gray-100 text-gray-400 border border-gray-200'
+                    : 'bg-blue-600 text-white'
+                }`}
+              >
+                <CheckCircle2 size={12} />
+                {tr('تطبيق المطابقة', 'Apply Matching')}
+              </button>
             </div>
-          ))}
-        </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] font-black text-gray-600 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
-            {tr('حركات الكشف الجاهزة', 'Parsed Statement Rows')}: {statementEntries.length}
-          </div>
-          {statementImportMsg && (
-            <div className="text-[11px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1.5">
-              {statementImportMsg}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest px-1 block mb-1">{tr('Bank Profile', 'Bank Profile')}</label>
+                <select
+                  value={statementProfileId}
+                  onChange={e => setStatementProfileId(e.target.value)}
+                  className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-100"
+                >
+                  {BANK_STATEMENT_PROFILES.map(profile => (
+                    <option key={profile.id} value={profile.id}>
+                      {isEnglish ? profile.nameEn : profile.nameAr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest px-1 block mb-1">{tr('ملف الكشف', 'Statement File')}</label>
+                <label className="w-full p-3 rounded-xl border border-dashed border-blue-200 bg-blue-50 text-xs font-black text-blue-700 flex items-center justify-between gap-2 cursor-pointer">
+                  <span className="truncate">{statementFileName || tr('اختر ملف Excel/CSV', 'Choose Excel/CSV file')}</span>
+                  <span className="inline-flex items-center gap-1.5 shrink-0"><Upload size={14} />{tr('استعراض', 'Browse')}</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={async e => {
+                      await parseStatementFromFile(e.target.files?.[0] || null);
+                      e.currentTarget.value = '';
+                    }}
+                  />
+                </label>
+              </div>
             </div>
-          )}
-        </div>
 
-        {statementEntries.length > 0 && (
-          <div className="overflow-x-auto rounded-2xl border border-gray-100">
-            <table className="min-w-[760px] w-full text-xs">
-              <thead className="bg-gray-50">
-                <tr className="text-[10px] uppercase tracking-wider text-gray-500">
-                  <th className="p-3 text-center">{tr('التاريخ', 'Date')}</th>
-                  <th className="p-3 text-center">{tr('المبلغ', 'Amount')}</th>
-                  <th className="p-3 text-right">{tr('المرجع', 'Reference')}</th>
-                  <th className="p-3 text-right">{tr('البيان', 'Description')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {statementEntries.slice(0, 8).map(entry => (
-                  <tr key={entry.id} className="border-t border-gray-100">
-                    <td className="p-3 text-center dir-ltr">{formatDate(entry.date)}</td>
-                    <td className={`p-3 text-center dir-ltr font-black ${entry.amount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {entry.amount >= 0 ? '+' : '-'}{formatAmount(Math.abs(entry.amount))}
-                    </td>
-                    <td className="p-3 text-right font-bold text-gray-600">{entry.reference || '-'}</td>
-                    <td className="p-3 text-right font-bold text-gray-700">{entry.description || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {([
+                { key: 'date', ar: 'عمود التاريخ', en: 'Date Column' },
+                { key: 'amount', ar: 'عمود المبلغ الصافي', en: 'Net Amount Column' },
+                { key: 'debit', ar: 'عمود المدين (اختياري)', en: 'Debit Column (Optional)' },
+                { key: 'credit', ar: 'عمود الدائن (اختياري)', en: 'Credit Column (Optional)' },
+                { key: 'reference', ar: 'عمود المرجع', en: 'Reference Column' },
+                { key: 'description', ar: 'عمود البيان', en: 'Description Column' },
+                { key: 'balance', ar: 'عمود الرصيد', en: 'Balance Column' }
+              ] as { key: keyof BankStatementColumnMapping; ar: string; en: string }[]).map(field => (
+                <div key={field.key} className="bg-gray-50 border border-gray-100 rounded-xl p-2.5">
+                  <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest px-1 block mb-1">
+                    {tr(field.ar, field.en)}
+                  </label>
+                  <select
+                    value={statementMapping[field.key] || ''}
+                    onChange={e => setStatementMapping(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    className="w-full p-2.5 bg-white rounded-lg text-xs font-bold outline-none border border-gray-200"
+                  >
+                    <option value="">{tr('-- غير مخصص --', '-- Unmapped --')}</option>
+                    {statementHeaders.map(header => (
+                      <option key={`${field.key}-${header}`} value={header}>
+                        {header}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] font-black text-gray-600 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
+                {tr('حركات الكشف الجاهزة', 'Parsed Statement Rows')}: {statementEntries.length}
+              </div>
+              {statementImportMsg && (
+                <div className="text-[11px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1.5">
+                  {statementImportMsg}
+                </div>
+              )}
+            </div>
+
+            {statementEntries.length > 0 && (
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] text-blue-700 font-bold">
+                {tr(
+                  'تم تحميل كشف البنك بنجاح. تم إخفاء تفاصيل الصفوف حتى لا تظهر جميع البيانات.',
+                  'Statement imported successfully. Row-level details are hidden to avoid showing all data.'
+                )}
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -906,72 +971,117 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
 
       <section className="bg-white rounded-[2.5rem] p-5 border border-gray-100 shadow-sm mb-4">
         <h3 className="font-black text-sm text-gray-800 mb-3">{tr('كشف مطابقات الحركة البنكية', 'Bank Reconciliation Lines')}</h3>
-        <div className="overflow-x-auto rounded-2xl border border-gray-100">
-          <table className="min-w-[860px] w-full text-xs">
-            <thead className="bg-gray-50">
-              <tr className="text-[10px] uppercase tracking-wider text-gray-500">
-                <th className="p-3 text-center">{tr('مطابقة', 'Clear')}</th>
-                <th className="p-3 text-center">{tr('التاريخ', 'Date')}</th>
-                <th className="p-3 text-center">{tr('المرجع', 'Reference')}</th>
-                <th className="p-3 text-right">{tr('البيان', 'Description')}</th>
-                <th className="p-3 text-right">{tr('الطرف', 'Counterparty')}</th>
-                <th className="p-3 text-center">{tr('مدين', 'Debit')}</th>
-                <th className="p-3 text-center">{tr('دائن', 'Credit')}</th>
-                <th className="p-3 text-center">{tr('الأثر', 'Net')}</th>
-                <th className="p-3 text-center">{tr('الحالة', 'Status')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-10 text-center text-gray-400 font-bold">
-                    {tr('لا توجد حركات مطابقة لهذه المعايير', 'No entries found for selected criteria')}
-                  </td>
+        <div className="rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="md:hidden">
+            <table className="w-full table-fixed text-[11px]">
+              <thead className="bg-gray-50">
+                <tr className="text-[10px] uppercase tracking-wider text-gray-500">
+                  <th className="w-[64px] p-2 text-center">{tr('مطابقة', 'Clear')}</th>
+                  <th className="w-[90px] p-2 text-center">{tr('التاريخ', 'Date')}</th>
+                  <th className="w-[100px] p-2 text-center">{tr('المرجع', 'Reference')}</th>
+                  <th className="p-2 text-right">{tr('البيان', 'Description')}</th>
                 </tr>
-              ) : (
-                filteredRows.map(row => (
-                  <tr key={row.tx.id} className="border-t border-gray-100 hover:bg-gray-50/60">
-                    <td className="p-3 text-center">
-                      <button
-                        onClick={() => toggleCleared(row.tx.id)}
-                        className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-colors ${
-                          row.isCleared ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }`}
-                        title={row.isCleared ? tr('إلغاء المطابقة', 'Mark as pending') : tr('تعليم كمطابق', 'Mark as cleared')}
-                      >
-                        {row.isCleared ? <CheckCircle2 size={15} /> : <Circle size={15} />}
-                      </button>
-                    </td>
-                    <td className="p-3 text-center font-bold text-gray-600 dir-ltr">{formatDate(row.tx.date)}</td>
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <span className="font-black text-indigo-600 dir-ltr">{row.reference}</span>
-                        {!row.isCleared && suggestionMap.has(row.tx.id) && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-black">
-                            {suggestionMap.get(row.tx.id)?.confidence}%
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3 text-right font-bold text-gray-700">{row.tx.description || '-'}</td>
-                    <td className="p-3 text-right text-gray-500 font-bold">{row.counterparty || '-'}</td>
-                    <td className="p-3 text-center font-black dir-ltr text-emerald-700">{row.debit > 0 ? formatAmount(row.debit) : '-'}</td>
-                    <td className="p-3 text-center font-black dir-ltr text-rose-700">{row.credit > 0 ? formatAmount(row.credit) : '-'}</td>
-                    <td className={`p-3 text-center font-black dir-ltr ${row.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {row.delta >= 0 ? '+' : '-'}{formatAmount(Math.abs(row.delta))}
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-black ${
-                        row.isCleared ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
-                      }`}>
-                        {row.isCleared ? tr('مطابق', 'Cleared') : tr('معلق', 'Pending')}
-                      </span>
+              </thead>
+              <tbody>
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-gray-400 font-bold">
+                      {tr('لا توجد حركات مطابقة لهذه المعايير', 'No entries found for selected criteria')}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  filteredRows.map(row => (
+                    <tr key={`mobile-${row.tx.id}`} className="border-t border-gray-100">
+                      <td className="p-2 text-center">
+                        <button
+                          onClick={() => toggleCleared(row.tx.id)}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-colors ${
+                            row.isCleared ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                          }`}
+                          title={row.isCleared ? tr('إلغاء المطابقة', 'Mark as pending') : tr('تعليم كمطابق', 'Mark as cleared')}
+                        >
+                          {row.isCleared ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+                        </button>
+                      </td>
+                      <td className="p-2 text-center font-bold text-gray-600 dir-ltr">{formatDate(row.tx.date)}</td>
+                      <td className="p-2 text-center">
+                        <span className="font-black text-indigo-600 dir-ltr text-[11px]">{row.reference}</span>
+                      </td>
+                      <td className="p-2 text-right font-bold text-gray-700 truncate">{row.tx.description || '-'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
+            <table ref={reconciliationExportTableRef} className="min-w-[860px] w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr className="text-[10px] uppercase tracking-wider text-gray-500">
+                  <th className="p-3 text-center">{tr('مطابقة', 'Clear')}</th>
+                  <th className="p-3 text-center">{tr('التاريخ', 'Date')}</th>
+                  <th className="p-3 text-center">{tr('المرجع', 'Reference')}</th>
+                  <th className="p-3 text-right">{tr('البيان', 'Description')}</th>
+                  <th className="p-3 text-right">{tr('الطرف', 'Counterparty')}</th>
+                  <th className="p-3 text-center">{tr('مدين', 'Debit')}</th>
+                  <th className="p-3 text-center">{tr('دائن', 'Credit')}</th>
+                  <th className="p-3 text-center">{tr('الأثر', 'Net')}</th>
+                  <th className="p-3 text-center">{tr('الحالة', 'Status')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-10 text-center text-gray-400 font-bold">
+                      {tr('لا توجد حركات مطابقة لهذه المعايير', 'No entries found for selected criteria')}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRows.map(row => (
+                    <tr key={row.tx.id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => toggleCleared(row.tx.id)}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded-lg transition-colors ${
+                            row.isCleared ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                          }`}
+                          title={row.isCleared ? tr('إلغاء المطابقة', 'Mark as pending') : tr('تعليم كمطابق', 'Mark as cleared')}
+                        >
+                          {row.isCleared ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+                        </button>
+                      </td>
+                      <td className="p-3 text-center font-bold text-gray-600 dir-ltr">{formatDate(row.tx.date)}</td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className="font-black text-indigo-600 dir-ltr">{row.reference}</span>
+                          {!row.isCleared && suggestionMap.has(row.tx.id) && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-black">
+                              {suggestionMap.get(row.tx.id)?.confidence}%
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 text-right font-bold text-gray-700">{row.tx.description || '-'}</td>
+                      <td className="p-3 text-right text-gray-500 font-bold">{row.counterparty || '-'}</td>
+                      <td className="p-3 text-center font-black dir-ltr text-emerald-700">{row.debit > 0 ? formatAmount(row.debit) : '-'}</td>
+                      <td className="p-3 text-center font-black dir-ltr text-rose-700">{row.credit > 0 ? formatAmount(row.credit) : '-'}</td>
+                      <td className={`p-3 text-center font-black dir-ltr ${row.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {row.delta >= 0 ? '+' : '-'}{formatAmount(Math.abs(row.delta))}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-black ${
+                          row.isCleared ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-amber-50 text-amber-700 border border-amber-100'
+                        }`}>
+                          {row.isCleared ? tr('مطابق', 'Cleared') : tr('معلق', 'Pending')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -1030,6 +1140,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
       <p className="mt-3 text-[10px] text-gray-400 font-bold px-1">
         {tr('حالة المطابقة تُحفظ لكل حساب بنكي محليًا على هذا الجهاز.', 'Reconciliation status is saved locally per bank account on this device.')}
       </p>
+      </div>
 
       <div className="h-4" />
     </div>
@@ -1037,4 +1148,5 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
 };
 
 export default BankReconciliationManager;
+
 

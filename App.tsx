@@ -1,38 +1,15 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountingProvider, useAccounting } from './contexts/AccountingContext';
 import Dashboard from './components/Dashboard';
-import TransactionForm, { TransactionTabType } from './components/TransactionForm';
-import TransactionList from './components/TransactionList';
-import AIAssistant from './components/AIAssistant';
-import Directory from './components/Directory';
-import ProductList from './components/ProductList';
-import FinancialReports from './components/FinancialReports';
-import DefinitionsMenu, { SettingsMode } from './components/DefinitionsMenu';
-import SalesInvoiceList from './components/SalesInvoiceList';
-import PurchaseInvoiceList from './components/PurchaseInvoiceList';
-import PurchasesExpenses from './components/PurchasesExpenses';
-import CheckPortfolio from './components/CheckPortfolio';
-import TreasuryManager from './components/TreasuryManager';
-import VoucherManager from './components/VoucherManager';
-import JournalManager from './components/JournalManager';
-import ImportManager from './components/ImportManager';
-import HRManager from './components/HRManager';
-import SettlementManager from './components/SettlementManager';
-import EquityPartnersManager from './components/EquityPartnersManager';
+import type { TransactionTabType } from './components/TransactionForm';
+import type { SettingsMode } from './components/DefinitionsMenu';
 import AuthScreen from './components/AuthScreen';
-import FixedAssetsManager from './components/FixedAssetsManager';
-import LiveVoiceAssistant from './components/LiveVoiceAssistant';
-import { WarehouseManager } from './components/WarehouseManager';
-import ManufacturingManager from './components/ManufacturingManager';
-import BankReconciliationManager from './components/BankReconciliationManager';
-import AdjustmentNoticesManager from './components/AdjustmentNoticesManager';
-import NotificationCenterManager from './components/NotificationCenterManager';
 import ResponsiveShell from './components/layout/ResponsiveShell';
 import ResponsiveOverlay from './components/layout/ResponsiveOverlay';
 import useResponsiveMode from './hooks/useResponsiveMode';
 import useMobileInteractions from './hooks/useMobileInteractions';
-import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft } from 'lucide-react';
 import { getDocumentLanguageTag, isRtlLanguage, translate } from './utils/i18n';
 
 // Fix: Added 'fixed-assets' to TabView to resolve type mismatch in Dashboard and App components
@@ -45,7 +22,7 @@ export type TabView =
 
 // Fix: Added 'voice-ai' to OverlayView to match updated features
 export type OverlayView =
-  | 'add-sales' | 'add-purchase' | 'add-expense' | 'add-voucher-receipt' | 'add-voucher-payment' | 'add-manual-purchase' | 'add-journal' | 'add-import' | 'add-purchase-return' | 'add-sales-return' | 'add-quotation' | 'edit-transaction' | 'voice-ai' | null;
+  | 'add-sales' | 'add-purchase' | 'add-expense' | 'add-expense-form' | 'add-voucher-receipt' | 'add-voucher-payment' | 'add-manual-purchase' | 'add-journal' | 'add-import' | 'add-purchase-return' | 'add-sales-return' | 'add-quotation' | 'edit-transaction' | 'voice-ai' | null;
 
 type EditTransactionConfig = {
   mode: TransactionTabType;
@@ -55,9 +32,55 @@ type EditTransactionConfig = {
   linkedInvoiceId?: string;
 };
 
+const GUEST_USER_ID = 'guest_user';
+const GUEST_TRIAL_START_KEY = 'al_mohaseb_guest_trial_started_at';
+const GUEST_TRIAL_DAYS = 14;
+
+const TransactionForm = lazy(() => import('./components/TransactionForm'));
+const TransactionList = lazy(() => import('./components/TransactionList'));
+const AIAssistant = lazy(() => import('./components/AIAssistant'));
+const Directory = lazy(() => import('./components/Directory'));
+const ProductList = lazy(() => import('./components/ProductList'));
+const FinancialReports = lazy(() => import('./components/FinancialReports'));
+const DefinitionsMenu = lazy(() => import('./components/DefinitionsMenu'));
+const SalesInvoiceList = lazy(() => import('./components/SalesInvoiceList'));
+const PurchaseInvoiceList = lazy(() => import('./components/PurchaseInvoiceList'));
+const PurchasesExpenses = lazy(() => import('./components/PurchasesExpenses'));
+const CheckPortfolio = lazy(() => import('./components/CheckPortfolio'));
+const TreasuryManager = lazy(() => import('./components/TreasuryManager'));
+const VoucherManager = lazy(() => import('./components/VoucherManager'));
+const JournalManager = lazy(() => import('./components/JournalManager'));
+const ImportManager = lazy(() => import('./components/ImportManager'));
+const HRManager = lazy(() => import('./components/HRManager'));
+const SettlementManager = lazy(() => import('./components/SettlementManager'));
+const EquityPartnersManager = lazy(() => import('./components/EquityPartnersManager'));
+const FixedAssetsManager = lazy(() => import('./components/FixedAssetsManager'));
+const LiveVoiceAssistant = lazy(() => import('./components/LiveVoiceAssistant'));
+const WarehouseManager = lazy(async () => {
+  const module = await import('./components/WarehouseManager');
+  return { default: module.WarehouseManager };
+});
+const ManufacturingManager = lazy(() => import('./components/ManufacturingManager'));
+const BankReconciliationManager = lazy(() => import('./components/BankReconciliationManager'));
+const AdjustmentNoticesManager = lazy(() => import('./components/AdjustmentNoticesManager'));
+const NotificationCenterManager = lazy(() => import('./components/NotificationCenterManager'));
+const ExpenseVoucherEntryScreen = lazy(() => import('./components/ExpenseVoucherEntryScreen'));
+
+const ScreenFallback: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
+  <div className={`w-full ${compact ? 'py-6' : 'py-12'} flex items-center justify-center`}>
+    <div className="min-w-[160px] rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm text-center">
+      <div className="mx-auto mb-2 h-2 w-16 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-500" />
+      </div>
+      <div className="text-xs font-black text-slate-600">Loading screen...</div>
+    </div>
+  </div>
+);
+
 const AppContent: React.FC = () => {
   const {
     currentUser,
+    setCurrentUser,
     companySettings,
     companies,
     currentCompany,
@@ -75,16 +98,80 @@ const AppContent: React.FC = () => {
   const [newCompanyName, setNewCompanyName] = useState('');
   const companyMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [companyMenuStyle, setCompanyMenuStyle] = useState<React.CSSProperties | null>(null);
+  const darkModeEnabled = Boolean(companySettings.darkModeEnabled);
   const appLanguage = companySettings.language ?? 'AR';
   const rtl = isRtlLanguage(appLanguage);
   const t = (key: Parameters<typeof translate>[1]) => translate(appLanguage, key);
   const { isMobile, isTablet, overlayVariant, shellVariant } = useResponsiveMode();
+  const guestTrialInfo = useMemo(() => {
+    if (!currentUser || currentUser.id !== GUEST_USER_ID) {
+      return { expired: false, remainingDays: GUEST_TRIAL_DAYS };
+    }
+
+    let trialStartIso = currentUser.guestTrialStartedAt;
+    try {
+      if (!trialStartIso && typeof window !== 'undefined') {
+        trialStartIso = localStorage.getItem(GUEST_TRIAL_START_KEY) || undefined;
+      }
+    } catch {
+      // Ignore storage read failures and fallback to current time.
+    }
+
+    const fallbackStart = new Date();
+    const parsedStart = trialStartIso ? new Date(trialStartIso) : fallbackStart;
+    const validStart = Number.isFinite(parsedStart.getTime()) ? parsedStart : fallbackStart;
+    const fallbackEnd = new Date(validStart.getTime() + GUEST_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    const parsedEnd = currentUser.guestTrialEndsAt ? new Date(currentUser.guestTrialEndsAt) : fallbackEnd;
+    const validEnd = Number.isFinite(parsedEnd.getTime()) ? parsedEnd : fallbackEnd;
+    const remainingMs = validEnd.getTime() - Date.now();
+    return {
+      expired: remainingMs <= 0,
+      remainingDays: Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000)))
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     const htmlLang = getDocumentLanguageTag(appLanguage);
     document.documentElement.lang = htmlLang;
     document.documentElement.dir = rtl ? 'rtl' : 'ltr';
   }, [appLanguage, rtl]);
+
+  useEffect(() => {
+    const themeName = darkModeEnabled ? 'dark' : 'light';
+    const themeColor = darkModeEnabled ? '#08111f' : '#f8fafc';
+    document.documentElement.setAttribute('data-app-theme', themeName);
+    document.documentElement.style.colorScheme = themeName;
+    document.body.setAttribute('data-app-theme', themeName);
+    document.body.style.backgroundColor = themeColor;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+  }, [darkModeEnabled]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.id !== GUEST_USER_ID) return;
+
+    const trialStartIso = currentUser.guestTrialStartedAt || new Date().toISOString();
+    const trialStart = new Date(trialStartIso);
+    const validStart = Number.isFinite(trialStart.getTime()) ? trialStart : new Date();
+    const trialEndIso = currentUser.guestTrialEndsAt
+      || new Date(validStart.getTime() + GUEST_TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+    try {
+      localStorage.setItem(GUEST_TRIAL_START_KEY, validStart.toISOString());
+    } catch {
+      // Ignore storage write failures so login flow remains functional.
+    }
+
+    if (currentUser.guestTrialStartedAt && currentUser.guestTrialEndsAt) return;
+    setCurrentUser(prev => (
+      prev && prev.id === GUEST_USER_ID
+        ? {
+          ...prev,
+          guestTrialStartedAt: validStart.toISOString(),
+          guestTrialEndsAt: trialEndIso
+        }
+        : prev
+    ));
+  }, [currentUser, setCurrentUser]);
 
   useEffect(() => {
     if (!showCompanyMenu) {
@@ -154,8 +241,8 @@ const AppContent: React.FC = () => {
     onBack: handleBackNavigation
   });
 
-  if (!currentUser) {
-    return <AuthScreen />;
+  if (!currentUser || guestTrialInfo.expired) {
+    return <AuthScreen guestTrialExpired={guestTrialInfo.expired} guestTrialDaysLeft={guestTrialInfo.remainingDays} />;
   }
 
   const handleNavigate = (tab: TabView, definitionsMode?: SettingsMode) => {
@@ -285,7 +372,10 @@ const AppContent: React.FC = () => {
         else if (fTab === 'VOUCHERS') handleNavigate(vType === 'RECEIPT' ? 'receipts-list' : 'payments-list');
         else handleNavigate(tab);
       }} />;
-      case 'journal-list': return <JournalManager onAddNew={() => openOverlay('add-journal')} />;
+      case 'journal-list': return <JournalManager
+        onAddNew={() => openOverlay('add-journal')}
+        onEditJournal={(journalId) => openEditTransaction({ mode: 'JOURNAL', voucherId: journalId })}
+      />;
       case 'import-list': return (
         <ImportManager
           onAddNew={() => openOverlay('add-import')}
@@ -356,6 +446,7 @@ const AppContent: React.FC = () => {
       'add-sales',
       'add-purchase',
       'add-expense',
+      'add-expense-form',
       'add-voucher-receipt',
       'add-voucher-payment',
       'add-manual-purchase',
@@ -378,7 +469,20 @@ const AppContent: React.FC = () => {
       case 'add-sales': content = <TransactionForm initialMode="SALES" onBack={closeOverlay} />; break;
       case 'add-purchase': content = <TransactionForm initialMode="PURCHASES" onBack={closeOverlay} />; break;
       case 'add-manual-purchase': content = <TransactionForm initialMode="MANUAL_PURCHASE" onBack={closeOverlay} />; break;
-      case 'add-expense': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
+      case 'add-expense':
+        content = (
+          <ExpenseVoucherEntryScreen
+            onBack={closeOverlay}
+            onCreateNew={() => setOverlay('add-expense-form')}
+            onOpenLedger={() => {
+              closeOverlay();
+              handleNavigate('purchases-expenses');
+            }}
+            onEditInvoice={(invoiceId) => openEditTransaction({ mode: 'EXPENSES', invoiceId })}
+          />
+        );
+        break;
+      case 'add-expense-form': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
       case 'add-import': content = <TransactionForm initialMode="IMPORT_EXPENSES" initialCategory="import_expenses" initialVoucherType="PAYMENT" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
       case 'add-voucher-receipt': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="RECEIPT" onBack={closeOverlay} />; break;
       case 'add-voucher-payment': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="PAYMENT" onBack={closeOverlay} />; break;
@@ -471,12 +575,12 @@ const AppContent: React.FC = () => {
 
           {!overlay && showCompanyMenu && <div className="h-[320px]" />}
 
-          {renderMainContent()}
+          {<Suspense fallback={<ScreenFallback />}>{renderMainContent()}</Suspense>}
         </div>
         {companyMenuPanel}
-        {renderOverlay()}
+        {<Suspense fallback={<ScreenFallback compact />}>{renderOverlay()}</Suspense>}
 
-        <nav className={`app-bottom-nav bg-slate-900 border-t border-slate-800 px-2 flex items-center shadow-[0_-4px_10px_rgba(0,0,0,0.2)] text-gray-400 ${isMobile ? 'overflow-x-auto no-scrollbar gap-1 justify-start' : 'justify-between'
+        <nav className={`app-bottom-nav bg-slate-900 border-t border-slate-800 px-2 flex items-center shadow-[0_-4px_10px_rgba(0,0,0,0.2)] text-gray-400 ${isMobile ? 'gap-1 justify-between' : 'justify-between'
           }`}>
           <NavButton
             active={activeTab === 'dashboard'}
@@ -527,14 +631,6 @@ const AppContent: React.FC = () => {
             mobile={isMobile}
           />
           <NavButton
-            active={activeTab === 'ai'}
-            onClick={() => handleNavigate('ai')}
-            icon={<Sparkles className="w-5 h-5" />}
-            label={t('nav.ai')}
-            tablet={isTablet}
-            mobile={isMobile}
-          />
-          <NavButton
             active={activeTab === 'definitions'}
             onClick={() => handleNavigate('definitions')}
             icon={<Settings className="w-5 h-5" />}
@@ -568,7 +664,7 @@ interface NavButtonProps {
 const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, tablet = false, mobile = false }) => (
   <button
     onClick={onClick}
-    className={`flex flex-col items-center justify-center min-h-[44px] transition-all duration-200 px-1 py-1.5 rounded-lg ${mobile ? 'min-w-[68px] flex-none' : 'flex-1'
+    className={`flex flex-col items-center justify-center min-h-[44px] transition-all duration-200 px-1 py-1.5 rounded-lg ${mobile ? 'flex-1 min-w-0' : 'flex-1'
       } ${tablet ? 'gap-1.5 py-1' : 'gap-1'
       } ${active ? 'bg-slate-800 text-blue-400 scale-[1.03]' : 'text-gray-400 hover:bg-slate-800 hover:text-gray-200'}`}
   >
@@ -578,3 +674,4 @@ const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, tab
 );
 
 export default App;
+

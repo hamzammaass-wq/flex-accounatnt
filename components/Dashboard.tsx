@@ -172,7 +172,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                     <img
                       src={companySettings.logoUrl}
                       alt={tr('شعار الشركة', 'Company logo')}
-                      className="w-11 h-11 rounded-full object-cover border-2 border-white shadow-md"
+                      className="w-11 h-11 rounded-full object-contain bg-white p-1.5 border-2 border-white shadow-md"
                     />
                   ) : (
                     <div className="w-11 h-11 rounded-full border-2 border-white shadow-md bg-slate-100 text-slate-600 flex items-center justify-center">

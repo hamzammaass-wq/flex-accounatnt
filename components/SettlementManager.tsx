@@ -320,71 +320,71 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
     };
 
     return (
-        <div className={`app-page animate-in fade-in p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
-            <header className="mb-6 flex justify-between items-center px-1">
+        <div className={`app-page animate-in fade-in p-3 md:p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+            <header className="mb-3 flex justify-between items-center px-1">
                 <div>
-                    <h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('التسويات والإقفال', 'Settlements & Closing')}</h1>
-                    <p className="text-gray-400 text-[10px] font-black mt-2 uppercase tracking-[0.2em]">{tr('العمليات الختامية الدورية', 'Periodic Closing Operations')}</p>
+                    <h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('التسويات والإقفال', 'Settlements & Closing')}</h1>
+                    <p className="text-gray-400 text-[10px] font-black mt-1 uppercase tracking-[0.15em]">{tr('العمليات الختامية الدورية', 'Periodic Closing Operations')}</p>
                 </div>
                 {onBack ? (
-                    <button onClick={onBack} className="app-back-btn p-3 bg-white text-gray-500 rounded-2xl shadow-sm border border-gray-100 hover:bg-gray-50">
-                        <ArrowRight size={24} />
+                    <button onClick={onBack} className="app-back-btn w-10 h-10 bg-white text-gray-500 rounded-xl shadow-sm border border-gray-100 hover:bg-gray-50 flex items-center justify-center">
+                        <ArrowRight size={18} />
                     </button>
                 ) : (
-                    <div className="p-4 bg-pink-50 text-pink-600 rounded-[1.8rem] shadow-lg shadow-pink-100/50">
-                        <Settings2 size={28} />
+                    <div className="p-3 bg-pink-50 text-pink-600 rounded-2xl shadow-sm shadow-pink-100/50">
+                        <Settings2 size={22} />
                     </div>
                 )}
             </header>
 
             {/* Tabs */}
-            <div className="flex p-1.5 bg-gray-100/60 backdrop-blur rounded-[2rem] mb-8 shadow-inner border border-gray-200/20 overflow-x-auto no-scrollbar">
-                <button onClick={() => setActiveTab('DEPRECIATION')} className={`flex-1 py-3 px-4 rounded-[1.6rem] text-[10px] font-black transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'DEPRECIATION' ? 'bg-white shadow-md text-pink-600' : 'text-gray-400 hover:text-gray-600'}`}>
-                    <Building2 size={16} /> {tr('الإهلاك', 'Depreciation')}
+            <div className="grid grid-cols-4 gap-1 p-1 bg-gray-100/60 backdrop-blur rounded-2xl mb-3 shadow-inner border border-gray-200/20">
+                <button onClick={() => setActiveTab('DEPRECIATION')} className={`py-2 px-1 rounded-xl text-[9px] font-black transition-all flex items-center justify-center gap-1 whitespace-nowrap min-w-0 ${activeTab === 'DEPRECIATION' ? 'bg-white shadow-md text-pink-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    <Building2 size={13} /> <span className="truncate">{tr('الإهلاك', 'Depreciation')}</span>
                 </button>
-                <button onClick={() => setActiveTab('INVENTORY')} className={`flex-1 py-3 px-4 rounded-[1.6rem] text-[10px] font-black transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'INVENTORY' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
-                    <PackageCheck size={16} /> {tr('المخزون', 'Inventory')}
+                <button onClick={() => setActiveTab('INVENTORY')} className={`py-2 px-1 rounded-xl text-[9px] font-black transition-all flex items-center justify-center gap-1 whitespace-nowrap min-w-0 ${activeTab === 'INVENTORY' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    <PackageCheck size={13} /> <span className="truncate">{tr('المخزون', 'Inventory')}</span>
                 </button>
-                <button onClick={() => setActiveTab('TAX')} className={`flex-1 py-3 px-4 rounded-[1.6rem] text-[10px] font-black transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'TAX' ? 'bg-white shadow-md text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}>
-                    <Percent size={16} /> {tr('الضريبة', 'Tax')}
+                <button onClick={() => setActiveTab('TAX')} className={`py-2 px-1 rounded-xl text-[9px] font-black transition-all flex items-center justify-center gap-1 whitespace-nowrap min-w-0 ${activeTab === 'TAX' ? 'bg-white shadow-md text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    <Percent size={13} /> <span className="truncate">{tr('الضريبة', 'Tax')}</span>
                 </button>
-                <button onClick={() => setActiveTab('CURRENCY')} className={`flex-1 py-3 px-4 rounded-[1.6rem] text-[10px] font-black transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'CURRENCY' ? 'bg-white shadow-md text-amber-600' : 'text-gray-400 hover:text-gray-600'}`}>
-                    <Globe size={16} /> {tr('العملات', 'Currencies')}
+                <button onClick={() => setActiveTab('CURRENCY')} className={`py-2 px-1 rounded-xl text-[9px] font-black transition-all flex items-center justify-center gap-1 whitespace-nowrap min-w-0 ${activeTab === 'CURRENCY' ? 'bg-white shadow-md text-amber-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    <Globe size={13} /> <span className="truncate">{tr('العملات', 'Currencies')}</span>
                 </button>
             </div>
 
             {/* Content */}
             {activeTab === 'DEPRECIATION' && (
-                <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                    <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm">
-                        <div className="flex justify-between items-center mb-6">
+                <div className="space-y-3 animate-in slide-in-from-bottom-4">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
+                        <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
                             <h3 className="font-black text-gray-800 text-sm">{tr('إهلاك الأصول الثابتة', 'Fixed Assets Depreciation')}</h3>
                             <EnglishDateInput
                                 value={date}
                                 onChange={setDate}
-                                className="bg-gray-50 p-2.5 rounded-xl text-xs font-bold outline-none border border-gray-100"
+                                className="bg-gray-50 h-10 px-3 rounded-xl text-xs font-bold outline-none border border-gray-100"
                                 aria-label={tr('تاريخ الإهلاك', 'Depreciation date')}
                             />
                         </div>
-                        <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-2">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1">{tr('حساب مصروف الإهلاك (مدين)', 'Depreciation Expense Account (Debit)')}</label>
-                                <select value={depreciationExpAcc} onChange={e => setDepreciationExpAcc(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                                <select value={depreciationExpAcc} onChange={e => setDepreciationExpAcc(e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-50">
                                     {accounts.filter(a => a.type === 'EXPENSE').map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1">{tr('حساب مجمع الإهلاك (دائن)', 'Accumulated Depreciation Account (Credit)')}</label>
-                                <select value={accumulatedDepAcc} onChange={e => setAccumulatedDepAcc(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                                <select value={accumulatedDepAcc} onChange={e => setAccumulatedDepAcc(e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-50">
                                     {accounts.filter(a => a.type === 'ASSET' || a.type === 'LIABILITY').map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                             </div>
                         </div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                         {depreciationData.map(asset => (
-                            <div key={asset.id} className="bg-white p-5 rounded-[2rem] border border-gray-50 flex justify-between items-center shadow-sm">
+                            <div key={asset.id} className="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center shadow-sm">
                                 <div>
                                     <h4 className="font-black text-xs text-gray-800 mb-1">{asset.name}</h4>
                                 <p className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg w-fit">{tr('التكلفة', 'Cost')}: {asset.cost.toLocaleString()}</p>
@@ -398,8 +398,8 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                     </div>
 
                     <div className="fixed left-4 right-4 md:left-8 md:right-8 max-w-md md:max-w-xl mx-auto" style={{ bottom: 'calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.5rem)' }}>
-                        <button onClick={postDepreciation} className="w-full bg-pink-600 text-white py-4 rounded-[2rem] font-black shadow-xl shadow-pink-200 hover:bg-pink-700 active:scale-95 transition-all flex justify-center gap-2">
-                            <Calculator size={20} />
+                        <button onClick={postDepreciation} className="w-full bg-pink-600 text-white h-11 rounded-xl text-xs font-black shadow-xl shadow-pink-200 hover:bg-pink-700 active:scale-95 transition-all flex justify-center items-center gap-2">
+                            <Calculator size={16} />
                             {tr('اعتماد إهلاك بقيمة', 'Post depreciation amount')} {totalMonthlyDepreciation.toLocaleString()}
                         </button>
                     </div>
@@ -407,141 +407,147 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
             )}
 
             {activeTab === 'INVENTORY' && (
-                <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                    <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm">
-                        <h3 className="font-black text-gray-800 text-sm mb-4">{tr('تسوية فروقات الجرد', 'Inventory Count Adjustment')}</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block mb-1.5">{tr('اختر الصنف', 'Select Item')}</label>
-                                <select value={invProductId} onChange={e => setInvProductId(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                <div className="space-y-3 animate-in slide-in-from-bottom-4">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
+                        <h3 className="font-black text-gray-800 text-sm mb-2">{tr('تسوية فروقات الجرد', 'Inventory Count Adjustment')}</h3>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block">{tr('اختر الصنف', 'Select Item')}</label>
+                                <select value={invProductId} onChange={e => setInvProductId(e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-50">
                                     <option value="">{tr('-- اختر الصنف --', '-- Select Item --')}</option>
                                     {products.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({tr('المخزون', 'Stock')}: {p.stock})</option>)}
                                 </select>
                             </div>
-                            
+
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block">{tr('الكمية الفعلية (الجرد)', 'Actual counted quantity')}</label>
+                                <input type="number" value={actualQty} onChange={e => setActualQty(e.target.value)} placeholder={tr('أدخل الكمية الموجودة فعلياً', 'Enter actual quantity')} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-sm font-black outline-none border border-gray-50 dir-ltr text-center focus:ring-2 ring-blue-100 transition-all" />
+                            </div>
+
                             {invProductId && (
-                                <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 flex items-center gap-3">
-                                    <Info size={16} className="text-blue-500" />
-                                    <span className="text-xs font-bold text-blue-700">
+                                <div className="col-span-2 p-2.5 bg-blue-50/50 rounded-xl border border-blue-100 flex items-center gap-2">
+                                    <Info size={14} className="text-blue-500" />
+                                    <span className="text-[11px] font-bold text-blue-700">
                                         {tr('الرصيد الدفتري الحالي', 'Current book quantity')}: <span className="font-black">{products.find(p => p.id === invProductId)?.stock}</span>
                                     </span>
                                 </div>
                             )}
 
-                            <div>
-                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block mb-1.5">{tr('الكمية الفعلية (الجرد)', 'Actual counted quantity')}</label>
-                                <input type="number" value={actualQty} onChange={e => setActualQty(e.target.value)} placeholder={tr('أدخل الكمية الموجودة فعلياً', 'Enter actual quantity')} className="w-full p-4 bg-gray-50 rounded-2xl text-sm font-black outline-none border border-gray-50 dir-ltr text-center focus:ring-2 ring-blue-100 transition-all" />
-                            </div>
-
-                            <div>
-                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block mb-1.5">{tr('حساب التسوية (العجز/الزيادة)', 'Adjustment account (shortage/surplus)')}</label>
-                                <select value={invAdjAcc} onChange={e => setInvAdjAcc(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                            <div className="col-span-2 space-y-1">
+                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block">{tr('حساب التسوية (العجز/الزيادة)', 'Adjustment account (shortage/surplus)')}</label>
+                                <select value={invAdjAcc} onChange={e => setInvAdjAcc(e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-50">
                                     {accounts.filter(a => a.type === 'EXPENSE' || a.type === 'REVENUE').map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                             </div>
                         </div>
                     </div>
 
-                    <button onClick={handleInventoryAdjustment} className="w-full bg-blue-600 text-white py-4 rounded-[2rem] font-black shadow-xl shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex justify-center gap-2">
-                        <CheckCircle size={20} />
+                    <button onClick={handleInventoryAdjustment} className="w-full bg-blue-600 text-white h-11 rounded-xl text-xs font-black shadow-xl shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex justify-center items-center gap-2">
+                        <CheckCircle size={16} />
                         {tr('اعتماد تسوية المخزون', 'Post inventory adjustment')}
                     </button>
                 </div>
             )}
 
             {activeTab === 'TAX' && (
-                <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                    <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm">
-                        <div className="grid grid-cols-2 gap-3 mb-6">
-                            <div><label className="text-[9px] text-gray-400 font-black uppercase mb-1 block px-1">{tr('من تاريخ', 'From Date')}</label><EnglishDateInput value={taxStart} onChange={setTaxStart} className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none" aria-label={tr('من تاريخ', 'From date')} /></div>
-                            <div><label className="text-[9px] text-gray-400 font-black uppercase mb-1 block px-1">{tr('إلى تاريخ', 'To Date')}</label><EnglishDateInput value={taxEnd} onChange={setTaxEnd} className="w-full p-3 bg-gray-50 rounded-xl text-xs font-bold outline-none" aria-label={tr('إلى تاريخ', 'To date')} /></div>
+                <div className="space-y-4 animate-in slide-in-from-bottom-4">
+                    <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                            <div>
+                                <label className="text-[9px] text-gray-400 font-black uppercase mb-1 block px-1">{tr('من تاريخ', 'From Date')}</label>
+                                <EnglishDateInput value={taxStart} onChange={setTaxStart} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none" aria-label={tr('من تاريخ', 'From date')} />
+                            </div>
+                            <div>
+                                <label className="text-[9px] text-gray-400 font-black uppercase mb-1 block px-1">{tr('إلى تاريخ', 'To Date')}</label>
+                                <EnglishDateInput value={taxEnd} onChange={setTaxEnd} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none" aria-label={tr('إلى تاريخ', 'To date')} />
+                            </div>
                         </div>
-                        <div className="space-y-3">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1">{tr('حساب ضريبة المخرجات (دائن)', 'VAT output account (Credit)')}</label>
-                                <select value={vatOutputAcc} onChange={e => setVatOutputAcc(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1 min-w-0">
+                                <label className="text-[9px] text-gray-400 font-black uppercase tracking-wide px-1 leading-tight">{tr('حساب ضريبة المخرجات (دائن)', 'VAT output account (Credit)')}</label>
+                                <select value={vatOutputAcc} onChange={e => setVatOutputAcc(e.target.value)} className="w-full h-10 px-2.5 bg-gray-50 rounded-xl text-[11px] font-bold outline-none border border-gray-50">
                                     {accounts.filter(a => a.type === 'LIABILITY').map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                             </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1">{tr('حساب ضريبة المدخلات (مدين)', 'VAT input account (Debit)')}</label>
-                                <select value={vatInputAcc} onChange={e => setVatInputAcc(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                            <div className="space-y-1 min-w-0">
+                                <label className="text-[9px] text-gray-400 font-black uppercase tracking-wide px-1 leading-tight">{tr('حساب ضريبة المدخلات (مدين)', 'VAT input account (Debit)')}</label>
+                                <select value={vatInputAcc} onChange={e => setVatInputAcc(e.target.value)} className="w-full h-10 px-2.5 bg-gray-50 rounded-xl text-[11px] font-bold outline-none border border-gray-50">
                                     {accounts.filter(a => a.type === 'ASSET').map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                             </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1">{tr('حساب تسوية الضريبة (دائن/مدين)', 'Tax settlement account (Credit/Debit)')}</label>
-                                <select value={vatPayableAcc} onChange={e => setVatPayableAcc(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl text-xs font-bold outline-none border border-gray-50">
+                            <div className="col-span-2 space-y-1">
+                                <label className="text-[9px] text-gray-400 font-black uppercase tracking-wide px-1 leading-tight">{tr('حساب تسوية الضريبة (دائن/مدين)', 'Tax settlement account (Credit/Debit)')}</label>
+                                <select value={vatPayableAcc} onChange={e => setVatPayableAcc(e.target.value)} className="w-full h-10 px-2.5 bg-gray-50 rounded-xl text-[11px] font-bold outline-none border border-gray-50">
                                     {accounts.filter(a => a.type === 'LIABILITY').map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                             </div>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-emerald-50 p-5 rounded-[2rem] text-center border border-emerald-100">
-                            <p className="text-[9px] font-black text-emerald-600 mb-2 uppercase tracking-wide">{tr('ضريبة المبيعات', 'Sales Tax')}</p>
-                            <h3 className="text-lg font-black text-emerald-800 dir-ltr">{taxData.salesTax.toLocaleString()}</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-emerald-50 p-3.5 rounded-xl text-center border border-emerald-100">
+                            <p className="text-[9px] font-black text-emerald-600 mb-1 uppercase tracking-wide">{tr('ضريبة المبيعات', 'Sales Tax')}</p>
+                            <h3 className="text-base font-black text-emerald-800 dir-ltr">{taxData.salesTax.toLocaleString()}</h3>
                         </div>
-                        <div className="bg-amber-50 p-5 rounded-[2rem] text-center border border-amber-100">
-                            <p className="text-[9px] font-black text-amber-600 mb-2 uppercase tracking-wide">{tr('ضريبة المشتريات', 'Purchase Tax')}</p>
-                            <h3 className="text-lg font-black text-amber-800 dir-ltr">{taxData.purchaseTax.toLocaleString()}</h3>
+                        <div className="bg-amber-50 p-3.5 rounded-xl text-center border border-amber-100">
+                            <p className="text-[9px] font-black text-amber-600 mb-1 uppercase tracking-wide">{tr('ضريبة المشتريات', 'Purchase Tax')}</p>
+                            <h3 className="text-base font-black text-amber-800 dir-ltr">{taxData.purchaseTax.toLocaleString()}</h3>
                         </div>
                     </div>
 
-                    <div className="bg-slate-800 p-7 rounded-[2.5rem] text-white text-center shadow-2xl relative overflow-hidden">
+                    <div className="bg-slate-800 p-4 rounded-2xl text-white text-center shadow-lg relative overflow-hidden">
                         <div className="relative z-10">
-                            <p className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest">{tr('صافي الضريبة واجبة السداد', 'Net Tax Payable')}</p>
-                            <h2 className="text-4xl font-black dir-ltr mb-6">{taxData.netTax.toLocaleString()}</h2>
-                            <button onClick={postTaxSettlement} className="bg-white text-slate-900 px-6 py-4 rounded-2xl font-black text-xs hover:bg-slate-100 transition-all w-full flex items-center justify-center gap-2">
-                                <CheckCircle size={16} /> {tr('ترحيل قيود الإقفال الضريبي', 'Post tax closing entries')}
+                            <p className="text-[9px] font-black text-slate-400 mb-1.5 uppercase tracking-wide">{tr('صافي الضريبة واجبة السداد', 'Net Tax Payable')}</p>
+                            <h2 className="text-3xl font-black dir-ltr mb-3">{taxData.netTax.toLocaleString()}</h2>
+                            <button onClick={postTaxSettlement} className="bg-white text-slate-900 h-10 rounded-xl font-black text-[11px] hover:bg-slate-100 transition-all w-full flex items-center justify-center gap-2">
+                                <CheckCircle size={15} /> {tr('ترحيل قيود الإقفال الضريبي', 'Post tax closing entries')}
                             </button>
                         </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h4 className="font-black text-sm text-gray-800">{tr('تقرير مطابقة الضريبة', 'VAT Matching Report')}</h4>
-                            <span className={`px-3 py-1 rounded-full text-[10px] font-black ${Math.abs(taxData.netDiff) < 0.01 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-black text-xs text-gray-800">{tr('تقرير مطابقة الضريبة', 'VAT Matching Report')}</h4>
+                            <span className={`px-2.5 py-1 rounded-full text-[9px] font-black whitespace-nowrap ${Math.abs(taxData.netDiff) < 0.01 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                                 {Math.abs(taxData.netDiff) < 0.01 ? tr('مطابق', 'Matched') : tr('يوجد فرق', 'Difference')}
                             </span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-center">
-                            <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                                <p className="text-[10px] font-black text-gray-500 mb-1">{tr('مخرجات من الفواتير', 'Output from invoices')}</p>
-                                <p className="text-lg font-black text-indigo-700 dir-ltr">{taxData.salesTax.toLocaleString()}</p>
+                        <div className="grid grid-cols-2 gap-2 text-center">
+                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مخرجات من الفواتير', 'Output from invoices')}</p>
+                                <p className="text-base font-black text-indigo-700 dir-ltr">{taxData.salesTax.toLocaleString()}</p>
                             </div>
-                            <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                                <p className="text-[10px] font-black text-gray-500 mb-1">{tr('مخرجات من القيود', 'Output from entries')}</p>
-                                <p className="text-lg font-black text-indigo-700 dir-ltr">{taxData.vatOutputPosted.toLocaleString()}</p>
+                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مخرجات من القيود', 'Output from entries')}</p>
+                                <p className="text-base font-black text-indigo-700 dir-ltr">{taxData.vatOutputPosted.toLocaleString()}</p>
                             </div>
-                            <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                                <p className="text-[10px] font-black text-gray-500 mb-1">{tr('مدخلات من الفواتير', 'Input from invoices')}</p>
-                                <p className="text-lg font-black text-emerald-700 dir-ltr">{taxData.purchaseTax.toLocaleString()}</p>
+                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مدخلات من الفواتير', 'Input from invoices')}</p>
+                                <p className="text-base font-black text-emerald-700 dir-ltr">{taxData.purchaseTax.toLocaleString()}</p>
                             </div>
-                            <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                                <p className="text-[10px] font-black text-gray-500 mb-1">{tr('مدخلات من القيود', 'Input from entries')}</p>
-                                <p className="text-lg font-black text-emerald-700 dir-ltr">{taxData.vatInputPosted.toLocaleString()}</p>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="bg-white rounded-2xl border border-gray-100 p-3">
-                                <p className="text-[10px] text-gray-400 font-black mb-1">{tr('فرق المخرجات', 'Output difference')}</p>
-                                <p className={`font-black dir-ltr ${Math.abs(taxData.outputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.outputDiff.toLocaleString()}</p>
-                            </div>
-                            <div className="bg-white rounded-2xl border border-gray-100 p-3">
-                                <p className="text-[10px] text-gray-400 font-black mb-1">{tr('فرق المدخلات', 'Input difference')}</p>
-                                <p className={`font-black dir-ltr ${Math.abs(taxData.inputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.inputDiff.toLocaleString()}</p>
-                            </div>
-                            <div className="bg-white rounded-2xl border border-gray-100 p-3">
-                                <p className="text-[10px] text-gray-400 font-black mb-1">{tr('صافي الفرق', 'Net difference')}</p>
-                                <p className={`font-black dir-ltr ${Math.abs(taxData.netDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.netDiff.toLocaleString()}</p>
+                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مدخلات من القيود', 'Input from entries')}</p>
+                                <p className="text-base font-black text-emerald-700 dir-ltr">{taxData.vatInputPosted.toLocaleString()}</p>
                             </div>
                         </div>
 
-                        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3 text-[11px] font-bold text-gray-600">
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="bg-white rounded-xl border border-gray-100 p-2.5">
+                                <p className="text-[9px] text-gray-400 font-black mb-1">{tr('فرق المخرجات', 'Output difference')}</p>
+                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.outputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.outputDiff.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-white rounded-xl border border-gray-100 p-2.5">
+                                <p className="text-[9px] text-gray-400 font-black mb-1">{tr('فرق المدخلات', 'Input difference')}</p>
+                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.inputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.inputDiff.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-white rounded-xl border border-gray-100 p-2.5">
+                                <p className="text-[9px] text-gray-400 font-black mb-1">{tr('صافي الفرق', 'Net difference')}</p>
+                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.netDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.netDiff.toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-[10px] font-bold text-gray-600 leading-5">
                             <span>
                                 {tr('عدد مستندات الفترة', 'Period documents')}:
                                 {' '}

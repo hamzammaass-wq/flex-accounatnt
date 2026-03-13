@@ -9,7 +9,7 @@ import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayUnitName } from '../utils/displayNames';
 
-const inputClass = 'w-full p-4 bg-gray-50 border border-gray-100 rounded-[1.5rem] text-base font-bold text-slate-700 outline-none transition-all duration-300 shadow-sm focus:bg-white focus:shadow-[0_8px_20px_rgba(0,0,0,0.06)] focus:border-blue-400/30 placeholder:text-gray-300';
+const inputClass = 'w-full p-3 bg-gray-50 border border-gray-100 rounded-[1.2rem] text-sm font-bold text-slate-700 outline-none transition-all duration-300 shadow-sm focus:bg-white focus:shadow-[0_8px_20px_rgba(0,0,0,0.06)] focus:border-blue-400/30 placeholder:text-gray-300';
 
 const readFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -296,19 +296,19 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       size="xl"
       zIndexClassName="z-[300]"
       backdropClassName="bg-black/70 backdrop-blur-md"
-      panelClassName="bg-white rounded-[2.5rem] p-4 sm:p-6 shadow-2xl !overflow-hidden"
+      panelClassName="bg-white rounded-[2rem] p-3 sm:p-4 shadow-2xl !overflow-hidden"
     >
-      <form onSubmit={handleSubmit} className="animate-in zoom-in-95 flex max-h-[calc(100dvh-5rem)] flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
-        <div className="flex justify-between items-center gap-3 mb-4">
+      <form onSubmit={handleSubmit} className="animate-in zoom-in-95 flex max-h-[calc(100dvh-2.5rem)] flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
+        <div className="flex justify-between items-center gap-3 mb-2.5">
           <h3 className="font-black text-gray-800 text-lg">{title}</h3>
           <button type="button" onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400">
             <X size={20} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1">
-          <div className="grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
-            <div className="min-[560px]:col-span-2">
+        <div className="flex-1 overflow-y-auto pr-0.5">
+          <div className="grid grid-cols-1 min-[430px]:grid-cols-2 gap-2">
+            <div className="min-[430px]:col-span-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 px-1">
                 {tr('\u0627\u0633\u0645 \u0627\u0644\u0635\u0646\u0641', 'Item Name')}
               </label>
@@ -321,7 +321,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               />
             </div>
 
-            <div className={`rounded-2xl border border-indigo-100 bg-indigo-50/20 p-3 space-y-3 ${barcodeEnabled ? '' : 'min-[560px]:col-span-2'}`}>
+            <div className={`rounded-2xl border border-indigo-100 bg-indigo-50/20 p-3 space-y-2.5 ${barcodeEnabled ? '' : 'min-[430px]:col-span-2'}`}>
               <div className="flex items-center justify-between gap-2">
                 <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block px-1">
                   {tr('\u062a\u0631\u0645\u064a\u0632 \u0627\u0644\u0635\u0646\u0641', 'Item Code')}
@@ -385,12 +385,12 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               </div>
             )}
 
-            <div className="min-[560px]:col-span-2 grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+            <div className="min-[430px]:col-span-2 grid grid-cols-1 min-[430px]:grid-cols-2 gap-2">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
                   {tr('\u0645\u062c\u0645\u0648\u0639\u0629 \u0627\u0644\u0635\u0646\u0641', 'Item Group')}
                 </label>
-                <div className="flex h-14">
+                <div className="flex h-12">
                   <select
                     value={groupId}
                     onChange={(e) => setGroupId(e.target.value)}
@@ -417,7 +417,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
                   {tr('\u0648\u062d\u062f\u0629 \u0627\u0644\u0642\u064a\u0627\u0633', 'Unit')}
                 </label>
-                <div className="flex h-14">
+                <div className="flex h-12">
                   <select
                     value={unitId}
                     onChange={(e) => setUnitId(e.target.value)}
@@ -471,7 +471,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               />
             </div>
 
-            <div className="min-[560px]:col-span-2 rounded-2xl border border-gray-100 bg-gray-50/80 p-3 space-y-3">
+            <div className="min-[430px]:col-span-2 rounded-2xl border border-gray-100 bg-gray-50/80 p-3 space-y-2.5">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block px-1">
@@ -527,7 +527,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               </div>
             </div>
 
-            <div className="min-[560px]:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50/20 p-3 space-y-3">
+            <div className="min-[430px]:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50/20 p-3 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <h4 className="text-xs font-black text-emerald-700">{tr('\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0623\u0633\u0639\u0627\u0631', 'Price List')}</h4>
@@ -538,7 +538,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 <Scale size={16} className="text-emerald-500 shrink-0" />
               </div>
 
-              <div className="grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[430px]:grid-cols-2 gap-2">
                 <div className="bg-white border border-violet-100 rounded-2xl p-3 space-y-3">
                   <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block">
                     {tr('\u0633\u0639\u0631 \u0627\u0644\u062c\u0645\u0644\u0629', 'Wholesale Price')}
@@ -639,7 +639,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               </div>
             </div>
 
-            <details className="min-[560px]:col-span-2 rounded-2xl border border-violet-100 bg-violet-50/20 p-3 group">
+            <details className="min-[430px]:col-span-2 rounded-2xl border border-violet-100 bg-violet-50/20 p-3 group">
               <summary className="flex items-center justify-between gap-3 cursor-pointer list-none">
                 <div>
                   <h4 className="text-xs font-black text-violet-700">{tr('\u062e\u064a\u0627\u0631\u0627\u062a \u0625\u0636\u0627\u0641\u064a\u0629', 'Additional Options')}</h4>
@@ -650,7 +650,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 <ChevronDown size={18} className="text-violet-500 transition-transform duration-200 group-open:rotate-180" />
               </summary>
 
-              <div className="mt-4 grid grid-cols-1 min-[560px]:grid-cols-2 gap-3">
+              <div className="mt-4 grid grid-cols-1 min-[430px]:grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block mb-2 px-1">
                     {tr('\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0627\u0646\u062a\u0647\u0627\u0621', 'Expiry Date')}

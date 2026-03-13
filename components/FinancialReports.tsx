@@ -1,12 +1,14 @@
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Account, AccountType, TransactionType, Product, Invoice, Check, Transaction, ImportExpenseDistribution } from '../types';
 import EnglishDateInput from './EnglishDateInput';
+import DocumentActions from './DocumentActions';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
+import { downloadElementAsHtml, exportElementAsCsv } from '../utils/documentExport';
 import { getFiscalYear, getFiscalYearStart, isProfitLossAccount, isReportYearClosed } from '../utils/fiscalYear';
 import {
-    FileText, TrendingUp, Landmark, ChevronDown, Printer, Share2,
+    FileText, TrendingUp, Landmark, ChevronDown,
     ArrowLeft, Scale, Package, BarChart3, PieChart, Coins,
     ArrowRightLeft, Calendar, User, ShoppingBag, Layers, Activity,
     Building2, Wallet, Globe, ScrollText, CheckCircle2, XCircle, AlertCircle,
@@ -722,6 +724,31 @@ const FinancialReports: React.FC = () => {
         return `${ratioValue.toFixed(digits)}x`;
     };
 
+    const activeReportRef = useRef<HTMLDivElement | null>(null);
+
+    const buildReportShareText = (title: string) => [
+        title,
+        `${tr('������', 'Period')}: ${startDate} - ${endDate}`,
+        `${tr('������', 'Currency')}: ${reportCurrency}`
+    ].join('\n');
+
+    const handleSaveReportSnapshot = (title: string) => {
+        if (!activeReportRef.current) return;
+        downloadElementAsHtml(activeReportRef.current, {
+            title: `${title} - ${startDate} - ${endDate}`,
+            fileName: `${title}-${startDate}-${endDate}`,
+            dir: isEnglish ? 'ltr' : 'rtl',
+            lang: isEnglish ? 'en' : 'ar'
+        });
+    };
+
+    const handleExportReportExcel = (title: string) => {
+        const success = exportElementAsCsv(activeReportRef.current, `${title}-${startDate}-${endDate}`);
+        if (!success) {
+            alert(tr('���� ����� ��� ������� ������.', 'Could not export this report right now.'));
+        }
+    };
+
     const RatioCard = ({
         title,
         value,
@@ -754,61 +781,83 @@ const FinancialReports: React.FC = () => {
 
 
     const ReportHeader = ({ title }: { title: string }) => (
-        <div className="flex flex-col gap-4 mb-6 sticky top-[calc(var(--app-safe-top)+0.25rem)] z-40 bg-gray-50/95 backdrop-blur-md pb-4 pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="flex items-start gap-3 min-w-0">
-                    <button onClick={() => setActiveReport('MENU')} className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-500 shadow-sm shrink-0"><ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={20} /></button>
+        <div className="report-header sticky top-[calc(var(--app-safe-top)+0.25rem)] z-40 mb-2 flex flex-col gap-1.5 bg-gray-50/95 pb-1.5 pt-1 backdrop-blur-md">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                    <button
+                        onClick={() => setActiveReport('MENU')}
+                        className="h-9 w-9 shrink-0 rounded-xl border border-gray-100 bg-white text-gray-500 shadow-sm flex items-center justify-center"
+                    >
+                        <ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={15} />
+                    </button>
                     <div className="min-w-0">
-                        <h2 className="text-base sm:text-lg font-black text-gray-800 break-words">{title}</h2>
-                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest dir-ltr">{startDate} - {endDate}</p>
+                        <h2 className="break-words text-[13px] font-black text-gray-800 sm:text-base">{title}</h2>
+                        <p className="dir-ltr text-[9px] font-bold uppercase tracking-widest text-gray-400">{startDate} - {endDate}</p>
                     </div>
                 </div>
-                <button className="p-3 bg-white border border-gray-100 text-blue-600 rounded-2xl shadow-sm self-start sm:self-auto shrink-0" onClick={() => window.print()}><Printer size={20} /></button>
+                <DocumentActions
+                    title={title}
+                    shareText={buildReportShareText(title)}
+                    isEnglish={isEnglish}
+                    tr={tr}
+                    onPrint={() => window.print()}
+                    onSave={() => handleSaveReportSnapshot(title)}
+                    onExcel={() => handleExportReportExcel(title)}
+                    saveTitle={tr('تنزيل التقرير', 'Download report')}
+                    showSaveButton={false}
+                />
             </div>
 
             {showFiscalCloseBadge && (
                 <div
-                    className={`inline-flex w-fit items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black ${
+                    className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black ${
                         reportYearClosed
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                            : 'bg-amber-50 text-amber-700 border-amber-100'
+                            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-100 bg-amber-50 text-amber-700'
                     }`}
                 >
                     {reportYearClosed
                         ? tr('مغلق (إقفال تقريري سنوي)', 'Closed (Report-Year Close)')
                         : tr('سنة مالية مفتوحة', 'Open Fiscal Year')}
                     {reportYearCloseEnabled && (
-                        <span className="text-[9px] opacity-80 dir-ltr">
+                        <span className="dir-ltr text-[9px] opacity-80">
                             {tr('تصفير قائمة الدخل من', 'P&L reset from')} {fiscalStartDate}
                         </span>
                     )}
                 </div>
             )}
 
-            <div className="bg-white p-4 rounded-[1.8rem] border border-gray-100 shadow-lg flex flex-col gap-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="report-header-controls rounded-xl border border-gray-100 bg-white p-2 shadow-sm">
+                <div className="grid grid-cols-2 gap-1.5">
                     <EnglishDateInput
                         value={startDate}
                         onChange={setStartDate}
-                        className="w-full p-2 bg-gray-50 rounded-xl text-[10px] font-bold outline-none border border-gray-100"
+                        className="h-9 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[10px] font-bold outline-none"
                         aria-label={tr('من تاريخ', 'From date')}
                     />
                     <EnglishDateInput
                         value={endDate}
                         onChange={setEndDate}
-                        className="w-full p-2 bg-gray-50 rounded-xl text-[10px] font-bold outline-none border border-gray-100"
+                        className="h-9 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[10px] font-bold outline-none"
                         aria-label={tr('إلى تاريخ', 'To date')}
                     />
                 </div>
-                <div className="flex gap-1 overflow-x-auto no-scrollbar pt-1">
+                <div className="mt-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar">
                     {currencies.map(c => (
-                        <button key={c.code} onClick={() => setReportCurrency(c.code)} className={`px-3 py-1.5 rounded-lg text-[9px] font-black transition-all ${reportCurrency === c.code ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>{c.code}</button>
+                        <button
+                            key={c.code}
+                            onClick={() => setReportCurrency(c.code)}
+                            className={`min-w-[56px] shrink-0 rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
+                                reportCurrency === c.code ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+                            }`}
+                        >
+                            {c.code}
+                        </button>
                     ))}
                 </div>
             </div>
         </div>
     );
-
     // --- 1. Stock Remaining Report ---
     const renderStockReport = () => (
         <div className="animate-in slide-in-from-bottom-4">
@@ -1735,16 +1784,16 @@ const FinancialReports: React.FC = () => {
         if (activeCategory === 'MENU') {
             return (
                 <div className="animate-in fade-in duration-700">
-                    <header className="mb-8 text-center">
-                        <div className="w-16 h-16 bg-white rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-4 border border-gray-50 text-blue-600"><BarChart3 size={32} /></div>
-                        <h1 className="text-2xl font-black text-gray-800">{tr('مركز التقارير', 'Reports Center')}</h1>
-                        <p className="text-gray-400 text-[10px] font-bold mt-1 uppercase tracking-[0.2em]">{tr('تحليلات الأعمال الذكية', 'Smart Business Analytics')}</p>
+                    <header className="mb-3 text-center">
+                        <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mx-auto mb-2 border border-gray-100 text-blue-600"><BarChart3 size={24} /></div>
+                        <h1 className="text-xl font-black text-gray-800">{tr('مركز التقارير', 'Reports Center')}</h1>
+                        <p className="text-gray-400 text-[9px] font-bold mt-1 uppercase tracking-[0.15em]">{tr('تحليلات الأعمال الذكية', 'Smart Business Analytics')}</p>
                     </header>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2">
                         {categories.map(cat => (
-                            <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className="bg-white p-4 sm:p-6 rounded-[2.5rem] border border-gray-50 shadow-sm flex flex-col items-center text-center gap-4 transition-all hover:shadow-md active:scale-95">
-                                <div className={`p-4 rounded-2xl ${cat.color}`}>{cat.icon}</div>
-                                <span className="font-black text-xs text-gray-800 break-words leading-5">{cat.label}</span>
+                            <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className="bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center gap-2 min-h-[96px] transition-all hover:shadow-md active:scale-95">
+                                <div className={`p-2.5 rounded-xl ${cat.color}`}>{cat.icon}</div>
+                                <span className="font-black text-[11px] text-gray-800 break-words leading-4">{cat.label}</span>
                             </button>
                         ))}
                     </div>
@@ -1817,15 +1866,15 @@ const FinancialReports: React.FC = () => {
 
         return (
             <div className="animate-in slide-in-from-right-4 duration-500">
-                <button onClick={() => setActiveCategory('MENU')} className="mb-6 flex items-center gap-2 text-blue-600 font-black text-xs bg-blue-50 px-4 py-2 rounded-full w-fit"><ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={14} /> {tr('العودة للتصنيفات', 'Back to Categories')}</button>
-                <div className="space-y-3">
+                <button onClick={() => setActiveCategory('MENU')} className="mb-2 flex items-center gap-2 text-blue-600 font-black text-[10px] bg-blue-50 px-3 py-1.5 rounded-full w-fit"><ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={12} /> {tr('العودة للتصنيفات', 'Back to Categories')}</button>
+                <div className="grid grid-cols-2 gap-2">
                     {reportList[activeCategory].map(report => (
-                        <button key={report.id} onClick={() => setActiveReport(report.id)} className="w-full bg-white p-4 sm:p-5 rounded-[2rem] border border-gray-50 shadow-sm flex items-center justify-between gap-3 group active:scale-95 transition-all text-start">
-                            <div className="flex items-center gap-4 min-w-0">
-                                <div className="p-3 bg-gray-50 text-gray-400 rounded-xl group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">{report.icon}</div>
-                                <span className="font-black text-sm text-gray-800 break-words leading-5 min-w-0">{report.label}</span>
+                        <button key={report.id} onClick={() => setActiveReport(report.id)} className="w-full bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between gap-2 group active:scale-95 transition-all text-start min-h-[74px]">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <div className="p-2 bg-gray-50 text-gray-400 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">{report.icon}</div>
+                                <span className="font-black text-[11px] text-gray-800 break-words leading-4 min-w-0">{report.label}</span>
                             </div>
-                            <ChevronDown className={`text-gray-300 ${isEnglish ? '-rotate-90' : 'rotate-90'} shrink-0`} size={18} />
+                            <ChevronDown className={`text-gray-300 ${isEnglish ? '-rotate-90' : 'rotate-90'} shrink-0`} size={14} />
                         </button>
                     ))}
                 </div>
@@ -1906,7 +1955,7 @@ const FinancialReports: React.FC = () => {
                         <p className="text-[10px] mt-4 opacity-75 font-bold uppercase tracking-widest">{tr('عن الفترة من', 'For period from')} {startDate} {tr('إلى', 'to')} {endDate}</p>
                     </div>
 
-                    <div className="grid md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-3 md:gap-6">
                         <div className="bg-white p-6 rounded-[2rem] border border-gray-50 shadow-sm content-start">
                             <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-50">
                                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><TrendingUp size={20} /></div>
@@ -1958,7 +2007,7 @@ const FinancialReports: React.FC = () => {
                             <span className="text-[10px] font-black text-gray-400">{tr('إيرادات ومصروفات', 'Revenue and expenses')}</span>
                         </div>
 
-                        <div className="grid md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-3 md:gap-4">
                             <div className="overflow-x-auto rounded-2xl border border-emerald-100">
                                 <table className="w-full text-start min-w-[520px]">
                                     <thead className="bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">
@@ -2249,7 +2298,7 @@ const FinancialReports: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-2 gap-3 md:gap-4 mb-4">
                     <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
                         <div className="px-4 py-3 border-b border-gray-50">
                             <h4 className="font-black text-sm text-gray-800">{tr('تجميع أسبوعي', 'Weekly Grouping')}</h4>
@@ -2397,7 +2446,7 @@ const FinancialReports: React.FC = () => {
                 <ReportHeader title={tr('الميزانية العمومية', 'Balance Sheet')} />
 
                 <div className="space-y-6">
-                    <div className="grid md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-3 md:gap-6">
                         {/* Assets Side */}
                         <div>
                             <h3 className="text-center font-black text-blue-800 bg-blue-100 py-2 rounded-xl mb-4">{tr('الأصول', 'Assets')}</h3>
@@ -2847,7 +2896,7 @@ const FinancialReports: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-3 md:gap-4 mb-6">
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <Calendar size={16} className="text-blue-600" />
@@ -4645,7 +4694,7 @@ const FinancialReports: React.FC = () => {
                         </div>
 
                         {/* Product Info */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-2 gap-3 md:gap-6">
                             <div className="bg-white p-6 rounded-[2rem] border border-gray-50 shadow-sm flex justify-between items-center">
                                 <div>
                                     <p className="text-gray-500 text-xs font-bold mb-1">{tr('سعر البيع الحالي', 'Current Selling Price')}</p>
@@ -4772,7 +4821,7 @@ const FinancialReports: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 md:gap-4">
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <Activity size={16} className="text-blue-600" />
@@ -4805,7 +4854,7 @@ const FinancialReports: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-2 gap-3 md:gap-4">
                         <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                             <h3 className="font-black text-gray-800 mb-3">{tr('أعلى حسابات الإيراد', 'Top Revenue Accounts')}</h3>
                             <div className="space-y-2">
@@ -4864,16 +4913,16 @@ const FinancialReports: React.FC = () => {
             <div className="animate-in slide-in-from-bottom-4">
                 <ReportHeader title={tr('النسب المالية (ريشيو)', 'Financial Ratios (Ratio)')} />
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-3 md:gap-4 mb-6">
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <Percent size={16} className="text-blue-600" />
                             <h3 className="font-black text-gray-800">{tr('نسب السيولة', 'Liquidity Ratios')}</h3>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <RatioCard title={tr('النسبة الجارية', 'Current Ratio')} value={formatRatioX(r.currentRatio)} description={tr('الأصول المتداولة ÷ الالتزامات المتداولة', 'Current Assets ÷ Current Liabilities')} tone="blue" />
-                            <RatioCard title={tr('النسبة السريعة', 'Quick Ratio')} value={formatRatioX(r.quickRatio)} description={tr('الأصول السريعة ÷ الالتزامات المتداولة', 'Quick Assets ÷ Current Liabilities')} tone="indigo" />
-                            <RatioCard title={tr('النسبة النقدية', 'Cash Ratio')} value={formatRatioX(r.cashRatio)} description={tr('النقدية والبنوك ÷ الالتزامات المتداولة', 'Cash & Banks ÷ Current Liabilities')} tone="emerald" />
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
+                            <RatioCard title={tr('النسبة الجارية', 'Current Ratio')} value={formatRatioX(r.currentRatio)} description={tr('الأصول المتداولة ÷ الالتزامات المتداولة', 'Current Assets أ· Current Liabilities')} tone="blue" />
+                            <RatioCard title={tr('النسبة السريعة', 'Quick Ratio')} value={formatRatioX(r.quickRatio)} description={tr('الأصول السريعة ÷ الالتزامات المتداولة', 'Quick Assets أ· Current Liabilities')} tone="indigo" />
+                            <RatioCard title={tr('النسبة النقدية', 'Cash Ratio')} value={formatRatioX(r.cashRatio)} description={tr('النقدية والبنوك ÷ الالتزامات المتداولة', 'Cash & Banks أ· Current Liabilities')} tone="emerald" />
                         </div>
                     </div>
 
@@ -4882,25 +4931,25 @@ const FinancialReports: React.FC = () => {
                             <Scale size={16} className="text-amber-600" />
                             <h3 className="font-black text-gray-800">{tr('نسب المديونية', 'Leverage Ratios')}</h3>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <RatioCard title={tr('نسبة الدين للأصول', 'Debt Ratio')} value={formatPercent(r.debtRatio)} description={tr('إجمالي الخصوم ÷ إجمالي الأصول', 'Total Liabilities ÷ Total Assets')} tone="amber" />
-                            <RatioCard title={tr('الدين إلى حقوق الملكية', 'Debt to Equity')} value={formatRatioX(r.debtToEquity)} description={tr('إجمالي الخصوم ÷ حقوق الملكية', 'Total Liabilities ÷ Equity')} tone="rose" />
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
+                            <RatioCard title={tr('نسبة الدين للأصول', 'Debt Ratio')} value={formatPercent(r.debtRatio)} description={tr('إجمالي الخصوم ÷ إجمالي الأصول', 'Total Liabilities أ· Total Assets')} tone="amber" />
+                            <RatioCard title={tr('الدين إلى حقوق الملكية', 'Debt to Equity')} value={formatRatioX(r.debtToEquity)} description={tr('إجمالي الخصوم ÷ حقوق الملكية', 'Total Liabilities أ· Equity')} tone="rose" />
                             <RatioCard title={tr('رأس المال العامل', 'Working Capital')} value={formatValue(analyticsData.currentAssets - analyticsData.currentLiabilities)} description={tr('الأصول المتداولة - الالتزامات المتداولة', 'Current Assets - Current Liabilities')} tone="gray" />
                         </div>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-3 md:gap-4 mb-6">
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <TrendingUp size={16} className="text-emerald-600" />
                             <h3 className="font-black text-gray-800">{tr('نسب الربحية', 'Profitability Ratios')}</h3>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <RatioCard title={tr('هامش صافي الربح', 'Net Profit Margin')} value={formatPercent(r.netProfitMargin)} description={tr('صافي الربح ÷ الإيرادات', 'Net Profit ÷ Revenue')} tone={analyticsData.netProfit >= 0 ? 'emerald' : 'rose'} />
-                            <RatioCard title={tr('نسبة المصروفات للإيرادات', 'Expense to Revenue')} value={formatPercent(r.expenseToRevenue)} description={tr('المصروفات ÷ الإيرادات', 'Expenses ÷ Revenue')} tone="rose" />
-                            <RatioCard title={tr('العائد على الأصول', 'ROA')} value={formatPercent(r.returnOnAssets)} description={tr('صافي الربح ÷ إجمالي الأصول', 'Net Profit ÷ Total Assets')} tone="blue" />
-                            <RatioCard title={tr('العائد على حقوق الملكية', 'ROE')} value={formatPercent(r.returnOnEquity)} description={tr('صافي الربح ÷ حقوق الملكية', 'Net Profit ÷ Equity')} tone="indigo" />
+                        <div className="grid grid-cols-2 gap-2 md:gap-3">
+                            <RatioCard title={tr('هامش صافي الربح', 'Net Profit Margin')} value={formatPercent(r.netProfitMargin)} description={tr('صافي الربح ÷ الإيرادات', 'Net Profit أ· Revenue')} tone={analyticsData.netProfit >= 0 ? 'emerald' : 'rose'} />
+                            <RatioCard title={tr('نسبة المصروفات للإيرادات', 'Expense to Revenue')} value={formatPercent(r.expenseToRevenue)} description={tr('المصروفات ÷ الإيرادات', 'Expenses أ· Revenue')} tone="rose" />
+                            <RatioCard title={tr('العائد على الأصول', 'ROA')} value={formatPercent(r.returnOnAssets)} description={tr('صافي الربح ÷ إجمالي الأصول', 'Net Profit أ· Total Assets')} tone="blue" />
+                            <RatioCard title={tr('العائد على حقوق الملكية', 'ROE')} value={formatPercent(r.returnOnEquity)} description={tr('صافي الربح ÷ حقوق الملكية', 'Net Profit أ· Equity')} tone="indigo" />
                         </div>
                     </div>
 
@@ -4909,32 +4958,32 @@ const FinancialReports: React.FC = () => {
                             <BarChart3 size={16} className="text-cyan-600" />
                             <h3 className="font-black text-gray-800">{tr('نسب تشغيلية مختصرة', 'Operational Ratios')}</h3>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <RatioCard title={tr('الذمم إلى المبيعات', 'Receivables to Sales')} value={formatPercent(r.receivablesToSales)} description={tr('الذمم المدينة ÷ مبيعات الفترة', 'Receivables ÷ Period Sales')} tone="cyan" />
-                            <RatioCard title={tr('المخزون من المتداول', 'Inventory / Current Assets')} value={formatPercent(r.inventoryToCurrentAssets)} description={tr('المخزون ÷ الأصول المتداولة', 'Inventory ÷ Current Assets')} tone="amber" />
-                            <RatioCard title={tr('نسبة تغطية الموردين نقديًا', 'Payables Cash Coverage')} value={formatRatioX(safeDivide(analyticsData.cashOnHand + analyticsData.bankBalances, analyticsData.payables))} description={tr('النقدية والبنوك ÷ ذمم الموردين', 'Cash & Banks ÷ Payables')} tone="indigo" />
+                        <div className="grid grid-cols-2 gap-2 md:gap-3">
+                            <RatioCard title={tr('الذمم إلى المبيعات', 'Receivables to Sales')} value={formatPercent(r.receivablesToSales)} description={tr('الذمم المدينة ÷ مبيعات الفترة', 'Receivables أ· Period Sales')} tone="cyan" />
+                            <RatioCard title={tr('المخزون من المتداول', 'Inventory / Current Assets')} value={formatPercent(r.inventoryToCurrentAssets)} description={tr('المخزون ÷ الأصول المتداولة', 'Inventory أ· Current Assets')} tone="amber" />
+                            <RatioCard title={tr('نسبة تغطية الموردين نقديًا', 'Payables Cash Coverage')} value={formatRatioX(safeDivide(analyticsData.cashOnHand + analyticsData.bankBalances, analyticsData.payables))} description={tr('النقدية والبنوك ÷ ذمم الموردين', 'Cash & Banks أ· Payables')} tone="indigo" />
                             <RatioCard title={tr('صافي التدفق (قبض-صرف)', 'Net Cash Movement')} value={formatValue(analyticsData.receiptsTotal - analyticsData.paymentsTotal)} description={tr('سندات القبض - سندات الصرف', 'Receipt Vouchers - Payment Vouchers')} tone="blue" />
                         </div>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-2 gap-3 md:gap-4 mb-6">
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <Calculator size={16} className="text-violet-600" />
                             <h3 className="font-black text-gray-800">{tr('نسب متقدمة (تحليل الأداء)', 'Advanced Performance Ratios')}</h3>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-2 md:gap-3">
                             <RatioCard
                                 title={tr('هامش الربح الإجمالي', 'Gross Margin')}
                                 value={formatPercent(r.grossMargin)}
-                                description={tr('مجمل الربح ÷ صافي المبيعات', 'Gross Profit ÷ Net Sales')}
+                                description={tr('مجمل الربح ÷ صافي المبيعات', 'Gross Profit أ· Net Sales')}
                                 tone={analyticsData.grossProfit >= 0 ? 'emerald' : 'rose'}
                             />
                             <RatioCard
                                 title={tr('دوران المخزون', 'Inventory Turnover')}
                                 value={formatRatioX(r.inventoryTurnover)}
-                                description={tr('تكلفة المبيعات ÷ متوسط المخزون', 'COGS ÷ Average Inventory')}
+                                description={tr('تكلفة المبيعات ÷ متوسط المخزون', 'COGS أ· Average Inventory')}
                                 tone="amber"
                             />
                             <RatioCard
@@ -4990,29 +5039,29 @@ const FinancialReports: React.FC = () => {
                                 </button>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-2 md:gap-3">
                             <RatioCard
                                 title={tr('هامش الربح', 'Profit Margin')}
                                 value={formatPercent(dupontProfitMargin)}
-                                description={`${tr('صافي الربح ÷', 'Net Profit ÷')} ${dupontBaseLabel}`}
+                                description={`${tr('صافي الربح ÷', 'Net Profit أ·')} ${dupontBaseLabel}`}
                                 tone={analyticsData.netProfit >= 0 ? 'emerald' : 'rose'}
                             />
                             <RatioCard
                                 title={tr('دوران الأصول', 'Asset Turnover')}
                                 value={formatRatioX(dupontAssetTurnover)}
-                                description={`${dupontBaseLabel} ${tr('÷ متوسط الأصول', '÷ Average Assets')}`}
+                                description={`${dupontBaseLabel} ${tr('÷ متوسط الأصول', 'أ· Average Assets')}`}
                                 tone="blue"
                             />
                             <RatioCard
                                 title={tr('مضاعف الملكية', 'Equity Multiplier')}
                                 value={formatRatioX(dupontEquityMultiplier)}
-                                description={tr('متوسط الأصول ÷ متوسط حقوق الملكية', 'Average Assets ÷ Average Equity')}
+                                description={tr('متوسط الأصول ÷ متوسط حقوق الملكية', 'Average Assets أ· Average Equity')}
                                 tone="amber"
                             />
                             <RatioCard
                                 title={tr('ROE (DuPont)', 'ROE (DuPont)')}
                                 value={formatPercent(dupontRoe)}
-                                description={tr('هامش الربح × دوران الأصول × مضاعف الملكية', 'Profit Margin × Asset Turnover × Equity Multiplier')}
+                                description={tr('هامش الربح × دوران الأصول × مضاعف الملكية', 'Profit Margin أ— Asset Turnover أ— Equity Multiplier')}
                                 tone="indigo"
                             />
                         </div>
@@ -5021,9 +5070,9 @@ const FinancialReports: React.FC = () => {
                                 <span>ROE</span>
                                 <span>=</span>
                                 <span>{tr('هامش الربح', 'Profit Margin')}</span>
-                                <span>×</span>
+                                <span>أ—</span>
                                 <span>{tr('دوران الأصول', 'Asset Turnover')}</span>
-                                <span>×</span>
+                                <span>أ—</span>
                                 <span>{tr('مضاعف الملكية', 'Equity Multiplier')}</span>
                             </div>
                         </div>
@@ -5116,10 +5165,12 @@ const FinancialReports: React.FC = () => {
 
     return (
         <div
-            className={`px-3 sm:px-4 pt-[calc(var(--app-safe-top)+0.5rem)] pb-[calc(var(--app-safe-bottom)+5.5rem)] app-page max-w-7xl mx-auto ${isEnglish ? 'text-left' : ''}`}
+            className={`financial-reports-page px-3 sm:px-4 pt-[calc(var(--app-safe-top)+0.5rem)] pb-[calc(var(--app-safe-bottom)+5.5rem)] app-page max-w-7xl mx-auto ${isEnglish ? 'text-left' : ''}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
         >
-            {renderContent()}
+            <div ref={activeReportRef}>
+                {renderContent()}
+            </div>
         </div>
     );
 };

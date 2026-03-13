@@ -21,6 +21,7 @@ export type PermissionModule =
   | 'JOURNAL'
   | 'REPORTS'
   | 'DIRECTORY'
+  | 'ACCOUNTS'
   | 'PRODUCTS'
   | 'HR'
   | 'SETTLEMENTS'
@@ -363,6 +364,7 @@ export interface InvoiceItem {
 }
 
 export type PartnerInvoiceMode = 'DIRECT_DRAWINGS' | 'AR_THEN_TRANSFER';
+export type InvoiceTaxMode = 'NONE' | 'EXCLUSIVE' | 'INCLUSIVE';
 
 export interface Invoice {
   id: string;
@@ -377,6 +379,7 @@ export interface Invoice {
   subTotal: number;
   taxRate: number;
   taxAmount: number;
+  taxMode?: InvoiceTaxMode;
   discountAmount: number;
   totalAmount: number;
   status: 'PAID' | 'PENDING' | 'CANCELLED' | 'QUOTATION';
@@ -594,6 +597,7 @@ export interface CompanySettings {
   googleDriveClientId: string;
   googleDriveFolderId: string;
 
+  darkModeEnabled: boolean;
   language: 'AR' | 'EN';
 }
 
@@ -638,6 +642,8 @@ export interface User {
   companyId?: string; // Currently selected company for this session
   status: 'ACTIVE' | 'INACTIVE';
   lastActive?: string;
+  guestTrialStartedAt?: string;
+  guestTrialEndsAt?: string;
 }
 
 export interface GoogleDriveStatus {

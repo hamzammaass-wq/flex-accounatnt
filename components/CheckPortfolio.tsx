@@ -634,10 +634,10 @@ const CheckPortfolio: React.FC = () => {
     const selectedCheckFlow = showCheckDetailsId ? getCheckFlowSummary(showCheckDetailsId) : null;
 
     return (
-        <div className={`app-page p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
-            <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className={`app-page p-3 md:p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+            <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div className="min-w-0">
-                    <h1 className="text-3xl font-black text-gray-800 tracking-tight leading-tight break-normal">{tr('حافظة الشيكات', 'Checks Portfolio')}</h1>
+                    <h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight leading-tight break-normal">{tr('حافظة الشيكات', 'Checks Portfolio')}</h1>
                     <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mt-1 break-normal">{tr('المقبوضات والمدفوعات الآجلة', 'Deferred receivables and payables')}</p>
                 </div>
                 <div className="flex w-full sm:w-auto gap-2">
@@ -647,30 +647,30 @@ const CheckPortfolio: React.FC = () => {
                             placeholder={tr('بحث برقم الشيك، البنك، أو المستفيد...', 'Search by check number, bank, or beneficiary...')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="bg-white border border-gray-100 pl-10 pr-4 py-3 rounded-2xl text-xs font-bold w-full sm:w-64 outline-none sm:focus:w-80 transition-all shadow-sm"
+                            className="bg-white border border-gray-100 pl-9 pr-3 h-10 rounded-xl text-[11px] font-bold w-full sm:w-60 outline-none sm:focus:w-72 transition-all shadow-sm"
                         />
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={16} />
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={14} />
                     </div>
-                    <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white p-3 rounded-2xl shadow-xl active:scale-90 transition-all">
-                        {showForm ? <X size={24} /> : <Plus size={24} />}
+                    <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white w-10 h-10 rounded-xl shadow-sm active:scale-90 transition-all flex items-center justify-center">
+                        {showForm ? <X size={18} /> : <Plus size={18} />}
                     </button>
                 </div>
             </header>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-                <div className="bg-white p-4 rounded-[1.5rem] border border-emerald-50 shadow-sm text-center">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest block mb-1">{tr('واردة', 'Incoming')}</span>
                     <p className="text-sm font-black text-emerald-700 dir-ltr">{stats.incomingPending.toLocaleString()}</p>
                 </div>
-                <div className="bg-white p-4 rounded-[1.5rem] border border-rose-50 shadow-sm text-center">
+                <div className="bg-white p-2.5 rounded-xl border border-rose-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest block mb-1">{tr('صادرة', 'Outgoing')}</span>
                     <p className="text-sm font-black text-rose-700 dir-ltr">{stats.outgoingPending.toLocaleString()}</p>
                 </div>
-                <div className="bg-white p-4 rounded-[1.5rem] border border-amber-50 shadow-sm text-center">
+                <div className="bg-white p-2.5 rounded-xl border border-amber-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest block mb-1">{tr('برسم التحصيل', 'Under Collection')}</span>
                     <p className="text-sm font-black text-blue-700 dir-ltr">{stats.underCollection.toLocaleString()}</p>
                 </div>
-                <div className="bg-white p-4 rounded-[1.5rem] border border-amber-50 shadow-sm text-center">
+                <div className="bg-white p-2.5 rounded-xl border border-amber-50 shadow-sm text-center">
                     <div className="flex items-center justify-center gap-1 mb-1 text-amber-500">
                         <XCircle size={12} />
                         <span className="text-[9px] font-black uppercase tracking-widest">{tr('مرتجعة', 'Bounced')}</span>
@@ -724,20 +724,20 @@ const CheckPortfolio: React.FC = () => {
                 </div>
             )}
 
-            <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar mb-4">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 mb-2">
                 {tabLabels.map(tab => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`px-5 py-2.5 rounded-2xl text-[11px] font-black whitespace-nowrap transition-all flex items-center gap-2 border ${activeTab === tab.id ? 'bg-slate-800 text-white border-slate-800 shadow-lg' : 'bg-white text-gray-500 border-gray-100'}`}
+                        className={`px-1.5 py-2 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1.5 border min-w-0 ${activeTab === tab.id ? 'bg-slate-800 text-white border-slate-800 shadow-sm' : 'bg-white text-gray-500 border-gray-100'}`}
                     >
                         {tab.icon}
-                        {tab.label}
+                        <span className="truncate">{tab.label}</span>
                     </button>
                 ))}
             </div>
 
-            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar mb-4">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 mb-3">
                 {([
                     { key: 'ALL', ar: 'الكل', en: 'All', className: 'bg-slate-50 text-slate-700 border-slate-100' },
                     { key: 'DEPOSITED', ar: 'مودع بالبنك', en: 'Deposited', className: 'bg-blue-50 text-blue-700 border-blue-100' },
@@ -749,35 +749,35 @@ const CheckPortfolio: React.FC = () => {
                         key={filter.key}
                         type="button"
                         onClick={() => setQuickFilter(filter.key)}
-                        className={`px-3 py-2 rounded-xl border text-[10px] font-black whitespace-nowrap transition-all ${quickFilter === filter.key
+                        className={`px-1.5 py-1.5 rounded-lg border text-[9px] font-black transition-all min-w-0 ${quickFilter === filter.key
                                 ? `${filter.className} shadow-sm ring-1 ring-current/10`
                                 : 'bg-white text-gray-500 border-gray-100 hover:bg-gray-50'
                             }`}
                     >
-                        {tr(filter.ar, filter.en)}
+                        <span className="truncate block">{tr(filter.ar, filter.en)}</span>
                     </button>
                 ))}
-                <div className="shrink-0 text-[10px] font-bold text-gray-400 px-2 py-2">
+                <div className="col-span-3 sm:col-span-6 text-[9px] font-bold text-gray-400 px-1 pt-1">
                     {filteredChecks.length} {tr('شيك', 'check(s)')}
                 </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-2.5">
                 {filteredChecks.map(check => {
                     const isOverdue = new Date(check.dueDate) < new Date() && check.status === 'PENDING';
                     const checkImages = getCheckImageUrls(check);
                     return (
-                        <div key={check.id} className={`bg-white p-5 rounded-[2rem] border shadow-sm animate-in slide-in-from-bottom-2 ${isOverdue ? 'border-rose-100' : 'border-gray-50'}`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${check.type === 'INCOMING' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                        <Banknote size={24} />
+                        <div key={check.id} className={`bg-white p-3 rounded-xl border shadow-sm animate-in slide-in-from-bottom-2 ${isOverdue ? 'border-rose-100' : 'border-gray-100'}`}>
+                            <div className="flex justify-between items-start mb-2.5">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${check.type === 'INCOMING' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                        <Banknote size={18} />
                                     </div>
-                                    <div>
-                                        <h4 className="font-black text-gray-800 text-sm">#{check.checkNumber} - {displayBankName(check.bankName, check.bankAccountId)}</h4>
+                                    <div className="min-w-0">
+                                        <h4 className="font-black text-gray-800 text-xs truncate">#{check.checkNumber} - {displayBankName(check.bankName, check.bankAccountId)}</h4>
                                         {check.accountNumber && <p className="text-[10px] font-bold text-gray-400 mt-0.5 dir-ltr">{check.accountNumber}</p>}
-                                        <p className="text-[10px] font-bold text-gray-400 mt-0.5">{getContactName(check.contactId)}</p>
-                                        <div className="flex items-center gap-1 mt-1.5">
+                                        <p className="text-[10px] font-bold text-gray-400 mt-0.5 truncate">{getContactName(check.contactId)}</p>
+                                        <div className="flex items-center gap-1 mt-1 flex-wrap">
                                             <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border ${getStatusStyle(check.status)}`}>
                                                 {getStatusLabel(check.status)}
                                             </span>
@@ -799,10 +799,10 @@ const CheckPortfolio: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="text-end">
-                                    <span className={`block font-black text-base dir-ltr ${check.type === 'INCOMING' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                    <span className={`block font-black text-sm dir-ltr ${check.type === 'INCOMING' ? 'text-emerald-600' : 'text-rose-600'}`}>
                                         {check.amount.toLocaleString()}
                                     </span>
-                                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1 ${isOverdue ? 'text-rose-500' : 'text-gray-400'}`}>
+                                    <div className={`flex items-center gap-1 text-[8px] font-bold mt-1 ${isOverdue ? 'text-rose-500' : 'text-gray-400'}`}>
                                         <Calendar size={10} />
                                         {check.dueDate}
                                     </div>
@@ -810,7 +810,7 @@ const CheckPortfolio: React.FC = () => {
                             </div>
 
                             {checkImages.length > 0 && (
-                                <div className="border-t border-gray-50 pt-3 mb-3">
+                                <div className="border-t border-gray-50 pt-2.5 mb-2.5">
                                     <p className="text-[9px] font-black text-gray-400 mb-2">{tr('صور الشيك', 'Check images')}</p>
                                     <div className="grid grid-cols-2 gap-2">
                                         {checkImages.map((imageSrc, imageIndex) => (
@@ -835,11 +835,11 @@ const CheckPortfolio: React.FC = () => {
                                 </div>
                             )}
 
-                            <div className="flex gap-2 border-t border-gray-50 pt-4">
+                            <div className="flex gap-2 border-t border-gray-50 pt-2.5">
                                 <button
                                     type="button"
                                     onClick={() => setShowCheckDetailsId(check.id)}
-                                    className="flex-1 py-2.5 bg-slate-50 text-slate-700 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors"
+                                    className="flex-1 h-9 bg-slate-50 text-slate-700 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors"
                                 >
                                     <Info size={14} /> {tr('تفاصيل الشيك', 'Check Details')}
                                 </button>
@@ -850,7 +850,7 @@ const CheckPortfolio: React.FC = () => {
                                             src: checkImages[0],
                                             title: tr(`صورة الشيك - ${check.checkNumber}`, `Check image - ${check.checkNumber}`)
                                         })}
-                                        className="flex-1 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-indigo-100 transition-colors"
+                                        className="flex-1 h-9 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-indigo-100 transition-colors"
                                     >
                                         <ImageIcon size={14} /> {tr('عرض الصورة', 'View Image')}
                                     </button>
@@ -858,25 +858,25 @@ const CheckPortfolio: React.FC = () => {
                             </div>
 
                             {check.status === 'PENDING' && (
-                                <div className="flex gap-2 pt-2">
-                                    <button onClick={() => setShowClearModal(check.id)} className="flex-1 py-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-emerald-100 transition-colors">
+                                <div className="grid grid-cols-3 gap-1.5 pt-1.5">
+                                    <button onClick={() => setShowClearModal(check.id)} className="h-9 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-emerald-100 transition-colors">
                                         <CheckCircle size={14} /> {tr('تحصيل / صرف', 'Clear / Pay')}
                                     </button>
-                                    <button onClick={() => setShowDepositModal(check.id)} className="flex-1 py-2.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors">
+                                    <button onClick={() => setShowDepositModal(check.id)} className="h-9 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-colors">
                                         <Building2 size={14} /> {tr('إيداع بالبنك', 'Deposit to Bank')}
                                     </button>
-                                    <button onClick={() => setShowBounceModal(check.id)} className="flex-1 py-2.5 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors">
+                                    <button onClick={() => setShowBounceModal(check.id)} className="h-9 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors">
                                         <XCircle size={14} /> {tr('مرتجع', 'Bounce')}
                                     </button>
                                 </div>
                             )}
 
                             {check.status === 'UNDER_COLLECTION' && (
-                                <div className="flex gap-2 pt-2">
-                                    <button onClick={() => setShowClearModal(check.id)} className="flex-1 py-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-emerald-100 transition-colors">
+                                <div className="grid grid-cols-2 gap-1.5 pt-1.5">
+                                    <button onClick={() => setShowClearModal(check.id)} className="h-9 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-emerald-100 transition-colors">
                                         <CheckCircle size={14} /> {tr('تم التحصيل', 'Collected')}
                                     </button>
-                                    <button onClick={() => setShowBounceModal(check.id)} className="flex-1 py-2.5 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors">
+                                    <button onClick={() => setShowBounceModal(check.id)} className="h-9 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors">
                                         <XCircle size={14} /> {tr('شيك مرتجع', 'Bounced Check')}
                                     </button>
                                 </div>
@@ -886,7 +886,7 @@ const CheckPortfolio: React.FC = () => {
                 })}
 
                 {filteredChecks.length === 0 && (
-                    <div className="text-center py-20 bg-white rounded-[2rem] border border-dashed border-gray-100">
+                    <div className="text-center py-16 bg-white rounded-xl border border-dashed border-gray-100">
                         <ScrollText size={40} className="mx-auto text-gray-100 mb-3" />
                         <p className="text-gray-400 font-bold text-xs">{tr('لا توجد شيكات في هذا القسم', 'No checks in this section')}</p>
                     </div>

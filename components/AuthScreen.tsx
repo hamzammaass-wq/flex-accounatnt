@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   getRedirectResult,
@@ -11,9 +11,19 @@ import {
 import { CheckCircle2, Lock, Mail, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
+import { DEFAULT_BRAND_LOGO_URL } from '../utils/brandAssets';
 import { translate } from '../utils/i18n';
 
 type AuthMode = 'LOGIN' | 'REGISTER';
+type GuestDataPreference = 'KEEP' | 'DELETE';
+const GUEST_USER_ID = 'guest_user';
+const GUEST_USER_EMAIL = 'guest@smart.local';
+const GUEST_TRIAL_DAYS = 14;
+const GUEST_TRIAL_START_KEY = 'al_mohaseb_guest_trial_started_at';
+const FORCE_EMPTY_BOOTSTRAP_KEY = 'al_mohaseb_force_empty_bootstrap';
+const APP_STORAGE_PREFIX = 'al_mohaseb_';
+const PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY = 'al_mohaseb_pending_guest_delete_after_redirect';
+const SIGNUP_TRIAL_SELECTION_KEY = 'al_mohaseb_signup_trial_selection_days';
 
 const shouldPreferRedirectAuth = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -66,8 +76,13 @@ const GoogleLogo: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const AuthScreen: React.FC = () => {
-  const { companySettings } = useAccounting();
+interface AuthScreenProps {
+  guestTrialExpired?: boolean;
+  guestTrialDaysLeft?: number;
+}
+
+const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, guestTrialDaysLeft = GUEST_TRIAL_DAYS }) => {
+  const { companySettings, setCurrentUser, currentCompanyId } = useAccounting();
   const isFirebaseMode = isFirebaseAuthEnabled && Boolean(firebaseAuth);
   const [authMode, setAuthMode] = useState<AuthMode>('LOGIN');
   const [loading, setLoading] = useState(false);
@@ -79,6 +94,9 @@ const AuthScreen: React.FC = () => {
   const [regPassword, setRegPassword] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [signupTrialEnabled, setSignupTrialEnabled] = useState(true);
+  const [guestDataPreference, setGuestDataPreference] = useState<GuestDataPreference>('KEEP');
+  const [hasGuestWorkspaceData, setHasGuestWorkspaceData] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
 
   const biometricEnabled = companySettings.biometricLoginEnabled ?? false;
@@ -86,6 +104,74 @@ const AuthScreen: React.FC = () => {
   const appLanguage = (companySettings.language ?? 'AR') as 'AR' | 'EN';
   const authBusy = loading || sessionCheckLoading;
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(appLanguage, key, params);
+  const trialStatusText = appLanguage === 'AR'
+    ? `تجربة الضيف متبقي لها ${guestTrialDaysLeft} يوم.`
+    : `Guest trial has ${guestTrialDaysLeft} day(s) left.`;
+  const trialExpiredText = appLanguage === 'AR'
+    ? 'انتهت تجربة الضيف (14 يوم). يرجى إنشاء حساب أو تسجيل الدخول للمتابعة.'
+    : 'Guest trial (14 days) has ended. Please create an account or sign in to continue.';
+
+  const removeAppPrefixedStorage = () => {
+    if (typeof window === 'undefined') return;
+    const removeMatching = (storage: Storage) => {
+      const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
+      keys.forEach((key) => {
+        if (key.startsWith(APP_STORAGE_PREFIX)) {
+          storage.removeItem(key);
+        }
+      });
+    };
+
+    removeMatching(window.localStorage);
+    removeMatching(window.sessionStorage);
+  };
+
+  const applyGuestDataDecision = (decision: GuestDataPreference) => {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);
+    if (decision === 'DELETE') {
+      removeAppPrefixedStorage();
+      localStorage.setItem(FORCE_EMPTY_BOOTSTRAP_KEY, '1');
+      setHasGuestWorkspaceData(false);
+    }
+  };
+
+  const persistSignupTrialSelection = (enabled: boolean) => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(SIGNUP_TRIAL_SELECTION_KEY, enabled ? '14' : '0');
+  };
+
+  const resolveGuestTrialWindow = () => {
+    if (typeof window === 'undefined') {
+      const now = new Date();
+      const endsAt = new Date(now.getTime() + GUEST_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+      return { startedAt: now.toISOString(), endsAt: endsAt.toISOString(), expired: false };
+    }
+
+    const now = new Date();
+    const fallbackStart = now.toISOString();
+    const storedStart = localStorage.getItem(GUEST_TRIAL_START_KEY) || fallbackStart;
+    const startDate = new Date(storedStart);
+    const validStart = Number.isFinite(startDate.getTime()) ? startDate : now;
+    const endsAt = new Date(validStart.getTime() + GUEST_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    return {
+      startedAt: validStart.toISOString(),
+      endsAt: endsAt.toISOString(),
+      expired: now.getTime() > endsAt.getTime()
+    };
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasWorkspace = Object.keys(localStorage).some((key) => key.startsWith('al_mohaseb_workspace_'));
+    const hasTrialMeta = Boolean(localStorage.getItem(GUEST_TRIAL_START_KEY));
+    setHasGuestWorkspaceData(hasWorkspace || hasTrialMeta);
+  }, []);
+
+  useEffect(() => {
+    if (!guestTrialExpired) return;
+    setErrorMessage(trialExpiredText);
+  }, [guestTrialExpired, trialExpiredText]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +189,20 @@ const AuthScreen: React.FC = () => {
 
       setSessionCheckLoading(true);
       try {
-        await getRedirectResult(firebaseAuth);
+        const redirectResult = await getRedirectResult(firebaseAuth);
+        if (redirectResult && typeof window !== 'undefined') {
+          const pendingDelete = localStorage.getItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY) === '1';
+          if (pendingDelete) {
+            const pendingSignupTrialSelection = localStorage.getItem(SIGNUP_TRIAL_SELECTION_KEY);
+            localStorage.removeItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);
+            applyGuestDataDecision('DELETE');
+            if (pendingSignupTrialSelection !== null) {
+              localStorage.setItem(SIGNUP_TRIAL_SELECTION_KEY, pendingSignupTrialSelection);
+            }
+            window.location.replace(`${window.location.pathname}${window.location.hash}`);
+            return;
+          }
+        }
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
@@ -159,8 +258,19 @@ const AuthScreen: React.FC = () => {
       if (fullName) {
         await updateProfile(credential.user, { displayName: fullName });
       }
+
+      const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
+      if (hasGuestWorkspaceData) {
+        applyGuestDataDecision(guestDataPreference);
+      }
+      persistSignupTrialSelection(signupTrialEnabled);
+      if (shouldDeleteGuestData && typeof window !== 'undefined') {
+        window.location.replace(`${window.location.pathname}${window.location.hash}`);
+        return;
+      }
+
       setInfoMessage(appLanguage === 'AR'
-        ? 'تم إنشاء الحساب بنجاح. سيتم تسجيل دخولك تلقائيًا.'
+        ? 'تم إنشاء الحساب بنجاح. سيتم تسجيل الدخول تلقائيًا.'
         : 'Account created successfully. You will be signed in automatically.');
     } catch (error) {
       setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
@@ -179,6 +289,14 @@ const AuthScreen: React.FC = () => {
 
     try {
       await signInWithEmailAndPassword(firebaseAuth, loginEmail.trim(), loginPassword);
+      const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
+      if (hasGuestWorkspaceData) {
+        applyGuestDataDecision(guestDataPreference);
+      }
+      if (shouldDeleteGuestData && typeof window !== 'undefined') {
+        window.location.replace(`${window.location.pathname}${window.location.hash}`);
+        return;
+      }
     } catch (error) {
       setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
     } finally {
@@ -192,12 +310,22 @@ const AuthScreen: React.FC = () => {
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
+    if (authMode === 'REGISTER') {
+      persistSignupTrialSelection(signupTrialEnabled);
+    }
+    const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
+    if (!shouldDeleteGuestData && typeof window !== 'undefined') {
+      localStorage.removeItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);
+    }
 
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
       if (shouldPreferRedirectAuth()) {
+        if (shouldDeleteGuestData && typeof window !== 'undefined') {
+          localStorage.setItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY, '1');
+        }
         setInfoMessage(appLanguage === 'AR'
           ? 'سيتم تحويلك إلى Google لإكمال تسجيل الدخول.'
           : 'Redirecting to Google sign-in...');
@@ -207,6 +335,13 @@ const AuthScreen: React.FC = () => {
 
       try {
         await signInWithPopup(firebaseAuth, provider);
+        if (hasGuestWorkspaceData) {
+          applyGuestDataDecision(guestDataPreference);
+        }
+        if (shouldDeleteGuestData && typeof window !== 'undefined') {
+          window.location.replace(`${window.location.pathname}${window.location.hash}`);
+          return;
+        }
       } catch (error) {
         const code = typeof error === 'object' && error && 'code' in error
           ? String((error as { code?: string }).code || '')
@@ -216,6 +351,9 @@ const AuthScreen: React.FC = () => {
           code === 'auth/cancelled-popup-request' ||
           code === 'auth/operation-not-supported-in-this-environment'
         ) {
+          if (shouldDeleteGuestData && typeof window !== 'undefined') {
+            localStorage.setItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY, '1');
+          }
           setInfoMessage(appLanguage === 'AR'
             ? 'سيتم تحويلك إلى Google لأن النافذة المنبثقة غير مدعومة هنا.'
             : 'Switching to redirect-based Google sign-in...');
@@ -228,6 +366,33 @@ const AuthScreen: React.FC = () => {
       setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
       setLoading(false);
     }
+  };
+
+  const handleGuestLogin = () => {
+    setErrorMessage('');
+    setInfoMessage('');
+
+    const trial = resolveGuestTrialWindow();
+    if (trial.expired) {
+      setErrorMessage(trialExpiredText);
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(GUEST_TRIAL_START_KEY, trial.startedAt);
+    }
+
+    setCurrentUser({
+      id: GUEST_USER_ID,
+      name: 'Guest User',
+      email: GUEST_USER_EMAIL,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      companyId: currentCompanyId || 'cmp_default',
+      lastActive: new Date().toISOString(),
+      guestTrialStartedAt: trial.startedAt,
+      guestTrialEndsAt: trial.endsAt
+    });
   };
 
   const loginTitle = appLanguage === 'AR' ? 'تسجيل الدخول' : 'Sign In';
@@ -247,7 +412,7 @@ const AuthScreen: React.FC = () => {
       <div className="w-full max-w-sm relative z-10 pt-10 pb-10">
         <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-10 duration-700">
           <img
-            src="/brand/aiflex-erp-logo.svg"
+            src={DEFAULT_BRAND_LOGO_URL}
             alt={t('auth.appName')}
             className="w-full max-w-[23rem] mx-auto drop-shadow-[0_0_36px_rgba(34,211,238,0.2)]"
           />
@@ -257,6 +422,47 @@ const AuthScreen: React.FC = () => {
           <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-center text-[11px] font-bold text-amber-700">
             {firebaseNote}
           </div>
+
+          {(hasGuestWorkspaceData || guestTrialExpired) && (
+            <div className={`rounded-2xl px-4 py-3 text-[11px] font-bold border text-center ${guestTrialExpired
+              ? 'border-red-200 bg-red-50 text-red-700'
+              : 'border-blue-200 bg-blue-50 text-blue-700'
+              }`}>
+              {guestTrialExpired ? trialExpiredText : trialStatusText}
+            </div>
+          )}
+
+          {hasGuestWorkspaceData && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div className="text-[11px] font-black text-slate-700 text-center">
+                {appLanguage === 'AR'
+                  ? 'عند التسجيل: اختر ما تريد فعله ببيانات تجربة الضيف'
+                  : 'On sign-in/register: choose what to do with guest trial data'}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGuestDataPreference('KEEP')}
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-black transition ${guestDataPreference === 'KEEP'
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                    : 'border-gray-200 bg-white text-slate-600'
+                    }`}
+                >
+                  {appLanguage === 'AR' ? 'الاحتفاظ بالبيانات' : 'Keep data'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGuestDataPreference('DELETE')}
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-black transition ${guestDataPreference === 'DELETE'
+                    ? 'border-rose-300 bg-rose-50 text-rose-700'
+                    : 'border-gray-200 bg-white text-slate-600'
+                    }`}
+                >
+                  {appLanguage === 'AR' ? 'حذف البيانات' : 'Delete data'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="flex bg-gray-100 rounded-full p-1">
             <button
@@ -384,6 +590,34 @@ const AuthScreen: React.FC = () => {
                     {registerHelper}
                   </div>
 
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3 space-y-2">
+                    <div className="text-[11px] font-black text-indigo-700 text-center">
+                      {appLanguage === 'AR' ? 'خيار ما بعد التسجيل' : 'Post-registration option'}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSignupTrialEnabled(true)}
+                        className={`rounded-lg border px-2 py-2 text-[11px] font-black transition ${signupTrialEnabled
+                          ? 'border-indigo-300 bg-white text-indigo-700'
+                          : 'border-indigo-100 bg-indigo-50 text-indigo-500'
+                          }`}
+                      >
+                        {appLanguage === 'AR' ? 'تجربة 14 يوم' : '14-day trial'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSignupTrialEnabled(false)}
+                        className={`rounded-lg border px-2 py-2 text-[11px] font-black transition ${!signupTrialEnabled
+                          ? 'border-rose-300 bg-white text-rose-700'
+                          : 'border-indigo-100 bg-indigo-50 text-indigo-500'
+                          }`}
+                      >
+                        {appLanguage === 'AR' ? 'بدون تجربة' : 'No trial'}
+                      </button>
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={authBusy || !isFirebaseMode}
@@ -403,6 +637,14 @@ const AuthScreen: React.FC = () => {
                 >
                   <GoogleLogo className="w-5 h-5" />
                   {appLanguage === 'AR' ? 'المتابعة عبر Google' : 'Continue with Google'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGuestLogin}
+                  disabled={authBusy || guestTrialExpired}
+                  className="w-full py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-700 font-bold text-sm hover:bg-slate-200 transition-all disabled:opacity-70"
+                >
+                  {t('auth.guestLogin')}
                 </button>
               </div>
 
@@ -430,3 +672,4 @@ const AuthScreen: React.FC = () => {
 };
 
 export default AuthScreen;
+

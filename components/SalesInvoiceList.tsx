@@ -9,6 +9,8 @@ import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { executeDeviceHubCommand } from '../utils/deviceHub';
 import { getSelectedThermalTemplate, getThermalTemplateCustomization } from '../utils/thermalPrintTemplates';
 import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
+import { getInvoiceTaxVisibility } from '../utils/companySettings';
+import { getInvoiceTaxModeDescription, isInvoiceTaxApplied, resolveInvoiceTaxMode } from '../utils/invoiceTax';
 import {
     Plus, Search, FileText, User, Calendar,
     CheckCircle2, Clock, XCircle, TrendingUp,
@@ -40,7 +42,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
     const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
-    const taxVisibleInInvoices = (companySettings.showTaxInInvoices ?? true) && !(companySettings.hideSalesTax ?? false);
+    const taxVisibleInInvoices = getInvoiceTaxVisibility(companySettings, 'sales');
     const printPersonalData = companySettings.printPersonalData ?? true;
     const printElectronicInvoice = companySettings.printElectronicInvoice ?? true;
     const invoiceFooterNote = companySettings.invoiceFooterNote ?? '';
@@ -234,6 +236,8 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             ? `<p>${tr('تاريخ الإنتهاء', 'Expiry Date')}: ${formatDate(invoice.dueDate)}</p>`
             : '';
         const date = formatDate(invoice.date);
+        const invoiceTaxMode = resolveInvoiceTaxMode(invoice);
+        const taxableInvoice = taxVisibleInInvoices && isInvoiceTaxApplied(invoiceTaxMode, invoice.taxRate, invoice.taxAmount);
         const itemsRows = getInvoiceItems(invoice).map((item, index) => {
             const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
             const itemLabel = product ? displayProductName(product) : item.description;
@@ -248,13 +252,14 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             ? tr('عرض سعر', 'Quotation')
             : (invoice.category === 'sales_return'
                 ? tr('اشعار دائن (مرتجع مبيعات)', 'Credit Note (Sales Return)')
-                : printElectronicInvoice ? tr('فاتورة إلكترونية', 'Electronic Invoice') : (taxVisibleInInvoices ? tr('فاتورة ضريبية', 'Tax Invoice') : tr('فاتورة بيع', 'Sales Invoice')));
+                : printElectronicInvoice ? tr('فاتورة إلكترونية', 'Electronic Invoice') : (taxableInvoice ? tr('فاتورة ضريبية', 'Tax Invoice') : tr('فاتورة بيع', 'Sales Invoice')));
 
         const totalsBlock = `
           <div style="text-align: left; display: inline-block; min-width: 280px;">
             <p><strong>${tr('الإجمالي قبل الضريبة', 'Subtotal')}:</strong> ${formatPrintNumber(invoice.subTotal)} ${invoice.currency}</p>
             ${invoice.discountAmount > 0 ? `<p><strong>${tr('الخصم', 'Discount')}:</strong> -${formatPrintNumber(invoice.discountAmount)} ${invoice.currency}</p>` : ''}
-            ${(taxVisibleInInvoices && invoice.taxAmount > 0) ? `<p><strong>${tr('الضريبة', 'Tax')} (${invoice.taxRate}%):</strong> +${formatPrintNumber(invoice.taxAmount)} ${invoice.currency}</p>` : ''}
+            ${taxVisibleInInvoices ? `<p><strong>${tr('طريقة الضريبة', 'Tax mode')}:</strong> ${getInvoiceTaxModeDescription(invoiceTaxMode, tr)}</p>` : ''}
+            ${(taxableInvoice && invoice.taxAmount > 0) ? `<p><strong>${tr('الضريبة', 'Tax')} (${invoice.taxRate}%):</strong> +${formatPrintNumber(invoice.taxAmount)} ${invoice.currency}</p>` : ''}
             <h3>${tr('الإجمالي', 'Total')}: ${formatPrintNumber(invoice.totalAmount)} ${invoice.currency}</h3>
             ${invoiceFooterNote ? `<p style="margin-top:8px; color:#666; font-size:12px;">${invoiceFooterNote}</p>` : ''}
           </div>
@@ -301,6 +306,8 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
         const customer = contacts.find(c => c.id === invoice.customerId);
         const customerName = getCustomerName(invoice.customerId);
         const number = (value: number) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const invoiceTaxMode = resolveInvoiceTaxMode(invoice);
+        const taxableInvoice = taxVisibleInInvoices && isInvoiceTaxApplied(invoiceTaxMode, invoice.taxRate, invoice.taxAmount);
         const template = getSelectedThermalTemplate(currentCompanyId, 'INVOICE');
         const customization = getThermalTemplateCustomization(currentCompanyId, 'INVOICE');
         const isCompactTemplate = template.style === 'COMPACT';
@@ -338,7 +345,8 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             '----------------------------------------',
             `${isEnglish ? 'Subtotal' : 'الإجمالي قبل الضريبة'}: ${number(invoice.subTotal)} ${invoice.currency}`,
             ...(invoice.discountAmount > 0 ? [`${isEnglish ? 'Discount' : 'الخصم'}: -${number(invoice.discountAmount)} ${invoice.currency}`] : []),
-            ...((taxVisibleInInvoices && invoice.taxAmount > 0) ? [`${isEnglish ? 'Tax' : 'الضريبة'} (${number(invoice.taxRate)}%): +${number(invoice.taxAmount)} ${invoice.currency}`] : []),
+            ...(taxVisibleInInvoices ? [`${isEnglish ? 'Tax mode' : 'طريقة الضريبة'}: ${getInvoiceTaxModeDescription(invoiceTaxMode, tr)}`] : []),
+            ...((taxableInvoice && invoice.taxAmount > 0) ? [`${isEnglish ? 'Tax' : 'الضريبة'} (${number(invoice.taxRate)}%): +${number(invoice.taxAmount)} ${invoice.currency}`] : []),
             `${isEnglish ? 'Total' : 'الإجمالي'}: ${number(invoice.totalAmount)} ${invoice.currency}`,
             invoiceFooterNote ? invoiceFooterNote : '',
             thermalFooter ? thermalFooter : '',
@@ -363,6 +371,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                 discountAmount: invoice.discountAmount,
                 taxRate: invoice.taxRate,
                 taxAmount: invoice.taxAmount,
+                taxMode: invoiceTaxMode,
                 totalAmount: invoice.totalAmount,
                 notes: invoice.notes || '',
                 items

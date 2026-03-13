@@ -23,6 +23,7 @@ const ARABIC_CHARS = /[\u0600-\u06FF]/g;
 const LATIN_CHARS = /[A-Za-z]/g;
 const SUSPICIOUS_ARABIC_MARKERS = /[طظ]/g;
 const SUSPICIOUS_LATIN_MARKERS = /[ÃØÙÂâï]/g;
+const MAX_DECODE_DEPTH = 4;
 
 const countMatches = (value, regex) => (value.match(regex) || []).length;
 const isMostlyPrintable = (value) => !CONTROL_CHARS.test(value);
@@ -112,8 +113,8 @@ const looksLikeMojibake = (value) => {
   return suspiciousPairs >= 2 && (suspiciousChars / arabic) > 0.35;
 };
 
-const decodeCandidates = (value) => {
-  const candidates = [value];
+const decodeOnce = (value) => {
+  const candidates = [];
 
   const latin1 = latin1Bytes(value);
   if (latin1) {
@@ -136,6 +137,24 @@ const decodeCandidates = (value) => {
   return candidates.filter((candidate, index, all) => all.indexOf(candidate) === index && isMostlyPrintable(candidate));
 };
 
+const decodeCandidates = (value) => {
+  const visited = new Set([value]);
+  const queue = [{ text: value, depth: 0 }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || current.depth >= MAX_DECODE_DEPTH) continue;
+
+    decodeOnce(current.text).forEach((candidate) => {
+      if (visited.has(candidate)) return;
+      visited.add(candidate);
+      queue.push({ text: candidate, depth: current.depth + 1 });
+    });
+  }
+
+  return Array.from(visited);
+};
+
 const fixPotentialMojibakeText = (value) => {
   if (!looksLikeMojibake(value)) return value;
 
@@ -152,7 +171,7 @@ const fixPotentialMojibakeText = (value) => {
     }
   }
 
-  const improvedEnough = bestValue !== value && bestMetrics.score >= originalMetrics.score + 2;
+  const improvedEnough = bestValue !== value && bestMetrics.score >= originalMetrics.score + 1;
   if (!improvedEnough) return value;
 
   const markersReduced =
@@ -187,6 +206,95 @@ const fixStringLiterals = (source) => {
   });
 
   return { text: next, replacements };
+};
+
+const skipQuotedSequence = (source, startIndex, quote) => {
+  let index = startIndex + 1;
+
+  while (index < source.length) {
+    const char = source[index];
+    if (char === '\\') {
+      index += 2;
+      continue;
+    }
+    if (char === quote) return index + 1;
+    index += 1;
+  }
+
+  return source.length;
+};
+
+const fixTemplateLiterals = (source) => {
+  let replacements = 0;
+  let result = '';
+  let index = 0;
+
+  while (index < source.length) {
+    if (source[index] !== '`') {
+      result += source[index];
+      index += 1;
+      continue;
+    }
+
+    let template = '`';
+    let chunk = '';
+    index += 1;
+
+    while (index < source.length) {
+      const char = source[index];
+
+      if (char === '\\') {
+        chunk += source.slice(index, index + 2);
+        index += 2;
+        continue;
+      }
+
+      if (char === '`') {
+        const fixedChunk = fixPotentialMojibakeText(chunk);
+        if (fixedChunk !== chunk) replacements += 1;
+        template += fixedChunk;
+        template += '`';
+        index += 1;
+        break;
+      }
+
+      if (char === '$' && source[index + 1] === '{') {
+        const fixedChunk = fixPotentialMojibakeText(chunk);
+        if (fixedChunk !== chunk) replacements += 1;
+        template += fixedChunk;
+        template += '${';
+        chunk = '';
+        index += 2;
+
+        let braceDepth = 1;
+        while (index < source.length && braceDepth > 0) {
+          const exprChar = source[index];
+
+          if (exprChar === "'" || exprChar === '"' || exprChar === '`') {
+            const endIndex = skipQuotedSequence(source, index, exprChar);
+            template += source.slice(index, endIndex);
+            index = endIndex;
+            continue;
+          }
+
+          template += exprChar;
+          index += 1;
+
+          if (exprChar === '{') braceDepth += 1;
+          if (exprChar === '}') braceDepth -= 1;
+        }
+
+        continue;
+      }
+
+      chunk += char;
+      index += 1;
+    }
+
+    result += template;
+  }
+
+  return { text: result, replacements };
 };
 
 const fixJsxTextNodes = (source) => {
@@ -238,10 +346,11 @@ const run = () => {
   for (const filePath of files) {
     const original = fs.readFileSync(filePath, 'utf8');
     const literals = fixStringLiterals(original);
-    const jsxText = fixJsxTextNodes(literals.text);
+    const templates = fixTemplateLiterals(literals.text);
+    const jsxText = fixJsxTextNodes(templates.text);
 
     const next = jsxText.text;
-    const replacements = literals.replacements + jsxText.replacements;
+    const replacements = literals.replacements + templates.replacements + jsxText.replacements;
 
     if (next === original) continue;
 

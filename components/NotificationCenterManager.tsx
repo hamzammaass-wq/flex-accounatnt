@@ -585,64 +585,64 @@ const NotificationCenterManager: React.FC = () => {
 
   return (
     <div className="bg-gray-50 min-h-dvh app-page text-slate-800 font-tajawal">
-      <div className="bg-white px-5 pt-6 pb-4 border-b border-gray-100 sticky top-0 z-40">
-        <div className="flex items-center justify-between gap-3">
+      <div className="bg-white px-3 pt-3 pb-2 border-b border-gray-100 sticky top-0 z-40">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-black text-slate-800">{tr('التنبيهات', 'Alerts')}</h1>
-            <p className="text-xs text-slate-400 font-bold mt-1">
+            <h1 className="text-xl font-black text-slate-800">{tr('التنبيهات', 'Alerts')}</h1>
+            <p className="text-[10px] text-slate-400 font-bold mt-0.5">
               {tr('تنبيهات النظام + تنبيهات يدوية خاصة بك', 'System alerts + your custom alerts')}
             </p>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-            <BellRing className="w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+            <BellRing className="w-5 h-5" />
           </div>
         </div>
       </div>
 
-      <div className="p-5 space-y-5">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+      <div className="p-3 space-y-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 shadow-sm">
             <div className="text-[10px] font-black text-slate-400">{tr('شيكات خلال 5 أيام', 'Checks in 5 days')}</div>
-            <div className="mt-2 text-xl font-black text-blue-600 dir-ltr">{summary.checksSoon}</div>
+            <div className="mt-1.5 text-lg font-black text-blue-600 dir-ltr">{summary.checksSoon}</div>
           </div>
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 shadow-sm">
             <div className="text-[10px] font-black text-slate-400">{tr('شيكات مستحقة/متأخرة', 'Due/Overdue Checks')}</div>
-            <div className="mt-2 text-xl font-black text-rose-600 dir-ltr">{summary.checksDueNow}</div>
+            <div className="mt-1.5 text-lg font-black text-rose-600 dir-ltr">{summary.checksDueNow}</div>
           </div>
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 shadow-sm">
             <div className="text-[10px] font-black text-slate-400">{tr('نقص المخزون', 'Low Stock')}</div>
-            <div className="mt-2 text-xl font-black text-orange-600 dir-ltr">{summary.lowStock}</div>
+            <div className="mt-1.5 text-lg font-black text-orange-600 dir-ltr">{summary.lowStock}</div>
           </div>
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 shadow-sm">
             <div className="text-[10px] font-black text-slate-400">{tr('تنبيهات يدوية مفتوحة', 'Open Manual Alerts')}</div>
-            <div className="mt-2 text-xl font-black text-emerald-600 dir-ltr">{summary.manualOpen}</div>
+            <div className="mt-1.5 text-lg font-black text-emerald-600 dir-ltr">{summary.manualOpen}</div>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl border border-gray-100 p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
+        <div className="bg-white rounded-2xl border border-gray-100 p-3 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-black text-slate-700">{tr('إضافة تنبيه يدوي', 'Add manual alert')}</h2>
-            <span className="text-[10px] text-slate-400 font-black">{tr('يُحفظ لكل شركة', 'Saved per company')}</span>
+            <span className="hidden sm:block text-[10px] text-slate-400 font-black">{tr('يُحفظ لكل شركة', 'Saved per company')}</span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <input
               value={manualTitle}
               onChange={(e) => setManualTitle(e.target.value)}
               placeholder={tr('عنوان التنبيه', 'Alert title')}
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-100"
+              className="w-full h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-100"
             />
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <EnglishDateInput
                 value={manualDueDate}
                 onChange={setManualDueDate}
                 placeholder={tr('تاريخ الاستحقاق (اختياري)', 'Due date (optional)')}
-                className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold"
+                className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-bold"
                 wrapperClassName="w-full"
               />
               <select
                 value={manualSeverity}
                 onChange={(e) => setManualSeverity(e.target.value as AlertSeverity)}
-                className="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm font-black outline-none"
+                className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-black outline-none"
               >
                 <option value="INFO">{tr('معلومة', 'Info')}</option>
                 <option value="WARNING">{tr('تحذير', 'Warning')}</option>
@@ -650,17 +650,17 @@ const NotificationCenterManager: React.FC = () => {
               </select>
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+          <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
             <input
               value={manualNote}
               onChange={(e) => setManualNote(e.target.value)}
               placeholder={tr('ملاحظة / وصف (اختياري)', 'Note / description (optional)')}
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-100"
+              className="w-full h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-100"
             />
             <button
               type="button"
               onClick={addManualAlert}
-              className="rounded-2xl bg-blue-600 text-white px-4 py-3 text-sm font-black flex items-center gap-2"
+              className="h-10 rounded-xl bg-blue-600 text-white px-4 text-xs font-black flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               {tr('إضافة', 'Add')}
@@ -668,7 +668,7 @@ const NotificationCenterManager: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl border border-gray-100 p-4 shadow-sm space-y-3">
+        <div className="bg-white rounded-2xl border border-gray-100 p-3 shadow-sm space-y-2">
           <div className="flex flex-wrap gap-2 items-center justify-between">
             <h2 className="text-sm font-black text-slate-700">{tr('قائمة التنبيهات', 'Alerts list')}</h2>
             <div className="text-[10px] font-black text-gray-500">
@@ -676,11 +676,11 @@ const NotificationCenterManager: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <select
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value as 'ALL' | AlertSource)}
-              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black outline-none"
+              className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-black outline-none"
             >
               <option value="ALL">{tr('كل المصادر', 'All sources')}</option>
               <option value="SYSTEM">{tr('تنبيهات النظام', 'System alerts')}</option>
@@ -689,7 +689,7 @@ const NotificationCenterManager: React.FC = () => {
             <select
               value={severityFilter}
               onChange={(e) => setSeverityFilter(e.target.value as 'ALL' | AlertSeverity)}
-              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black outline-none"
+              className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-black outline-none"
             >
               <option value="ALL">{tr('كل الدرجات', 'All severities')}</option>
               <option value="CRITICAL">{tr('حرج', 'Critical')}</option>
@@ -699,7 +699,7 @@ const NotificationCenterManager: React.FC = () => {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'OPEN' | 'DONE')}
-              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black outline-none"
+              className="h-10 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-black outline-none"
             >
               <option value="ALL">{tr('كل الحالات', 'All statuses')}</option>
               <option value="OPEN">{tr('مفتوحة', 'Open')}</option>

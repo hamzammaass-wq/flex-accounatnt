@@ -1,4 +1,5 @@
 import { Invoice, InvoiceItem, PartnerInvoiceMode, TransactionType } from '../types';
+import { normalizeInvoiceTaxMode } from './invoiceTax';
 
 const asOptionalString = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
@@ -73,6 +74,7 @@ export const sanitizeInvoice = (raw: unknown, index = 0): Invoice | null => {
     subTotal: asFiniteNumber(source.subTotal),
     taxRate: asFiniteNumber(source.taxRate),
     taxAmount: asFiniteNumber(source.taxAmount),
+    taxMode: normalizeInvoiceTaxMode(source.taxMode, asFiniteNumber(source.taxAmount) > 0 ? 'EXCLUSIVE' : 'NONE'),
     discountAmount: asFiniteNumber(source.discountAmount),
     totalAmount: asFiniteNumber(source.totalAmount),
     status: isInvoiceStatus(source.status) ? source.status : 'PENDING',

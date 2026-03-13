@@ -1,10 +1,12 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Employee, Department, TransactionType, Account, EmployeeContract, SalaryHistoryEntry, EmployeeLeaveRequest, EmployeeRecurringDeduction, EmployeePayBasis, FingerprintAttendanceBatch, FingerprintAttendanceEntry } from '../types';
 import EnglishDateInput from './EnglishDateInput';
+import DocumentActions from './DocumentActions';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName } from '../utils/displayNames';
+import { downloadElementAsHtml, exportElementAsCsv } from '../utils/documentExport';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import {
     Users, UserPlus, Briefcase, Landmark, Plus, Trash2,
@@ -187,7 +189,7 @@ const HRManager: React.FC = () => {
         employeeLeaveRequests, addEmployeeLeaveRequest, updateEmployeeLeaveRequest, deleteEmployeeLeaveRequest,
         employeeRecurringDeductions, addEmployeeRecurringDeduction, updateEmployeeRecurringDeduction, deleteEmployeeRecurringDeduction,
         departments, addDepartment, deleteDepartment,
-        accounts, addTransaction, baseCurrency, transactions, companySettings, currentCompanyId,
+        accounts, addTransaction, baseCurrency, transactions, companySettings, currentCompanyId, setTransactions,
         invoices, contacts, addContact, fingerprintAttendanceBatches, updateFingerprintAttendanceBatch
     } = useAccounting();
 
@@ -199,6 +201,8 @@ const HRManager: React.FC = () => {
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
+    const employeeStatementContentRef = useRef<HTMLDivElement | null>(null);
+    const employeeStatementExportTableRef = useRef<HTMLTableElement | null>(null);
     const getPayBasisLabel = (basis: EmployeePayBasis) => {
         switch (basis) {
             case 'DAILY': return tr('أجر يومي', 'Daily Wage');
@@ -323,6 +327,7 @@ const HRManager: React.FC = () => {
     const [payrollRows, setPayrollRows] = useState<Record<string, MonthlyPayrollRow>>({});
     const [payrollRuns, setPayrollRuns] = useState<PayrollRunRecord[]>([]);
     const [selectedPayrollRunId, setSelectedPayrollRunId] = useState<string | null>(null);
+    const [editingPayrollRunId, setEditingPayrollRunId] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Attendance State
@@ -1376,9 +1381,10 @@ const HRManager: React.FC = () => {
 
         return null;
     };
-    const postPayrollAccrualWithDeduction = (emp: Employee, range: StatementRange, notePrefix: string, postingDateOverride?: string) => {
+    const postPayrollAccrualWithDeduction = (emp: Employee, range: StatementRange, notePrefix: string, postingDateOverride?: string, voucherId?: string) => {
         const { grossBeforeDeductions, row } = calculateEmployeeBreakdown(emp);
         if (grossBeforeDeductions <= 0) return false;
+        if (isEmployeePaid(emp.id, range) || isEmployeeAccrued(emp.id, range)) return false;
         const deductionLines = getPayrollDeductionLines(emp, row, range);
         const deductionValidationError = validatePayrollDeductionsForEmployee(emp, row);
         if (deductionValidationError) {
@@ -1388,6 +1394,7 @@ const HRManager: React.FC = () => {
         const effectivePostingDate = postingDateOverride || postingDate;
 
         addTransaction({
+            voucherId,
             amount: grossBeforeDeductions,
             description: `${notePrefix} - ${emp.name} (${getRangeLabel(range)})`,
             category: 'salaries',
@@ -1404,6 +1411,7 @@ const HRManager: React.FC = () => {
 
         deductionLines.forEach(line => {
             addTransaction({
+                voucherId,
                 amount: line.amount,
                 description: `${line.label} ${tr('ضمن احتساب الراتب', 'within payroll accrual')} - ${emp.name} (${getRangeLabel(range)})`,
                 category: 'employee_deduction',
@@ -1757,7 +1765,13 @@ const HRManager: React.FC = () => {
         return `PR-${stamp}-${String(nextSeq).padStart(3, '0')}`;
     };
 
-    const createPayrollRunDraft = (targetEmployees: Employee[]) => {
+    const computePayrollRunTotals = (lines: PayrollRunLine[]) => lines.reduce((sum, line) => ({
+        gross: sum.gross + line.gross,
+        deductions: sum.deductions + line.deductions,
+        net: sum.net + line.net
+    }), { gross: 0, deductions: 0, net: 0 });
+
+    const buildPayrollRunRecord = (targetEmployees: Employee[], overrides: Partial<PayrollRunRecord> = {}) => {
         const normalizedRange = normalizeRange({ startDate: payrollStartDate, endDate: payrollEndDate });
         const lines: PayrollRunLine[] = targetEmployees.map(emp => {
             const breakdown = calculateEmployeeBreakdown(emp);
@@ -1772,26 +1786,25 @@ const HRManager: React.FC = () => {
                 net: breakdown.net,
                 rowSnapshot: { ...breakdown.row }
             };
-        });
-        const totals = lines.reduce((sum, line) => ({
-            gross: sum.gross + line.gross,
-            deductions: sum.deductions + line.deductions,
-            net: sum.net + line.net
-        }), { gross: 0, deductions: 0, net: 0 });
+        }).filter(line => line.gross > 0 || line.net > 0 || line.deductions > 0);
+        const totals = computePayrollRunTotals(lines);
         const run: PayrollRunRecord = {
-            id: `prun_${Math.random().toString(36).slice(2, 11)}`,
-            runNumber: buildPayrollRunNumber(normalizedRange.startDate),
-            periodStart: normalizedRange.startDate,
-            periodEnd: normalizedRange.endDate,
-            postingDate,
-            status: 'DRAFT',
-            createdAt: new Date().toISOString(),
+            id: overrides.id || `prun_${Math.random().toString(36).slice(2, 11)}`,
+            runNumber: overrides.runNumber || buildPayrollRunNumber(normalizedRange.startDate),
+            periodStart: overrides.periodStart || normalizedRange.startDate,
+            periodEnd: overrides.periodEnd || normalizedRange.endDate,
+            postingDate: overrides.postingDate || postingDate,
+            status: overrides.status || 'POSTED',
+            createdAt: overrides.createdAt || new Date().toISOString(),
+            reviewedAt: overrides.reviewedAt,
+            postedAt: overrides.postedAt,
+            lockedAt: overrides.lockedAt,
+            notes: overrides.notes,
             employeeIds: lines.map(l => l.employeeId),
             lines,
-            totals
+            totals,
+            paymentBatch: overrides.paymentBatch
         };
-        setPayrollRuns(prev => [run, ...prev]);
-        setSelectedPayrollRunId(run.id);
         return run;
     };
 
@@ -1870,6 +1883,227 @@ const HRManager: React.FC = () => {
         setPayrollRuns(prev => prev.map(run => run.id === runId ? updater(run) : run));
     };
 
+    const getPayrollRunCandidateEmployees = (targetEmployees: Employee[], allowAlreadyPosted = false) => targetEmployees.filter(emp => {
+        const breakdown = calculateEmployeeBreakdown(emp);
+        if (breakdown.grossBeforeDeductions <= 0 && breakdown.net <= 0 && breakdown.deductions <= 0) return false;
+        if (allowAlreadyPosted) return true;
+        return !isEmployeeAccrued(emp.id, breakdown.range) && !isEmployeePaid(emp.id, breakdown.range);
+    });
+
+    const getPayrollRunLinkedTransactionIds = (run: PayrollRunRecord) => {
+        const ids = new Set<string>();
+        const paymentBatchNumber = run.paymentBatch?.batchNumber || buildPayrollPaymentBatchNumber(run);
+        const lineKeys = new Set(run.lines.map(line => `${line.employeeId}__${line.periodStart}__${line.periodEnd}`));
+
+        transactions.forEach(tx => {
+            if (tx.voucherId === run.id) {
+                ids.add(tx.id);
+                return;
+            }
+
+            if (!tx.employeeId) return;
+            const txRange = extractPayrollRangeFromText(tx.description);
+            const txKey = txRange ? `${tx.employeeId}__${txRange.startDate}__${txRange.endDate}` : '';
+            const isRunLine = txKey ? lineKeys.has(txKey) : false;
+
+            if (tx.category === 'salaries' && tx.description.includes(run.runNumber) && isRunLine) {
+                ids.add(tx.id);
+                return;
+            }
+
+            if (tx.category === 'employee_deduction' && isRunLine && tx.date === run.postingDate) {
+                ids.add(tx.id);
+                return;
+            }
+
+            if (tx.category === 'salary_payment' && tx.description.includes(run.runNumber) && tx.description.includes(paymentBatchNumber)) {
+                ids.add(tx.id);
+            }
+        });
+
+        return ids;
+    };
+
+    const rollbackPayrollRunReferences = (run: PayrollRunRecord) => {
+        run.lines.forEach(line => {
+            const samePeriod = (ref?: { periodStart: string; periodEnd: string }) =>
+                !!ref && ref.periodStart === line.periodStart && ref.periodEnd === line.periodEnd;
+
+            employeeLeaveRequests
+                .filter(req => req.employeeId === line.employeeId && (req.postedReferences || []).some(ref => samePeriod(ref)))
+                .forEach(req => {
+                    updateEmployeeLeaveRequest(req.id, {
+                        postedReferences: (req.postedReferences || []).filter(ref => !samePeriod(ref))
+                    });
+                });
+
+            employeeRecurringDeductions
+                .filter(item => item.employeeId === line.employeeId && (item.postedReferences || []).some(ref => samePeriod(ref)))
+                .forEach(item => {
+                    const removedCount = (item.postedReferences || []).filter(ref => samePeriod(ref)).length;
+                    if (!removedCount) return;
+                    const nextInstallmentsApplied = Math.max(0, (item.installmentsApplied || 0) - removedCount);
+                    updateEmployeeRecurringDeduction(item.id, {
+                        postedReferences: (item.postedReferences || []).filter(ref => !samePeriod(ref)),
+                        installmentsApplied: nextInstallmentsApplied,
+                        status: item.status === 'COMPLETED' && nextInstallmentsApplied < (item.installmentsTotal || Number.MAX_SAFE_INTEGER)
+                            ? 'ACTIVE'
+                            : item.status
+                    });
+                });
+        });
+    };
+
+    const clearPayrollRunArtifacts = (run: PayrollRunRecord) => {
+        const linkedTransactionIds = getPayrollRunLinkedTransactionIds(run);
+        if (linkedTransactionIds.size > 0) {
+            setTransactions(prev => prev.filter(tx => !linkedTransactionIds.has(tx.id)));
+        }
+        rollbackPayrollRunReferences(run);
+    };
+
+    const loadPayrollRunIntoEditor = (run: PayrollRunRecord) => {
+        setActiveTab('PAYROLL');
+        setPayrollStartDate(run.periodStart);
+        setPayrollEndDate(run.periodEnd);
+        setPostingDate(run.postingDate || todayIso);
+        setPayrollFocusEmployeeId('');
+        setPayrollRows(Object.fromEntries(run.lines.map(line => [line.employeeId, { ...line.rowSnapshot }])));
+        setEmployeePayrollRanges(prev => ({
+            ...prev,
+            ...Object.fromEntries(run.lines.map(line => [line.employeeId, { startDate: line.periodStart, endDate: line.periodEnd }]))
+        }));
+        setSelectedPayrollRunId(run.id);
+    };
+
+    const handlePersistPayrollRun = (targetEmployees: Employee[], existingRunId?: string) => {
+        const existingRun = existingRunId ? payrollRuns.find(r => r.id === existingRunId) || null : null;
+        if (existingRun?.status === 'LOCKED') {
+            return alert(tr('لا يمكن تعديل دفعة رواتب مقفلة.', 'Cannot edit a locked payroll run.'));
+        }
+        if (!expenseAccountId) {
+            return alert(tr('يرجى اختيار حساب المصروف قبل الترحيل.', 'Please select expense account before posting.'));
+        }
+
+        const candidateEmployees = getPayrollRunCandidateEmployees(targetEmployees, !!existingRun);
+        if (candidateEmployees.length === 0) {
+            return alert(tr('لا يوجد موظفون صالحون لترحيل دفعة الرواتب الحالية.', 'No valid employees found for posting this payroll run.'));
+        }
+
+        const invalidEmployees = candidateEmployees
+            .map(emp => {
+                const breakdown = calculateEmployeeBreakdown(emp);
+                const message = validatePayrollDeductionsForEmployee(emp, breakdown.row);
+                return message ? { name: emp.name, message } : null;
+            })
+            .filter((item): item is { name: string; message: string } => item !== null);
+
+        if (invalidEmployees.length > 0) {
+            const errors = invalidEmployees.map(item => `- ${item.name}: ${item.message}`).join('\n');
+            return alert(tr(
+                `يرجى معالجة إعدادات الخصومات قبل ترحيل كشف الرواتب:\n${errors}`,
+                `Please fix deduction settings before posting the payroll run:\n${errors}`
+            ));
+        }
+
+        const candidateRun = buildPayrollRunRecord(candidateEmployees, {
+            id: existingRun?.id,
+            runNumber: existingRun?.runNumber,
+            createdAt: existingRun?.createdAt,
+            status: 'POSTED'
+        });
+
+        const confirmMsg = existingRun
+            ? tr(
+                `سيتم حفظ تعديل دفعة الرواتب ${candidateRun.runNumber} وترحيلها من جديد. هل تريد المتابعة؟`,
+                `Payroll run ${candidateRun.runNumber} will be re-posted with your edits. Continue?`
+            )
+            : tr(
+                `سيتم ترحيل دفعة الرواتب ${candidateRun.runNumber} لعدد ${candidateRun.lines.length} موظف. هل تريد المتابعة؟`,
+                `Payroll run ${candidateRun.runNumber} will be posted for ${candidateRun.lines.length} employee(s). Continue?`
+            );
+
+        if (!confirm(confirmMsg)) return;
+
+        if (existingRun) {
+            clearPayrollRunArtifacts(existingRun);
+        }
+
+        setIsProcessing(true);
+        setTimeout(() => {
+            const successfulLines: PayrollRunLine[] = [];
+
+            candidateRun.lines.forEach(line => {
+                const employee = employees.find(emp => emp.id === line.employeeId);
+                if (!employee) return;
+                const lineRange = { startDate: line.periodStart, endDate: line.periodEnd };
+                if (postPayrollAccrualWithDeduction(employee, lineRange, `${tr('دفعة رواتب', 'Payroll Run')} ${candidateRun.runNumber}`, candidateRun.postingDate, candidateRun.id)) {
+                    successfulLines.push(line);
+                }
+            });
+
+            const postedRun: PayrollRunRecord = {
+                ...candidateRun,
+                status: 'POSTED',
+                postedAt: new Date().toISOString(),
+                reviewedAt: undefined,
+                lockedAt: undefined,
+                paymentBatch: undefined,
+                lines: successfulLines,
+                employeeIds: successfulLines.map(line => line.employeeId),
+                totals: computePayrollRunTotals(successfulLines)
+            };
+
+            setPayrollRuns(prev => {
+                if (existingRun) {
+                    return prev.map(run => run.id === existingRun.id ? postedRun : run);
+                }
+                return [postedRun, ...prev];
+            });
+            setSelectedPayrollRunId(postedRun.id);
+            setEditingPayrollRunId(null);
+            setIsProcessing(false);
+
+            alert(tr(
+                existingRun
+                    ? `تم حفظ تعديل الدفعة وترحيلها بنجاح (${successfulLines.length}/${candidateRun.lines.length})`
+                    : `تم ترحيل الدفعة بنجاح (${successfulLines.length}/${candidateRun.lines.length})`,
+                existingRun
+                    ? `Payroll run updated and posted successfully (${successfulLines.length}/${candidateRun.lines.length})`
+                    : `Payroll run posted successfully (${successfulLines.length}/${candidateRun.lines.length})`
+            ));
+        }, 300);
+    };
+
+    const handleStartEditPayrollRun = (runId: string) => {
+        const run = payrollRuns.find(r => r.id === runId);
+        if (!run) return alert(tr('دفعة الرواتب غير موجودة', 'Payroll run not found.'));
+        if (run.status === 'LOCKED') return alert(tr('لا يمكن تعديل دفعة مقفلة.', 'Cannot edit a locked payroll run.'));
+
+        const confirmMsg = run.paymentBatch?.status === 'POSTED'
+            ? tr(
+                'سيتم إلغاء ترحيل دفعة الرواتب وحذف صرف دفعة الدفع المرتبط بها ثم فتحها للتعديل. هل تريد المتابعة؟',
+                'This will unpost the payroll run, remove its posted payment batch, and reopen it for editing. Continue?'
+            )
+            : tr(
+                'سيتم إلغاء ترحيل دفعة الرواتب وفتحها للتعديل. هل تريد المتابعة؟',
+                'This will unpost the payroll run and reopen it for editing. Continue?'
+            );
+        if (!confirm(confirmMsg)) return;
+
+        clearPayrollRunArtifacts(run);
+        updatePayrollRunRecord(runId, current => ({
+            ...current,
+            status: 'REVIEWED',
+            reviewedAt: new Date().toISOString(),
+            postedAt: undefined,
+            lockedAt: undefined,
+            paymentBatch: undefined
+        }));
+        loadPayrollRunIntoEditor(run);
+        setEditingPayrollRunId(runId);
+    };
+
     const handleCreatePayrollRunPaymentBatch = (runId: string) => {
         const run = payrollRuns.find(r => r.id === runId);
         if (!run) return alert(tr('دفعة الرواتب غير موجودة', 'Payroll run not found.'));
@@ -1929,6 +2163,7 @@ const HRManager: React.FC = () => {
                     return;
                 }
                 const result = addTransaction({
+                    voucherId: run.id,
                     amount: line.amount,
                     description: `${tr('صرف دفعة رواتب', 'Payroll Batch Payment')} ${run.runNumber} / ${batch.batchNumber} - ${employee.name} (${line.periodStart} / ${line.periodEnd})`,
                     category: 'salary_payment',
@@ -1962,7 +2197,7 @@ const HRManager: React.FC = () => {
 
             setIsProcessing(false);
             alert(tr(
-                `تم ترحيل دفعة الدفع بنجاح (${successCount})${failedCount ? ` - فشل ${failedCount}` : ''}`,
+                `?? ????? ???? ????? ????? (${successCount})${failedCount ? ` - ??? ${failedCount}` : ''}`,
                 `Payment batch posted successfully (${successCount})${failedCount ? ` - failed ${failedCount}` : ''}`
             ));
         }, 250);
@@ -2022,50 +2257,22 @@ const HRManager: React.FC = () => {
         updatePayrollRunPaymentBatch(runId, { exportedExcelAt: new Date().toISOString() });
     };
 
-    const handleReviewPayrollRun = (runId: string) => {
-        const run = payrollRuns.find(r => r.id === runId);
-        if (!run) return;
-        if (run.status === 'LOCKED') return;
-        updatePayrollRunRecord(runId, r => ({ ...r, status: 'REVIEWED', reviewedAt: new Date().toISOString() }));
-    };
-
     const handlePostPayrollRun = (runId: string) => {
         const run = payrollRuns.find(r => r.id === runId);
         if (!run) return alert(tr('دفعة الرواتب غير موجودة', 'Payroll run not found.'));
         if (run.status === 'LOCKED') return alert(tr('دفعة الرواتب مقفلة', 'Payroll run is locked.'));
-        if (run.status === 'POSTED') return alert(tr('تم ترحيل هذه الدفعة مسبقًا', 'This payroll run is already posted.'));
+        if (run.status === 'POSTED' && editingPayrollRunId !== runId) {
+            return alert(tr('تم ترحيل هذه الدفعة مسبقًا', 'This payroll run is already posted.'));
+        }
 
         const targetEmployees = run.employeeIds
             .map(id => employees.find(e => e.id === id))
             .filter((e): e is Employee => !!e);
-        if (targetEmployees.length === 0) return alert(tr('لا يوجد موظفون صالحون في هذه الدفعة', 'No valid employees in this payroll run.'));
+        if (targetEmployees.length === 0) {
+            return alert(tr('لا يوجد موظفون صالحون في هذه الدفعة', 'No valid employees in this payroll run.'));
+        }
 
-        if (!expenseAccountId) return alert(tr('يرجى اختيار حساب المصروف قبل الترحيل.', 'Please select expense account before posting.'));
-
-        const confirmMsg = tr(
-            `سيتم ترحيل دفعة الرواتب ${run.runNumber} لعدد ${targetEmployees.length} موظف. هل تريد المتابعة؟`,
-            `Payroll run ${run.runNumber} will post accruals for ${targetEmployees.length} employee(s). Continue?`
-        );
-        if (!confirm(confirmMsg)) return;
-
-        setIsProcessing(true);
-        setTimeout(() => {
-            let successCount = 0;
-            targetEmployees.forEach(emp => {
-                const line = run.lines.find(l => l.employeeId === emp.id);
-                const range = line ? { startDate: line.periodStart, endDate: line.periodEnd } : getEmployeePayrollRange(emp.id);
-                if (postPayrollAccrualWithDeduction(emp, range, `${tr('دفعة رواتب', 'Payroll Run')} ${run.runNumber}`, run.postingDate)) {
-                    successCount++;
-                }
-            });
-            setIsProcessing(false);
-            updatePayrollRunRecord(runId, r => ({
-                ...r,
-                status: 'POSTED',
-                postedAt: new Date().toISOString()
-            }));
-            alert(tr(`تم ترحيل الدفعة بنجاح (${successCount}/${targetEmployees.length})`, `Payroll run posted successfully (${successCount}/${targetEmployees.length})`));
-        }, 300);
+        handlePersistPayrollRun(targetEmployees, runId);
     };
 
     const handleLockPayrollRun = (runId: string) => {
@@ -2082,8 +2289,10 @@ const HRManager: React.FC = () => {
         if (!run) return;
         if (run.status === 'LOCKED') return alert(tr('لا يمكن حذف دفعة مقفلة.', 'Cannot delete a locked payroll run.'));
         if (!confirm(tr('هل تريد حذف دفعة الرواتب؟', 'Delete payroll run?'))) return;
+        clearPayrollRunArtifacts(run);
         setPayrollRuns(prev => prev.filter(r => r.id !== runId));
         setSelectedPayrollRunId(prev => (prev === runId ? null : prev));
+        setEditingPayrollRunId(prev => (prev === runId ? null : prev));
     };
 
     const renderPayroll = () => {
@@ -2105,26 +2314,27 @@ const HRManager: React.FC = () => {
         });
         const payrollRunsSorted = payrollRuns.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         const selectedPayrollRun = payrollRunsSorted.find(r => r.id === selectedPayrollRunId) || payrollRunsSorted[0] || null;
+        const editingPayrollRun = editingPayrollRunId ? payrollRuns.find(r => r.id === editingPayrollRunId) || null : null;
         const selectedPayrollRunPaymentPreview = selectedPayrollRun ? getPayrollRunPaymentBatchPreview(selectedPayrollRun) : null;
 
         return (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                <div className="bg-slate-900 p-6 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
-                    <div className="absolute right-0 top-0 opacity-10"><DollarSign size={150} /></div>
+            <div className="space-y-3 sm:space-y-4 animate-in slide-in-from-bottom-4">
+                <div className="bg-slate-900 p-3 sm:p-4 rounded-[1.5rem] sm:rounded-[2rem] text-white shadow-2xl relative overflow-hidden">
+                    <div className="absolute right-0 top-0 opacity-10"><DollarSign size={110} /></div>
                     <div className="relative z-10">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-black text-emerald-400">{tr('مسير الرواتب الذكي', 'Smart Payroll Run')}</h3>
-                            <button onClick={() => setPayrollRows({})} className="p-2 bg-white/10 rounded-xl hover:bg-white/20 text-white/60 hover:text-white transition-all"><RefreshCw size={18} /></button>
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-base sm:text-lg font-black text-emerald-400">{tr('مسير الرواتب الذكي', 'Smart Payroll Run')}</h3>
+                            <button onClick={() => setPayrollRows({})} className="p-1.5 bg-white/10 rounded-lg hover:bg-white/20 text-white/60 hover:text-white transition-all"><RefreshCw size={16} /></button>
                         </div>
 
-                        <div className="bg-white/5 p-4 rounded-2xl border border-white/5 mb-6 space-y-3">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="bg-white/5 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-white/5 mb-3 space-y-2">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                 <div className="space-y-1">
                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{tr('نوع الفترة', 'Period Mode')}</label>
                                     <select
                                         value={payrollPeriodPreset}
                                         onChange={e => applyPayrollPeriodPreset(e.target.value as PayrollPeriodPreset)}
-                                        className="w-full bg-slate-800/50 border border-white/10 p-2.5 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all"
+                                        className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all"
                                     >
                                         <option value="MONTHLY" className="text-slate-800">{tr('شهري', 'Monthly')}</option>
                                         <option value="WEEKLY" className="text-slate-800">{tr('أسبوعي', 'Weekly')}</option>
@@ -2137,7 +2347,7 @@ const HRManager: React.FC = () => {
                                     <select
                                         value={payrollPayBasisFilter}
                                         onChange={e => setPayrollPayBasisFilter(e.target.value as ('ALL' | EmployeePayBasis))}
-                                        className="w-full bg-slate-800/50 border border-white/10 p-2.5 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all"
+                                        className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all"
                                     >
                                         <option value="ALL" className="text-slate-800">{tr('الكل', 'All')}</option>
                                         <option value="FIXED_MONTHLY" className="text-slate-800">{tr('راتب شهري ثابت', 'Fixed Monthly')}</option>
@@ -2151,7 +2361,7 @@ const HRManager: React.FC = () => {
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{tr('نطاق الاحتساب', 'Calculation Scope')}</label>
-                                    <select value={payrollFocusEmployeeId} onChange={e => setPayrollFocusEmployeeId(e.target.value)} className="w-full bg-slate-800/50 border border-white/10 p-2.5 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all">
+                                    <select value={payrollFocusEmployeeId} onChange={e => setPayrollFocusEmployeeId(e.target.value)} className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all">
                                         <option value="" className="text-slate-800">{tr('جميع الموظفين', 'All Employees')}</option>
                                         {employees.map(emp => (
                                             <option key={emp.id} value={emp.id} className="text-slate-800">{emp.code} - {emp.name}</option>
@@ -2159,13 +2369,13 @@ const HRManager: React.FC = () => {
                                     </select>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-2 gap-2">
                                 <div className="space-y-1">
                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{tr('بداية الفترة', 'Period Start')}</label>
                                     <EnglishDateInput
                                         value={payrollStartDate}
                                         onChange={(value) => { setPayrollPeriodPreset('CUSTOM'); setPayrollStartDate(value); }}
-                                        className="w-full bg-slate-800/50 border border-white/10 p-2.5 rounded-xl text-xs font-bold outline-none text-white text-right focus:border-emerald-500/50 transition-all"
+                                        className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-bold outline-none text-white text-right focus:border-emerald-500/50 transition-all"
                                         calendarButtonClassName="bg-white/10 hover:bg-white/20 text-emerald-300"
                                         aria-label={tr('بداية الفترة', 'Period start')}
                                     />
@@ -2175,22 +2385,34 @@ const HRManager: React.FC = () => {
                                     <EnglishDateInput
                                         value={payrollEndDate}
                                         onChange={(value) => { setPayrollPeriodPreset('CUSTOM'); setPayrollEndDate(value); }}
-                                        className="w-full bg-slate-800/50 border border-white/10 p-2.5 rounded-xl text-xs font-bold outline-none text-white text-right focus:border-emerald-500/50 transition-all"
+                                        className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-bold outline-none text-white text-right focus:border-emerald-500/50 transition-all"
                                         calendarButtonClassName="bg-white/10 hover:bg-white/20 text-emerald-300"
                                         aria-label={tr('نهاية الفترة', 'Period end')}
                                     />
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-slate-300 bg-slate-800/30 border border-white/5 rounded-xl px-3 py-2">
+                            <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-slate-300 bg-slate-800/30 border border-white/5 rounded-xl px-2.5 py-1.5">
                                 <span>{tr('الفترة الحالية', 'Current Period')}</span>
                                 <span className="dir-ltr">{payrollStartDate} / {payrollEndDate}</span>
                             </div>
+                            {editingPayrollRun && (
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[10px] font-black text-amber-100 bg-amber-500/10 border border-amber-400/20 rounded-xl px-3 py-2">
+                                    <span>{tr(`??? ???? ???? ??????? ${editingPayrollRun.runNumber}. ??? ????? ???? ??????? ?????? ??? ????? ?????.`, `You are editing payroll run ${editingPayrollRun.runNumber}. Saving will post directly without a draft.`)}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingPayrollRunId(null)}
+                                        className="px-2.5 py-1.5 rounded-lg bg-white/10 text-white text-[10px] font-black border border-white/10 hover:bg-white/15"
+                                    >
+                                        {tr('إلغاء وضع التعديل', 'Cancel Edit Mode')}
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+                        <div className="grid grid-cols-2 gap-2 mb-3">
                             <div className="space-y-1">
                                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-1">{tr('حساب الصرف (للدفع فقط)', 'Payment Account (for disbursement only)')}</label>
-                                <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full bg-white/10 border border-white/10 p-3 rounded-2xl text-xs font-black outline-none focus:bg-white/20 transition-all">
+                                <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full h-10 px-2 bg-white/10 border border-white/10 rounded-xl text-xs font-black outline-none focus:bg-white/20 transition-all">
                                     <option value="" className="text-slate-800">{tr('-- اختر الخزينة/البنك --', '-- Select Cash/Bank --')}</option>
                                     {accounts.filter(a => !a.isGroup && a.type === 'ASSET' && (a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root')).map(acc => (
                                         <option key={acc.id} value={acc.id} className="text-slate-800">{displayAccountName(acc)} ({acc.currency})</option>
@@ -2199,7 +2421,7 @@ const HRManager: React.FC = () => {
                             </div>
                             <div className="space-y-1">
                                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-1">{tr('حساب المصروف (للاستحقاق)', 'Expense Account (for accrual)')}</label>
-                                <select value={expenseAccountId} onChange={e => setExpenseAccountId(e.target.value)} className="w-full bg-white/10 border border-white/10 p-3 rounded-2xl text-xs font-black outline-none focus:bg-white/20 transition-all text-emerald-400">
+                                <select value={expenseAccountId} onChange={e => setExpenseAccountId(e.target.value)} className="w-full h-10 px-2 bg-white/10 border border-white/10 rounded-xl text-xs font-black outline-none focus:bg-white/20 transition-all text-emerald-400">
                                     <option value="" className="text-slate-800">{tr('-- اختر حساب المصروف --', '-- Select Expense Account --')}</option>
                                     {accounts.filter(a => !a.isGroup && a.type === 'EXPENSE').map(acc => (
                                         <option key={acc.id} value={acc.id} className="text-slate-800">{displayAccountName(acc)} ({acc.code})</option>
@@ -2208,40 +2430,53 @@ const HRManager: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-end border-t border-white/10 pt-5">
-                            <button onClick={importHoursFromAttendance} className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-[10px] font-black flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/20">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
+                            <button onClick={importHoursFromAttendance} className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/20">
                                 <RefreshCw size={14} className={isProcessing ? 'animate-spin' : ''} />
                                 {tr('تحديث من الحضور', 'Update from Attendance')}
                             </button>
-                            <div className="text-left space-y-1">
+                            <div className="grid grid-cols-2 gap-2 text-left min-w-0">
                                 <div>
                                     <span className="text-[9px] text-slate-400 font-black uppercase mb-1 block">{tr('إجمالي صافي الاحتساب', 'Total Net Calculation')}</span>
-                                    <h2 className="text-2xl font-black dir-ltr text-cyan-300">{totalPayrollAmount.toLocaleString()}</h2>
+                                    <h2 className="text-lg sm:text-xl font-black dir-ltr text-cyan-300">{totalPayrollAmount.toLocaleString()}</h2>
                                 </div>
                                 <div>
                                     <span className="text-[9px] text-slate-400 font-black uppercase mb-1 block">{tr('المتبقي للاستحقاق', 'Remaining to Accrue')}</span>
-                                    <h2 className="text-2xl font-black dir-ltr text-emerald-400">{totalUnaccruedAmount.toLocaleString()}</h2>
+                                    <h2 className="text-lg sm:text-xl font-black dir-ltr text-emerald-400">{totalUnaccruedAmount.toLocaleString()}</h2>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-[2.3rem] border border-gray-100 shadow-sm space-y-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="bg-white p-3 sm:p-4 rounded-[1.2rem] sm:rounded-[1.8rem] border border-gray-100 shadow-sm space-y-3">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
                         <div>
                             <h3 className="font-black text-sm text-gray-800">{tr('دفعات الرواتب الشهرية (Payroll Run)', 'Monthly Payroll Runs')}</h3>
-                            <p className="text-[10px] font-bold text-gray-400">{tr('مسودة > مراجعة > ترحيل > قفل مع رقم دفعة', 'Draft > Review > Post > Lock with run number')}</p>
+                            <p className="text-[10px] font-bold text-gray-400">{tr('ترحيل مباشر فقط مع إمكانية التعديل أو الحذف ثم القفل', 'Direct posting only with edit/delete support before lock')}</p>
                         </div>
-                        <button
-                            onClick={() => {
-                                const run = createPayrollRunDraft(payrollEmployees);
-                                alert(tr(`تم إنشاء مسودة دفعة رواتب: ${run.runNumber}`, `Payroll run draft created: ${run.runNumber}`));
-                            }}
-                            className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
-                        >
-                            {tr('إنشاء مسودة دفعة', 'Create Run Draft')}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                            {editingPayrollRun && (
+                                <button
+                                    onClick={() => setEditingPayrollRunId(null)}
+                                    className="px-3 py-2 rounded-xl bg-white text-slate-700 text-xs font-black border border-slate-200 hover:bg-slate-50 transition-all"
+                                >
+                                    {tr('إلغاء التعديل', 'Cancel Edit')}
+                                </button>
+                            )}
+                            <button
+                                onClick={() => {
+                                    const editingRun = editingPayrollRunId ? payrollRuns.find(run => run.id === editingPayrollRunId) || null : null;
+                                    const targetEmployees = editingRun
+                                        ? editingRun.employeeIds.map(id => employees.find(emp => emp.id === id)).filter((emp): emp is Employee => !!emp)
+                                        : payrollEmployees;
+                                    handlePersistPayrollRun(targetEmployees, editingPayrollRunId || undefined);
+                                }}
+                                className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                            >
+                                {editingPayrollRun ? tr('حفظ التعديل وترحيل الدفعة', 'Save Edit & Post Run') : tr('ترحيل دفعة الرواتب', 'Post Payroll Run')}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-4">
@@ -2264,13 +2499,13 @@ const HRManager: React.FC = () => {
                                                     run.status === 'POSTED' ? 'bg-emerald-100 text-emerald-700' :
                                                         'bg-slate-100 text-slate-700'
                                             }`}>
-                                            {run.status === 'DRAFT' ? tr('مسودة', 'Draft')
-                                                : run.status === 'REVIEWED' ? tr('مراجعة', 'Reviewed')
+                                            {run.status === 'DRAFT' ? tr('غير مرحل', 'Unposted')
+                                                : run.status === 'REVIEWED' ? tr('قيد التعديل', 'Editing')
                                                     : run.status === 'POSTED' ? tr('مرحل', 'Posted')
                                                         : tr('مقفلة', 'Locked')}
                                         </span>
                                     </div>
-                                    <div className="text-[10px] font-bold text-gray-400">{run.periodStart} ? {run.periodEnd} • {tr('عدد الموظفين', 'Employees')}: {run.employeeIds.length}</div>
+                                    <div className="text-[10px] font-bold text-gray-400">{run.periodStart} - {run.periodEnd} - {tr('??? ????????', 'Employees')}: {run.employeeIds.length}</div>
                                     <div className="text-[10px] font-bold text-gray-500 mt-1">{tr('الصافي', 'Net')}: <span className="dir-ltr text-indigo-600">{run.totals.net.toLocaleString()} {baseCurrency}</span></div>
                                 </button>
                             ))}
@@ -2285,14 +2520,14 @@ const HRManager: React.FC = () => {
                                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                                         <div>
                                             <div className="font-black text-sm text-gray-800 dir-ltr">{selectedPayrollRun.runNumber}</div>
-                                            <div className="text-[10px] font-bold text-gray-400">{selectedPayrollRun.periodStart} ? {selectedPayrollRun.periodEnd} • {tr('تاريخ الترحيل', 'Posting Date')}: {selectedPayrollRun.postingDate}</div>
+                                            <div className="text-[10px] font-bold text-gray-400">{selectedPayrollRun.periodStart} - {selectedPayrollRun.periodEnd} - {tr('????? ???????', 'Posting Date')}: {selectedPayrollRun.postingDate}</div>
                                         </div>
                                         <div className="flex flex-wrap gap-2">
-                                            {selectedPayrollRun.status === 'DRAFT' && (
-                                                <button onClick={() => handleReviewPayrollRun(selectedPayrollRun.id)} className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 text-xs font-black">{tr('تحويل للمراجعة', 'Mark Reviewed')}</button>
-                                            )}
                                             {(selectedPayrollRun.status === 'DRAFT' || selectedPayrollRun.status === 'REVIEWED') && (
                                                 <button onClick={() => handlePostPayrollRun(selectedPayrollRun.id)} className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black">{tr('ترحيل الدفعة', 'Post Run')}</button>
+                                            )}
+                                            {selectedPayrollRun.status === 'POSTED' && (
+                                                <button onClick={() => handleStartEditPayrollRun(selectedPayrollRun.id)} className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 text-xs font-black">{tr('تعديل', 'Edit')}</button>
                                             )}
                                             {selectedPayrollRun.status === 'POSTED' && (
                                                 <button onClick={() => handleLockPayrollRun(selectedPayrollRun.id)} className="px-3 py-2 rounded-xl bg-slate-900 text-white border border-slate-900 text-xs font-black">{tr('قفل الدفعة', 'Lock Run')}</button>
@@ -2552,7 +2787,7 @@ const HRManager: React.FC = () => {
                                                 {isPaid ? <span className="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md font-bold">{tr('تم الصرف', 'Paid')}</span> :
                                                     isAccrued ? <span className="text-[9px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-bold">{tr('مستحق (غير مدفوع)', 'Accrued (Unpaid)')}</span> : null}
                                             </h4>
-                                            <p className="text-[10px] text-gray-400 font-bold">{emp.position} • {emp.code}</p>
+                                            <p className="text-[10px] text-gray-400 font-bold">{emp.position} - {emp.code}</p>
                                         </div>
                                     </div>
                                     <div className="text-left flex flex-col items-end">
@@ -2626,8 +2861,8 @@ const HRManager: React.FC = () => {
                                                         {payBasis === 'COMMISSION' && (
                                                             <p className="text-[9px] font-black text-indigo-600 px-1">
                                                                 {tr(
-                                                                    `الثابت ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% × قيمة العمل).`,
-                                                                    `Fixed ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% × work value).`
+                                                                    `???? ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% ?? ???? ?????).`,
+                                                                    `Fixed ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% of work value).`,
                                                                 )}
                                                             </p>
                                                         )}
@@ -2759,15 +2994,15 @@ const HRManager: React.FC = () => {
                                                 <div className="flex justify-between text-gray-600">
                                                     <span>
                                                         {tr('أساس الأجر', 'Compensation Base')} ({getPayBasisLabel(payBasis)})
-                                                        {payBasis === 'HOURLY' ? ` (${row.hours}${tr('س', 'h')} × ${emp.hourlyRate})` : ''}
+                                                        {payBasis === 'HOURLY' ? ` (${row.hours}${tr('?', 'h')} x ${emp.hourlyRate})` : ''}
                                                         {payBasis === 'MONTHLY_BY_HOURS'
                                                             ? ` (${row.hours}${tr('س', 'h')} / ${Math.max(1, (Number(emp.dailyWorkHours) || 8) * Math.max(1, monthlyWorkingDays || 30))}${tr('س', 'h')})`
                                                             : ''}
-                                                        {payBasis === 'DAILY' ? ` (${(workedDaysFromHours > 0 ? workedDaysFromHours : periodDays).toFixed(2)} ${tr('يوم', 'day')} × ${Number((emp as any).dailyRate || 0)})` : ''}
-                                                        {payBasis === 'WEEKLY' ? ` (${(((workedDaysFromHours > 0 ? workedDaysFromHours : periodDays) / 7)).toFixed(2)} ${tr('أسبوع', 'week')} × ${Number((emp as any).weeklyRate || 0)})` : ''}
+                                                        {payBasis === 'DAILY' ? ` (${(workedDaysFromHours > 0 ? workedDaysFromHours : periodDays).toFixed(2)} ${tr('???', 'day')} x ${Number((emp as any).dailyRate || 0)})` : ''}
+                                                        {payBasis === 'WEEKLY' ? ` (${(((workedDaysFromHours > 0 ? workedDaysFromHours : periodDays) / 7)).toFixed(2)} ${tr('?????', 'week')} x ${Number((emp as any).weeklyRate || 0)})` : ''}
                                                         {payBasis === 'MONTHLY_PRORATED' ? ` (${periodDays}/${monthlyWorkingDays})` : ''}
                                                         {payBasis === 'COMMISSION'
-                                                            ? ` (${Number(emp.basicSalary || 0).toLocaleString()} + ${Number((emp as any).commissionRatePercent || 0)}% × ${Number(row.customBaseSalary || 0).toLocaleString()})`
+                                                            ? ` (${Number(emp.basicSalary || 0).toLocaleString()} + ${Number((emp as any).commissionRatePercent || 0)}% x ${Number(row.customBaseSalary || 0).toLocaleString()})`
                                                             : ''}
                                                         {payBasis === 'FIXED_MONTHLY' ? ` ${tr('(ثابت)', '(Fixed)')}` : ''}
                                                         :
@@ -2910,7 +3145,7 @@ const HRManager: React.FC = () => {
         });
 
         return (
-            <div className="space-y-4">
+            <div className="space-y-2.5">
                 <div className="flex gap-2">
                     <div className="flex-1 relative">
                         <input
@@ -2918,32 +3153,32 @@ const HRManager: React.FC = () => {
                             placeholder={tr('بحث في الموظفين...', 'Search employees...')}
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
-                            className={`w-full p-4 pr-12 bg-white rounded-2xl border border-gray-100 shadow-sm outline-none text-sm font-bold ${inputAlignClass}`}
+                            className={`w-full h-10 px-3 pr-9 bg-white rounded-xl border border-gray-100 shadow-sm outline-none text-xs font-bold ${inputAlignClass}`}
                         />
-                        <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
                     </div>
-                    <button onClick={() => setShowEmpForm(true)} className="bg-blue-600 text-white p-4 rounded-2xl shadow-xl active:scale-90 transition-all"><UserPlus size={24} /></button>
+                    <button onClick={() => setShowEmpForm(true)} className="bg-blue-600 text-white w-10 h-10 rounded-xl shadow-sm active:scale-90 transition-all flex items-center justify-center"><UserPlus size={18} /></button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="bg-white rounded-2xl border border-amber-100 p-4 shadow-sm">
-                        <div className="text-[10px] font-black text-amber-600 mb-1">{tr('عقود تنتهي قريبًا (30 يوم)', 'Contracts expiring soon (30 days)')}</div>
-                        <div className="text-2xl font-black text-amber-700 dir-ltr">{contractsExpiringSoon.length}</div>
-                        <div className="text-[10px] text-gray-400 font-bold mt-1">
+                <div className="grid grid-cols-3 gap-1.5">
+                    <div className="bg-white rounded-xl border border-amber-100 p-2.5 shadow-sm">
+                        <div className="text-[9px] font-black text-amber-600 mb-0.5">{tr('عقود قريبة', 'Expiring')}</div>
+                        <div className="text-lg font-black text-amber-700 dir-ltr">{contractsExpiringSoon.length}</div>
+                        <div className="hidden sm:block text-[10px] text-gray-400 font-bold mt-1">
                             {contractsExpiringSoon[0]
                                 ? `${employees.find(e => e.id === contractsExpiringSoon[0].contract.employeeId)?.name || ''} (${contractsExpiringSoon[0].diffDays} ${tr('يوم', 'days')})`
                                 : tr('لا توجد عقود تنتهي قريبًا', 'No contracts expiring soon')}
                         </div>
                     </div>
-                    <div className="bg-white rounded-2xl border border-indigo-100 p-4 shadow-sm">
-                        <div className="text-[10px] font-black text-indigo-600 mb-1">{tr('رواتب مستحقة غير مصروفة', 'Accrued unpaid salaries')}</div>
-                        <div className="text-2xl font-black text-indigo-700 dir-ltr">{unpaidCurrentPayrollEmployees.length}</div>
-                        <div className="text-[10px] text-gray-400 font-bold mt-1">{tr('حسب فترة الرواتب الحالية لكل موظف', 'Based on current payroll period per employee')}</div>
+                    <div className="bg-white rounded-xl border border-indigo-100 p-2.5 shadow-sm">
+                        <div className="text-[9px] font-black text-indigo-600 mb-0.5">{tr('رواتب معلقة', 'Unpaid')}</div>
+                        <div className="text-lg font-black text-indigo-700 dir-ltr">{unpaidCurrentPayrollEmployees.length}</div>
+                        <div className="hidden sm:block text-[10px] text-gray-400 font-bold mt-1">{tr('حسب فترة الرواتب الحالية لكل موظف', 'Based on current payroll period per employee')}</div>
                     </div>
-                    <div className="bg-white rounded-2xl border border-rose-100 p-4 shadow-sm">
-                        <div className="text-[10px] font-black text-rose-600 mb-1">{tr('سلف/قروض مرتفعة', 'High advances/loans')}</div>
-                        <div className="text-2xl font-black text-rose-700 dir-ltr">{highAdvanceEmployees.length}</div>
-                        <div className="text-[10px] text-gray-400 font-bold mt-1">{tr('الرصيد الذممي >= الراتب الأساسي', 'Receivable balance >= base salary')}</div>
+                    <div className="bg-white rounded-xl border border-rose-100 p-2.5 shadow-sm">
+                        <div className="text-[9px] font-black text-rose-600 mb-0.5">{tr('سلف مرتفعة', 'High loans')}</div>
+                        <div className="text-lg font-black text-rose-700 dir-ltr">{highAdvanceEmployees.length}</div>
+                        <div className="hidden sm:block text-[10px] text-gray-400 font-bold mt-1">{tr('الرصيد الذممي >= الراتب الأساسي', 'Receivable balance >= base salary')}</div>
                     </div>
                 </div>
 
@@ -3040,7 +3275,7 @@ const HRManager: React.FC = () => {
                                     <span className="text-blue-700">{tr('النمط الحالي', 'Current Mode')}: {getPayBasisLabel(employeePayBasis)}</span>
                                     <span className="text-gray-500">
                                         {employeePayBasis === 'COMMISSION'
-                                            ? tr('يتم احتساب الراتب = راتب ثابت + (نسبة × قيمة العمل اليدوية في كشف الراتب)', 'Salary = fixed salary + (% × manual work value in payroll statement)')
+                                            ? tr('يتم احتساب الراتب = راتب ثابت + (نسبة × قيمة العمل اليدوية في كشف الراتب)', 'Salary = fixed salary + (% أ— manual work value in payroll statement)')
                                             : employeePayBasis === 'HOURLY'
                                                 ? tr('يعتمد على ساعات العمل المسجلة', 'Uses recorded work hours')
                                                 : employeePayBasis === 'MONTHLY_BY_HOURS'
@@ -3078,9 +3313,9 @@ const HRManager: React.FC = () => {
 
                 <div className="space-y-3">
                     {employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).map(emp => (
-                        <div key={emp.id} className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-gray-100 text-gray-500 flex items-center justify-center font-bold text-lg">{emp.name.charAt(0)}</div>
+                        <div key={emp.id} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-10 h-10 rounded-xl bg-gray-100 text-gray-500 flex items-center justify-center font-bold text-sm">{emp.name.charAt(0)}</div>
                                 <div>
                                     <h4 className="font-black text-gray-800 text-sm">{emp.name}</h4>
                                     <div className="flex gap-2 text-[10px] font-bold text-gray-400 mt-1">
@@ -3099,11 +3334,11 @@ const HRManager: React.FC = () => {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => openEmployeeStatement(emp.id)} className="p-2 bg-gray-50 rounded-xl text-indigo-500 hover:bg-indigo-50 transition-all"><FileText size={16} /></button>
-                                <button onClick={() => openContractsManager(emp)} className="p-2 bg-gray-50 rounded-xl text-emerald-600 hover:bg-emerald-50 transition-all" title={tr('العقود وسجل الراتب', 'Contracts & Salary History')}><Briefcase size={16} /></button>
-                                <button onClick={() => editEmployee(emp)} className="p-2 bg-gray-50 rounded-xl text-blue-500"><Edit2 size={16} /></button>
-                                <button onClick={() => deleteEmployee(emp.id)} className="p-2 bg-gray-50 rounded-xl text-rose-500"><Trash2 size={16} /></button>
+                            <div className="flex gap-1">
+                                <button onClick={() => openEmployeeStatement(emp.id)} className="p-1.5 bg-gray-50 rounded-lg text-indigo-500 hover:bg-indigo-50 transition-all"><FileText size={14} /></button>
+                                <button onClick={() => openContractsManager(emp)} className="p-1.5 bg-gray-50 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-all" title={tr('العقود وسجل الراتب', 'Contracts & Salary History')}><Briefcase size={14} /></button>
+                                <button onClick={() => editEmployee(emp)} className="p-1.5 bg-gray-50 rounded-lg text-blue-500"><Edit2 size={14} /></button>
+                                <button onClick={() => deleteEmployee(emp.id)} className="p-1.5 bg-gray-50 rounded-lg text-rose-500"><Trash2 size={14} /></button>
                             </div>
                         </div>
                     ))}
@@ -3477,11 +3712,11 @@ const HRManager: React.FC = () => {
         const displayDate = isValidDate ? new Intl.DateTimeFormat(isEnglish ? 'en-US' : 'ar-SA-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long' }).format(d) : '---';
 
         return (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                <div className="bg-white p-5 rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col gap-4">
+            <div className="space-y-3 animate-in slide-in-from-bottom-4">
+                <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex flex-col gap-2">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-100 text-purple-600 rounded-xl"><CalendarCheck size={20} /></div>
+                            <div className="p-1.5 bg-purple-100 text-purple-600 rounded-lg"><CalendarCheck size={16} /></div>
                             <div>
                                 <h3 className="font-black text-sm text-gray-800">{tr('تتبع الحضور اليومي', 'Daily Attendance Tracking')}</h3>
                                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{displayDate}</p>
@@ -3490,12 +3725,12 @@ const HRManager: React.FC = () => {
                         <EnglishDateInput
                             value={attendanceDate}
                             onChange={setAttendanceDate}
-                            className="bg-gray-50 p-2.5 rounded-xl text-xs font-black outline-none border border-gray-100"
+                            className="bg-gray-50 h-10 px-3 rounded-xl text-[11px] font-black outline-none border border-gray-100"
                             aria-label={tr('تاريخ الحضور', 'Attendance date')}
                         />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-[1fr_auto] gap-2 items-center">
                         <select
                             value={attendanceBatchToApplyId}
                             onChange={e => {
@@ -3504,21 +3739,21 @@ const HRManager: React.FC = () => {
                                 setAttendanceBatchApplyMsg('');
                                 setAttendanceBatchManualAssignments({});
                             }}
-                            className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-xs font-black outline-none"
+                            className="col-span-2 md:col-span-1 w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none"
                         >
                             <option value="">{tr('-- اختر دفعة بصمة لتطبيقها على الحضور --', '-- Select fingerprint batch to apply --')}</option>
                             {stagedFingerprintBatches.map(batch => (
                                 <option key={batch.id} value={batch.id}>{getBatchDisplayName(batch)}</option>
                             ))}
                         </select>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="col-span-2 md:col-span-1 flex gap-1.5">
                             <button
                                 type="button"
                                 onClick={() => {
                                     if (!attendanceBatchToApplyId) return alert(tr('اختر دفعة البصمة أولًا.', 'Select a fingerprint batch first.'));
                                     previewFingerprintAttendanceBatch(attendanceBatchToApplyId);
                                 }}
-                                className="px-4 py-3 rounded-2xl bg-white border border-indigo-100 text-indigo-700 text-xs font-black hover:bg-indigo-50 transition-all"
+                                className="px-3 py-2.5 rounded-xl bg-white border border-indigo-100 text-indigo-700 text-[11px] font-black hover:bg-indigo-50 transition-all"
                             >
                                 {tr('معاينة', 'Preview')}
                             </button>
@@ -3528,9 +3763,10 @@ const HRManager: React.FC = () => {
                                     if (!attendanceBatchToApplyId) return alert(tr('اختر دفعة البصمة أولًا.', 'Select a fingerprint batch first.'));
                                     applyFingerprintAttendanceBatchToLog(attendanceBatchToApplyId, 'PARTIAL');
                                 }}
-                                className="px-4 py-3 rounded-2xl bg-indigo-600 text-white text-xs font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[11px] font-black shadow-sm hover:bg-indigo-700 transition-all"
                             >
-                                {tr('تطبيق جزئي (تجاهل غير المطابقين)', 'Partial Apply (ignore unmatched)')}
+                                <span className="hidden sm:inline">{tr('تطبيق جزئي (تجاهل غير المطابقين)', 'Partial Apply (ignore unmatched)')}</span>
+                                <span className="sm:hidden">{tr('تطبيق جزئي', 'Partial Apply')}</span>
                             </button>
                         </div>
                     </div>
@@ -3540,8 +3776,8 @@ const HRManager: React.FC = () => {
                         </div>
                     )}
                     {attendanceBatchPreview && attendanceBatchPreview.batchId === attendanceBatchToApplyId && (
-                        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4 space-y-3">
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3 space-y-2">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-black">
                                     <div className="bg-white rounded-xl px-3 py-2 border border-gray-100">
                                         {tr('إجمالي السجلات', 'Total Rows')}: <span className="dir-ltr text-gray-800">{attendanceBatchPreview.totalRows.toLocaleString('en-US')}</span>
@@ -3562,8 +3798,8 @@ const HRManager: React.FC = () => {
                                 </div>
                                 <div className="text-[11px] font-black text-indigo-700 bg-white border border-indigo-100 rounded-xl px-3 py-2">
                                     {tr(
-                                        `مصدر المطابقة: بالكود ${attendanceBatchPreview.matchBreakdown.code} • بالاسم ${attendanceBatchPreview.matchBreakdown.name} • يدوي ${attendanceBatchPreview.matchBreakdown.manual}`,
-                                        `Match source: by code ${attendanceBatchPreview.matchBreakdown.code} • by name ${attendanceBatchPreview.matchBreakdown.name} • manual ${attendanceBatchPreview.matchBreakdown.manual}`
+                                        `???? ????????: ?????? ${attendanceBatchPreview.matchBreakdown.code} - ?????? ${attendanceBatchPreview.matchBreakdown.name} - ???? ${attendanceBatchPreview.matchBreakdown.manual}`,
+                                        `Match source: by code ${attendanceBatchPreview.matchBreakdown.code} - by name ${attendanceBatchPreview.matchBreakdown.name} - manual ${attendanceBatchPreview.matchBreakdown.manual}`
                                     )}
                                 </div>
                                 <div className="flex flex-wrap gap-2">
@@ -3574,7 +3810,7 @@ const HRManager: React.FC = () => {
                                             applyFingerprintAttendanceBatchToLog(attendanceBatchToApplyId, 'STRICT');
                                         }}
                                         disabled={attendanceBatchPreview.issueRows > 0}
-                                        className={`px-3 py-2 rounded-xl text-xs font-black ${attendanceBatchPreview.issueRows > 0 ? 'bg-gray-100 text-gray-400 border border-gray-100 cursor-not-allowed' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-100 hover:bg-emerald-700'}`}
+                                        className={`px-3 py-2 rounded-xl text-[11px] font-black ${attendanceBatchPreview.issueRows > 0 ? 'bg-gray-100 text-gray-400 border border-gray-100 cursor-not-allowed' : 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700'}`}
                                     >
                                         {tr('تطبيق كامل (بدون أخطاء)', 'Full Apply (no errors)')}
                                     </button>
@@ -3583,21 +3819,21 @@ const HRManager: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => previewFingerprintAttendanceBatch(attendanceBatchToApplyId)}
-                                                className="px-3 py-2 rounded-xl text-xs font-black bg-white border border-blue-100 text-blue-700 hover:bg-blue-50"
+                                                className="px-3 py-2 rounded-xl text-[11px] font-black bg-white border border-blue-100 text-blue-700 hover:bg-blue-50"
                                             >
                                                 {tr('إعادة المعاينة بعد التعيين', 'Re-preview after manual assignment')}
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={exportAttendanceBatchPreviewIssuesCsv}
-                                                className="px-3 py-2 rounded-xl text-xs font-black bg-white border border-amber-100 text-amber-700 hover:bg-amber-50"
+                                                className="px-3 py-2 rounded-xl text-[11px] font-black bg-white border border-amber-100 text-amber-700 hover:bg-amber-50"
                                             >
                                                 {tr('تصدير تقرير أخطاء المطابقة', 'Export Match Errors Report')}
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={printAttendanceBatchIssuesReport}
-                                                className="px-3 py-2 rounded-xl text-xs font-black bg-white border border-indigo-100 text-indigo-700 hover:bg-indigo-50"
+                                                className="px-3 py-2 rounded-xl text-[11px] font-black bg-white border border-indigo-100 text-indigo-700 hover:bg-indigo-50"
                                             >
                                                 {tr('طباعة تقرير أخطاء الدوام', 'Print Attendance Errors Report')}
                                             </button>
@@ -3607,11 +3843,11 @@ const HRManager: React.FC = () => {
                             </div>
 
                             {attendanceBatchPreview.issueRows > 0 && (
-                                <div className="rounded-2xl border border-rose-100 bg-white p-3 space-y-2">
+                                <div className="rounded-xl border border-rose-100 bg-white p-2.5 space-y-2">
                                     <div className="text-xs font-black text-rose-700">
                                         {tr('تقرير أخطاء المطابقة للتعديل السريع (كود الموظف / الاسم / وقت البصمة)', 'Match error report for quick fixes (employee code / name / punch time)')}
                                     </div>
-                                    <div className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
+                                    <div className="hidden md:block text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
                                         {tr('يمكنك تعيين موظف يدويًا لكل سطر غير مطابق، وسيتم تحديث المعاينة فورًا دون تعديل ملف البصمة الأصلي.', 'You can assign an employee manually for each unmatched row, and the preview will refresh instantly without editing the original fingerprint file.')}
                                     </div>
                                     <div className="max-h-64 overflow-auto rounded-xl border border-gray-100">
@@ -3672,7 +3908,7 @@ const HRManager: React.FC = () => {
                     )}
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-2">
                     {employees.map(emp => {
                         const dayData = (attendanceLog[attendanceDate] || {}) as Record<string, AttendanceRecord>;
                         const record = dayData[emp.id] || { inTime: '', outTime: '', note: '' };
@@ -3680,16 +3916,16 @@ const HRManager: React.FC = () => {
                         const target = emp.dailyWorkHours || 8;
 
                         return (
-                            <div key={emp.id} className={`bg-white p-5 rounded-[2.5rem] shadow-sm border transition-all ${actualHours > 0 ? 'border-indigo-600' : 'border-gray-50'}`}>
-                                <div className="flex justify-between items-start mb-5">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${actualHours > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>{emp.name.charAt(0)}</div>
+                            <div key={emp.id} className={`bg-white p-3 rounded-xl shadow-sm border transition-all ${actualHours > 0 ? 'border-indigo-600' : 'border-gray-100'}`}>
+                                <div className="flex justify-between items-start mb-2">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm ${actualHours > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}`}>{emp.name.charAt(0)}</div>
                                         <div><h4 className="font-black text-gray-800 text-sm">{emp.name}</h4><p className="text-[9px] font-black text-gray-400">{tr('المستهدف', 'Target')}: {target}{tr('س', 'h')}</p></div>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4 mb-4">
-                                    <div><label className="text-[9px] font-black text-gray-400 mb-1 block">{tr('وقت الدخول', 'Check-in Time')}</label><input type="time" value={record.inTime} onChange={e => updateAttendance(emp.id, 'inTime', e.target.value)} className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-xs font-black outline-none" /></div>
-                                    <div><label className="text-[9px] font-black text-gray-400 mb-1 block">{tr('وقت الانصراف', 'Check-out Time')}</label><input type="time" value={record.outTime} onChange={e => updateAttendance(emp.id, 'outTime', e.target.value)} className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-xs font-black outline-none" /></div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div><label className="text-[9px] font-black text-gray-400 mb-1 block">{tr('وقت الدخول', 'Check-in Time')}</label><input type="time" value={record.inTime} onChange={e => updateAttendance(emp.id, 'inTime', e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none" /></div>
+                                    <div><label className="text-[9px] font-black text-gray-400 mb-1 block">{tr('وقت الانصراف', 'Check-out Time')}</label><input type="time" value={record.outTime} onChange={e => updateAttendance(emp.id, 'outTime', e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none" /></div>
                                 </div>
                             </div>
                         );
@@ -3744,42 +3980,42 @@ const HRManager: React.FC = () => {
         const leaveDaysPreview = countOverlapDaysInclusive(previewStart, previewEnd, previewStart, previewEnd);
 
         return (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                <div className="bg-white p-5 rounded-[2.2rem] border border-gray-100 shadow-sm">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-violet-100 text-violet-600 rounded-xl"><CalendarRange size={18} /></div>
+            <div className="space-y-3 animate-in slide-in-from-bottom-4">
+                <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="p-1.5 bg-violet-100 text-violet-600 rounded-lg"><CalendarRange size={16} /></div>
                         <div>
                             <h3 className="font-black text-sm text-gray-800">{tr('طلبات الإجازات والغيابات الرسمية', 'Leave & Official Absence Requests')}</h3>
-                            <p className="text-[10px] font-bold text-gray-400">{tr('طلب + اعتماد/رفض + خصم اختياري من الراتب', 'Request + approve/reject + optional payroll deduction')}</p>
+                            <p className="text-[10px] font-bold text-gray-400 hidden sm:block">{tr('طلب + اعتماد/رفض + خصم اختياري من الراتب', 'Request + approve/reject + optional payroll deduction')}</p>
                         </div>
                     </div>
 
-                    <form onSubmit={handleLeaveRequestSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <select value={leaveEmployeeId} onChange={e => setLeaveEmployeeId(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
+                    <form onSubmit={handleLeaveRequestSubmit} className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                            <select value={leaveEmployeeId} onChange={e => setLeaveEmployeeId(e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none">
                                 <option value="">{tr('-- اختر الموظف --', '-- Select Employee --')}</option>
                                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.code} - {emp.name}</option>)}
                             </select>
-                            <select value={leaveType} onChange={e => setLeaveType(e.target.value as EmployeeLeaveRequest['leaveType'])} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
+                            <select value={leaveType} onChange={e => setLeaveType(e.target.value as EmployeeLeaveRequest['leaveType'])} className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none">
                                 <option value="ANNUAL">{tr('إجازة سنوية', 'Annual Leave')}</option>
                                 <option value="SICK">{tr('إجازة مرضية', 'Sick Leave')}</option>
                                 <option value="UNPAID">{tr('إجازة بدون راتب', 'Unpaid Leave')}</option>
                                 <option value="OTHER">{tr('غياب/إجازة أخرى', 'Other Leave/Absence')}</option>
                             </select>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <EnglishDateInput value={leaveStartDate} onChange={setLeaveStartDate} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none" aria-label={tr('بداية الإجازة', 'Leave start')} />
-                            <EnglishDateInput value={leaveEndDate} onChange={setLeaveEndDate} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none" aria-label={tr('نهاية الإجازة', 'Leave end')} />
+                        <div className="grid grid-cols-2 gap-2">
+                            <EnglishDateInput value={leaveStartDate} onChange={setLeaveStartDate} className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none" aria-label={tr('بداية الإجازة', 'Leave start')} />
+                            <EnglishDateInput value={leaveEndDate} onChange={setLeaveEndDate} className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none" aria-label={tr('نهاية الإجازة', 'Leave end')} />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <input value={leaveNote} onChange={e => setLeaveNote(e.target.value)} placeholder={tr('ملاحظة / سبب الإجازة', 'Note / reason')} className={`md:col-span-2 w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
+                        <div className="grid grid-cols-2 gap-2">
+                            <input value={leaveNote} onChange={e => setLeaveNote(e.target.value)} placeholder={tr('ملاحظة / سبب الإجازة', 'Note / reason')} className={`w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
                             <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 rounded-xl border border-indigo-100">
                                 <span className="text-[11px] font-black text-indigo-700">{tr('عدد الأيام', 'Days')}</span>
                                 <span className="text-sm font-black text-indigo-600 dir-ltr">{leaveDaysPreview}</span>
                             </div>
                         </div>
-                        <div className="bg-rose-50/50 border border-rose-100 rounded-2xl p-4 space-y-3">
-                            <label className="flex items-center gap-2 text-xs font-black text-rose-700 cursor-pointer">
+                        <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-2.5 space-y-2">
+                            <label className="flex items-center gap-2 text-[11px] font-black text-rose-700 cursor-pointer">
                                 <input
                                     type="checkbox"
                                     checked={leaveDeductFromPayroll || leaveType === 'UNPAID'}
@@ -3789,7 +4025,7 @@ const HRManager: React.FC = () => {
                                 {tr('ربط بالراتب (خصم تلقائي عند الترحيل)', 'Link to payroll (auto deduction on posting)')}
                             </label>
                             {(leaveDeductFromPayroll || leaveType === 'UNPAID') && (
-                                <select value={leaveDeductionAccountId} onChange={e => setLeaveDeductionAccountId(e.target.value)} className="w-full p-3 bg-white rounded-xl border border-rose-100 text-xs font-black outline-none">
+                                <select value={leaveDeductionAccountId} onChange={e => setLeaveDeductionAccountId(e.target.value)} className="w-full h-10 px-3 bg-white rounded-xl border border-rose-100 text-[11px] font-black outline-none">
                                     <option value="">{tr('-- حساب الخصم (اختياري) --', '-- Deduction account (optional) --')}</option>
                                     {leaveDeductionAccountOptions.map(acc => (
                                         <option key={acc.id} value={acc.id}>{acc.code} - {displayAccountName(acc)}</option>
@@ -3797,11 +4033,11 @@ const HRManager: React.FC = () => {
                                 </select>
                             )}
                         </div>
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                            <div className="text-[10px] font-black text-gray-400">
+                        <div className="flex items-center justify-end gap-2">
+                            <div className="hidden md:block text-[10px] font-black text-gray-400">
                                 {getCompanyLeaveAccrualPolicy() === 'MONTHLY'
                                     ? tr(
-                                        `التراكم الشهري مفعّل (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} يوم/شهر). الرصيد المتاح يُحسب من العقد الفعّال/ملف الموظف داخل السنة الحالية.`,
+                                        `?? ????? ????????? ?????? (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} ???/???). ?????? ?????? ?????? ???? ????? ??????? ?? ????? ????? ?? ??? ??????.`,
                                         `Monthly accrual is enabled (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} days/month). Available leave is earned within the current year from the active contract/employee profile.`
                                     )
                                     : tr(
@@ -3809,7 +4045,7 @@ const HRManager: React.FC = () => {
                                         'Annual leave balance uses the active contract or employee profile (with company defaults by contract type if not set).'
                                     )}
                             </div>
-                            <button type="submit" className="px-5 py-3 bg-violet-600 text-white rounded-xl text-xs font-black shadow-lg shadow-violet-100 hover:bg-violet-700 transition-all">
+                            <button type="submit" className="w-full md:w-auto px-4 py-2.5 bg-violet-600 text-white rounded-xl text-xs font-black shadow-sm hover:bg-violet-700 transition-all">
                                 {tr('إضافة طلب إجازة', 'Add Leave Request')}
                             </button>
                         </div>
@@ -3854,7 +4090,7 @@ const HRManager: React.FC = () => {
                                     <div className="bg-white rounded-xl p-2 border border-gray-100 text-gray-600">{tr('طلبات معلقة', 'Pending')}: <span className="dir-ltr text-indigo-600">{row.pending}</span></div>
                                     {row.accrualPolicy === 'MONTHLY' && (
                                         <div className="bg-white rounded-xl p-2 border border-gray-100 text-gray-600 col-span-2">
-                                            {tr('تراكم شهري', 'Monthly accrual')}: <span className="dir-ltr text-sky-600">{row.monthlyAccrualDays}</span> × <span className="dir-ltr text-sky-600">{row.accrualMonths}</span> {tr('شهر', 'months')} = <span className="dir-ltr text-sky-700">{row.earnedEntitlement}</span>
+                                            {tr('تراكم شهري', 'Monthly accrual')}: <span className="dir-ltr text-sky-600">{row.monthlyAccrualDays}</span> أ— <span className="dir-ltr text-sky-600">{row.accrualMonths}</span> {tr('شهر', 'months')} = <span className="dir-ltr text-sky-700">{row.earnedEntitlement}</span>
                                         </div>
                                     )}
                                 </div>
@@ -3925,7 +4161,7 @@ const HRManager: React.FC = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="text-[10px] font-bold text-gray-400">{req.effectiveFrom} ? {req.effectiveTo} • {tr('عدد الأيام', 'Days')}: {req.days}{postedCount ? ` • ${tr('مرحل رواتب', 'Payroll posted')}: ${postedCount}` : ''}</div>
+                                            <div className="text-[10px] font-bold text-gray-400">{req.effectiveFrom} - {req.effectiveTo} - {tr('??? ??????', 'Days')}: {req.days}{postedCount ? ` - ${tr('???? ?????', 'Payroll posted')}: ${postedCount}` : ''}</div>
                                             {empLeaveBalance && (
                                                 <div className="text-[10px] font-black text-violet-600">
                                                     {tr('المتاح الحالي', 'Current available')}: <span className="dir-ltr">{empLeaveBalance.estimatedAnnualBalance.toLocaleString('en-US')}</span> {tr('يوم', 'days')}
@@ -4011,7 +4247,7 @@ const HRManager: React.FC = () => {
                             <input value={recurringNotes} onChange={e => setRecurringNotes(e.target.value)} placeholder={tr('ملاحظات', 'Notes')} className={`w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
                         </div>
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                            <div className="text-[10px] font-black text-gray-400">{tr(`نشط: ${activeCount} • إجمالي دوري: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`, `Active: ${activeCount} • Cycle total: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`)}</div>
+                            <div className="text-[10px] font-black text-gray-400">{tr(`???: ${activeCount} - ?????? ??????: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`, `Active: ${activeCount} - Cycle total: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`)}</div>
                             <button type="submit" className="px-5 py-3 bg-fuchsia-600 text-white rounded-xl text-xs font-black shadow-lg shadow-fuchsia-100 hover:bg-fuchsia-700 transition-all">{tr('إضافة استقطاع متكرر', 'Add Recurring Deduction')}</button>
                         </div>
                     </form>
@@ -4051,11 +4287,11 @@ const HRManager: React.FC = () => {
                                                     }`}>{getRecurringStatusLabel(item.status)}</span>
                                             </div>
                                             <div className="text-[10px] font-bold text-gray-400">
-                                                {emp?.name || tr('موظف محذوف', 'Deleted Employee')} • {item.effectiveFrom}{item.effectiveTo ? ` ? ${item.effectiveTo}` : ''} • {tr('المبلغ', 'Amount')}: {item.amount.toLocaleString()} {baseCurrency}
+                                                {emp?.name || tr('???? ?????', 'Deleted Employee')} - {item.effectiveFrom}{item.effectiveTo ? ` - ${item.effectiveTo}` : ''} - {tr('??????', 'Amount')}: {item.amount.toLocaleString()} {baseCurrency}
                                             </div>
                                             <div className="text-[10px] font-bold text-gray-500">
                                                 {tr('التقدم', 'Progress')}: {progressText}
-                                                {account ? ` • ${tr('الحساب', 'Account')}: ${displayAccountName(account)}` : ''}
+                                                {account ? ` - ${tr('??????', 'Account')}: ${displayAccountName(account)}` : ''}
                                             </div>
                                             {item.notes && <div className="text-[11px] font-bold text-gray-600">{item.notes}</div>}
                                         </div>
@@ -4313,11 +4549,11 @@ const HRManager: React.FC = () => {
         });
 
         return (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4">
-                <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
-                    <div className="flex items-start justify-between gap-3">
+            <div className="space-y-3 sm:space-y-4 animate-in slide-in-from-bottom-4">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm space-y-2">
+                    <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl"><FileText size={18} /></div>
+                            <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg"><FileText size={16} /></div>
                             <div>
                                 <h3 className="font-black text-sm text-gray-800">{tr('تقارير الموظفين', 'Employee Reports')}</h3>
                                 <p className="text-[10px] text-gray-400 font-bold">{tr('فلترة حسب التاريخ والموظف', 'Filter by date and employee')}</p>
@@ -4327,27 +4563,27 @@ const HRManager: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setActiveEmployeeReport('MENU')}
-                                className="px-3 py-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl text-[10px] font-black hover:bg-indigo-100 flex items-center gap-1"
+                                className="px-2.5 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-lg text-[10px] font-black hover:bg-indigo-100 flex items-center gap-1"
                             >
                                 <ArrowRight size={12} />
                                 {tr('رجوع للتقارير', 'Back to Reports')}
                             </button>
                         )}
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <EnglishDateInput
                             value={reportStartDate}
                             onChange={setReportStartDate}
-                            className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-xs font-bold outline-none"
+                            className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-bold outline-none"
                             aria-label={tr('بداية التقرير', 'Report start date')}
                         />
                         <EnglishDateInput
                             value={reportEndDate}
                             onChange={setReportEndDate}
-                            className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-xs font-bold outline-none"
+                            className="w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-bold outline-none"
                             aria-label={tr('نهاية التقرير', 'Report end date')}
                         />
-                        <select value={reportEmployeeId} onChange={e => setReportEmployeeId(e.target.value)} className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
+                        <select value={reportEmployeeId} onChange={e => setReportEmployeeId(e.target.value)} className="col-span-2 sm:col-span-1 w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none">
                             <option value="">{tr('جميع الموظفين', 'All Employees')}</option>
                             {employees.map(emp => (
                                 <option key={emp.id} value={emp.id}>{emp.code} - {emp.name}</option>
@@ -4355,24 +4591,24 @@ const HRManager: React.FC = () => {
                         </select>
                     </div>
                     {rawStartDate > rawEndDate && (
-                        <p className="text-[10px] text-amber-600 font-black">{tr('تم ترتيب تاريخ البداية والنهاية تلقائياً.', 'Start and end dates were auto-corrected.')}</p>
+                        <p className="text-[9px] text-amber-600 font-black">{tr('تم ترتيب تاريخ البداية والنهاية تلقائياً.', 'Start and end dates were auto-corrected.')}</p>
                     )}
                 </div>
 
                 {activeEmployeeReport === 'MENU' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
                         {employeeReportCards.map(card => (
                             <button
                                 key={card.id}
                                 type="button"
                                 onClick={() => setActiveEmployeeReport(card.id)}
-                                className="bg-white p-4 rounded-[1.5rem] border border-gray-100 shadow-sm flex items-center justify-between text-right hover:shadow-md transition-all active:scale-[0.99]"
+                                className="bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between text-right hover:shadow-md transition-all active:scale-[0.99] min-h-[66px]"
                             >
                                 <div className="flex-1">
-                                    <h4 className="font-black text-sm text-gray-800">{card.title}</h4>
-                                    <p className="text-[10px] text-gray-400 font-bold mt-1">{card.subtitle}</p>
+                                    <h4 className="font-black text-[11px] leading-4 text-gray-800">{card.title}</h4>
+                                    <p className="text-[9px] text-gray-400 font-bold mt-0.5 hidden sm:block">{card.subtitle}</p>
                                 </div>
-                                <div className={`p-2.5 rounded-xl border ${card.colorClass}`}>{card.icon}</div>
+                                <div className={`p-1.5 rounded-lg border ${card.colorClass}`}>{card.icon}</div>
                             </button>
                         ))}
                     </div>
@@ -5262,6 +5498,35 @@ const HRManager: React.FC = () => {
             setTimeout(() => printWindow.print(), 300);
         };
 
+        const employeeStatementTitle = `${tr('كشف حساب الموظف', 'Employee Statement')} - ${emp.name}`;
+        const employeeStatementShareText = [
+            employeeStatementTitle,
+            `${tr('الفترة', 'Period')}: ${safeFormatDate(statementStartDate)} - ${safeFormatDate(statementEndDate)}`,
+            `${tr('الرصيد الافتتاحي', 'Opening Balance')}: ${formatNumber(openingBalance)}`,
+            `${tr('الرصيد الختامي', 'Closing Balance')}: ${formatNumber(closingBalance)}`,
+            `${tr('عدد الحركات', 'Entries')}: ${displayEntries.length}`
+        ].join('\n');
+
+        const handleSaveStatementSnapshot = () => {
+            if (!employeeStatementContentRef.current) return;
+            downloadElementAsHtml(employeeStatementContentRef.current, {
+                title: employeeStatementTitle,
+                fileName: `${employeeStatementTitle}-${statementStartDate}-${statementEndDate}`,
+                dir: isEnglish ? 'ltr' : 'rtl',
+                lang: isEnglish ? 'en' : 'ar'
+            });
+        };
+
+        const handleExportStatementExcel = () => {
+            const success = exportElementAsCsv(
+                employeeStatementExportTableRef.current,
+                `${employeeStatementTitle}-${statementStartDate}-${statementEndDate}`
+            );
+            if (!success) {
+                alert(tr('تعذر تصدير كشف الموظف حاليًا.', 'Could not export the employee statement right now.'));
+            }
+        };
+
         return (
             <ResponsiveDialog
                 open={Boolean(viewStatementId)}
@@ -5273,7 +5538,6 @@ const HRManager: React.FC = () => {
                 showHandle={false}
             >
                 <div className="font-tajawal h-full flex flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
-                    {/* Header */}
                     <div className="bg-slate-900 px-4 pt-5 pb-4 text-white relative shrink-0">
                         <button onClick={closeEmployeeStatement} className="absolute left-3 top-3 p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all z-20"><X size={18} /></button>
                         <div className="flex items-center justify-between gap-2.5 mb-3">
@@ -5290,68 +5554,73 @@ const HRManager: React.FC = () => {
                                     disabled={!previousEmployee}
                                     className={`px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 ${previousEmployee ? 'bg-white/10 hover:bg-white/20' : 'bg-white/5 text-white/40 cursor-not-allowed'}`}
                                 >
-                                    <ArrowRight size={12} /> {tr('السابق', 'Previous')}
+                                    <ArrowRight size={12} /> {tr('??????', 'Previous')}
                                 </button>
                                 <button
                                     onClick={() => nextEmployee && openEmployeeStatement(nextEmployee.id)}
                                     disabled={!nextEmployee}
                                     className={`px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 ${nextEmployee ? 'bg-white/10 hover:bg-white/20' : 'bg-white/5 text-white/40 cursor-not-allowed'}`}
                                 >
-                                    {tr('التالي', 'Next')} <ArrowLeft size={12} />
+                                    {tr('??????', 'Next')} <ArrowLeft size={12} />
                                 </button>
                                 <button
                                     onClick={handlePrintPayslip}
                                     className="px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30"
                                 >
-                                    <Receipt size={12} /> {tr('كشف راتب', 'Payslip')}
+                                    <Receipt size={12} /> {tr('??? ????', 'Payslip')}
                                 </button>
-                                <button
-                                    onClick={handlePrintStatement}
-                                    className="px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 bg-white/10 hover:bg-white/20"
-                                >
-                                    <Printer size={12} /> {tr('كشف حساب', 'Statement')}
-                                </button>
+                                <DocumentActions
+                                    title={employeeStatementTitle}
+                                    shareText={employeeStatementShareText}
+                                    isEnglish={isEnglish}
+                                    tr={tr}
+                                    onPrint={handlePrintStatement}
+                                    onSave={handleSaveStatementSnapshot}
+                                    onExcel={handleExportStatementExcel}
+                                    saveTitle={tr('تنزيل كشف الموظف', 'Download employee statement')}
+                                    variant="dark"
+                                    showSaveButton={false}
+                                />
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-amber-200 uppercase block mb-0.5">{tr('رصيد افتتاحي', 'Opening Balance')}</span>
+                                <span className="text-[8px] font-black text-amber-200 uppercase block mb-0.5">{tr('???? ???????', 'Opening Balance')}</span>
                                 <span className={`text-sm font-black ${openingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{openingBalance.toLocaleString()}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-blue-200 uppercase block mb-0.5">{tr('رصيد ختامي', 'Closing Balance')}</span>
+                                <span className="text-[8px] font-black text-blue-200 uppercase block mb-0.5">{tr('???? ?????', 'Closing Balance')}</span>
                                 <span className={`text-sm font-black ${closingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{closingBalance.toLocaleString()}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-rose-300 uppercase block mb-0.5">{tr('مدين الفترة', 'Period Debit')}</span>
+                                <span className="text-[8px] font-black text-rose-300 uppercase block mb-0.5">{tr('???? ??????', 'Period Debit')}</span>
                                 <span className="text-sm font-black">{totalDebit.toLocaleString()}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-emerald-300 uppercase block mb-0.5">{tr('دائن الفترة', 'Period Credit')}</span>
+                                <span className="text-[8px] font-black text-emerald-300 uppercase block mb-0.5">{tr('???? ??????', 'Period Credit')}</span>
                                 <span className="text-sm font-black">{totalCredit.toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
 
-                    {/* Content */}
-                    <div className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-2">
+                    <div ref={employeeStatementContentRef} className="flex-1 overflow-y-auto bg-gray-50 p-3 space-y-3">
                         <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
                             <div className="flex items-center gap-1.5 mb-2">
                                 <CalendarRange size={13} className="text-indigo-600" />
-                                <span className="text-[10px] font-black text-gray-600">{tr('تحديد فترة كشف الموظف', 'Select statement period')}</span>
+                                <span className="text-[10px] font-black text-gray-600">{tr('????? ???? ??? ??????', 'Select statement period')}</span>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                                 <EnglishDateInput
                                     value={rawStartDate}
                                     onChange={value => updateStatementRange(emp.id, { startDate: value })}
                                     className="w-full p-2 bg-gray-50 rounded-xl text-[10px] font-bold outline-none border border-gray-100 text-right"
-                                    aria-label={tr('بداية كشف الحساب', 'Statement start date')}
+                                    aria-label={tr('????? ??? ??????', 'Statement start date')}
                                 />
                                 <EnglishDateInput
                                     value={rawEndDate}
                                     onChange={value => updateStatementRange(emp.id, { endDate: value })}
                                     className="w-full p-2 bg-gray-50 rounded-xl text-[10px] font-bold outline-none border border-gray-100 text-right"
-                                    aria-label={tr('نهاية كشف الحساب', 'Statement end date')}
+                                    aria-label={tr('????? ??? ??????', 'Statement end date')}
                                 />
                             </div>
                             <div className="flex gap-2 mt-2">
@@ -5359,7 +5628,7 @@ const HRManager: React.FC = () => {
                                     onClick={() => updateStatementRange(emp.id, { startDate: payrollStartDate, endDate: payrollEndDate })}
                                     className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg font-black text-[9px] border border-indigo-100"
                                 >
-                                    {tr('نفس فترة الرواتب', 'Use payroll period')}
+                                    {tr('??? ???? ???????', 'Use payroll period')}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -5369,69 +5638,20 @@ const HRManager: React.FC = () => {
                                     disabled={!firstEntryDate || !lastEntryDate}
                                     className={`flex-1 py-1.5 rounded-lg font-black text-[9px] border ${firstEntryDate && lastEntryDate ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'}`}
                                 >
-                                    {tr('كل العمليات', 'All transactions')}
+                                    {tr('?? ????????', 'All transactions')}
                                 </button>
                             </div>
                             {rawStartDate > rawEndDate && (
-                                <p className="text-[9px] font-bold text-amber-600 mt-2">{tr('تم ترتيب تاريخ البداية والنهاية تلقائياً.', 'Start and end dates were auto-corrected.')}</p>
+                                <p className="text-[9px] font-bold text-amber-600 mt-2">{tr('?? ????? ????? ??????? ???????? ????????.', 'Start and end dates were auto-corrected.')}</p>
                             )}
                         </div>
 
-                        {payrollMonthlyStatements.length > 0 && (
-                            <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                                <div className="flex items-center justify-between gap-2 mb-2">
-                                    <h4 className="text-[10px] font-black text-gray-600 uppercase">{tr('كشوف الرواتب الشهرية', 'Monthly Payroll Statements')}</h4>
-                                    <span className="text-[9px] font-bold text-gray-400">{payrollMonthlyStatements.length} {tr('كشف', 'statement')}</span>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {payrollMonthlyStatements.map(statement => {
-                                        const isActivePeriod =
-                                            statement.range.startDate === statementStartDate &&
-                                            statement.range.endDate === statementEndDate;
-                                        return (
-                                            <div
-                                                key={statement.key}
-                                                className={`px-2.5 py-2 rounded-xl border text-right min-w-[180px] flex-1 md:flex-none md:min-w-[220px] transition-all ${isActivePeriod ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-gray-50 border-gray-100 text-gray-700 hover:bg-gray-100'}`}
-                                            >
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <span className="text-[10px] font-black truncate">{statement.title}</span>
-                                                    <span className={`text-[8px] px-1.5 py-0.5 rounded-md font-black ${statement.isDirectOnly ? 'bg-cyan-100 text-cyan-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                        {statement.isDirectOnly ? tr('مباشر', 'Direct') : tr('استحقاق', 'Accrual')}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[9px] font-bold text-gray-400 mt-1">
-                                                    {tr('فتح كشف الفترة وتفاصيلها', 'Open this period statement details')}
-                                                </p>
-                                                <div className="mt-2 grid grid-cols-2 gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openStatementPeriod(statement.range)}
-                                                        className="px-2 py-1.5 rounded-lg border border-indigo-100 bg-white/80 text-indigo-700 text-[9px] font-black hover:bg-white"
-                                                    >
-                                                        {tr('فتح الكشف', 'Open Statement')}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handlePrintPayslip(statement.range)}
-                                                        className="px-2 py-1.5 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-700 text-[9px] font-black hover:bg-emerald-100 inline-flex items-center justify-center gap-1"
-                                                    >
-                                                        <Printer size={11} />
-                                                        {tr('طباعة كشف راتب', 'Print Payslip')}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
-                        <h4 className="text-[10px] font-black text-gray-400 px-1 uppercase">{tr('كشف حساب مفصل', 'Detailed Statement')} ({displayEntries.length} {tr('عملية', 'entries')})</h4>
-                        <p className="text-[10px] font-bold text-gray-400 px-1">{tr('الفترة', 'Period')}: {safeFormatDate(statementStartDate)} - {safeFormatDate(statementEndDate)}</p>
+                        <h4 className="text-[10px] font-black text-gray-400 px-1 uppercase">{tr('??? ???? ????', 'Detailed Statement')} ({displayEntries.length} {tr('?????', 'entries')})</h4>
+                        <p className="text-[10px] font-bold text-gray-400 px-1">{tr('??????', 'Period')}: {safeFormatDate(statementStartDate)} - {safeFormatDate(statementEndDate)}</p>
 
                         {Math.abs(openingBalance) > 0.001 && (
                             <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-[10px] font-black flex justify-between items-center">
-                                <span className="text-amber-700">{tr('رصيد افتتاحي قبل الفترة', 'Opening balance before period')}</span>
+                                <span className="text-amber-700">{tr('???? ??????? ??? ??????', 'Opening balance before period')}</span>
                                 <span className={`dir-ltr ${openingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{openingBalance.toLocaleString()}</span>
                             </div>
                         )}
@@ -5439,9 +5659,10 @@ const HRManager: React.FC = () => {
                         {displayEntries.length === 0 && (
                             <div className="text-center py-10 text-gray-300">
                                 <FileText size={28} className="mx-auto mb-2 opacity-50" />
-                                <p className="text-xs font-bold text-gray-400">{tr('لا توجد عمليات ضمن الفترة المحددة', 'No transactions in selected period')}</p>
+                                <p className="text-xs font-bold text-gray-400">{tr('?? ???? ?????? ??? ?????? ???????', 'No transactions in selected period')}</p>
                             </div>
                         )}
+
                         {displayEntries.map((entry, idx) => {
                             const catInfo = getCategoryLabel(entry.category);
                             const linkedPayrollRange = ['salary', 'direct_salary', 'salary_payment', 'deduction'].includes(entry.category)
@@ -5460,21 +5681,59 @@ const HRManager: React.FC = () => {
                                                 onClick={() => openStatementPeriod(linkedPayrollRange)}
                                                 className="shrink-0 px-2 py-1 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 text-[9px] font-black hover:bg-indigo-100"
                                             >
-                                                {tr('كشف الفترة', 'Period Statement')}
+                                                {tr('??? ??????', 'Period Statement')}
                                             </button>
                                         )}
                                     </div>
                                     <div className="flex justify-between items-center text-[10px]">
                                         <span className="text-gray-400 font-bold flex items-center gap-1"><Calendar size={9} /> {safeFormatDate(entry.date)}</span>
                                         <div className="flex items-center gap-3">
-                                            {entry.debit > 0 && <span className="font-black text-rose-500">{entry.debit.toLocaleString()} {tr('مدين', 'Debit')}</span>}
-                                            {entry.credit > 0 && <span className="font-black text-emerald-500">{entry.credit.toLocaleString()} {tr('دائن', 'Credit')}</span>}
+                                            {entry.debit > 0 && <span className="font-black text-rose-500">{entry.debit.toLocaleString()} {tr('????', 'Debit')}</span>}
+                                            {entry.credit > 0 && <span className="font-black text-emerald-500">{entry.credit.toLocaleString()} {tr('????', 'Credit')}</span>}
                                             <span className={`font-black px-1.5 py-0.5 rounded text-[9px] ${entry.balance > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{entry.balance.toLocaleString()}</span>
                                         </div>
                                     </div>
                                 </div>
                             );
                         })}
+                    </div>
+
+                    <div className="hidden">
+                        <table ref={employeeStatementExportTableRef}>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>{tr('التاريخ', 'Date')}</th>
+                                    <th>{tr('النوع', 'Type')}</th>
+                                    <th>{tr('البيان', 'Description')}</th>
+                                    <th>{tr('مدين', 'Debit')}</th>
+                                    <th>{tr('دائن', 'Credit')}</th>
+                                    <th>{tr('الرصيد الجاري', 'Running Balance')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>-</td>
+                                    <td>{safeFormatDate(statementStartDate)}</td>
+                                    <td>{tr('افتتاحي', 'Opening')}</td>
+                                    <td>{tr('رصيد ما قبل الفترة', 'Opening balance before period')}</td>
+                                    <td>-</td>
+                                    <td>-</td>
+                                    <td>{formatNumber(openingBalance)}</td>
+                                </tr>
+                                {statementsWithBalance.map((entry, idx) => (
+                                    <tr key={`export-${entry.id}-${idx}`}>
+                                        <td>{idx + 1}</td>
+                                        <td>{safeFormatDate(entry.date)}</td>
+                                        <td>{getCategoryLabel(entry.category).label}</td>
+                                        <td>{entry.description}</td>
+                                        <td>{entry.debit > 0 ? formatNumber(entry.debit) : '-'}</td>
+                                        <td>{entry.credit > 0 ? formatNumber(entry.credit) : '-'}</td>
+                                        <td>{formatNumber(entry.balance)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </ResponsiveDialog>
@@ -5497,7 +5756,7 @@ const HRManager: React.FC = () => {
                         <div className="flex items-center justify-between gap-3">
                             <div>
                                 <h3 className="font-black text-gray-800 text-lg">{tr('عقود الموظف وسجل الراتب', 'Employee Contracts & Salary History')}</h3>
-                                <p className="text-[11px] font-bold text-gray-500">{contractsEmployee.name} • {contractsEmployee.code}</p>
+                                <p className="text-[11px] font-bold text-gray-500">{contractsEmployee.name} - {contractsEmployee.code}</p>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
@@ -5590,7 +5849,7 @@ const HRManager: React.FC = () => {
                                                 <div className="min-w-0">
                                                     <div className="text-xs font-black text-gray-800 truncate">{contract.title || contractsEmployee.position || tr('عقد موظف', 'Employee contract')}</div>
                                                     <div className="text-[10px] font-bold text-gray-500 mt-1">
-                                                        {contract.startDate} {contract.endDate ? `? ${contract.endDate}` : `• ${tr('مفتوح', 'Open-ended')}`}
+                                                        {contract.startDate} {contract.endDate ? ` - ${contract.endDate}` : ` - ${tr('?????', 'Open-ended')}`}
                                                     </div>
                                                     <div className="text-[10px] font-bold text-blue-600 mt-1">{formatSalarySnapshotSummary(contract)}</div>
                                                     <div className="text-[10px] font-bold text-violet-600 mt-1">
@@ -5654,18 +5913,18 @@ const HRManager: React.FC = () => {
     };
 
     return (
-        <div className={`app-page p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
-            <header className="mb-8 flex justify-between items-start px-2">
-                <div className="p-4 rounded-[1.8rem] bg-white shadow-xl shadow-blue-50 border border-gray-50 text-blue-600"><Users size={28} /></div>
-                <div><h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('شؤون الموظفين', 'Human Resources')}</h1><p className="text-gray-400 text-[10px] font-black mt-2 uppercase tracking-[0.3em]">{tr('إدارة الكادر البشري والرواتب', 'Manage workforce and payroll')}</p></div>
+        <div className={`app-page p-3 md:p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+            <header className="mb-3 flex justify-between items-center px-1">
+                <div className="p-3 rounded-2xl bg-white shadow-sm border border-gray-100 text-blue-600"><Users size={22} /></div>
+                <div><h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('شؤون الموظفين', 'Human Resources')}</h1><p className="text-gray-400 text-[10px] font-black mt-1 uppercase tracking-[0.2em]">{tr('إدارة الكادر البشري والرواتب', 'Manage workforce and payroll')}</p></div>
             </header>
-            <div className="flex overflow-x-auto gap-1.5 p-1.5 bg-gray-100/60 backdrop-blur rounded-[2rem] mb-8 shadow-inner border border-gray-200/20 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [-webkit-overflow-scrolling:touch]">
-                <button onClick={() => setActiveTab('EMPLOYEES')} className={`shrink-0 px-6 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all whitespace-nowrap ${activeTab === 'EMPLOYEES' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}>{tr('الموظفين', 'Employees')} <Briefcase size={16} /></button>
-                <button onClick={() => setActiveTab('LEAVES')} className={`shrink-0 px-6 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all whitespace-nowrap ${activeTab === 'LEAVES' ? 'bg-white shadow-md text-violet-600' : 'text-gray-400'}`}>{tr('الإجازات', 'Leaves')} <CalendarRange size={16} /></button>
-                <button onClick={() => setActiveTab('DEDUCTIONS')} className={`shrink-0 px-6 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all whitespace-nowrap ${activeTab === 'DEDUCTIONS' ? 'bg-white shadow-md text-fuchsia-600' : 'text-gray-400'}`}>{tr('الاستقطاعات', 'Deductions')} <Wallet size={16} /></button>
-                <button onClick={() => setActiveTab('ATTENDANCE')} className={`shrink-0 px-6 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all whitespace-nowrap ${activeTab === 'ATTENDANCE' ? 'bg-white shadow-md text-purple-600' : 'text-gray-400'}`}>{tr('الحضور', 'Attendance')} <CalendarCheck size={16} /></button>
-                <button onClick={() => setActiveTab('PAYROLL')} className={`shrink-0 px-6 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all whitespace-nowrap ${activeTab === 'PAYROLL' ? 'bg-white shadow-md text-emerald-600' : 'text-gray-400'}`}>{tr('الرواتب', 'Payroll')} <DollarSign size={16} /></button>
-                <button onClick={() => { setActiveTab('REPORTS'); setActiveEmployeeReport('MENU'); }} className={`shrink-0 px-6 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all whitespace-nowrap ${activeTab === 'REPORTS' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-400'}`}>{tr('التقارير', 'Reports')} <FileText size={16} /></button>
+            <div className="grid grid-cols-6 gap-1 p-1 bg-gray-100/60 backdrop-blur rounded-2xl mb-3 shadow-inner border border-gray-200/20">
+                <button onClick={() => setActiveTab('EMPLOYEES')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'EMPLOYEES' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}><Briefcase size={13} /><span>{tr('الموظفين', 'Employees')}</span></button>
+                <button onClick={() => setActiveTab('LEAVES')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'LEAVES' ? 'bg-white shadow-md text-violet-600' : 'text-gray-400'}`}><CalendarRange size={13} /><span>{tr('الإجازات', 'Leaves')}</span></button>
+                <button onClick={() => setActiveTab('DEDUCTIONS')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'DEDUCTIONS' ? 'bg-white shadow-md text-fuchsia-600' : 'text-gray-400'}`}><Wallet size={13} /><span>{tr('الخصومات', 'Deductions')}</span></button>
+                <button onClick={() => setActiveTab('ATTENDANCE')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'ATTENDANCE' ? 'bg-white shadow-md text-purple-600' : 'text-gray-400'}`}><CalendarCheck size={13} /><span>{tr('الحضور', 'Attendance')}</span></button>
+                <button onClick={() => setActiveTab('PAYROLL')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'PAYROLL' ? 'bg-white shadow-md text-emerald-600' : 'text-gray-400'}`}><DollarSign size={13} /><span>{tr('الرواتب', 'Payroll')}</span></button>
+                <button onClick={() => { setActiveTab('REPORTS'); setActiveEmployeeReport('MENU'); }} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'REPORTS' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-400'}`}><FileText size={13} /><span>{tr('التقارير', 'Reports')}</span></button>
             </div>
             {activeTab === 'EMPLOYEES' && renderEmployees()}
             {activeTab === 'LEAVES' && renderLeaves()}

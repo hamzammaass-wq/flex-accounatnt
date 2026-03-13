@@ -3,14 +3,15 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { Transaction, TransactionType } from '../types';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
-import { CheckCircle2, FileText, Filter, Plus, RotateCcw, Scale, Search, Trash2, X } from 'lucide-react';
+import { CheckCircle2, FileText, Filter, Pencil, Plus, RotateCcw, Scale, Search, Trash2, X } from 'lucide-react';
 import { getDisplayAccountName } from '../utils/displayNames';
 
 interface JournalManagerProps {
   onAddNew: () => void;
+  onEditJournal?: (journalId: string) => void;
 }
 
-const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew }) => {
+const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal }) => {
   const { transactions, accounts, deleteTransaction, updateTransaction, reverseTransaction, companySettings, auditLogs } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -110,14 +111,32 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew }) => {
 
   const handleDelete = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const entry = transactions.find(t => t.id === id);
+    if (!entry) return;
+    const detailLines = resolveDetailLines(entry);
     if (confirm(tr('حذف القيد نهائياً؟', 'Delete this journal entry permanently?'))) {
-      const result = deleteTransaction(id);
-      if (!result.ok) {
-        alert(result.message);
-        return;
+      for (const line of detailLines) {
+        const result = deleteTransaction(line.id);
+        if (!result.ok) {
+          alert(result.message);
+          return;
+        }
       }
       setSelectedJournalId(null);
     }
+  };
+
+  const handleEdit = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!onEditJournal) return;
+    const entry = transactions.find(t => t.id === id);
+    if (!entry) return;
+    if (entry.isReversal || entry.reversedById) {
+      alert(tr('لا يمكن تعديل قيد معكوس محاسبيًا.', 'Reversed journal entries cannot be edited.'));
+      return;
+    }
+    setSelectedJournalId(null);
+    onEditJournal(entry.voucherId || entry.id);
   };
 
   const handleReverse = (id: string) => {
@@ -220,6 +239,11 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew }) => {
                 {tr('ترحيل', 'Post')}
               </button>
             )}
+            {!entry.isReversal && !entry.reversedById && onEditJournal && (
+              <button onClick={() => handleEdit(entry.id)} className="flex-1 py-3 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl font-black">
+                <span className="inline-flex items-center justify-center gap-2"><Pencil size={16} />{tr('تعديل', 'Edit')}</span>
+              </button>
+            )}
             {!isDraft && !entry.isReversal && !entry.reversedById && (
               <button onClick={() => handleReverse(entry.id)} className="flex-1 py-3 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl font-black">
                 <span className="inline-flex items-center justify-center gap-2"><RotateCcw size={16} />{tr('عكس', 'Reverse')}</span>
@@ -287,6 +311,15 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew }) => {
               </div>
               <div className="text-left flex flex-col items-end gap-2">
                 <div className="text-xl font-black">{t.amount.toLocaleString()}</div>
+                {!t.isReversal && !t.reversedById && onEditJournal && (
+                  <button
+                    onClick={(e) => handleEdit(t.id, e)}
+                    className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-black border border-blue-100 hover:bg-blue-100 transition-all active:scale-95 inline-flex items-center gap-1"
+                  >
+                    <Pencil size={12} />
+                    {tr('تعديل', 'Edit')}
+                  </button>
+                )}
                 {t.status === 'DRAFT' && (
                   <button
                     onClick={(e) => handlePost(t.id, e)}

@@ -1,16 +1,18 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { ContactType, TransactionType, Contact, Invoice } from '../types';
 import ContactEditorDialog from './ContactEditorDialog';
+import DocumentActions from './DocumentActions';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import {
     UserPlus, Trash2, Users, Truck, Search, FileText, X,
-    Printer, Phone, LayoutGrid, Edit2,
+    Phone, LayoutGrid, Edit2,
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
+import { buildElementPdfFile, downloadBlobFile, downloadTextFile, exportElementAsCsv } from '../utils/documentExport';
 
 const Directory: React.FC = () => {
     const { contacts, addContact, updateContact, deleteContact, transactions, invoices, baseCurrency, companySettings, products, accounts, checks } = useAccounting();
@@ -32,6 +34,8 @@ const Directory: React.FC = () => {
     const [newAddress, setNewAddress] = useState('');
     const [newType, setNewType] = useState<ContactType>('CUSTOMER');
     const [newLinkedAccountId, setNewLinkedAccountId] = useState('');
+    const statementExportRef = useRef<HTMLDivElement | null>(null);
+    const statementContentRef = useRef<HTMLDivElement | null>(null);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const printPersonalData = companySettings.printPersonalData ?? true;
@@ -42,8 +46,8 @@ const Directory: React.FC = () => {
     const dottedNumbers = companySettings.dottedNumbers ?? false;
     const hideVoucherColumnInStatement = companySettings.hideVoucherColumnInStatement ?? false;
     const printExpiryDate = companySettings.printExpiryDate ?? false;
-    const debitLabel = companySettings.debitLabel || tr('مدين', 'Debit');
-    const creditLabel = companySettings.creditLabel || tr('دائن', 'Credit');
+    const debitLabel = tr('\u0645\u062f\u064a\u0646', 'Debit');
+    const creditLabel = tr('\u062f\u0627\u0626\u0646', 'Credit');
     const displayContactName = (contact?: Pick<Contact, 'id' | 'name'> | null) => getDisplayContactName(contact || undefined, isEnglish);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) => getDisplayProductName(product || undefined, isEnglish);
@@ -373,7 +377,7 @@ const Directory: React.FC = () => {
                             </thead>
                             <tbody>${itemsRows}</tbody>
                         </table>
-                        ${(printExpiryDate && invoice.dueDate) ? `<div style="font-size:10px; color:#777; margin-top:4px;"><strong>${tr('تاريخ الإنتهاء', 'Expiry Date')}:</strong> ${formatDate(invoice.dueDate)}</div>` : ''}
+                        ${(printExpiryDate && invoice.dueDate) ? `<div style="font-size:10px; color:#777; margin-top:4px;"><strong>${tr('تاريخ الاستحقاق', 'Expiry Date')}:</strong> ${formatDate(invoice.dueDate)}</div>` : ''}
                     </div>
                 `;
             }
@@ -521,23 +525,23 @@ const Directory: React.FC = () => {
     class="statement-actions"
     id="statement-actions"
     data-share-summary="${escapeAttr(shareSummary)}"
-    data-copy-success="${escapeAttr(tr('تم نسخ ملخص الكشف. يمكنك مشاركته الآن.', 'Statement summary copied. You can share it now.'))}"
+    data-copy-success="${escapeAttr(tr('تم نسخ ملخص كشف الحساب. يمكنك مشاركته الآن.', 'Statement summary copied. You can share it now.'))}"
     data-share-failed="${escapeAttr(tr('تعذر فتح المشاركة. سيتم فتح الطباعة بدلًا من ذلك.', 'Could not open share sheet. Opening print instead.'))}"
   >
-    <button type="button" id="statement-close-btn">${tr('خروج', 'Close')}</button>
+    <button type="button" id="statement-close-btn">${tr('إغلاق', 'Close')}</button>
     <button type="button" id="statement-print-btn">${tr('طباعة', 'Print')}</button>
     <button type="button" id="statement-share-btn">${tr('مشاركة', 'Share')}</button>
   </div>
   <div class="statement-sheet">
     <h1 class="statement-title">${tr('كشف حساب', 'Statement')}: ${escapeHtml(displayContactName(contact))}</h1>
     <p class="statement-sub">${escapeHtml(statementPeriodText)}</p>
-    ${printPersonalData ? `<p class="statement-sub">${tr('Phone', 'Phone')}: ${escapeHtml(contact.phone || '-')} ${contact.address ? `| ${tr('Address', 'Address')}: ${escapeHtml(contact.address)}` : ''}</p>` : ''}
+    ${printPersonalData ? `<p class="statement-sub">${tr('الهاتف', 'Phone')}: ${escapeHtml(contact.phone || '-')} ${contact.address ? `| ${tr('العنوان', 'Address')}: ${escapeHtml(contact.address)}` : ''}</p>` : ''}
     <div class="statement-table-wrap">
       <table>
         <thead>
           <tr>
             <th>${tr('التاريخ', 'Date')}</th>
-            ${!hideVoucherColumnInStatement ? `<th>${tr('Voucher', 'Voucher')}</th>` : ''}
+            ${!hideVoucherColumnInStatement ? `<th>${tr('السند', 'Voucher')}</th>` : ''}
             <th>${tr('البيان', 'Description')}</th>
             <th>${debitLabel}</th>
             <th>${creditLabel}</th>
@@ -548,7 +552,7 @@ const Directory: React.FC = () => {
           <tr>
             <td>-</td>
             ${!hideVoucherColumnInStatement ? '<td>-</td>' : ''}
-            <td>${tr('رصيد افتتاحي', 'Opening balance')}</td>
+            <td>${tr('الرصيد الافتتاحي', 'Opening balance')}</td>
             <td>-</td>
             <td>-</td>
             <td>${formatPrintAmount(openingBalance, baseCurrency)}</td>
@@ -598,9 +602,63 @@ const Directory: React.FC = () => {
         window.print();
       });
     })();
-  </script>
+    </script>
 </body>
 </html>`;
+    };
+
+    const buildStatementShareText = (contact: Contact, closingBalance: number) => [
+        `${tr('كشف حساب', 'Statement')}: ${displayContactName(contact)}`,
+        `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`,
+        `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString()} ${baseCurrency}`
+    ].join('\n');
+
+    const buildStatementPdfName = (contact: Contact) =>
+        `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.pdf`;
+
+    const handleShareStatementWhatsApp = async (contact: Contact, closingBalance: number) => {
+        const pdfFile = await buildElementPdfFile(statementExportRef.current, {
+            title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
+            fileName: buildStatementPdfName(contact),
+            dir: isEnglish ? 'ltr' : 'rtl',
+            lang: isEnglish ? 'en' : 'ar'
+        });
+
+        if (!pdfFile) {
+            alert(tr('تعذر تجهيز ملف PDF للكشف الآن.', 'Could not prepare the statement PDF right now.'));
+            return;
+        }
+
+        const shareText = buildStatementShareText(contact, closingBalance);
+        let canShareFiles = Boolean(navigator.share);
+        if (canShareFiles && typeof navigator.canShare === 'function') {
+            try {
+                canShareFiles = navigator.canShare({ files: [pdfFile] });
+            } catch {
+                canShareFiles = false;
+            }
+        }
+
+        if (canShareFiles) {
+            try {
+                await navigator.share({
+                    title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
+                    text: shareText,
+                    files: [pdfFile]
+                });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') {
+                    return;
+                }
+            }
+        }
+
+        downloadBlobFile(pdfFile, pdfFile.name);
+        window.open(
+            `https://wa.me/?text=${encodeURIComponent(`${shareText}\n\n${tr('تم تنزيل ملف PDF للكشف. أرفقه داخل واتساب لإرسال الكشف كاملًا.', 'The statement PDF was downloaded. Attach it in WhatsApp to send the full statement.')}`)}`,
+            '_blank'
+        );
     };
 
     const handlePrintStatement = (contact: Contact) => {
@@ -613,6 +671,24 @@ const Directory: React.FC = () => {
         printWindow.document.write(html);
         printWindow.document.close();
         printWindow.focus();
+    };
+
+    const downloadStatementSnapshot = (contact: Contact) => {
+        downloadTextFile(
+            buildStatementPrintHtml(contact, printCheckImagesInStatement),
+            `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.html`,
+            'text/html;charset=utf-8'
+        );
+    };
+
+    const exportStatementExcel = (contact: Contact) => {
+        const success = exportElementAsCsv(
+            statementContentRef.current,
+            `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}`
+        );
+        if (!success) {
+            alert(tr('تعذر تصدير كشف الحساب الآن.', 'Could not export the statement right now.'));
+        }
     };
 
     const handleSave = (e: React.FormEvent) => {
@@ -676,12 +752,12 @@ const Directory: React.FC = () => {
             <header className="mb-6 flex justify-between items-start">
                 <div>
                     <h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('الدليل', 'Directory')}</h1>
-                    <p className="text-gray-400 text-xs font-bold mt-1 uppercase tracking-widest">{tr('إدارة العملاء والموردين والشركاء', 'Customers, Suppliers & Partners')}</p>
+                    <p className="text-gray-400 text-xs font-bold mt-1 uppercase tracking-widest">{tr('العملاء والموردون والشركاء', 'Customers, Suppliers & Partners')}</p>
                 </div>
                 {activeTab === 'EMPLOYEE' ? (
                     <div className="bg-purple-50 text-purple-600 px-4 py-2 rounded-xl text-[10px] font-bold border border-purple-100 flex items-center gap-2 animate-in fade-in">
                         <AlertCircle size={14} />
-                        <span>{tr('إضافة الموظفين من شؤون الموظفين', 'Employees are added from HR')}</span>
+                        <span>{tr('يتم إضافة الموظفين من شؤون الموظفين', 'Employees are added from HR')}</span>
                     </div>
                 ) : (
                     <button onClick={() => { resetForm(); setShowAddForm(true); }} className="bg-blue-600 text-white p-3.5 rounded-2xl shadow-xl hover:bg-blue-700 transition-all"><UserPlus size={24} /></button>
@@ -705,7 +781,7 @@ const Directory: React.FC = () => {
             <div className="relative mb-6">
                 <input
                     type="text"
-                    placeholder={tr('بحث بالاسم أو الهاتف...', 'Search by name or phone...')}
+                    placeholder={tr('ابحث بالاسم أو الهاتف...', 'Search by name or phone...')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full p-4 pr-12 bg-white rounded-[1.8rem] border border-gray-100 shadow-sm outline-none font-bold text-sm"
@@ -713,41 +789,36 @@ const Directory: React.FC = () => {
                 <Search className="w-5 h-5 text-gray-300 absolute top-1/2 -translate-y-1/2 right-4 pointer-events-none" />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="space-y-3">
                 {visibleContacts.map(contact => {
                     const balance = calculateCurrentBalance(contact);
                     return (
-                        <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className="bg-white p-5 rounded-[2.5rem] border border-gray-50 shadow-sm hover:shadow-lg transition-all cursor-pointer group">
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-md ${contact.type === 'CUSTOMER' ? 'bg-gradient-to-br from-blue-500 to-blue-600' : contact.type === 'SUPPLIER' ? 'bg-gradient-to-br from-orange-500 to-orange-600' : contact.type === 'PARTNER' ? 'bg-gradient-to-br from-emerald-500 to-emerald-600' : 'bg-gradient-to-br from-purple-500 to-purple-600'}`}>{displayContactName(contact).charAt(0)}</div>
-                                    <div>
-                                        <h4 className="font-black text-gray-800 text-base mb-1">{displayContactName(contact)}</h4>
-                                        <div className="flex items-center gap-2">
-                                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${contact.type === 'CUSTOMER' ? 'bg-blue-50 text-blue-600' : contact.type === 'SUPPLIER' ? 'bg-orange-50 text-orange-600' : contact.type === 'PARTNER' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'}`}>
-                                                {typeBadgeLabel(contact.type)}
+                        <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className="bg-white px-3 py-2.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer">
+                            <div className="flex justify-between items-center mb-0 gap-2 min-w-0">
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0 ${contact.type === 'CUSTOMER' ? 'bg-gradient-to-br from-blue-500 to-blue-600' : contact.type === 'SUPPLIER' ? 'bg-gradient-to-br from-orange-500 to-orange-600' : contact.type === 'PARTNER' ? 'bg-gradient-to-br from-emerald-500 to-emerald-600' : 'bg-gradient-to-br from-purple-500 to-purple-600'}`}>{displayContactName(contact).charAt(0)}</div>
+                                    <div className="min-w-0 flex items-center gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap">
+                                        <h4 className="shrink-0 font-black text-gray-800 text-sm">{displayContactName(contact)}</h4>
+                                        <span className={`shrink-0 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider ${contact.type === 'CUSTOMER' ? 'bg-blue-50 text-blue-600' : contact.type === 'SUPPLIER' ? 'bg-orange-50 text-orange-600' : contact.type === 'PARTNER' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'}`}>
+                                            {typeBadgeLabel(contact.type)}
+                                        </span>
+                                        {(contact.type === 'CUSTOMER' || contact.type === 'SUPPLIER') && contact.preferredPriceTier && (
+                                            <span className="shrink-0 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider bg-indigo-50 text-indigo-600">
+                                                {contact.preferredPriceTier === 'WHOLESALE'
+                                                    ? tr('جملة', 'Wholesale')
+                                                    : tr('مفرق', 'Retail')}
                                             </span>
-                                            {(contact.type === 'CUSTOMER' || contact.type === 'SUPPLIER') && contact.preferredPriceTier && (
-                                                <span className="text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider bg-indigo-50 text-indigo-600">
-                                                    {contact.preferredPriceTier === 'WHOLESALE'
-                                                        ? tr('\u062c\u0645\u0644\u0629', 'Wholesale')
-                                                        : tr('\u0645\u0641\u0631\u0642', 'Retail')}
-                                                </span>
-                                            )}
-                                            {contact.phone && <span className="text-[10px] text-gray-400 font-bold flex items-center gap-1"><Phone size={10} /> {contact.phone}</span>}
-                                        </div>
+                                        )}
+                                        {contact.phone && <span className="shrink-0 text-[10px] text-gray-400 font-bold flex items-center gap-1"><Phone size={10} /> {contact.phone}</span>}
                                     </div>
                                 </div>
-                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={(e) => handleEdit(e, contact)} className="p-2 bg-gray-50 rounded-xl text-blue-500 hover:bg-blue-50"><Edit2 size={16} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setDeleteContactId(contact.id); }} className="p-2 bg-gray-50 rounded-xl text-rose-500 hover:bg-rose-50"><Trash2 size={16} /></button>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className={`shrink-0 font-black text-sm dir-ltr ${balance > 0 ? 'text-rose-600' : balance < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                        {balance === 0 ? '0.00' : Math.abs(balance).toLocaleString()} {balanceStatus(balance, contact.type)}
+                                    </span>
+                                    <button onClick={(e) => handleEdit(e, contact)} className="p-1.5 bg-gray-50 rounded-lg text-blue-500 hover:bg-blue-50"><Edit2 size={14} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); setDeleteContactId(contact.id); }} className="p-1.5 bg-gray-50 rounded-lg text-rose-500 hover:bg-rose-50"><Trash2 size={14} /></button>
                                 </div>
-                            </div>
-                            <div className="flex justify-between items-center border-t border-gray-50 pt-4">
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{tr('الرصيد الحالي', 'Current Balance')}</span>
-                                <span className={`font-black text-lg dir-ltr tracking-tighter ${balance > 0 ? 'text-rose-600' : balance < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                    {balance === 0 ? '0.00' : Math.abs(balance).toLocaleString()} {balanceStatus(balance, contact.type)}
-                                </span>
                             </div>
                         </div>
                     );
@@ -755,7 +826,7 @@ const Directory: React.FC = () => {
                 {visibleContacts.length === 0 && (
                     <div className="text-center py-16 bg-white rounded-[2.5rem] border border-dashed border-gray-100">
                         <Users className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-                        <p className="text-gray-400 font-bold text-sm">{tr('لا توجد جهات اتصال مطابقة', 'No matching contacts found')}</p>
+                        <p className="text-gray-400 font-bold text-sm">{tr('لا توجد أطراف مطابقة', 'No matching contacts found')}</p>
                         <button onClick={() => setShowAddForm(true)} className="mt-4 text-blue-600 font-black text-xs">{tr('إضافة جديد +', 'Add new +')}</button>
                     </div>
                 )}
@@ -784,7 +855,7 @@ const Directory: React.FC = () => {
                     panelClassName="rounded-[2.5rem] p-8 shadow-2xl"
                 >
                     <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-black text-gray-800 text-lg">{editingContactId ? tr('تعديل بيانات', 'Edit Contact') : tr('إضافة طرف جديد', 'Add New Contact')}</h3>
+                        <h3 className="font-black text-gray-800 text-lg">{editingContactId ? tr('تعديل الطرف', 'Edit Contact') : tr('إضافة طرف جديد', 'Add New Contact')}</h3>
                         <button onClick={resetForm} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
                     </div>
                     <form onSubmit={handleSave} className="space-y-4">
@@ -795,12 +866,12 @@ const Directory: React.FC = () => {
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('الاسم التجاري / الشخصي', 'Contact Name')}</label>
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('اسم الطرف / الشخص', 'Contact Name')}</label>
                             <input value={newName} onChange={e => setNewName(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 font-bold text-sm outline-none focus:ring-4 ring-blue-50 transition-all" placeholder={tr('الاسم...', 'Name...')} required />
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('رقم الهاتف (اختياري)', 'Phone (optional)')}</label>
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('الهاتف (اختياري)', 'Phone (optional)')}</label>
                             <div className="relative">
                                 <input value={newPhone} onChange={e => setNewPhone(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 font-bold text-sm outline-none text-right dir-ltr focus:ring-4 ring-blue-50 transition-all" placeholder="05xxxxxxxx" />
                                 <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
@@ -817,9 +888,9 @@ const Directory: React.FC = () => {
 
                         {newType === 'PARTNER' && (
                             <div>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('حساب الشريك الجاري', 'Partner Current Account')}</label>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('الحساب الجاري للشريك', 'Partner Current Account')}</label>
                                 <div className="w-full p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-[11px] font-black text-emerald-800">
-                                    {tr('سيتم إنشاء حسابات الشريك تلقائيًا، وتُرحّل الحركات اليومية على جاري الشريك، بينما تتم التسوية السنوية بين الجاري ورأس المال.', 'Partner accounts are auto-created. Daily activity is posted to partner current, while year-end settlement is between current and capital.')}
+                                    {tr('يتم إنشاء حسابات الشريك تلقائياً. تُرحّل الحركة اليومية إلى الحساب الجاري للشريك، بينما تتم تسوية نهاية السنة بين الجاري ورأس المال.', 'Partner accounts are auto-created. Daily activity is posted to partner current, while year-end settlement is between current and capital.')}
                                 </div>
                                 {editingContactId && newLinkedAccountId && (
                                     <div className="mt-2 w-full p-3 bg-white rounded-2xl border border-gray-200 text-[11px] font-black text-gray-700">
@@ -831,7 +902,7 @@ const Directory: React.FC = () => {
 
                         <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-[1.8rem] font-black text-sm shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 mt-4">
                             <CheckCircle2 size={18} />
-                            {editingContactId ? tr('حفظ التعديلات', 'Save Changes') : tr('إضافة للقائمة', 'Add to List')}
+                            {editingContactId ? tr('حفظ التعديلات', 'Save Changes') : tr('إضافة إلى القائمة', 'Add to List')}
                         </button>
                     </form>
                 </ResponsiveDialog>
@@ -853,13 +924,27 @@ const Directory: React.FC = () => {
                         if (!contact) return null;
                         const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
                         return (
-                            <>
-                                <div className="bg-slate-50 p-6 border-b border-gray-200 flex justify-between items-center">
+                            <div ref={statementExportRef} className="h-full flex flex-col bg-white">
+                                <div className="bg-slate-50 p-6 border-b border-gray-200 flex justify-between items-center gap-3">
                                     <div>
                                         <h2 className="text-xl font-black text-gray-800">{displayContactName(contact)}</h2>
                                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
                                     </div>
-                                    <button onClick={() => setSelectedContactId(null)} className="p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-100"><X size={18} /></button>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <DocumentActions
+                                            title={`${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`}
+                                            shareText={buildStatementShareText(contact, closingBalance)}
+                                            isEnglish={isEnglish}
+                                            tr={tr}
+                                            onPrint={() => handlePrintStatement(contact)}
+                                            onSave={() => downloadStatementSnapshot(contact)}
+                                            onExcel={() => exportStatementExcel(contact)}
+                                            onWhatsapp={() => handleShareStatementWhatsApp(contact, closingBalance)}
+                                            saveTitle={tr('تنزيل كشف الحساب', 'Download statement')}
+                                            showSaveButton={false}
+                                        />
+                                        <button onClick={() => setSelectedContactId(null)} className="p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-100"><X size={18} /></button>
+                                    </div>
                                 </div>
 
                                 <div className="p-4 grid grid-cols-2 gap-3 bg-white border-b border-gray-100">
@@ -877,7 +962,7 @@ const Directory: React.FC = () => {
                                     />
                                 </div>
 
-                                <div className="flex-1 overflow-x-auto p-4">
+                                <div ref={statementContentRef} className="flex-1 overflow-x-auto p-4">
                                     <table className="w-full min-w-[max-content] text-sm border-collapse">
                                         <thead className="bg-slate-800 text-white rounded-t-xl">
                                             <tr>
@@ -891,7 +976,7 @@ const Directory: React.FC = () => {
                                         <tbody className="divide-y divide-gray-100">
                                             <tr className="bg-amber-50/50 font-bold">
                                                 <td className="p-3 text-center text-xs">-</td>
-                                                <td className="p-3 text-xs">{tr('رصيد ما قبل الفترة', 'Opening balance')}</td>
+                                                <td className="p-3 text-xs">{tr('الرصيد الافتتاحي', 'Opening balance')}</td>
                                                 <td className="p-3 text-center text-xs">-</td>
                                                 <td className="p-3 text-center text-xs">-</td>
                                                 <td className="p-3 text-center font-black text-xs dir-ltr">{openingBalance.toLocaleString()}</td>
@@ -922,12 +1007,12 @@ const Directory: React.FC = () => {
                                                                     {checksInGroup.map((relatedCheck: any, idx: number) => (
                                                                         <div key={idx} className="p-1.5 bg-gray-50 border border-gray-100 rounded-lg text-[10px] text-gray-500 inline-block w-full">
                                                                             <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                                                                                <div><span className="font-black text-gray-700">{tr('شيك رقم:', 'Check #:')}</span> {relatedCheck.checkNumber}</div>
+                                                                                <div><span className="font-black text-gray-700">{tr('رقم الشيك:', 'Check #:')}</span> {relatedCheck.checkNumber}</div>
                                                                                 <div><span className="font-black text-gray-700">{tr('البنك:', 'Bank:')}</span> {displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}</div>
-                                                                                {relatedCheck.accountNumber && <div><span className="font-black text-gray-700">{tr('حساب:', 'Account:')}</span> {relatedCheck.accountNumber}</div>}
-                                                                                <div><span className="font-black text-gray-700">{tr('استحقاق:', 'Due:')}</span> {formatDate(relatedCheck.dueDate)}</div>
+                                                                                {relatedCheck.accountNumber && <div><span className="font-black text-gray-700">{tr('الحساب:', 'Account:')}</span> {relatedCheck.accountNumber}</div>}
+                                                                                <div><span className="font-black text-gray-700">{tr('الاستحقاق:', 'Due:')}</span> {formatDate(relatedCheck.dueDate)}</div>
                                                                                 <div className="col-span-2 border-t border-gray-200 mt-1 pt-1 flex justify-between">
-                                                                                    <span><span className="font-black text-emerald-600">{tr('القيمة:', 'Amount:')}</span> <span className="dir-ltr font-bold text-gray-800">{relatedCheck.amount.toLocaleString()}</span></span>
+                                                                                    <span><span className="font-black text-emerald-600">{tr('المبلغ:', 'Amount:')}</span> <span className="dir-ltr font-bold text-gray-800">{relatedCheck.amount.toLocaleString()}</span></span>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -981,7 +1066,7 @@ const Directory: React.FC = () => {
                                 </div>
 
                                 <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center gap-3">
-                                    <div className="flex items-center gap-2 flex-wrap">
+                                    <div data-document-actions className="flex items-center gap-2 flex-wrap">
                                         <label className="inline-flex items-center gap-2 bg-white border border-gray-200 px-3 py-2 rounded-xl text-[11px] font-bold text-gray-600 cursor-pointer hover:bg-gray-100 transition-colors">
                                             <input
                                                 type="checkbox"
@@ -991,16 +1076,13 @@ const Directory: React.FC = () => {
                                             />
                                             <span>{tr('طباعة صور الشيكات مع الكشف', 'Print check images with statement')}</span>
                                         </label>
-                                        <button onClick={() => handlePrintStatement(contact)} className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-xl text-xs font-bold hover:bg-gray-100 text-gray-600">
-                                            <Printer size={16} /> {tr('طباعة الكشف', 'Print Statement')}
-                                        </button>
                                     </div>
                                     <div className="text-left">
-                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{tr('الرصيد النهائي', 'Closing Balance')}</span>
+                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{tr('الرصيد الختامي', 'Closing Balance')}</span>
                                         <span className={`text-xl font-black dir-ltr ${closingBalance > 0 ? 'text-rose-600' : closingBalance < 0 ? 'text-emerald-600' : 'text-slate-800'}`}>{closingBalance.toLocaleString()}</span>
                                     </div>
                                 </div>
-                            </>
+                            </div>
                         );
                     })()}
                 </ResponsiveDialog>
@@ -1019,7 +1101,7 @@ const Directory: React.FC = () => {
                     </div>
                     <h3 className="font-black text-gray-800 text-lg mb-2">{tr('حذف الطرف نهائيًا؟', 'Delete contact permanently?')}</h3>
                     <p className="text-gray-500 text-xs font-bold mb-8 leading-relaxed">
-                        {tr('هل أنت متأكد من حذف هذا الطرف من الدليل؟ قد يؤثر ذلك على السجلات المالية المرتبطة به.', 'Are you sure you want to delete this contact? This may affect linked financial records.')}
+                        {tr('هل أنت متأكد من حذف هذا الطرف؟ قد يؤثر ذلك على السجلات المالية المرتبطة.', 'Are you sure you want to delete this contact? This may affect linked financial records.')}
                     </p>
                     <div className="flex gap-3">
                         <button onClick={() => setDeleteContactId(null)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black text-xs hover:bg-gray-200 transition-all active:scale-95">
@@ -1036,3 +1118,7 @@ const Directory: React.FC = () => {
 };
 
 export default Directory;
+
+
+
+

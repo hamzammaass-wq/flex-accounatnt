@@ -4,7 +4,7 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { 
   Package, Trash2, Plus, Search, Tag, AlertCircle, 
   LayoutGrid, X, Check, Edit2, ArrowUpDown, SlidersHorizontal,
-  FolderPlus, Settings, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer
+  FolderPlus, Settings, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer, BellRing
 } from 'lucide-react';
 import { Product } from '../types';
 import ProductCard from './ProductCard';
@@ -17,6 +17,7 @@ import { printProductBarcodeLabel } from '../utils/barcodeLabelPrint';
 import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayProductName, getDisplayUnitName } from '../utils/displayNames';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
+import InventoryPricingManager from './InventoryPricingManager';
 
 const ProductList: React.FC = () => {
   const { 
@@ -35,6 +36,7 @@ const ProductList: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [showUnitForm, setShowUnitForm] = useState(false); 
+  const [activeScreen, setActiveScreen] = useState<'ITEMS' | 'PRICING'>('ITEMS');
   const [searchTerm, setSearchTerm] = useState('');
   const [groupFilter, setGroupFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState<'LATEST' | 'NAME_ASC' | 'STOCK_LOW' | 'VALUE_HIGH'>('LATEST');
@@ -496,28 +498,54 @@ const ProductList: React.FC = () => {
            <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-tight break-words">{tr('المستودع', 'Inventory')}</h1>
            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">{tr('إدارة الأصناف والمخزون', 'Items and Stock Management')}</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0 self-start">
-            <button 
-                onClick={() => setShowThresholdConfig(!showThresholdConfig)}
-                className={`p-3 rounded-2xl border transition-all ${showThresholdConfig || lowStockCount > 0 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 shadow-sm'}`}
-            >
-                {lowStockCount > 0 ? <BellRing className="w-5 h-5 animate-pulse" /> : <Settings className="w-5 h-5" />}
-            </button>
-            <button 
-                onClick={() => setShowGroupForm(true)}
-                className="bg-white text-indigo-600 p-3 rounded-2xl border border-indigo-100 hover:bg-indigo-50 transition-all shadow-sm"
-            >
-                <FolderPlus className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={handleOpenAdd}
-                className="bg-blue-600 text-white p-3 rounded-2xl shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-90"
-            >
-                <Plus className="w-6 h-6" />
-            </button>
-        </div>
+        {activeScreen === 'ITEMS' ? (
+          <div className="flex items-center gap-2 shrink-0 self-start">
+              <button 
+                  onClick={() => setShowThresholdConfig(!showThresholdConfig)}
+                  className={`p-3 rounded-2xl border transition-all ${showThresholdConfig || lowStockCount > 0 ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 shadow-sm'}`}
+              >
+                  {lowStockCount > 0 ? <BellRing className="w-5 h-5 animate-pulse" /> : <Settings className="w-5 h-5" />}
+              </button>
+              <button 
+                  onClick={() => setShowGroupForm(true)}
+                  className="bg-white text-indigo-600 p-3 rounded-2xl border border-indigo-100 hover:bg-indigo-50 transition-all shadow-sm"
+              >
+                  <FolderPlus className="w-5 h-5" />
+              </button>
+              <button 
+                  onClick={handleOpenAdd}
+                  className="bg-blue-600 text-white p-3 rounded-2xl shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-90"
+              >
+                  <Plus className="w-6 h-6" />
+              </button>
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-2 self-start rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-[11px] font-black text-blue-700">
+            <Tag className="w-4 h-4" />
+            {tr('شاشة تسعير مستقلة', 'Dedicated pricing screen')}
+          </div>
+        )}
       </header>
 
+      <div className="mb-6 flex w-full rounded-[1.8rem] border border-slate-100 bg-white p-1 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setActiveScreen('ITEMS')}
+          className={`flex-1 rounded-[1.2rem] px-4 py-3 text-sm font-black transition-all ${activeScreen === 'ITEMS' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}
+        >
+          {tr('الأصناف', 'Items')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveScreen('PRICING')}
+          className={`flex-1 rounded-[1.2rem] px-4 py-3 text-sm font-black transition-all ${activeScreen === 'PRICING' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'text-slate-500 hover:bg-slate-50'}`}
+        >
+          {tr('أسعار الأصناف', 'Item Pricing')}
+        </button>
+      </div>
+
+      {activeScreen === 'ITEMS' ? (
+        <>
       {/* Threshold Config */}
       {showThresholdConfig && (
           <div className="bg-white p-5 rounded-[2rem] border border-amber-100 shadow-sm mb-6 animate-in slide-in-from-top-4">
@@ -682,17 +710,22 @@ const ProductList: React.FC = () => {
                             {group.icon}
                         </div>
                         <div className="min-w-0">
-                            <h4 className="font-black text-slate-800 text-base mb-1 leading-snug break-words">{displayProductName(product)}</h4>
-                            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                            <h4
+                              className="font-black text-slate-800 text-base mb-1 leading-snug truncate whitespace-nowrap"
+                              title={displayProductName(product)}
+                            >
+                              {displayProductName(product)}
+                            </h4>
+                            <div className="flex flex-nowrap items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
+                                <span className="shrink-0 text-[9px] font-black text-gray-400 uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
                                     {displayGroupName(group)}
                                 </span>
-                                {product.lowStockAlertQty !== undefined && <span className="text-[8px] font-mono text-orange-500">{tr('حد نقص', 'Low Threshold')} {product.lowStockAlertQty}</span>}
-                                {product.expiryPeriodDays !== undefined && product.expiryPeriodDays > 0 && <span className="text-[8px] font-mono text-violet-600">{tr('صلاحية', 'Shelf Life')} {product.expiryPeriodDays} {tr('يوم', 'day')}</span>}
-                                {product.expiryAlertLeadDays !== undefined && product.expiryAlertLeadDays >= 0 && <span className="text-[8px] font-mono text-rose-500">{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays} {tr('يوم', 'day')}</span>}
-                                {product.expiryDate && <span className="text-[8px] font-mono text-emerald-600">{tr('انتهاء', 'Expiry')} {product.expiryDate}</span>}
-                                {product.itemCode && <span className="text-[8px] font-mono text-indigo-400">{product.itemCode}</span>}
-                                {product.barcode && <span className="text-[8px] font-mono text-slate-300">{product.barcode}</span>}
+                                {product.lowStockAlertQty !== undefined && <span className="shrink-0 text-[8px] font-mono text-orange-500">{tr('حد نقص', 'Low Threshold')} {product.lowStockAlertQty}</span>}
+                                {product.expiryPeriodDays !== undefined && product.expiryPeriodDays > 0 && <span className="shrink-0 text-[8px] font-mono text-violet-600">{tr('صلاحية', 'Shelf Life')} {product.expiryPeriodDays} {tr('يوم', 'day')}</span>}
+                                {product.expiryAlertLeadDays !== undefined && product.expiryAlertLeadDays >= 0 && <span className="shrink-0 text-[8px] font-mono text-rose-500">{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays} {tr('يوم', 'day')}</span>}
+                                {product.expiryDate && <span className="shrink-0 text-[8px] font-mono text-emerald-600">{tr('انتهاء', 'Expiry')} {product.expiryDate}</span>}
+                                {product.itemCode && <span className="shrink-0 text-[8px] font-mono text-indigo-400">{product.itemCode}</span>}
+                                {product.barcode && <span className="shrink-0 text-[8px] font-mono text-slate-300">{product.barcode}</span>}
                             </div>
                         </div>
                     </div>
@@ -716,9 +749,9 @@ const ProductList: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center bg-gray-50/50 rounded-[1.5rem] p-3 border border-gray-50 group-hover:bg-white group-hover:border-gray-100 transition-all">
-                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-1`}>
-                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('سعر المفرق', 'Retail Price')}</span>
+                <div className="grid grid-cols-4 gap-1.5 sm:gap-3 text-center bg-gray-50/50 rounded-[1.5rem] p-2.5 sm:p-3 border border-gray-50 group-hover:bg-white group-hover:border-gray-100 transition-all">
+                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-0.5 sm:px-1`}>
+                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('سعر المفرق', 'Retail Price')}</span>
                         {isEditing ? (
                             <div className="flex items-center justify-center gap-1 px-1">
                                 <input 
@@ -736,36 +769,36 @@ const ProductList: React.FC = () => {
                                 <button onClick={(e) => handleSavePrice(e, product.id)} className="text-emerald-500"><Check size={14} /></button>
                             </div>
                         ) : (
-                            <div className="flex items-center justify-center gap-1 group/price" onClick={(e) => startEditing(e, product)}>
-                                <div className="w-full text-center font-black text-slate-700 text-sm dir-ltr">{formatCurrency(pricing.retailPrice)}</div>
+                            <div className="flex items-center justify-center gap-1 group/price min-w-0" onClick={(e) => startEditing(e, product)}>
+                                <div className="w-full text-center font-black text-slate-700 text-[11px] sm:text-sm dir-ltr leading-tight truncate">{formatCurrency(pricing.retailPrice)}</div>
                                 <Edit2 size={10} className="text-gray-300 group-hover/price:text-blue-500" />
                             </div>
                         )}
                         {pricing.retailPricingMode === 'MARKUP' && (
-                          <div className="text-[8px] font-black text-emerald-600 mt-1">+{pricing.retailMarkupPercent}%</div>
+                          <div className="text-[7px] sm:text-[8px] font-black text-emerald-600 mt-1 leading-tight">+{pricing.retailMarkupPercent}%</div>
                         )}
                     </div>
 
-                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-1`}>
-                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('سعر الجملة', 'Wholesale Price')}</span>
-                        <div className="w-full text-center font-black text-violet-700 text-sm dir-ltr">{formatCurrency(pricing.wholesalePrice)}</div>
+                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-0.5 sm:px-1`}>
+                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('سعر الجملة', 'Wholesale Price')}</span>
+                        <div className="w-full text-center font-black text-violet-700 text-[11px] sm:text-sm dir-ltr leading-tight truncate">{formatCurrency(pricing.wholesalePrice)}</div>
                         {pricing.wholesalePricingMode === 'MARKUP' && (
-                          <div className="text-[8px] font-black text-violet-600 mt-1">+{pricing.wholesaleMarkupPercent}%</div>
+                          <div className="text-[7px] sm:text-[8px] font-black text-violet-600 mt-1 leading-tight">+{pricing.wholesaleMarkupPercent}%</div>
                         )}
                     </div>
 
-                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-1`}>
-                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('التكلفة الصافية', 'Net Cost')}</span>
-                        <div className="w-full text-center font-black text-blue-700 text-sm dir-ltr">{formatCurrency(pricing.cost)}</div>
+                    <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-0.5 sm:px-1`}>
+                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('التكلفة الصافية', 'Net Cost')}</span>
+                        <div className="w-full text-center font-black text-blue-700 text-[11px] sm:text-sm dir-ltr leading-tight truncate">{formatCurrency(pricing.cost)}</div>
                     </div>
 
-                    <div className="flex flex-col items-center justify-center min-w-0 px-1">
-                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('المخزون', 'Stock')}</span>
-                        <div className={`w-full text-center font-black text-sm dir-ltr flex items-center justify-center gap-1 ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    <div className="flex flex-col items-center justify-center min-w-0 px-0.5 sm:px-1">
+                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('المخزون', 'Stock')}</span>
+                        <div className={`w-full text-center font-black text-[11px] sm:text-sm dir-ltr flex items-center justify-center gap-1 leading-tight ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
                             {product.stock}
-                            <span className="text-[9px] text-gray-400 font-bold">{unit?.code}</span>
+                            <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold truncate">{unit?.code}</span>
                         </div>
-                        <div className="w-full text-center text-[8px] font-black text-gray-400 mt-1 dir-ltr">
+                        <div className="w-full text-center text-[7px] sm:text-[8px] font-black text-gray-400 mt-1 dir-ltr leading-tight truncate">
                           {formatCurrency(product.stock * pricing.cost)}
                         </div>
                     </div>
@@ -797,6 +830,10 @@ const ProductList: React.FC = () => {
             </div>
         )}
       </div>
+      </>
+      ) : (
+        <InventoryPricingManager />
+      )}
 
       {/* Scanner Overlay */}
       {showScanner && (

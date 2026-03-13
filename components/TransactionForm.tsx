@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAccounting } from '../contexts/AccountingContext';
-import { TransactionType, Product, InvoiceItem, ContactType, CheckStatus, Contact, Invoice, Account, FixedAsset, Check as CheckTypeData, Transaction, InvoiceSettlement } from '../types';
+import { TransactionType, Product, InvoiceItem, ContactType, CheckStatus, Contact, Invoice, InvoiceTaxMode, Account, FixedAsset, Check as CheckTypeData, Transaction, InvoiceSettlement } from '../types';
 import ProductCard from './ProductCard';
 import ContactEditorDialog from './ContactEditorDialog';
 import EnglishDateInput from './EnglishDateInput';
@@ -25,6 +26,15 @@ import { appendDeviceHubLog } from '../utils/deviceHub';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import { resolveInvoiceProductUnitPrice } from '../utils/invoicePricing';
 import { buildLastInvoicePriceMap } from '../utils/invoiceLastPrice';
+import { getInvoiceTaxVisibility } from '../utils/companySettings';
+import {
+    calculateInvoiceTaxSummary,
+    getDefaultInvoiceTaxMode,
+    getInvoiceTaxModeDescription,
+    getInvoiceTaxModeLabel,
+    isInvoiceTaxApplied,
+    resolveInvoiceTaxMode
+} from '../utils/invoiceTax';
 
 export type TransactionTabType = 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'EXPENSES' | 'VOUCHERS' | 'JOURNAL' | 'IMPORT_EXPENSES' | 'MANUAL_PURCHASE';
 
@@ -41,6 +51,9 @@ interface TransactionFormProps {
 const inputClass = "w-full p-4 bg-gray-50 border border-gray-100 rounded-[1.5rem] text-base font-bold text-slate-700 outline-none transition-all duration-300 shadow-sm focus:bg-white focus:shadow-[0_8px_20px_rgba(0,0,0,0.06)] focus:border-blue-400/30 placeholder:text-gray-300";
 const selectClass = "w-full p-4 bg-gray-50 border border-gray-100 rounded-[1.5rem] text-base font-bold text-slate-700 outline-none appearance-none transition-all duration-300 shadow-sm focus:bg-white focus:shadow-[0_8px_20px_rgba(0,0,0,0.06)] focus:border-blue-400/30";
 const tableInputClass = "w-full p-3 text-center text-base sm:text-xs font-black bg-white border border-gray-100 rounded-2xl outline-none transition-all focus:shadow-md focus:border-blue-200 dir-ltr";
+const getSearchableInputPaddingClass = (isEnglish: boolean) => isEnglish ? '!pl-11 !pr-16' : '!pr-11 !pl-16';
+const getSearchableActionButtonPositionClass = (isEnglish: boolean) => isEnglish ? 'right-3 pl-3 border-l border-slate-200/80' : 'left-3 pr-3 border-r border-slate-200/80';
+const getSearchableIconPositionClass = (isEnglish: boolean) => isEnglish ? 'left-4' : 'right-4';
 
 const focusNextFieldOnEnter = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Enter' || event.defaultPrevented) return;
@@ -53,14 +66,15 @@ const focusNextFieldOnEnter = (event: React.KeyboardEvent<HTMLDivElement>) => {
 
     event.preventDefault();
     const scope = event.currentTarget;
-    const focusable = Array.from(
+    const focusable: HTMLElement[] = Array.from(
         scope.querySelectorAll<HTMLElement>("input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])")
-    ).filter((node) => node.tabIndex !== -1 && node.offsetParent !== null);
+    );
+    const visibleFocusable = focusable.filter((node: HTMLElement) => node.tabIndex !== -1 && node.offsetParent !== null);
 
-    const currentIndex = focusable.indexOf(target);
+    const currentIndex = visibleFocusable.indexOf(target);
     if (currentIndex < 0) return;
-    for (let i = currentIndex + 1; i < focusable.length; i += 1) {
-        const next = focusable[i];
+    for (let i = currentIndex + 1; i < visibleFocusable.length; i += 1) {
+        const next = visibleFocusable[i];
         if (next.getAttribute('data-enter-skip') === 'true') continue;
         next.focus();
         if (next instanceof HTMLInputElement && !['checkbox', 'radio'].includes(next.type)) {
@@ -129,6 +143,9 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
     const [query, setQuery] = useState(selectedLabel);
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const inputPaddingClass = getSearchableInputPaddingClass(isEnglish);
+    const actionButtonPositionClass = getSearchableActionButtonPositionClass(isEnglish);
+    const searchIconPositionClass = getSearchableIconPositionClass(isEnglish);
 
     useEffect(() => {
         setQuery(selectedLabel);
@@ -169,7 +186,7 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
 
     return (
         <div ref={containerRef} className={`relative ${className}`}>
-            <Search className={`absolute ${isEnglish ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none z-10`} size={16} />
+            <Search className={`absolute ${searchIconPositionClass} top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none z-10`} size={16} />
             <input
                 value={query}
                 onChange={(e) => {
@@ -214,7 +231,7 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                 placeholder={placeholder}
                 autoComplete="off"
                 data-enter-skip="true"
-                className={inputClassName}
+                className={`${inputClassName} ${inputPaddingClass}`}
             />
             <button
                 type="button"
@@ -226,11 +243,13 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                     setIsOpen(prev => !prev);
                     if (!isOpen) setQuery(selectedLabel);
                 }}
-                className={`absolute ${isEnglish ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 z-10 ${actionButtonClassName || 'text-gray-400 hover:text-slate-700'}`}
+                className={`absolute ${actionButtonPositionClass} top-1/2 -translate-y-1/2 z-10 flex h-8 items-center ${actionButtonClassName || 'text-gray-400 hover:text-slate-700'}`}
                 tabIndex={onActionClick ? 0 : -1}
                 title={actionLabel}
             >
-                {actionIcon || <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/95 shadow-sm ring-1 ring-slate-200/70">
+                    {actionIcon || <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+                </span>
             </button>
             {isOpen && (
                 <div className="absolute top-full left-0 right-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-[1.25rem] border border-gray-200 bg-white shadow-2xl">
@@ -266,6 +285,309 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                             )}
                         </div>
                     )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+interface SearchableAccountSelectProps {
+    accounts: Account[];
+    selectedId: string;
+    onSelect: (id: string) => void;
+    displayAccountName: (account?: { id: string; name: string } | null) => string;
+    placeholder: string;
+    emptyLabel: string;
+    isEnglish: boolean;
+    className?: string;
+    inputClassName?: string;
+}
+
+const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
+    accounts,
+    selectedId,
+    onSelect,
+    displayAccountName,
+    placeholder,
+    emptyLabel,
+    isEnglish,
+    className = '',
+    inputClassName = ''
+}) => {
+    const [query, setQuery] = useState('');
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const dropdownRef = useRef<HTMLDivElement | null>(null);
+    const inputPaddingClass = getSearchableInputPaddingClass(isEnglish);
+    const actionButtonPositionClass = getSearchableActionButtonPositionClass(isEnglish);
+    const searchIconPositionClass = getSearchableIconPositionClass(isEnglish);
+    const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties | null>(null);
+
+    const selectedLabel = useMemo(() => {
+        const selected = accounts.find(account => account.id === selectedId);
+        return selected ? `${selected.code} - ${displayAccountName(selected)}` : '';
+    }, [accounts, selectedId, displayAccountName]);
+
+    useEffect(() => {
+        setQuery(selectedLabel);
+    }, [selectedLabel]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target as Node;
+            if (!containerRef.current?.contains(target) && !dropdownRef.current?.contains(target)) {
+                setIsOpen(false);
+                setQuery(selectedLabel);
+            }
+        };
+        window.addEventListener('pointerdown', handlePointerDown);
+        return () => window.removeEventListener('pointerdown', handlePointerDown);
+    }, [isOpen, selectedLabel]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setDropdownStyle(null);
+            return;
+        }
+
+        const updateDropdownPosition = () => {
+            const trigger = containerRef.current;
+            if (!trigger) return;
+
+            const rect = trigger.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const safeMargin = 8;
+            const preferredMaxHeight = Math.min(320, Math.floor(viewportHeight * 0.42));
+            const spaceBelow = viewportHeight - rect.bottom - safeMargin;
+            const spaceAbove = rect.top - safeMargin;
+            const openUpward = spaceBelow < 200 && spaceAbove > spaceBelow;
+            const availableHeight = Math.max(
+                140,
+                Math.min(preferredMaxHeight, (openUpward ? spaceAbove : spaceBelow) - 12)
+            );
+            const width = Math.min(rect.width, viewportWidth - (safeMargin * 2));
+            const left = Math.max(safeMargin, Math.min(rect.left, viewportWidth - width - safeMargin));
+
+            setDropdownStyle(openUpward
+                ? {
+                    position: 'fixed',
+                    left,
+                    width,
+                    bottom: Math.max(safeMargin, viewportHeight - rect.top + 8),
+                    maxHeight: availableHeight,
+                    zIndex: 260
+                }
+                : {
+                    position: 'fixed',
+                    left,
+                    width,
+                    top: Math.min(viewportHeight - safeMargin, rect.bottom + 8),
+                    maxHeight: availableHeight,
+                    zIndex: 260
+                });
+        };
+
+        updateDropdownPosition();
+        window.addEventListener('resize', updateDropdownPosition);
+        document.addEventListener('scroll', updateDropdownPosition, true);
+        return () => {
+            window.removeEventListener('resize', updateDropdownPosition);
+            document.removeEventListener('scroll', updateDropdownPosition, true);
+        };
+    }, [isOpen]);
+
+    const filteredAccounts = useMemo(() => {
+        const keyword = query.trim().toLowerCase();
+        if (!keyword) return accounts.slice(0, 80);
+        return accounts
+            .filter(account => {
+                const label = `${account.code} - ${displayAccountName(account)}`.toLowerCase();
+                return (
+                    String(account.code || '').toLowerCase().includes(keyword)
+                    || String(account.name || '').toLowerCase().includes(keyword)
+                    || label.includes(keyword)
+                );
+            })
+            .slice(0, 80);
+    }, [accounts, query, displayAccountName]);
+
+    const handleSelect = (accountId: string) => {
+        const target = accounts.find(account => account.id === accountId) || null;
+        onSelect(accountId);
+        setQuery(target ? `${target.code} - ${displayAccountName(target)}` : '');
+        setIsOpen(false);
+    };
+
+    return (
+        <div ref={containerRef} className={`relative ${className}`}>
+            <Search className={`absolute ${searchIconPositionClass} top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none z-10`} size={14} />
+            <input
+                value={query}
+                onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setQuery(nextValue);
+                    setIsOpen(true);
+                    if (!nextValue.trim()) onSelect('');
+                }}
+                onFocus={(event) => {
+                    setIsOpen(true);
+                    event.currentTarget.select();
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        setIsOpen(false);
+                        setQuery(selectedLabel);
+                        return;
+                    }
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        const firstMatch = filteredAccounts[0];
+                        if (firstMatch) {
+                            handleSelect(firstMatch.id);
+                        } else {
+                            setIsOpen(false);
+                            setQuery(selectedLabel);
+                        }
+                    }
+                }}
+                placeholder={placeholder}
+                autoComplete="off"
+                data-enter-skip="true"
+                className={`${inputClassName} ${inputPaddingClass}`}
+            />
+            <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                    setIsOpen(prev => !prev);
+                    if (!isOpen) setQuery(selectedLabel);
+                }}
+                className={`absolute ${actionButtonPositionClass} top-1/2 -translate-y-1/2 z-10 flex h-8 items-center text-gray-400 hover:text-slate-700`}
+                tabIndex={-1}
+                title={isEnglish ? 'Toggle list' : 'فتح/إغلاق القائمة'}
+            >
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/95 shadow-sm ring-1 ring-slate-200/70">
+                    <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </span>
+            </button>
+
+            {isOpen && dropdownStyle && createPortal(
+                <div
+                    ref={dropdownRef}
+                    style={dropdownStyle}
+                    className="overflow-y-auto rounded-[1rem] border border-gray-200 bg-white shadow-2xl"
+                >
+                    {filteredAccounts.length > 0 ? filteredAccounts.map(account => (
+                        <button
+                            key={account.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => handleSelect(account.id)}
+                            className={`w-full px-3 py-2 text-start transition-colors hover:bg-blue-50 ${account.id === selectedId ? 'bg-blue-50/80' : 'bg-white'}`}
+                        >
+                            <div className="truncate text-xs font-black text-slate-700">{account.code} - {displayAccountName(account)}</div>
+                            <div className="mt-0.5 text-[10px] font-bold text-slate-400">{account.type}</div>
+                        </button>
+                    )) : (
+                        <div className="px-3 py-3 text-xs font-black text-slate-400">{emptyLabel}</div>
+                    )}
+                </div>,
+                document.body
+            )}
+        </div>
+    );
+};
+
+interface QuickAccountLookupProps {
+    accounts: Account[];
+    displayAccountName: (account?: { id: string; name: string } | null) => string;
+    tr: (ar: string, en: string) => string;
+    baseCurrency: string;
+    isEnglish: boolean;
+    className?: string;
+}
+
+const QuickAccountLookup: React.FC<QuickAccountLookupProps> = ({
+    accounts,
+    displayAccountName,
+    tr,
+    baseCurrency,
+    isEnglish,
+    className = ''
+}) => {
+    const [selectedAccountId, setSelectedAccountId] = useState('');
+
+    const postingAccounts = useMemo(
+        () => accounts.filter(account => !account.isGroup),
+        [accounts]
+    );
+
+    useEffect(() => {
+        if (selectedAccountId && !postingAccounts.some(account => account.id === selectedAccountId)) {
+            setSelectedAccountId('');
+        }
+    }, [postingAccounts, selectedAccountId]);
+
+    const selectedAccount = useMemo(
+        () => postingAccounts.find(account => account.id === selectedAccountId) || null,
+        [postingAccounts, selectedAccountId]
+    );
+    const selectedAccountLabel = selectedAccount
+        ? `${selectedAccount.code || ''}${selectedAccount.code ? ' - ' : ''}${displayAccountName(selectedAccount)}`
+        : '';
+
+    const accountTypeLabel = (type?: string) => {
+        switch (type) {
+            case 'ASSET': return tr('أصل', 'Asset');
+            case 'LIABILITY': return tr('التزام', 'Liability');
+            case 'EQUITY': return tr('حقوق ملكية', 'Equity');
+            case 'REVENUE': return tr('إيراد', 'Revenue');
+            case 'EXPENSE': return tr('مصروف', 'Expense');
+            default: return type || '-';
+        }
+    };
+
+    return (
+        <div className={`rounded-2xl border border-slate-200 bg-slate-50/70 p-3 ${className}`}>
+            <div className="flex items-center gap-2 mb-2">
+                <Search size={14} className="text-slate-400" />
+                <h4 className="text-xs font-black text-slate-700">
+                    {tr('الحسابات (بحث سريع)', 'Accounts (Quick Lookup)')}
+                </h4>
+            </div>
+            <SearchableAccountSelect
+                accounts={postingAccounts}
+                selectedId={selectedAccountId}
+                onSelect={setSelectedAccountId}
+                selectedLabel={selectedAccountLabel}
+                displayAccountName={displayAccountName}
+                placeholder={tr('ابحث باسم الحساب أو الرمز ثم اختره...', 'Search account name/code, then select it...')}
+                emptyLabel={tr('لا يوجد حساب مطابق.', 'No matching account found.')}
+                isEnglish={isEnglish}
+                className="w-full"
+                inputClassName={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-indigo-300 ${isEnglish ? 'text-left' : 'text-right'}`}
+            />
+            {selectedAccount && (
+                <div className="mt-2 grid grid-cols-2 gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-2 text-[10px] font-black text-slate-700">
+                    <div>
+                        <div className="text-slate-400">{tr('الرمز', 'Code')}</div>
+                        <div className="dir-ltr">{selectedAccount.code || '-'}</div>
+                    </div>
+                    <div>
+                        <div className="text-slate-400">{tr('النوع', 'Type')}</div>
+                        <div>{accountTypeLabel(selectedAccount.type)}</div>
+                    </div>
+                    <div className="col-span-2">
+                        <div className="text-slate-400">{tr('اسم الحساب', 'Account Name')}</div>
+                        <div className="truncate">{displayAccountName(selectedAccount)}</div>
+                    </div>
+                    <div className="col-span-2">
+                        <div className="text-slate-400">{tr('الرصيد الحالي', 'Current Balance')}</div>
+                        <div className="dir-ltr">{Number(selectedAccount.balance || 0).toLocaleString()} {baseCurrency}</div>
+                    </div>
                 </div>
             )}
         </div>
@@ -489,13 +811,11 @@ const InvoiceScreen: React.FC<{
     const isExpenses = mode === 'EXPENSES';
     const isImportExpenses = mode === 'IMPORT_EXPENSES';
     const isExpenseStyle = isExpenses || isImportExpenses;
+    const isExpenseVoucherManualOnly = isExpenses;
     const isPurchase = mode === 'PURCHASES' || mode === 'MANUAL_PURCHASE';
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const isSalesFlow = isSales || isReturn || isQuotation;
-    const taxVisibleInInvoices = isExpenseStyle
-        ? true
-        : (companySettings.showTaxInInvoices ?? true)
-        && (isSalesFlow ? !(companySettings.hideSalesTax ?? false) : !(companySettings.hidePurchaseTax ?? false));
+    const taxVisibleInInvoices = getInvoiceTaxVisibility(companySettings, isSalesFlow ? 'sales' : 'purchase');
     const autoAddItemPriceInInvoice = companySettings.autoAddItemPriceInInvoice ?? true;
     const invoiceExpiryDateEnabled = companySettings.invoiceExpiryDateEnabled ?? false;
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -575,9 +895,12 @@ const InvoiceScreen: React.FC<{
 
     const [expenseAccountId, setExpenseAccountId] = useState('');
 
-    const [taxEnabled, setTaxEnabled] = useState(taxVisibleInInvoices);
+    const defaultInvoiceTaxMode = useMemo(
+        () => getDefaultInvoiceTaxMode(taxVisibleInInvoices, companySettings.defaultTaxRate ?? 0),
+        [taxVisibleInInvoices, companySettings.defaultTaxRate]
+    );
+    const [taxMode, setTaxMode] = useState<InvoiceTaxMode>(defaultInvoiceTaxMode);
     const [taxRateOverride, setTaxRateOverride] = useState(String(companySettings.defaultTaxRate ?? 0));
-    const [separatePurchaseTaxFromAmount, setSeparatePurchaseTaxFromAmount] = useState(false);
     const [dueDate, setDueDate] = useState(sharedState.date);
     const [discount, setDiscount] = useState('');
     const [notes, setNotes] = useState('');
@@ -641,6 +964,13 @@ const InvoiceScreen: React.FC<{
     }, [initialLinkedId]);
 
     useEffect(() => {
+        if (!isExpenseVoucherManualOnly) return;
+        setIsManualItem(true);
+        setIsSearchFocused(false);
+        setSearch('');
+    }, [isExpenseVoucherManualOnly]);
+
+    useEffect(() => {
         if (!editingInvoice) return;
 
         const importPrefix = `${tr('مصاريف استيراد', 'Import expenses')}: `;
@@ -653,11 +983,14 @@ const InvoiceScreen: React.FC<{
         setWarehouseId(editingInvoice.warehouseId || '');
         const sourceItems = Array.isArray(editingInvoice.items) ? editingInvoice.items : [];
         setItems(sourceItems.map(({ id, returned, ...item }) => ({ ...item })));
+        if (isExpenseVoucherManualOnly) {
+            const firstMappedExpenseAccountId = sourceItems.find(item => item.accountId)?.accountId || '';
+            setExpenseAccountId(firstMappedExpenseAccountId);
+        }
         setPaymentType(editingInvoice.paymentType);
         setPaymentAccountId(editingInvoice.paymentAccountId || '');
-        setTaxEnabled(taxVisibleInInvoices && (Number(editingInvoice.taxAmount) || 0) > 0);
+        setTaxMode(taxVisibleInInvoices ? resolveInvoiceTaxMode(editingInvoice) : 'NONE');
         setTaxRateOverride(String(editingInvoice.taxRate || companySettings.defaultTaxRate || 0));
-        setSeparatePurchaseTaxFromAmount(false);
         setDueDate(editingInvoice.dueDate || editingInvoice.date);
         setDiscount(editingInvoice.discountAmount ? String(editingInvoice.discountAmount) : '');
         setNotes(normalizedNotes);
@@ -668,7 +1001,8 @@ const InvoiceScreen: React.FC<{
         defaultContactId,
         taxVisibleInInvoices,
         companySettings.defaultTaxRate,
-        isEnglish
+        isEnglish,
+        isExpenseVoucherManualOnly
     ]);
 
     useEffect(() => {
@@ -740,17 +1074,12 @@ const InvoiceScreen: React.FC<{
     }, [showBarcodeScanner, products]);
 
     useEffect(() => {
+        if (editingInvoice) return;
         setTaxRateOverride(String(companySettings.defaultTaxRate ?? 0));
         if (!taxVisibleInInvoices) {
-            setTaxEnabled(false);
+            setTaxMode('NONE');
         }
-    }, [companySettings.defaultTaxRate, taxVisibleInInvoices]);
-
-    useEffect(() => {
-        if (!isExpenseStyle) {
-            setSeparatePurchaseTaxFromAmount(false);
-        }
-    }, [isExpenseStyle]);
+    }, [companySettings.defaultTaxRate, editingInvoice, taxVisibleInInvoices]);
 
     useEffect(() => {
         if (!invoiceExpiryDateEnabled) return;
@@ -788,6 +1117,10 @@ const InvoiceScreen: React.FC<{
     }, [paymentType, isQuotation, paymentAccountId, financialAccounts]);
 
     const expenseAccounts = useMemo(() => accounts.filter(a => a.type === 'EXPENSE' && !a.isGroup), [accounts]);
+    const selectedExpenseAccount = useMemo(
+        () => expenseAccounts.find(account => account.id === expenseAccountId) || null,
+        [expenseAccounts, expenseAccountId]
+    );
 
     const searchResults = useMemo(() => {
         if (!isSearchFocused && !search.trim()) return [];
@@ -857,6 +1190,10 @@ const InvoiceScreen: React.FC<{
 
     const addManualItem = () => {
         if (!manualItemDesc || !manualItemPrice) return;
+        if (isExpenseVoucherManualOnly && !expenseAccountId) {
+            alert(tr('يرجى تحديد الطرف المدين (حساب المصروف) أولاً', 'Please select the debit expense account first'));
+            return;
+        }
         const qty = parseFloat(manualItemQty) || 1;
         const price = parseFloat(manualItemPrice) || 0;
 
@@ -865,7 +1202,8 @@ const InvoiceScreen: React.FC<{
             quantity: qty,
             unitPrice: price,
             total: qty * price,
-            productId: undefined
+            productId: undefined,
+            accountId: isExpenseVoucherManualOnly ? expenseAccountId : undefined
         }]);
         setManualItemDesc('');
         setManualItemQty('1');
@@ -935,46 +1273,15 @@ const InvoiceScreen: React.FC<{
         }));
     };
 
-    const totals = useMemo(() => {
-        const round2 = (value: number) => Number((Number(value) || 0).toFixed(2));
-        const sub = items.reduce((s, i) => s + i.total, 0);
-        const disc = round2(parseFloat(discount) || 0);
-        const netAfterDiscount = round2(Math.max(0, sub - disc));
-        const rate = (taxVisibleInInvoices && taxEnabled) ? (parseFloat(taxRateOverride) || 0) : 0;
-        const shouldExtractPurchaseTax =
-            isExpenseStyle &&
-            taxVisibleInInvoices &&
-            taxEnabled &&
-            separatePurchaseTaxFromAmount &&
-            rate > 0;
-
-        if (shouldExtractPurchaseTax) {
-            const tax = round2((netAfterDiscount * rate) / (100 + rate));
-            const netBeforeTax = round2(netAfterDiscount - tax);
-            return {
-                sub: round2(sub),
-                tax,
-                disc,
-                total: netAfterDiscount,
-                rate: round2(rate),
-                taxIncludedInAmount: true,
-                netBeforeTax,
-                subTotalForInvoice: round2(netBeforeTax + disc)
-            };
-        }
-
-        const tax = round2((netAfterDiscount * rate) / 100);
-        return {
-            sub: round2(sub),
-            tax,
-            disc,
-            total: round2(netAfterDiscount + tax),
-            rate: round2(rate),
-            taxIncludedInAmount: false,
-            netBeforeTax: netAfterDiscount,
-            subTotalForInvoice: round2(sub)
-        };
-    }, [items, discount, taxEnabled, taxRateOverride, taxVisibleInInvoices, isExpenseStyle, separatePurchaseTaxFromAmount]);
+    const effectiveTaxMode = taxVisibleInInvoices ? taxMode : 'NONE';
+    const taxRateValue = effectiveTaxMode === 'NONE' ? 0 : Math.max(0, parseFloat(taxRateOverride) || 0);
+    const taxModeDescription = getInvoiceTaxModeDescription(effectiveTaxMode, tr);
+    const totals = useMemo(() => calculateInvoiceTaxSummary({
+        itemsTotal: items.reduce((sum, item) => sum + item.total, 0),
+        discountAmount: parseFloat(discount) || 0,
+        taxRate: taxRateValue,
+        taxMode: effectiveTaxMode
+    }), [items, discount, taxRateValue, effectiveTaxMode]);
 
     const invoiceCategory = useMemo(() => {
         if (isPurchase) return 'purchase_invoice';
@@ -1023,6 +1330,7 @@ const InvoiceScreen: React.FC<{
         subTotal: totals.subTotalForInvoice,
         taxRate: totals.rate,
         taxAmount: totals.tax,
+        taxMode: effectiveTaxMode,
         discountAmount: totals.disc,
         totalAmount: totals.total,
         status: invoiceStatus,
@@ -1037,6 +1345,7 @@ const InvoiceScreen: React.FC<{
 
     const buildInvoiceShareText = () => {
         const draft = buildDraftInvoice();
+        const draftTaxMode = resolveInvoiceTaxMode(draft);
         const itemLines = draft.items.map((item, index) => {
             const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
             const itemLabel = product ? displayProductName(product) : item.description;
@@ -1055,7 +1364,8 @@ const InvoiceScreen: React.FC<{
             '',
             `${tr('الإجمالي قبل الضريبة', 'Subtotal')}: ${formatAmount(draft.subTotal)} ${draft.currency}`,
             draft.discountAmount > 0 ? `${tr('الخصم', 'Discount')}: ${formatAmount(draft.discountAmount)} ${draft.currency}` : '',
-            draft.taxAmount > 0 ? `${tr('الضريبة', 'Tax')}: ${formatAmount(draft.taxAmount)} ${draft.currency}` : '',
+            taxVisibleInInvoices ? `${tr('طريقة الضريبة', 'Tax mode')}: ${getInvoiceTaxModeDescription(draftTaxMode, tr)}` : '',
+            (taxVisibleInInvoices && draft.taxAmount > 0) ? `${tr('الضريبة', 'Tax')}: ${formatAmount(draft.taxAmount)} ${draft.currency}` : '',
             `${tr('الصافي', 'Net')}: ${formatAmount(draft.totalAmount)} ${draft.currency}`
         ].filter(Boolean).join('\n');
     };
@@ -1069,6 +1379,7 @@ const InvoiceScreen: React.FC<{
         }
         const printDir = isEnglish ? 'ltr' : 'rtl';
         const printLang = isEnglish ? 'en' : 'ar';
+        const draftTaxMode = resolveInvoiceTaxMode(draft);
         const rowsHtml = draft.items.map((item, index) => {
             const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
             const itemLabel = escapeHtml(product ? displayProductName(product) : item.description);
@@ -1162,7 +1473,8 @@ const InvoiceScreen: React.FC<{
                             <div class="totals-box">
                                 <div class="totals-row"><span>${escapeHtml(tr('الإجمالي قبل الضريبة', 'Subtotal'))}</span><strong>${formatAmount(draft.subTotal)} ${escapeHtml(draft.currency)}</strong></div>
                                 <div class="totals-row"><span>${escapeHtml(tr('الخصم', 'Discount'))}</span><strong>${formatAmount(draft.discountAmount)} ${escapeHtml(draft.currency)}</strong></div>
-                                <div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><strong>${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                                ${taxVisibleInInvoices ? `<div class="totals-row"><span>${escapeHtml(tr('طريقة الضريبة', 'Tax mode'))}</span><strong>${escapeHtml(getInvoiceTaxModeDescription(draftTaxMode, tr))}</strong></div>` : ''}
+                                ${(taxVisibleInInvoices && draft.taxAmount > 0) ? `<div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><strong>${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</strong></div>` : ''}
                                 <div class="totals-row total"><span>${escapeHtml(tr('الصافي', 'Net'))}</span><strong>${formatAmount(draft.totalAmount)} ${escapeHtml(draft.currency)}</strong></div>
                             </div>
                         </div>
@@ -1271,6 +1583,19 @@ const InvoiceScreen: React.FC<{
         }
 
         if (items.length === 0) return alert(tr('Please add at least one item', 'Please add at least one item'));
+        if (isExpenseVoucherManualOnly && !expenseAccountId) {
+            return alert(tr('يرجى تحديد الطرف المدين من حسابات المصروف قبل الترحيل', 'Please select the debit side from expense accounts before posting'));
+        }
+        const preparedItems = items.map(item => {
+            if (!isExpenseVoucherManualOnly) return item;
+            return {
+                ...item,
+                accountId: expenseAccountId
+            };
+        });
+        if (isExpenseVoucherManualOnly && preparedItems.some(item => !item.accountId)) {
+            return alert(tr('كل بنود سند المصروف يجب أن تحتوي على حساب مصروف مدين', 'Every expense voucher line must have a debit expense account'));
+        }
         if (!(companySettings.allowNegativeSalesQuantity ?? false) && (isSales || isQuotation) && items.some(i => i.quantity < 0)) {
             return alert(tr('Negative quantity is disabled for sales invoices in settings.', 'Negative quantity is disabled for sales invoices in settings.'));
         }
@@ -1295,10 +1620,11 @@ const InvoiceScreen: React.FC<{
             category: invoiceCategory,
             date: sharedState.date,
             dueDate: invoiceExpiryDateEnabled ? dueDate : undefined,
-            items: items.map(i => ({ ...i, id: Math.random().toString() })),
+            items: preparedItems.map(i => ({ ...i, id: Math.random().toString() })),
             subTotal: totals.subTotalForInvoice,
             taxRate: totals.rate,
             taxAmount: totals.tax,
+            taxMode: effectiveTaxMode,
             discountAmount: totals.disc,
             totalAmount: totals.total,
             status: invoiceStatus,
@@ -1551,27 +1877,27 @@ const InvoiceScreen: React.FC<{
             )}
 
             <div className="bg-white px-3 py-3 border border-gray-200 rounded-xl shadow-sm">
-                <div className="header-fields-grid grid grid-cols-3 gap-2 items-start">
+                <div className="header-fields-grid grid grid-cols-2 gap-2.5 items-start">
                     <div className="min-w-0">
-                        <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
+                        <label className="block truncate text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-wider px-1 mb-1.5 leading-tight">
                             {tr('تاريخ العملية', 'Operation Date')}
                         </label>
                         <EnglishDateInput
                             value={sharedState.date}
                             onChange={onDateChange}
-                            className="w-full py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50"
+                            className="w-full py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50"
                             aria-label={tr('تاريخ العملية', 'Operation date')}
                         />
                     </div>
                     <div className="min-w-0">
-                        <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
+                        <label className="block truncate text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-wider px-1 mb-1.5 leading-tight">
                             {tr('العملة', 'Currency')}
                         </label>
                         <div className="relative">
                             <select
                                 value={sharedState.currency}
                                 onChange={e => onCurrencyChange(e.target.value)}
-                                className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
+                                className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
                             >
                                 {currencyOptions.map(currency => (
                                     <option key={currency.code} value={currency.code}>
@@ -1582,8 +1908,8 @@ const InvoiceScreen: React.FC<{
                             <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
                         </div>
                     </div>
-                    <div className="min-w-0">
-                        <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
+                    <div className="min-w-0 col-span-2">
+                        <label className="block truncate text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-wider px-1 mb-1.5 leading-tight">
                             {tr('سعر الصرف', 'Exchange Rate')} ({tr('مقابل', 'vs')} {baseCurrency})
                         </label>
                         <input
@@ -1597,7 +1923,7 @@ const InvoiceScreen: React.FC<{
                                 onRateChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
                             }}
                             disabled={sharedState.currency === baseCurrency}
-                            className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 disabled:bg-gray-50 disabled:text-gray-400 dir-ltr"
+                            className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 disabled:bg-gray-50 disabled:text-gray-400 dir-ltr"
                             aria-label={tr('سعر الصرف', 'Exchange rate')}
                         />
                     </div>
@@ -1606,17 +1932,17 @@ const InvoiceScreen: React.FC<{
             </div>
 
             {/* 2. Top Header Inputs (Fixed Height, compact) */}
-            <div className="bg-white px-3 py-3 space-y-2 border border-gray-200 rounded-xl relative z-10 shadow-sm">
+            <div className="bg-white px-3 py-3 space-y-2.5 border border-gray-200 rounded-xl relative z-10 shadow-sm">
 
                 {/* Type & Cash/Credit */}
                 <div className="flex gap-2">
                     <div className="flex-1 flex gap-1 bg-gray-100 p-1 rounded-xl">
                         {!isQuotation && (
                             <>
-                                <button type="button" onClick={() => setPaymentType('CASH')} className={`flex-1 py-1 text-[11px] font-black rounded-lg transition-all ${paymentType === 'CASH' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
+                                <button type="button" onClick={() => setPaymentType('CASH')} className={`flex-1 py-1.5 text-[12px] font-black rounded-lg transition-all ${paymentType === 'CASH' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
                                     {tr('نقدي', 'Cash')}
                                 </button>
-                                <button type="button" onClick={() => setPaymentType('CREDIT')} className={`flex-1 py-1 text-[11px] font-black rounded-lg transition-all ${paymentType === 'CREDIT' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>
+                                <button type="button" onClick={() => setPaymentType('CREDIT')} className={`flex-1 py-1.5 text-[12px] font-black rounded-lg transition-all ${paymentType === 'CREDIT' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>
                                     {tr('آجل', 'Credit')}
                                 </button>
                             </>
@@ -1625,27 +1951,48 @@ const InvoiceScreen: React.FC<{
                 </div>
 
                 {/* Warehouse & Account (Row 2) */}
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     {!isExpenseStyle && hasWarehouses && (
-                        <div className="flex-1 relative">
-                            <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full text-[11px] font-black bg-gray-50 border border-gray-100 rounded-xl p-1.5 pl-2 pr-6 appearance-none focus:outline-none focus:border-indigo-300">
+                        <div className={`relative min-w-0 ${(!isQuotation && paymentType === 'CASH') ? '' : 'col-span-2'}`}>
+                            <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full text-[12px] font-black bg-gray-50 border border-gray-100 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-indigo-300">
                                 <option value="">{tr('المستودع', 'Warehouse')}</option>
                                 {warehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
                             </select>
-                            <Building2 className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={12} />
+                            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={13} />
                         </div>
                     )}
 
                     {!isQuotation && paymentType === 'CASH' && (
-                        <div className="flex-1 relative">
-                            <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full text-[11px] font-black bg-blue-50/30 border border-blue-100 text-blue-700 rounded-xl p-1.5 pl-2 pr-6 appearance-none focus:outline-none focus:border-blue-300">
+                        <div className="relative min-w-0">
+                            <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full text-[12px] font-black bg-blue-50/30 border border-blue-100 text-blue-700 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-blue-300">
                                 <option value="">{tr('الصندوق/البنك', 'Cash/Bank')}</option>
                                 {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                             </select>
-                            <Wallet className="absolute left-2 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={12} />
+                            <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={13} />
                         </div>
                     )}
                 </div>
+
+                {isExpenseVoucherManualOnly && (
+                    <div className="space-y-1.5">
+                        <SearchableAccountSelect
+                            accounts={expenseAccounts}
+                            selectedId={expenseAccountId}
+                            onSelect={setExpenseAccountId}
+                            displayAccountName={displayAccountName}
+                            placeholder={tr('ابحث في المصاريف واختر حساب المصروف...', 'Search expenses and select the expense account...')}
+                            emptyLabel={tr('لا يوجد حساب مصروف مطابق.', 'No matching expense account found.')}
+                            isEnglish={isEnglish}
+                            className="w-full"
+                            inputClassName={`w-full bg-emerald-50/40 border border-emerald-100 text-emerald-700 rounded-xl py-2 px-3 text-[12px] font-black outline-none focus:ring-1 focus:ring-emerald-200 ${isEnglish ? 'pl-9 pr-9 text-left' : 'pr-9 pl-9 text-right'}`}
+                        />
+                        {selectedExpenseAccount && (
+                            <div className="rounded-lg bg-emerald-50 px-3 py-1.5 text-[10px] font-black text-emerald-700">
+                                {tr('الطرف المدين', 'Debit side')}: {displayAccountName(selectedExpenseAccount)}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Customer / Supplier */}
                 <div className="flex gap-2 items-center">
@@ -1670,9 +2017,9 @@ const InvoiceScreen: React.FC<{
                                 : tr('إضافة مورد جديد', 'Add New Supplier')}
                             isEnglish={isEnglish}
                             className="w-full"
-                            inputClassName={`w-full bg-gray-50 border border-gray-100 rounded-xl p-1.5 text-[11px] font-black text-gray-700 outline-none focus:ring-1 focus:ring-indigo-300 ${isEnglish ? 'pl-9 pr-9' : 'pr-9 pl-9'}`}
+                            inputClassName={`w-full bg-gray-50 border border-gray-100 rounded-xl py-2 px-3 text-[12px] font-black text-gray-700 outline-none focus:ring-1 focus:ring-indigo-300 ${isEnglish ? 'pl-9 pr-9' : 'pr-9 pl-9'}`}
                         />
-                        <button type="button" onClick={() => { setQuickContactInitialName(''); setShowQuickContact(true); }} className="p-1.5 bg-gray-200 text-gray-600 rounded-xl active:bg-gray-300 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0 w-8">
+                        <button type="button" onClick={() => { setQuickContactInitialName(''); setShowQuickContact(true); }} className="h-10 w-10 border border-slate-200 bg-white text-gray-600 rounded-xl active:bg-gray-100 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0">
                             <UserPlus size={14} />
                         </button>
                     </div>
@@ -1684,7 +2031,7 @@ const InvoiceScreen: React.FC<{
                         {tr('\u062a\u0633\u0639\u064a\u0631 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0647\u0630\u0627 \u0627\u0644\u0637\u0631\u0641', 'Invoice pricing for this contact')}: {selectedContactPriceTierLabel}
                     </div>
                 )}
-                <div className="grid grid-cols-[minmax(0,1fr)_126px] gap-2 sm:grid-cols-[minmax(0,1.25fr)_180px]">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.25fr)_180px]">
                     <div className="relative min-w-0">
                         <TextQuote className={`absolute top-1/2 -translate-y-1/2 text-slate-300 ${isEnglish ? 'left-3' : 'right-3'}`} size={14} />
                         <input
@@ -1692,7 +2039,7 @@ const InvoiceScreen: React.FC<{
                             value={notes}
                             onChange={e => setNotes(e.target.value)}
                             placeholder={tr('التفاصيل / الملاحظات', 'Details / notes')}
-                            className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2 text-[11px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-right'}`}
+                            className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-[12px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-right'}`}
                         />
                     </div>
                     <div className="relative min-w-0">
@@ -1702,7 +2049,7 @@ const InvoiceScreen: React.FC<{
                             value={invoiceNumber}
                             onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
                             placeholder={tr('رقم الفاتورة', 'Invoice number')}
-                            className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2 text-[11px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 dir-ltr ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-left'}`}
+                            className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-[12px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 dir-ltr ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-left'}`}
                         />
                     </div>
                 </div>
@@ -1713,8 +2060,9 @@ const InvoiceScreen: React.FC<{
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
-                        if (isManualItem) {
-                            if (manualItemDesc.trim()) setShowQuickProduct(true);
+                        if (isExpenseVoucherManualOnly || isManualItem) {
+                            setIsManualItem(true);
+                            setShowQuickProduct(true);
                             return;
                         }
                         const rawQuery = search.trim();
@@ -1722,48 +2070,57 @@ const InvoiceScreen: React.FC<{
                         setQuickProductInitialName(rawQuery);
                         setShowQuickProduct(true);
                     }}
-                    className="grid grid-cols-[auto,minmax(0,1fr),auto] gap-2 items-start relative rounded-2xl border border-slate-200 bg-slate-50/70 p-1.5"
+                    className={`grid gap-2 items-center relative rounded-2xl border border-slate-200 bg-slate-50/70 p-2 ${isExpenseVoucherManualOnly
+                        ? 'grid-cols-[auto,minmax(0,1fr)]'
+                        : 'grid-cols-[auto,minmax(0,1fr),auto]'
+                        }`}
                 >
                     <button
                         type="submit"
-                        className="flex w-[60px] shrink-0 flex-col items-center gap-1 text-center"
+                        className="flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
                     >
                         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 text-white shadow active:-translate-y-0.5 active:scale-95 transition-all">
                             <Plus size={18} />
                         </span>
-                        <span className="text-[9px] font-black text-slate-500">{tr('إضافة صنف', 'Add item')}</span>
+                        <span className="text-[9px] font-black text-slate-500">
+                            {isExpenseVoucherManualOnly ? tr('إضافة بند', 'Add line') : tr('إضافة صنف', 'Add item')}
+                        </span>
                     </button>
 
                     <div className="flex-1 min-w-0 relative">
                         <input
-                            value={isManualItem ? manualItemDesc : search}
-                            onChange={e => isManualItem ? setManualItemDesc(e.target.value) : setSearch(e.target.value)}
-                            onKeyDown={!isManualItem ? handleInvoiceSearchKeyDown : undefined}
+                            value={(isExpenseVoucherManualOnly || isManualItem) ? manualItemDesc : search}
+                            onChange={e => (isExpenseVoucherManualOnly || isManualItem) ? setManualItemDesc(e.target.value) : setSearch(e.target.value)}
+                            onKeyDown={!(isExpenseVoucherManualOnly || isManualItem) ? handleInvoiceSearchKeyDown : undefined}
                             onFocus={() => {
-                                if (!isManualItem) setIsSearchFocused(true);
+                                if (!(isExpenseVoucherManualOnly || isManualItem)) setIsSearchFocused(true);
                             }}
-                            placeholder={isManualItem ? tr('وصف البند اليدوي...', 'Manual item desc...') : tr('أدخل إسم الصنف أو الباركود', 'Enter item name or barcode')}
+                            placeholder={(isExpenseVoucherManualOnly || isManualItem)
+                                ? tr('وصف البند اليدوي...', 'Manual item desc...')
+                                : tr('أدخل إسم الصنف أو الباركود', 'Enter item name or barcode')}
                             className={`w-full h-10 text-sm font-black bg-white border border-transparent shadow-inner rounded-xl appearance-none focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all ${isEnglish ? 'px-3 text-left' : 'px-3 text-right'}`}
                         />
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setIsSearchFocused(false);
-                            setIsManualItem(true);
-                            setShowQuickProduct(true);
-                        }}
-                        className="flex w-[60px] shrink-0 flex-col items-center gap-1 text-center"
-                    >
-                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shadow-sm active:-translate-y-0.5 active:scale-95 transition-all hover:bg-amber-100">
-                            <Package size={16} />
-                        </span>
-                        <span className="text-[9px] font-black text-slate-500">{tr('إضافة بند يدوي', 'Manual line')}</span>
-                    </button>
+                    {!isExpenseVoucherManualOnly && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsSearchFocused(false);
+                                setIsManualItem(true);
+                                setShowQuickProduct(true);
+                            }}
+                            className="flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
+                        >
+                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shadow-sm active:-translate-y-0.5 active:scale-95 transition-all hover:bg-amber-100">
+                                <Package size={16} />
+                            </span>
+                            <span className="text-[9px] font-black text-slate-500">{tr('إضافة بند يدوي', 'Manual line')}</span>
+                        </button>
+                    )}
 
                     {/* Autocomplete Dropdown */}
-                    {!isManualItem && isSearchFocused && (
+                    {!isExpenseVoucherManualOnly && !isManualItem && isSearchFocused && (
                         <>
                             <div className="fixed inset-0 z-[190]" onClick={() => setIsSearchFocused(false)}></div>
                             <div className="absolute top-full left-0 right-0 z-[200] mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in max-h-[30vh] overflow-y-auto">
@@ -1916,10 +2273,26 @@ const InvoiceScreen: React.FC<{
                         </div>
                         {taxVisibleInInvoices && (
                             <div className="flex flex-col">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">{tr('الضريبة', 'Tax')} {taxEnabled ? '+' + totals.tax.toLocaleString() : '0'}</span>
-                                <button type="button" onClick={() => setTaxEnabled(!taxEnabled)} className={`text-[9px] py-1 px-2 rounded-lg font-black mt-0.5 transition-colors ${taxEnabled ? 'bg-indigo-600/30 text-indigo-300' : 'bg-slate-800 text-slate-500'}`}>
-                                    {taxEnabled ? tr('مشمولة', 'Included') : tr('بدون', 'None')}
-                                </button>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
+                                    {tr('الضريبة', 'Tax')} {isInvoiceTaxApplied(effectiveTaxMode, totals.rate, totals.tax) ? `+${formatAmount(totals.tax)}` : '0'}
+                                </span>
+                                <div className="relative mt-0.5 w-[108px]">
+                                    <select
+                                        value={effectiveTaxMode}
+                                        onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
+                                        className={`w-full appearance-none rounded-lg border border-slate-700 bg-slate-800/95 py-1 text-[9px] font-black text-white outline-none transition-colors focus:border-indigo-400 ${isEnglish ? 'pl-2 pr-6 text-left' : 'pr-2 pl-6 text-right'}`}
+                                    >
+                                        {(['INCLUSIVE', 'EXCLUSIVE', 'NONE'] as InvoiceTaxMode[]).map((modeOption) => (
+                                            <option key={modeOption} value={modeOption}>
+                                                {getInvoiceTaxModeLabel(modeOption, tr)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ${isEnglish ? 'right-2' : 'left-2'}`} size={11} />
+                                </div>
+                                <span className="mt-1 max-w-[108px] text-[8px] font-bold leading-tight text-slate-400">
+                                    {taxModeDescription}
+                                </span>
                             </div>
                         )}
                     </div>
@@ -1988,7 +2361,7 @@ const InvoiceScreen: React.FC<{
                 </div>
             )}
 
-            {showQuickProduct && !isManualItem && (
+            {showQuickProduct && !isManualItem && !isExpenseVoucherManualOnly && (
                 <QuickAddProductModal
                     mode="INVOICE"
                     initialName={quickProductInitialName || search.trim()}
@@ -2002,47 +2375,40 @@ const InvoiceScreen: React.FC<{
                 />
             )}
 
-            {showQuickProduct && isManualItem && (
+            {showQuickProduct && (isManualItem || isExpenseVoucherManualOnly) && (
                 <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm flex items-center justify-center animate-in fade-in p-4">
                     <div className="bg-white w-full max-w-[320px] rounded-[1.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 p-4 flex flex-col gap-3">
                         <div className="flex justify-between items-center px-1 mb-1">
                             <h3 className="text-[13px] font-black text-slate-800">
-                                {isManualItem ? tr('تفاصيل البند', 'Item Details') : tr('إضافة صنف', 'Add Item')}
+                                {tr('تفاصيل البند', 'Item Details')}
                             </h3>
                             <button onClick={() => { setShowQuickProduct(false); setIsManualItem(false); }} className="text-gray-400 hover:text-slate-700 bg-gray-100 p-1.5 rounded-full"><X size={14} /></button>
                         </div>
-
-                        {!isManualItem && (
-                            <div className="relative">
-                                <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('ابحث بالاسم', 'Search by name')}</label>
-                                <input
-                                    value={search}
-                                    onChange={e => setSearch(e.target.value)}
-                                    placeholder={tr('عن ماذا تبحث؟', 'What are you looking for?')}
-                                    className="w-full bg-gray-50 border border-gray-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-indigo-400 outline-none"
-                                />
+                        {isExpenseVoucherManualOnly && (
+                            <div className={`rounded-lg px-3 py-1.5 text-[10px] font-black ${selectedExpenseAccount ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'}`}>
+                                {selectedExpenseAccount
+                                    ? `${tr('الحساب المدين', 'Debit account')}: ${displayAccountName(selectedExpenseAccount)}`
+                                    : tr('حدد الحساب المدين من أعلى الشاشة قبل إضافة البند', 'Select debit account from top of screen before adding line')}
                             </div>
                         )}
 
-                        {isManualItem && (
-                            <div className="relative">
-                                <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('البيان', 'Description')}</label>
-                                <input
-                                    value={manualItemDesc}
-                                    onChange={e => setManualItemDesc(e.target.value)}
-                                    placeholder={tr('وصف الخدمة', 'Service description')}
-                                    className="w-full bg-amber-50/50 border border-amber-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-amber-400 outline-none"
-                                />
-                            </div>
-                        )}
+                        <div className="relative">
+                            <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('البيان', 'Description')}</label>
+                            <input
+                                value={manualItemDesc}
+                                onChange={e => setManualItemDesc(e.target.value)}
+                                placeholder={tr('وصف الخدمة', 'Service description')}
+                                className="w-full bg-amber-50/50 border border-amber-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-amber-400 outline-none"
+                            />
+                        </div>
 
                         <div className="grid grid-cols-2 gap-2">
                             <div>
                                 <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('الكمية', 'Quantity')}</label>
                                 <input
                                     type="number" inputMode="decimal"
-                                    value={isManualItem ? manualItemQty : 1}
-                                    onChange={e => isManualItem ? setManualItemQty(e.target.value) : {}}
+                                    value={manualItemQty}
+                                    onChange={e => setManualItemQty(e.target.value)}
                                     className="w-full text-center bg-gray-50 border border-gray-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-indigo-400 outline-none"
                                 />
                             </div>
@@ -2050,8 +2416,8 @@ const InvoiceScreen: React.FC<{
                                 <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('السعر', 'Price')}</label>
                                 <input
                                     type="number" inputMode="decimal"
-                                    value={isManualItem ? manualItemPrice : 0}
-                                    onChange={e => isManualItem ? setManualItemPrice(e.target.value) : {}}
+                                    value={manualItemPrice}
+                                    onChange={e => setManualItemPrice(e.target.value)}
                                     className="w-full text-center bg-gray-50 border border-gray-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-indigo-400 outline-none dir-ltr"
                                     min="0"
                                 />
@@ -2061,15 +2427,12 @@ const InvoiceScreen: React.FC<{
                         <div className="pt-1">
                             <button
                                 onClick={() => {
-                                    if (isManualItem) {
-                                        addManualItem();
-                                        setShowQuickProduct(false);
-                                    } else {
-                                        // Normally handle product add
-                                        setShowQuickProduct(false);
-                                    }
+                                    if (!manualItemDesc.trim() || !manualItemPrice.trim()) return;
+                                    addManualItem();
+                                    setShowQuickProduct(false);
                                 }}
-                                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-black rounded-xl shadow-lg active:scale-95 transition-all"
+                                disabled={isExpenseVoucherManualOnly && !expenseAccountId}
+                                className={`w-full py-2.5 text-white text-[13px] font-black rounded-xl shadow-lg active:scale-95 transition-all ${(isExpenseVoucherManualOnly && !expenseAccountId) ? 'bg-slate-300 cursor-not-allowed shadow-none active:scale-100' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                             >
                                 {tr('إضافة والتالي', 'Add')}
                             </button>
@@ -2113,7 +2476,8 @@ const VoucherScreen: React.FC<{
     updateCurrency: (code: string) => void;
     onSuccess: () => void;
     initialVoucherId?: string;
-}> = ({ initialType = 'RECEIPT', sharedState, updateCurrency, onSuccess, initialVoucherId }) => {
+    outerHeaderActionsContainer?: HTMLDivElement | null;
+}> = ({ initialType = 'RECEIPT', sharedState, updateCurrency, onSuccess, initialVoucherId, outerHeaderActionsContainer }) => {
     const {
         addTransaction, contacts, accounts, addCheck, checks, updateCheck, deleteVoucher, baseCurrency, companySettings,
         invoices, invoiceSettlements, transactions, upsertInvoiceSettlementsForVoucher
@@ -2123,6 +2487,7 @@ const VoucherScreen: React.FC<{
     const [description, setDescription] = useState('');
     const [showQuickContact, setShowQuickContact] = useState(false);
     const [quickContactInitialName, setQuickContactInitialName] = useState('');
+    const [showVoucherActions, setShowVoucherActions] = useState(false);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayContactName = (contact?: { id: string; name: string } | null) => getDisplayContactName(contact || undefined, isEnglish);
@@ -2151,6 +2516,16 @@ const VoucherScreen: React.FC<{
     const selectedContact = useMemo(
         () => contacts.find(c => c.id === contactId),
         [contacts, contactId]
+    );
+    const voucherReference = useMemo(
+        () => initialVoucherId || `VOU-${Date.now().toString().slice(-6)}`,
+        [initialVoucherId]
+    );
+    const voucherTitle = useMemo(
+        () => voucherType === 'RECEIPT'
+            ? tr('سند قبض', 'Receipt Voucher')
+            : tr('سند صرف', 'Payment Voucher'),
+        [voucherType, isEnglish]
     );
     const selectedContactLabel = selectedContact ? displayContactName(selectedContact) : '';
     const editingVoucherParts = useMemo(() => {
@@ -2462,6 +2837,229 @@ const VoucherScreen: React.FC<{
         return cashTotal + checkTotal;
     }, [cashLines, checkLines]);
 
+    const buildVoucherExportRows = () => {
+        const cashRows = cashLines
+            .filter(line => (parseFloat(line.amount) || 0) > 0 || line.accountId)
+            .map((line) => {
+                const amount = parseFloat(line.amount) || 0;
+                const account = accounts.find(a => a.id === line.accountId) || null;
+                return {
+                    lineType: tr('نقدي/تحويل', 'Cash/Transfer'),
+                    accountOrBank: account ? displayAccountName(account) : tr('غير محدد', 'Not set'),
+                    reference: '',
+                    dueDate: '',
+                    amount
+                };
+            });
+
+        const checkRowsExport = checkLines
+            .filter(line => (parseFloat(line.amount) || 0) > 0 || line.checkNumber || line.bankName)
+            .map((line) => ({
+                lineType: tr('شيك', 'Check'),
+                accountOrBank: displayBankName(line.bankName || '', line.bankAccountId),
+                reference: line.checkNumber || '',
+                dueDate: line.dueDate || '',
+                amount: parseFloat(line.amount) || 0
+            }));
+
+        return [...cashRows, ...checkRowsExport];
+    };
+
+    const escapeVoucherHtml = (value: unknown) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+    const buildVoucherShareText = () => {
+        const counterpartyLabel = selectedContactLabel
+            || (voucherType === 'RECEIPT'
+                ? tr('عميل نقدي', 'Walk-in Customer')
+                : tr('مورد عام', 'Generic Supplier'));
+        const rows = buildVoucherExportRows();
+        const lineItems = rows.length > 0
+            ? rows.map((row, index) => `${index + 1}. ${row.lineType} - ${row.accountOrBank} - ${row.amount.toLocaleString()} ${voucherCurrency}`)
+            : [tr('لا توجد بنود بعد.', 'No lines yet.')];
+
+        return [
+            voucherTitle,
+            `${tr('المرجع', 'Reference')}: ${voucherReference}`,
+            `${tr('التاريخ', 'Date')}: ${sharedState.date}`,
+            `${tr('الطرف', 'Counterparty')}: ${counterpartyLabel}`,
+            description.trim() ? `${tr('البيان', 'Description')}: ${description.trim()}` : '',
+            '',
+            ...lineItems,
+            '',
+            `${tr('إجمالي السند', 'Voucher Total')}: ${totalAmount.toLocaleString()} ${voucherCurrency}`
+        ].filter(Boolean).join('\n');
+    };
+
+    const handlePrintVoucher = () => {
+        const counterpartyLabel = selectedContactLabel
+            || (voucherType === 'RECEIPT'
+                ? tr('عميل نقدي', 'Walk-in Customer')
+                : tr('مورد عام', 'Generic Supplier'));
+        const rows = buildVoucherExportRows();
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
+            return;
+        }
+
+        const printDir = isEnglish ? 'ltr' : 'rtl';
+        const printLang = isEnglish ? 'en' : 'ar';
+        const printFont = isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif";
+        const rowsHtml = rows.length > 0
+            ? rows.map((row, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${escapeVoucherHtml(row.lineType)}</td>
+                    <td>${escapeVoucherHtml(row.accountOrBank)}</td>
+                    <td>${escapeVoucherHtml(row.reference || '-')}</td>
+                    <td>${escapeVoucherHtml(row.dueDate || '-')}</td>
+                    <td class="num">${escapeVoucherHtml(Number(row.amount || 0).toLocaleString())}</td>
+                </tr>
+            `).join('')
+            : `<tr><td colspan="6">${escapeVoucherHtml(tr('لا توجد بنود بعد.', 'No lines yet.'))}</td></tr>`;
+
+        printWindow.document.write(`
+            <!doctype html>
+            <html dir="${printDir}" lang="${printLang}">
+            <head>
+                <meta charset="utf-8" />
+                <title>${escapeVoucherHtml(voucherTitle)} - ${escapeVoucherHtml(voucherReference)}</title>
+                <style>
+                    body { font-family: ${printFont}; margin: 24px; color: #0f172a; }
+                    .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+                    .title { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+                    .meta { font-size: 13px; color: #475569; line-height: 1.8; }
+                    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+                    .card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; }
+                    .lbl { font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 6px; }
+                    .val { font-size: 16px; font-weight: 800; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+                    th, td { border: 1px solid #e2e8f0; padding: 10px; font-size: 12px; text-align: ${isEnglish ? 'left' : 'right'}; }
+                    th { background: #f8fafc; }
+                    .num { direction: ltr; text-align: center; font-weight: 800; }
+                    .notes { margin-top: 18px; padding: 12px; border-radius: 14px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12px; }
+                    @media print { body { margin: 12px; } }
+                </style>
+            </head>
+            <body>
+                <div class="head">
+                    <div>
+                        <div class="title">${escapeVoucherHtml(voucherTitle)}</div>
+                        <div class="meta">${escapeVoucherHtml(tr('المرجع', 'Reference'))}: <strong>${escapeVoucherHtml(voucherReference)}</strong></div>
+                        <div class="meta">${escapeVoucherHtml(tr('التاريخ', 'Date'))}: <strong>${escapeVoucherHtml(sharedState.date)}</strong></div>
+                        <div class="meta">${escapeVoucherHtml(tr('الطرف', 'Counterparty'))}: <strong>${escapeVoucherHtml(counterpartyLabel)}</strong></div>
+                    </div>
+                    <div class="cards">
+                        <div class="card">
+                            <div class="lbl">${escapeVoucherHtml(tr('الإجمالي', 'Total'))}</div>
+                            <div class="val">${escapeVoucherHtml(totalAmount.toLocaleString())} ${escapeVoucherHtml(voucherCurrency)}</div>
+                        </div>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>${escapeVoucherHtml(tr('نوع البند', 'Line Type'))}</th>
+                            <th>${escapeVoucherHtml(tr('الحساب/البنك', 'Account/Bank'))}</th>
+                            <th>${escapeVoucherHtml(tr('المرجع', 'Reference'))}</th>
+                            <th>${escapeVoucherHtml(tr('تاريخ الاستحقاق', 'Due Date'))}</th>
+                            <th>${escapeVoucherHtml(tr('المبلغ', 'Amount'))}</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+                ${description.trim() ? `<div class="notes"><strong>${escapeVoucherHtml(tr('البيان', 'Description'))}:</strong> ${escapeVoucherHtml(description.trim())}</div>` : ''}
+                <script>window.onload = function () { window.print(); };</script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    };
+
+    const handleDownloadVoucherExcel = () => {
+        const rows = buildVoucherExportRows();
+        const counterpartyLabel = selectedContactLabel
+            || (voucherType === 'RECEIPT'
+                ? tr('عميل نقدي', 'Walk-in Customer')
+                : tr('مورد عام', 'Generic Supplier'));
+        const csvEscape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const header = [
+            tr('نوع السند', 'Voucher Type'),
+            tr('التاريخ', 'Date'),
+            tr('الطرف', 'Counterparty'),
+            tr('البيان', 'Description'),
+            tr('نوع البند', 'Line Type'),
+            tr('الحساب/البنك', 'Account/Bank'),
+            tr('المرجع', 'Reference'),
+            tr('تاريخ الاستحقاق', 'Due Date'),
+            tr('المبلغ', 'Amount'),
+            tr('العملة', 'Currency')
+        ];
+        const csvRows = rows.length > 0
+            ? rows.map(row => [
+                voucherTitle,
+                sharedState.date,
+                counterpartyLabel,
+                description,
+                row.lineType,
+                row.accountOrBank,
+                row.reference,
+                row.dueDate,
+                row.amount,
+                voucherCurrency
+            ])
+            : [[voucherTitle, sharedState.date, counterpartyLabel, description, '', '', '', '', totalAmount, voucherCurrency]];
+        const csv = '\uFEFF' + [header, ...csvRows].map(cols => cols.map(csvEscape).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${voucherReference}-${sharedState.date || Date.now()}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    };
+
+    const handleShareVoucher = async () => {
+        const text = buildVoucherShareText();
+        setShowVoucherActions(false);
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: voucherTitle,
+                    text
+                });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') return;
+            }
+        }
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                alert(tr('تم نسخ بيانات السند إلى الحافظة.', 'Voucher details copied to clipboard.'));
+                return;
+            } catch {
+                // Fall back to prompt.
+            }
+        }
+        window.prompt(tr('انسخ بيانات السند التالية', 'Copy voucher details below'), text);
+    };
+
+    const handleShareVoucherWhatsApp = () => {
+        setShowVoucherActions(false);
+        window.open(`https://wa.me/?text=${encodeURIComponent(buildVoucherShareText())}`, '_blank');
+    };
+
+    const handleShareVoucherSms = () => {
+        setShowVoucherActions(false);
+        window.open(`sms:?&body=${encodeURIComponent(buildVoucherShareText())}`, '_blank');
+    };
+
     const handleSubmit = () => {
         if (!sharedState.date) return alert(tr('يرجى تحديد تاريخ السند', 'Please select voucher date'));
         if (totalAmount <= 0) return alert(tr('قيمة السند يجب أن تكون أكبر من صفر', 'Voucher total must be greater than zero'));
@@ -2488,7 +3086,7 @@ const VoucherScreen: React.FC<{
             return alert(tr('إجمالي التخصيص على الفواتير أكبر من قيمة السند.', 'Total allocation exceeds voucher total.'));
         }
 
-        const voucherId = initialVoucherId || `VOU-${Date.now().toString().slice(-6)}`;
+        const voucherId = voucherReference;
         const isReceipt = voucherType === 'RECEIPT';
         const fallbackContactId = 'cash_customer';
         const resolvedContactId = contactId || (contacts.some(c => c.id === fallbackContactId) ? fallbackContactId : '');
@@ -2663,6 +3261,62 @@ const VoucherScreen: React.FC<{
     const sheetInputClass = "w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none";
     const sheetHeaderClass = "px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500";
     const sheetIndexClass = "flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-black text-slate-500";
+    const voucherHeaderActions = (
+        <div className="relative flex items-center gap-1 shrink-0">
+            <button
+                type="button"
+                onClick={handlePrintVoucher}
+                className="rounded-full bg-orange-50 p-2 text-orange-600 transition-colors hover:bg-orange-100"
+                title={tr('PDF / طباعة', 'PDF / Print')}
+            >
+                <FileText size={16} />
+            </button>
+            <button
+                type="button"
+                onClick={() => void handleSubmit()}
+                className="rounded-full bg-slate-100 p-2 text-slate-700 transition-colors hover:bg-slate-200"
+                title={tr('حفظ السند', 'Save Voucher')}
+            >
+                <Save size={16} />
+            </button>
+            <button
+                type="button"
+                onClick={() => setShowVoucherActions(prev => !prev)}
+                className="rounded-full p-2 text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                title={tr('إجراءات إضافية', 'More Actions')}
+            >
+                <MoreVertical size={18} />
+            </button>
+            {showVoucherActions && (
+                <>
+                    <button
+                        type="button"
+                        className="fixed inset-0 z-[180] cursor-default bg-transparent"
+                        onClick={() => setShowVoucherActions(false)}
+                        aria-label={tr('إغلاق القائمة', 'Close menu')}
+                    />
+                    <div className={`absolute top-full z-[190] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'left-0' : 'right-0'}`}>
+                        <button type="button" onClick={() => { setShowVoucherActions(false); handleDownloadVoucherExcel(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                            <FileSpreadsheet size={16} />
+                            {tr('إكسل', 'Excel')}
+                        </button>
+                        <button type="button" onClick={() => void handleShareVoucher()} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                            <Share2 size={16} />
+                            {tr('مشاركة', 'Share')}
+                        </button>
+                        <button type="button" onClick={handleShareVoucherSms} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                            <MessageSquareText size={16} />
+                            {tr('إشعار رسالة', 'SMS')}
+                        </button>
+                        <button type="button" onClick={handleShareVoucherWhatsApp} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                            <MessageCircle size={16} />
+                            {tr('إشعار واتساب', 'WhatsApp')}
+                        </button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
 
     return (
         <div
@@ -2670,20 +3324,27 @@ const VoucherScreen: React.FC<{
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
+            {outerHeaderActionsContainer && createPortal(voucherHeaderActions, outerHeaderActionsContainer)}
             {amountNotice && (
                 <div className="sticky top-2 z-20 mx-1 rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 shadow-sm">
                     {amountNotice}
                 </div>
             )}
             <div className="transaction-entry-section bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                <div className="mb-3 text-center">
+                    <div className="min-w-0 px-2 text-center">
+                        <div className="truncate text-base font-black text-indigo-900">{voucherTitle}</div>
+                        <div className="truncate text-[10px] font-bold text-slate-400 dir-ltr">{voucherReference}</div>
+                    </div>
+                </div>
                 <div className="flex bg-gray-50 p-1 rounded-2xl mb-4">
                     <button onClick={() => setVoucherType('RECEIPT')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${voucherType === 'RECEIPT' ? 'bg-white shadow text-emerald-600' : 'text-gray-400'}`}>{tr('سند قبض (وارد)', 'Receipt Voucher (Incoming)')}</button>
                     <button onClick={() => setVoucherType('PAYMENT')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${voucherType === 'PAYMENT' ? 'bg-white shadow text-rose-600' : 'text-gray-400'}`}>{tr('سند صرف (صادر)', 'Payment Voucher (Outgoing)')}</button>
                 </div>
 
-                <div className="space-y-4">
-                    <div className="transaction-entry-split flex gap-2 min-w-0">
-                        <div className="flex-1 min-w-0 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="transaction-entry-split min-w-0 col-span-1">
+                        <div className="min-w-0 space-y-2">
                             <SearchableContactSelect
                                 contacts={filteredContacts}
                                 selectedId={contactId}
@@ -2709,9 +3370,9 @@ const VoucherScreen: React.FC<{
                             />
                         </div>
                     </div>
-                    <input value={description} onChange={e => setDescription(e.target.value)} placeholder={tr('البيان / ملاحظات السند...', 'Voucher description / notes...')} className={inputClass} />
+                    <input value={description} onChange={e => setDescription(e.target.value)} placeholder={tr('البيان / ملاحظات السند...', 'Voucher description / notes...')} className={`${inputClass} col-span-1`} />
                     {selectedContact?.type === 'PARTNER' && (
-                        <div className={`rounded-2xl border p-3 text-[11px] font-black ${selectedCounterAccountId ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
+                        <div className={`col-span-2 rounded-2xl border p-3 text-[11px] font-black ${selectedCounterAccountId ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span>{tr('حساب جاري الشريك', 'Partner current account')}</span>
                                 <span className="dir-ltr">{selectedCounterAccount ? displayAccountName(selectedCounterAccount) : tr('غير مربوط', 'Not linked')}</span>
@@ -2837,14 +3498,14 @@ const VoucherScreen: React.FC<{
                     </div>
                     <div className="divide-y divide-slate-200">
                         {cashLines.map((line, idx) => (
-                            <div key={line.id} className="transaction-line-card voucher-line-grid grid grid-cols-1 gap-2 p-3 lg:grid-cols-[3rem_minmax(0,2fr)_minmax(0,1fr)_3rem] lg:items-center animate-in slide-in-from-right-2">
+                            <div key={line.id} className="transaction-line-card voucher-line-grid grid grid-cols-2 gap-2 p-3 lg:grid-cols-[3rem_minmax(0,2fr)_minmax(0,1fr)_3rem] lg:items-center animate-in slide-in-from-right-2">
                                 <div className={`${sheetIndexClass} hidden lg:flex`}>{idx + 1}</div>
                                 <select value={line.accountId} onChange={e => updateCashLine(line.id, 'accountId', e.target.value)} className={sheetInputClass}>
                                     <option value="">{tr('الصندوق / البنك', 'Cash / Bank')}</option>
                                     {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                                 </select>
                                 <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCashLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr font-black`} />
-                                <button onClick={() => removeLine('CASH', line.id)} className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-500 transition hover:bg-rose-100"><Trash2 size={15} /></button>
+                                <button onClick={() => removeLine('CASH', line.id)} className="col-span-2 lg:col-span-1 inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-500 transition hover:bg-rose-100"><Trash2 size={15} /></button>
                             </div>
                         ))}
                     </div>
@@ -2908,7 +3569,7 @@ const VoucherScreen: React.FC<{
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-1 gap-2 xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] xl:items-center">
+                                <div className="grid grid-cols-2 gap-2 xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] xl:items-center">
                                     <div className={`${sheetIndexClass} hidden xl:flex`}>{idx + 1}</div>
                                     <input placeholder={tr('رقم الشيك', 'Check Number')} value={line.checkNumber} onChange={e => updateCheckLine(line.id, 'checkNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
 
@@ -2937,12 +3598,12 @@ const VoucherScreen: React.FC<{
                                         aria-label={tr('تاريخ استحقاق الشيك', 'Check due date')}
                                     />
                                     <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCheckLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr font-black`} disabled={line.isEndorsed} />
-                                    <button onClick={() => removeLine('CHECK', line.id)} className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-500 transition hover:bg-rose-100"><Trash2 size={15} /></button>
+                                    <button onClick={() => removeLine('CHECK', line.id)} className="col-span-2 xl:col-span-1 inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-500 transition hover:bg-rose-100"><Trash2 size={15} /></button>
                                 </div>
 
                                 <div className="space-y-2">
                                     <div className="text-[10px] text-gray-400 font-black">{tr('إرفاق صور الشيك (حتى صورتين)', 'Attach check images (up to 2)')}</div>
-                                    <div className="voucher-line-grid grid grid-cols-1 lg:grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-2 gap-2">
                                         {[0, 1].map((slotIndex) => {
                                             const imageValue = line.imageUrls?.[slotIndex] || '';
                                             return (
@@ -3063,8 +3724,9 @@ type JournalRequirement = 'NONE' | 'CUSTOMER' | 'SUPPLIER' | 'EMPLOYEE' | 'CHECK
 const JournalScreen: React.FC<{
     sharedState: any;
     onSuccess: () => void;
-}> = ({ sharedState, onSuccess }) => {
-    const { accounts, addTransaction, contacts, employees, fixedAssets, checks, updateCheck, companySettings } = useAccounting();
+    initialJournalId?: string;
+}> = ({ sharedState, onSuccess, initialJournalId }) => {
+    const { accounts, addTransaction, contacts, employees, fixedAssets, checks, transactions, deleteTransaction, updateCheck, companySettings, baseCurrency } = useAccounting();
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
@@ -3075,6 +3737,7 @@ const JournalScreen: React.FC<{
         return getDisplayAccountName({ id: bankAccountId || '', name: bankName }, isEnglish);
     };
     const [amountNotice, setAmountNotice] = useState<string | null>(null);
+    const [showJournalActions, setShowJournalActions] = useState(false);
     const [lines, setLines] = useState<JournalLine[]>([
         { id: '1', accountId: '', debit: '', credit: '', description: '' },
         { id: '2', accountId: '', debit: '', credit: '', description: '' }
@@ -3091,11 +3754,32 @@ const JournalScreen: React.FC<{
         () => checks.filter(c => c.type === 'OUTGOING' && c.status !== 'BOUNCED' && c.status !== 'CANCELLED'),
         [checks]
     );
+    const postingAccounts = useMemo(
+        () => accounts.filter(account => !account.isGroup),
+        [accounts]
+    );
     const accountMap = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
     const linkedAccountOptions = useMemo(
         () => accounts.filter(a => !a.isGroup && (a.type === 'LIABILITY' || a.id === 'acc_receivable')),
         [accounts]
     );
+    const editingJournalTransactions = useMemo(() => {
+        if (!initialJournalId) return [] as Transaction[];
+        return transactions
+            .filter(tx =>
+                (tx.voucherId === initialJournalId || tx.id === initialJournalId)
+                && tx.category === 'journal'
+                && tx.type === TransactionType.TRANSFER
+            )
+            .slice()
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }, [initialJournalId, transactions]);
+    const editingJournalBlocked = useMemo(
+        () => editingJournalTransactions.some(tx => tx.isReversal || tx.reversedById),
+        [editingJournalTransactions]
+    );
+    const initializedJournalEditRef = useRef<string | null>(null);
+    const isEditingJournal = Boolean(initialJournalId);
 
     const isAccountOrDescendantOf = (accountId: string, rootId: string) => {
         let cursorId: string | undefined = accountId;
@@ -3142,6 +3826,85 @@ const JournalScreen: React.FC<{
         const timer = window.setTimeout(() => setAmountNotice(null), 1600);
         return () => window.clearTimeout(timer);
     }, [amountNotice]);
+
+    useEffect(() => {
+        if (!initialJournalId) {
+            initializedJournalEditRef.current = null;
+            return;
+        }
+        if (initializedJournalEditRef.current === initialJournalId) return;
+        if (editingJournalTransactions.length === 0) return;
+
+        const round2 = (value: number) => Number((Number(value) || 0).toFixed(2));
+        const sideLines = new Map<string, JournalLine>();
+
+        const getSideDescription = (rawDescription: string | undefined, side: 'DEBIT' | 'CREDIT') => {
+            const [debitPart = '', creditPart = ''] = String(rawDescription || '').split('<>');
+            const chosen = side === 'DEBIT' ? debitPart : creditPart;
+            return chosen.trim();
+        };
+
+        const upsertSideLine = (side: 'DEBIT' | 'CREDIT', accountId: string | undefined, amount: number, tx: Transaction) => {
+            if (!accountId || amount <= 0) return;
+            const key = `${side}:${accountId}`;
+            const existing = sideLines.get(key);
+            const sideDescription = getSideDescription(tx.description, side);
+
+            if (existing) {
+                if (side === 'DEBIT') {
+                    existing.debit = round2((parseFloat(existing.debit) || 0) + amount).toString();
+                } else {
+                    existing.credit = round2((parseFloat(existing.credit) || 0) + amount).toString();
+                }
+                if (!existing.description && sideDescription) existing.description = sideDescription;
+                return;
+            }
+
+            const seeded: JournalLine = {
+                id: `${side}-${accountId}-${sideLines.size + 1}`,
+                accountId,
+                debit: side === 'DEBIT' ? round2(amount).toString() : '',
+                credit: side === 'CREDIT' ? round2(amount).toString() : '',
+                description: sideDescription
+            };
+            const requirement = getLineRequirement(accountId);
+            if ((requirement === 'CUSTOMER' || requirement === 'SUPPLIER') && tx.contactId) {
+                seeded.contactId = tx.contactId;
+            }
+            if (requirement === 'EMPLOYEE' && tx.employeeId) seeded.employeeId = tx.employeeId;
+            if (requirement === 'FIXED_ASSET' && tx.assetId) seeded.assetId = tx.assetId;
+            if (requirement === 'CHECK_COLLECTION' && tx.checkId) seeded.checkId = tx.checkId;
+            if (requirement === 'OUTGOING_CHECK' && tx.checkId) {
+                seeded.outgoingCheckId = tx.checkId;
+                seeded.outgoingCheckAction = 'NONE';
+                if (tx.contactId && !seeded.linkedAccountId) {
+                    seeded.contactId = tx.contactId;
+                    seeded.linkedAccountId = getSuggestedLinkedAccountId(tx.contactId);
+                }
+            }
+            sideLines.set(key, seeded);
+        };
+
+        editingJournalTransactions.forEach(tx => {
+            const amount = Math.max(0, Number(tx.amount) || 0);
+            if (amount <= 0) return;
+            upsertSideLine('DEBIT', tx.debitAccountId, amount, tx);
+            upsertSideLine('CREDIT', tx.creditAccountId, amount, tx);
+        });
+
+        const hydratedLines = Array.from(sideLines.values()).map((line, index) => ({
+            ...line,
+            id: String(index + 1)
+        }));
+
+        if (hydratedLines.length === 1) {
+            hydratedLines.push({ id: '2', accountId: '', debit: '', credit: '', description: '' });
+        }
+        if (hydratedLines.length >= 2) {
+            setLines(hydratedLines);
+            initializedJournalEditRef.current = initialJournalId;
+        }
+    }, [initialJournalId, editingJournalTransactions, contacts]);
 
     const notifyAmountAdded = (rawValue: string) => {
         if (!(companySettings.notifyAfterAmountAdded ?? true)) return;
@@ -3306,6 +4069,12 @@ const JournalScreen: React.FC<{
     };
 
     const handleSubmit = () => {
+        if (isEditingJournal && editingJournalTransactions.length === 0) {
+            return alert(tr('تعذر العثور على القيد المطلوب تعديله.', 'Could not find the journal entry to edit.'));
+        }
+        if (isEditingJournal && editingJournalBlocked) {
+            return alert(tr('لا يمكن تعديل قيد معكوس محاسبيًا.', 'Reversed journal entries cannot be edited.'));
+        }
         if (!sharedState.date) return alert(tr('يرجى تحديد تاريخ القيد', 'Please select journal date'));
         if (Math.abs(totals.diff) > 0.01) return alert(tr('القيد غير متزن!', 'Entry is unbalanced!'));
         if (totals.totalDebit === 0) return alert(tr('قيمة القيد صفر!', 'Entry amount is zero!'));
@@ -3348,7 +4117,7 @@ const JournalScreen: React.FC<{
             }
         }
 
-        const voucherId = `JRN-${Date.now()}`;
+        const voucherId = isEditingJournal ? initialJournalId! : `JRN-${Date.now()}`;
 
         const enrichedLines = activeLines.map(line => {
             const dr = parseFloat(line.debit) || 0;
@@ -3433,6 +4202,15 @@ const JournalScreen: React.FC<{
             return alert(tr('Entry remains unbalanced after processing', 'Entry remains unbalanced after processing'));
         }
 
+        if (isEditingJournal) {
+            for (const existingLine of editingJournalTransactions) {
+                const deleteResult = deleteTransaction(existingLine.id);
+                if (!deleteResult.ok) {
+                    return alert(deleteResult.message || tr('تعذر حذف القيد السابق قبل التحديث.', 'Failed to delete old entry lines before update.'));
+                }
+            }
+        }
+
         for (const pair of postingPairs) {
             const result = addTransaction({
                 voucherId,
@@ -3471,15 +4249,126 @@ const JournalScreen: React.FC<{
             }
         });
 
-        alert(tr('Journal entry posted successfully', 'Journal entry posted successfully'));
+        alert(tr(
+            isEditingJournal ? 'تم تحديث القيد وترحيله بنجاح' : 'تم ترحيل القيد بنجاح',
+            isEditingJournal ? 'Journal entry updated and posted successfully' : 'Journal entry posted successfully'
+        ));
         onSuccess();
+    };
+
+    const exportableJournalLines = useMemo(
+        () => lines.filter(line =>
+            !!line.accountId
+            || (parseFloat(line.debit) || 0) > 0
+            || (parseFloat(line.credit) || 0) > 0
+            || !!String(line.description || '').trim()
+        ),
+        [lines]
+    );
+
+    const buildJournalShareText = () => {
+        const lineItems = exportableJournalLines.length > 0
+            ? exportableJournalLines.map((line, index) => {
+                const accountLabel = line.accountId
+                    ? displayAccountName(accountMap.get(line.accountId) || null)
+                    : tr('غير محدد', 'Not set');
+                const debit = parseFloat(line.debit) || 0;
+                const credit = parseFloat(line.credit) || 0;
+                const direction = debit > 0 ? tr('مدين', 'Debit') : tr('دائن', 'Credit');
+                const amount = debit > 0 ? debit : credit;
+                return `${index + 1}. ${accountLabel} - ${direction} ${amount.toLocaleString()} ${sharedState.currency}`;
+            })
+            : [tr('لا توجد أسطر قيود بعد.', 'No journal lines yet.')];
+
+        return [
+            tr('قيد يومية', 'Journal Entry'),
+            `${tr('التاريخ', 'Date')}: ${sharedState.date}`,
+            `${tr('العملة', 'Currency')}: ${sharedState.currency}`,
+            `${tr('سعر الصرف', 'Exchange Rate')}: ${sharedState.rate}`,
+            '',
+            ...lineItems,
+            '',
+            `${tr('إجمالي المدين', 'Total Debit')}: ${totals.totalDebit.toLocaleString()}`,
+            `${tr('إجمالي الدائن', 'Total Credit')}: ${totals.totalCredit.toLocaleString()}`
+        ].join('\n');
+    };
+
+    const handleDownloadJournalExcel = () => {
+        const csvEscape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const header = [
+            tr('رقم السطر', 'Line No'),
+            tr('الحساب', 'Account'),
+            tr('مدين', 'Debit'),
+            tr('دائن', 'Credit'),
+            tr('البيان', 'Description'),
+            tr('التاريخ', 'Date'),
+            tr('العملة', 'Currency'),
+            tr('سعر الصرف', 'Exchange Rate')
+        ];
+        const rows = exportableJournalLines.length > 0
+            ? exportableJournalLines.map((line, index) => {
+                const accountLabel = line.accountId
+                    ? displayAccountName(accountMap.get(line.accountId) || null)
+                    : '';
+                return [
+                    index + 1,
+                    accountLabel,
+                    parseFloat(line.debit) || 0,
+                    parseFloat(line.credit) || 0,
+                    line.description || '',
+                    sharedState.date,
+                    sharedState.currency,
+                    sharedState.rate
+                ];
+            })
+            : [[1, '', 0, 0, '', sharedState.date, sharedState.currency, sharedState.rate]];
+        const csv = '\uFEFF' + [header, ...rows].map(cols => cols.map(csvEscape).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `journal-${sharedState.date || Date.now()}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    };
+
+    const handleShareJournal = async () => {
+        const text = buildJournalShareText();
+        setShowJournalActions(false);
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: tr('قيد يومية', 'Journal Entry'), text });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') return;
+            }
+        }
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                alert(tr('تم نسخ بيانات القيد إلى الحافظة.', 'Journal details copied to clipboard.'));
+                return;
+            } catch {
+                // Fall through to prompt.
+            }
+        }
+        window.prompt(tr('انسخ بيانات القيد التالية', 'Copy journal details below'), text);
+    };
+
+    const handleShareJournalWhatsApp = () => {
+        setShowJournalActions(false);
+        window.open(`https://wa.me/?text=${encodeURIComponent(buildJournalShareText())}`, '_blank');
+    };
+
+    const handleShareJournalSms = () => {
+        setShowJournalActions(false);
+        window.open(`sms:?&body=${encodeURIComponent(buildJournalShareText())}`, '_blank');
     };
 
     const isBalanced = Math.abs(totals.diff) <= 0.01;
 
     return (
         <div
-            className="transaction-mobile-form w-full max-w-full space-y-4 pb-[calc(var(--app-safe-bottom)+4rem)] overflow-x-hidden"
+            className="transaction-mobile-form w-full max-w-full space-y-2.5 pb-[calc(var(--app-safe-bottom)+4rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
@@ -3489,13 +4378,51 @@ const JournalScreen: React.FC<{
                 </div>
             )}
             {/* Render Lines */}
-            <div className="transaction-entry-section bg-white p-4 rounded-[2rem] shadow-sm border border-gray-100">
-                <div className="flex justify-between items-center mb-4 px-2">
+            <div className="transaction-entry-section bg-white p-3 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-2 px-1">
                     <h3 className="font-black text-gray-800">{tr('أطراف القيد', 'Entry Lines')}</h3>
-                    <button onClick={handleAddLine} className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Plus size={18} /></button>
+                    <div className="relative flex items-center gap-1">
+                        <button
+                            type="button"
+                            onClick={() => setShowJournalActions(prev => !prev)}
+                            className="w-9 h-9 bg-white border border-gray-200 text-gray-500 rounded-xl flex items-center justify-center hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                            title={tr('إجراءات إضافية', 'More Actions')}
+                        >
+                            <MoreVertical size={16} />
+                        </button>
+                        <button onClick={handleAddLine} className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center"><Plus size={16} /></button>
+                        {showJournalActions && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="fixed inset-0 z-[180] cursor-default bg-transparent"
+                                    onClick={() => setShowJournalActions(false)}
+                                    aria-label={tr('إغلاق القائمة', 'Close menu')}
+                                />
+                                <div className={`absolute top-full z-[190] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'right-0' : 'left-0'}`}>
+                                    <button type="button" onClick={() => { setShowJournalActions(false); handleDownloadJournalExcel(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                        <FileSpreadsheet size={16} />
+                                        {tr('إكسل', 'Excel')}
+                                    </button>
+                                    <button type="button" onClick={() => void handleShareJournal()} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                        <Share2 size={16} />
+                                        {tr('مشاركة', 'Share')}
+                                    </button>
+                                    <button type="button" onClick={handleShareJournalSms} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                        <MessageSquareText size={16} />
+                                        {tr('إشعار رسالة', 'SMS')}
+                                    </button>
+                                    <button type="button" onClick={handleShareJournalWhatsApp} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
+                                        <MessageCircle size={16} />
+                                        {tr('إشعار واتساب', 'WhatsApp')}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
-                <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-3">
-                    <p className="text-[10px] font-bold text-indigo-700/80">
+                <div className="mb-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-2">
+                    <p className="text-[9px] font-bold text-indigo-700/80">
                         {tr(
                             'فصل ضريبة الشراء أصبح لكل سطر: فعّل الخيار داخل السطر المدين المطلوب وحدد نسبة الضريبة لذلك السطر.',
                             'Purchase tax split is now per-line: enable it on the target debit line and set that line tax rate.'
@@ -3504,22 +4431,25 @@ const JournalScreen: React.FC<{
                 </div>
                 <div className="space-y-3">
                     {lines.map((line, idx) => (
-                        <div key={line.id} className="transaction-line-card p-3 bg-gray-50 rounded-2xl border border-gray-100 flex flex-col gap-2">
+                        <div key={line.id} className="transaction-line-card p-2.5 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-2">
                             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 min-w-0">
-                                <select
-                                    value={line.accountId}
-                                    onChange={e => handleUpdateLine(line.id, 'accountId', e.target.value)}
-                                    className="w-full min-w-0 bg-white p-2 rounded-xl text-xs font-bold outline-none"
-                                >
-                                    <option value="">{tr('اختر الحساب', 'Select Account')}</option>
-                                    {accounts.filter(a => !a.isGroup).map(a => <option key={a.id} value={a.id}>{a.code} - {displayAccountName(a)}</option>)}
-                                </select>
+                                                                <SearchableAccountSelect
+                                    accounts={postingAccounts}
+                                    selectedId={line.accountId}
+                                    onSelect={(nextId) => handleUpdateLine(line.id, 'accountId', nextId)}
+                                    displayAccountName={displayAccountName}
+                                    placeholder={tr('اختر الحساب أو ابحث...', 'Select or search account...')}
+                                    emptyLabel={tr('لا يوجد حساب مطابق.', 'No matching account found.')}
+                                    isEnglish={isEnglish}
+                                    className="w-full min-w-0"
+                                    inputClassName="w-full min-w-0 h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none border border-slate-200"
+                                />
                                 <button onClick={() => handleRemoveLine(line.id)} className="text-rose-400 p-2 rounded-xl"><Trash2 size={16} /></button>
                             </div>
-                            <div className="journal-line-grid grid grid-cols-1 lg:grid-cols-4 gap-2 min-w-0">
-                                <input placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full p-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr lg:col-span-1" disabled={!!line.credit} />
-                                <input placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full p-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr lg:col-span-1" disabled={!!line.debit} />
-                                <input placeholder={tr('شرح مبسط', 'Description')} value={line.description} onChange={e => handleUpdateLine(line.id, 'description', e.target.value)} className="w-full p-2 bg-white rounded-xl text-xs font-bold outline-none lg:col-span-2" />
+                            <div className="journal-line-grid grid grid-cols-2 lg:grid-cols-4 gap-2 min-w-0">
+                                <input placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr lg:col-span-1" disabled={!!line.credit} />
+                                <input placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr lg:col-span-1" disabled={!!line.debit} />
+                                <input placeholder={tr('شرح مبسط', 'Description')} value={line.description} onChange={e => handleUpdateLine(line.id, 'description', e.target.value)} className="col-span-2 w-full h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none lg:col-span-2" />
                             </div>
 
                             {(() => {
@@ -3723,7 +4653,10 @@ const JournalScreen: React.FC<{
                         : 'bg-slate-700 text-slate-300'
                         }`}
                 >
-                    {tr('ترحيل القيد', 'Post Journal Entry')}
+                    {tr(
+                        isEditingJournal ? 'تحديث وترحيل القيد' : 'ترحيل القيد',
+                        isEditingJournal ? 'Update & Post Journal Entry' : 'Post Journal Entry'
+                    )}
                 </button>
             </div>
         </div>
@@ -3762,6 +4695,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         rate: getRateForCurrency(baseCurrency),
         date: getTodayDateString()
     }));
+    const [outerHeaderActionsContainer, setOuterHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
 
     useEffect(() => {
         if (!currencyOptions.some(c => c.code === sharedState.currency)) {
@@ -3844,7 +4778,14 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                         {screenTitle}
                         {devUiMarker && <span className="ms-1 text-[10px] font-bold text-blue-500">{devUiMarker}</span>}
                     </h2>
-                    <div className="w-[64px] sm:w-[78px] shrink-0" />
+                    {mode === 'VOUCHERS' ? (
+                        <div
+                            ref={setOuterHeaderActionsContainer}
+                            className="min-w-[108px] sm:min-w-[120px] shrink-0 flex items-center justify-start"
+                        />
+                    ) : (
+                        <div className="w-[64px] sm:w-[78px] shrink-0" />
+                    )}
                 </div>
                 <div className="mt-2">
                     <div className="header-fields-grid grid grid-cols-3 gap-2 items-start">
@@ -3916,7 +4857,11 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
             )}
 
             {mode === 'JOURNAL' ? (
-                <JournalScreen sharedState={sharedState} onSuccess={handleFlowSuccess} />
+                <JournalScreen
+                    sharedState={sharedState}
+                    onSuccess={handleFlowSuccess}
+                    initialJournalId={initialVoucherId}
+                />
             ) : mode === 'VOUCHERS' ? (
                 <VoucherScreen
                     initialType={initialVoucherType || 'RECEIPT'}
@@ -3924,6 +4869,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     updateCurrency={handleCurrencyChange}
                     onSuccess={handleFlowSuccess}
                     initialVoucherId={initialVoucherId}
+                    outerHeaderActionsContainer={outerHeaderActionsContainer}
                 />
             ) : (
                 <InvoiceScreen
@@ -3945,6 +4891,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
 };
 
 export default TransactionForm;
+
+
 
 
 

@@ -353,53 +353,53 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     };
 
     return (
-        <div className="app-page animate-in fade-in duration-700 p-4 font-tajawal" dir={isEnglish ? 'ltr' : 'rtl'}>
-            <header className="mb-6 flex justify-between items-center px-1">
+        <div className="app-page animate-in fade-in duration-700 p-3 md:p-4 font-tajawal" dir={isEnglish ? 'ltr' : 'rtl'}>
+            <header className="mb-3 flex justify-between items-center px-1">
                 <div>
-                    <h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('مصاريف الاستيراد', 'Import Expenses')}</h1>
+                    <h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('مصاريف الاستيراد', 'Import Expenses')}</h1>
                     <p className="text-gray-400 text-[10px] font-black mt-1 uppercase tracking-widest">{tr('توزيع التكاليف اللوجستية (Landing Cost)', 'Logistics Cost Allocation (Landing Cost)')}</p>
                 </div>
-                <div className="p-4 rounded-[1.8rem] bg-white shadow-xl border border-cyan-100 text-cyan-600">
-                    <Ship size={28} />
+                <div className="p-3 rounded-2xl bg-white shadow-sm border border-cyan-100 text-cyan-600">
+                    <Ship size={22} />
                 </div>
             </header>
 
             {!showWizard ? (
-                <div className="space-y-6">
-                    <div className="bg-slate-900 p-7 rounded-[2.8rem] text-white shadow-2xl relative overflow-hidden group">
-                        <div className="absolute -right-6 -bottom-6 opacity-5 group-hover:scale-110 transition-transform duration-1000"><Calculator size={160} /></div>
+                <div className="space-y-3">
+                    <div className="bg-slate-900 p-3 sm:p-4 rounded-2xl text-white shadow-2xl relative overflow-hidden group">
+                        <div className="absolute -right-6 -bottom-6 opacity-5 group-hover:scale-110 transition-transform duration-1000"><Calculator size={120} /></div>
                         <div className="relative z-10">
-                            <h3 className="text-lg font-black mb-1 flex items-center gap-2">{tr('توزيع مصاريف ذكي', 'Smart Expense Distribution')}</h3>
-                            <p className="text-xs text-slate-400 font-bold mb-6 leading-relaxed">{tr('حمل تكاليف الشحن والجمارك على حساب المورد أو العميل المعني ووزعها على المخزون.', 'Allocate shipping and customs costs to the relevant supplier/customer account and distribute them to inventory.')}</p>
+                            <h3 className="text-base font-black mb-1 flex items-center gap-2">{tr('توزيع مصاريف ذكي', 'Smart Expense Distribution')}</h3>
+                            <p className="text-[10px] text-slate-400 font-bold mb-3 leading-relaxed">{tr('حمل تكاليف الشحن والجمارك على حساب المورد أو العميل المعني ووزعها على المخزون.', 'Allocate shipping and customs costs to the relevant supplier/customer account and distribute them to inventory.')}</p>
                             <button 
                                 onClick={() => setShowWizard(true)}
-                                className="w-full py-4.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-2xl font-black text-sm shadow-xl shadow-cyan-900/20 active:scale-95 transition-all flex items-center justify-center gap-3"
+                                className="w-full h-10 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-black text-xs shadow-xl shadow-cyan-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
-                                <Plus size={20} />
+                                <Plus size={16} />
                                 {tr('بدء عملية توزيع جديدة', 'Start New Distribution')}
                             </button>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                         <div className="flex-1 relative">
                             <input 
                                 type="text"
                                 placeholder={tr('بحث في السجلات...', 'Search records...')}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full p-4 pr-12 bg-white rounded-2xl border border-gray-100 shadow-sm outline-none font-bold text-sm"
+                                className="w-full h-10 px-3 pr-9 bg-white rounded-xl border border-gray-100 shadow-sm outline-none font-bold text-xs"
                             />
-                            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
+                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-3">
-                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-2.5">
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
                             <select
                                 value={distributionMethodFilter}
                                 onChange={(e) => setDistributionMethodFilter(e.target.value as 'ALL' | 'VALUE' | 'QUANTITY' | 'MANUAL')}
-                                className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
+                                className="h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
                             >
                                 <option value="ALL">{tr('كل الطرق', 'All methods')}</option>
                                 <option value="VALUE">{tr('حسب القيمة', 'By Value')}</option>
@@ -409,7 +409,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                             <select
                                 value={distributionContactFilter}
                                 onChange={(e) => setDistributionContactFilter(e.target.value)}
-                                className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
+                                className="h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
                             >
                                 <option value="ALL">{tr('كل الأطراف', 'All parties')}</option>
                                 {distributionContactOptions.map(contact => (
@@ -421,7 +421,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 onChange={setDistributionFromDateFilter}
                                 displayFormat="YMD"
                                 wrapperClassName="w-full"
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
                                 placeholder={tr('من تاريخ', 'From date')}
                             />
                             <EnglishDateInput
@@ -429,7 +429,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 onChange={setDistributionToDateFilter}
                                 displayFormat="YMD"
                                 wrapperClassName="w-full"
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
                                 placeholder={tr('إلى تاريخ', 'To date')}
                             />
                             <input
@@ -438,7 +438,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 lang="en"
                                 value={toEnglishDigits(distributionMinAmountFilter)}
                                 onChange={(e) => setDistributionMinAmountFilter(toEnglishDigits(e.target.value))}
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr text-right"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr text-right"
                                 placeholder={tr('الحد الأدنى', 'Min amount')}
                             />
                             <input
@@ -447,19 +447,19 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 lang="en"
                                 value={toEnglishDigits(distributionMaxAmountFilter)}
                                 onChange={(e) => setDistributionMaxAmountFilter(toEnglishDigits(e.target.value))}
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr text-right"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr text-right"
                                 placeholder={tr('الحد الأعلى', 'Max amount')}
                             />
                         </div>
-                        <div className="flex items-center justify-between mt-3 gap-2">
-                            <span className="text-[11px] font-black text-gray-500">
+                        <div className="flex items-center justify-between mt-2 gap-2">
+                            <span className="text-[10px] font-black text-gray-500">
                                 {tr('نتائج الفلترة', 'Filtered results')}: <span className="text-slate-800">{filteredDistributionHistory.length}</span>
                             </span>
                             {hasDistributionFilters && (
                                 <button
                                     type="button"
                                     onClick={clearDistributionFilters}
-                                    className="px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 text-xs font-black"
+                                    className="h-9 px-3 rounded-xl border border-gray-200 bg-white text-gray-600 text-xs font-black"
                                 >
                                     {tr('مسح الفلاتر', 'Clear filters')}
                                 </button>
@@ -468,7 +468,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                     </div>
 
                     {filteredDistributionHistory.length === 0 && (
-                        <div className="text-center py-24 bg-white rounded-[3rem] border border-dashed border-gray-100">
+                        <div className="text-center py-16 bg-white rounded-xl border border-dashed border-gray-100">
                             <History size={48} className="mx-auto text-gray-100 mb-4" />
                             <p className="text-gray-400 font-black text-sm uppercase tracking-widest">{tr('سجل عمليات التوزيع السابقة', 'Previous Distribution History')}</p>
                         </div>

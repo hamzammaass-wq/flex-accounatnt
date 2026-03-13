@@ -68,7 +68,7 @@ type PartnerRow = {
 };
 
 const STORAGE_PREFIX = 'al_mohaseb_equity_partners_v2';
-const inputClass = 'w-full p-3.5 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-bold outline-none';
+const inputClass = 'w-full h-10 px-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-bold outline-none';
 const today = () => new Date().toISOString().slice(0, 10);
 const newId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const buildRef = (prefix: string) => `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -722,17 +722,17 @@ const EquityPartnersManager: React.FC = () => {
   };
 
   return (
-    <div className={`app-page equity-partners-no-print p-4 font-tajawal animate-in fade-in duration-500 ${isEnglish ? 'text-left' : ''}`} dir={isEnglish ? 'ltr' : 'rtl'}>
-      <header className="mb-5">
-        <h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('حقوق الملكية والشركاء', 'Equity & Partners')}</h1>
+    <div className={`app-page equity-partners-no-print p-3 md:p-4 font-tajawal animate-in fade-in duration-500 ${isEnglish ? 'text-left' : ''}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+      <header className="mb-3">
+        <h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('حقوق الملكية والشركاء', 'Equity & Partners')}</h1>
       </header>
 
-      <div className="flex p-1.5 bg-white border border-gray-100 rounded-[2rem] mb-5 shadow-sm overflow-x-auto no-scrollbar">
-        <button onClick={() => setTab('DASHBOARD')} className={`flex-1 min-w-[145px] py-3 px-4 rounded-[1.5rem] text-[10px] font-black flex items-center justify-center gap-2 ${tab === 'DASHBOARD' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><BarChart3 size={15} />{tr('حقوق الملكية والشركاء', 'Dashboard')}</button>
-        <button onClick={() => setTab('CAPITAL')} className={`flex-1 min-w-[120px] py-3 px-4 rounded-[1.5rem] text-[10px] font-black flex items-center justify-center gap-2 ${tab === 'CAPITAL' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><Wallet size={15} />{tr('رأس المال', 'Capital')}</button>
-        <button onClick={() => setTab('PARTNER_ACCOUNTS')} className={`flex-1 min-w-[140px] py-3 px-4 rounded-[1.5rem] text-[10px] font-black flex items-center justify-center gap-2 ${tab === 'PARTNER_ACCOUNTS' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><FileText size={15} />{tr('حساب الشركاء', 'Partner Accounts')}</button>
-        <button onClick={() => setTab('PROFIT_DISTRIBUTION')} className={`flex-1 min-w-[150px] py-3 px-4 rounded-[1.5rem] text-[10px] font-black flex items-center justify-center gap-2 ${tab === 'PROFIT_DISTRIBUTION' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><Percent size={15} />{tr('توزيع الأرباح', 'Profit Distribution')}</button>
-        <button onClick={() => setTab('SETTLEMENT')} className={`flex-1 min-w-[130px] py-3 px-4 rounded-[1.5rem] text-[10px] font-black flex items-center justify-center gap-2 ${tab === 'SETTLEMENT' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><Layers3 size={15} />{tr('تسوية الحقوق', 'Settlement')}</button>
+      <div className="grid grid-cols-5 gap-1 bg-white border border-gray-100 rounded-[1.4rem] mb-3 shadow-sm p-1">
+        <button onClick={() => setTab('DASHBOARD')} className={`min-w-0 py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black flex flex-col sm:flex-row items-center justify-center gap-1 ${tab === 'DASHBOARD' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><BarChart3 size={13} /><span className="hidden sm:inline">{tr('حقوق الملكية والشركاء', 'Dashboard')}</span><span className="sm:hidden">{tr('الملخص', 'Dash')}</span></button>
+        <button onClick={() => setTab('CAPITAL')} className={`min-w-0 py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black flex flex-col sm:flex-row items-center justify-center gap-1 ${tab === 'CAPITAL' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><Wallet size={13} /><span>{tr('رأس المال', 'Capital')}</span></button>
+        <button onClick={() => setTab('PARTNER_ACCOUNTS')} className={`min-w-0 py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black flex flex-col sm:flex-row items-center justify-center gap-1 ${tab === 'PARTNER_ACCOUNTS' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><FileText size={13} /><span className="hidden sm:inline">{tr('حساب الشركاء', 'Partner Accounts')}</span><span className="sm:hidden">{tr('الحسابات', 'Accounts')}</span></button>
+        <button onClick={() => setTab('PROFIT_DISTRIBUTION')} className={`min-w-0 py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black flex flex-col sm:flex-row items-center justify-center gap-1 ${tab === 'PROFIT_DISTRIBUTION' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><Percent size={13} /><span className="hidden sm:inline">{tr('توزيع الأرباح', 'Profit Distribution')}</span><span className="sm:hidden">{tr('الأرباح', 'Profits')}</span></button>
+        <button onClick={() => setTab('SETTLEMENT')} className={`min-w-0 py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black flex flex-col sm:flex-row items-center justify-center gap-1 ${tab === 'SETTLEMENT' ? 'bg-white shadow-md text-sky-600' : 'text-gray-500'}`}><Layers3 size={13} /><span className="hidden sm:inline">{tr('تسوية الحقوق', 'Settlement')}</span><span className="sm:hidden">{tr('تسوية', 'Settle')}</span></button>
       </div>
 
       {tab === 'DASHBOARD' && (
@@ -757,30 +757,30 @@ const EquityPartnersManager: React.FC = () => {
       )}
 
       {tab === 'CAPITAL' && (
-        <div className="space-y-4">
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <select value={capitalMode} onChange={e => setCapitalMode(e.target.value as 'EXISTING' | 'NEW')} className={`${inputClass} text-xs`}><option value="EXISTING">{tr('شريك موجود', 'Existing Partner')}</option><option value="NEW">{tr('شريك جديد', 'New Partner')}</option></select>
-              {capitalMode === 'EXISTING' ? <select value={capitalPartnerId} onChange={e => setCapitalPartnerId(e.target.value)} className={`${inputClass} text-xs`}>{partners.map(p => <option key={p.id} value={p.id}>{displayContactName(p)}</option>)}</select> : <input value={capitalPartnerName} onChange={e => setCapitalPartnerName(e.target.value)} placeholder={tr('اسم الشريك', 'Partner name')} className={inputClass} />}
-              <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(capitalAmount)} onChange={e => setCapitalAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('مبلغ رأس المال', 'Capital amount')} className={`${inputClass} dir-ltr text-right`} />
+        <div className="space-y-3">
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <select value={capitalMode} onChange={e => setCapitalMode(e.target.value as 'EXISTING' | 'NEW')} className={`${inputClass} text-[11px]`}><option value="EXISTING">{tr('شريك موجود', 'Existing Partner')}</option><option value="NEW">{tr('شريك جديد', 'New Partner')}</option></select>
+              {capitalMode === 'EXISTING' ? <select value={capitalPartnerId} onChange={e => setCapitalPartnerId(e.target.value)} className={`${inputClass} text-[11px]`}>{partners.map(p => <option key={p.id} value={p.id}>{displayContactName(p)}</option>)}</select> : <input value={capitalPartnerName} onChange={e => setCapitalPartnerName(e.target.value)} placeholder={tr('اسم الشريك', 'Partner name')} className={inputClass} />}
+              <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(capitalAmount)} onChange={e => setCapitalAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('مبلغ رأس المال', 'Capital amount')} className={`${inputClass} col-span-2 md:col-span-2 dir-ltr text-right`} />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <EnglishDateInput value={capitalDate} onChange={setCapitalDate} displayFormat="YMD" className={`${inputClass} text-xs dir-ltr`} />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <EnglishDateInput value={capitalDate} onChange={setCapitalDate} displayFormat="YMD" className={`${inputClass} text-[11px] dir-ltr`} />
               <input type="text" min="0" max="100" inputMode="decimal" lang={englishNumberLang} value={englishDigits(capitalSharePercent)} onChange={e => setCapitalSharePercent(normalizeDecimalInput(e.target.value))} placeholder={tr('نسبة المشاركة %', 'Share %')} className={`${inputClass} dir-ltr text-right`} />
               <input value={capitalPartnerType} onChange={e => setCapitalPartnerType(e.target.value)} placeholder={tr('نوع الشريك (اختياري)', 'Partner type (optional)')} className={inputClass} />
-              <select value={capitalFundingAccountId} onChange={e => setCapitalFundingAccountId(e.target.value)} className={`${inputClass} text-xs`}>{fundingAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select>
+              <select value={capitalFundingAccountId} onChange={e => setCapitalFundingAccountId(e.target.value)} className={`${inputClass} text-[11px]`}>{fundingAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('CREATE')} className="p-3.5 rounded-2xl bg-blue-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-60"><Plus size={14} />{tr('إضافة رأس مال', 'Create Capital Entry')}</button>
-              <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('INCREASE')} className="p-3.5 rounded-2xl bg-emerald-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-60"><Plus size={14} />{tr('زيادة رأس مال', 'Increase Capital')}</button>
+            <div className="grid grid-cols-2 gap-2">
+              <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('CREATE')} className="p-2.5 rounded-xl bg-blue-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('إضافة رأس مال', 'Create Capital Entry')}</button>
+              <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('INCREASE')} className="p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('زيادة رأس مال', 'Increase Capital')}</button>
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <select value={capitalFilterPartnerId} onChange={e => setCapitalFilterPartnerId(e.target.value)} className={`${inputClass} text-xs`}><option value="ALL">{tr('كل الشركاء', 'All partners')}</option>{partners.map(p => <option key={p.id} value={p.id}>{displayContactName(p)}</option>)}</select>
-              <EnglishDateInput value={capitalFilterFrom} onChange={setCapitalFilterFrom} displayFormat="YMD" placeholder={tr('من تاريخ', 'From date')} className={`${inputClass} text-xs dir-ltr`} />
-              <EnglishDateInput value={capitalFilterTo} onChange={setCapitalFilterTo} displayFormat="YMD" placeholder={tr('إلى تاريخ', 'To date')} className={`${inputClass} text-xs dir-ltr`} />
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              <select value={capitalFilterPartnerId} onChange={e => setCapitalFilterPartnerId(e.target.value)} className={`${inputClass} col-span-2 md:col-span-1 text-[11px]`}><option value="ALL">{tr('كل الشركاء', 'All partners')}</option>{partners.map(p => <option key={p.id} value={p.id}>{displayContactName(p)}</option>)}</select>
+              <EnglishDateInput value={capitalFilterFrom} onChange={setCapitalFilterFrom} displayFormat="YMD" placeholder={tr('من تاريخ', 'From date')} className={`${inputClass} text-[11px] dir-ltr`} />
+              <EnglishDateInput value={capitalFilterTo} onChange={setCapitalFilterTo} displayFormat="YMD" placeholder={tr('إلى تاريخ', 'To date')} className={`${inputClass} text-[11px] dir-ltr`} />
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-[12px] font-black">
@@ -908,52 +908,203 @@ const EquityPartnersManager: React.FC = () => {
       )}
 
       {tab === 'PROFIT_DISTRIBUTION' && (
-        <div className="space-y-4">
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3"><input value={englishDigits(distPeriod)} onChange={e => setDistPeriod(normalizeDigitsText(e.target.value))} placeholder={tr('السنة/الفترة المالية', 'Fiscal period')} className={inputClass} /><input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(distTotalProfit)} onChange={e => setDistTotalProfit(normalizeDecimalInput(e.target.value))} placeholder={tr('إجمالي الربح المتاح', 'Total available profit')} className={`${inputClass} dir-ltr text-right`} /><select value={distMethod} onChange={e => setDistMethod(e.target.value as 'CAPITAL_RATIO' | 'CUSTOM_RATIO' | 'FIXED_AMOUNT')} className={`${inputClass} text-xs`}><option value="CAPITAL_RATIO">{tr('حسب نسبة رأس المال', 'By capital share')}</option><option value="CUSTOM_RATIO">{tr('نسبة مخصصة', 'Custom ratio')}</option><option value="FIXED_AMOUNT">{tr('مبلغ ثابت', 'Fixed amount')}</option></select><EnglishDateInput value={distDate} onChange={setDistDate} displayFormat="YMD" className={`${inputClass} text-xs dir-ltr`} /></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs font-black"><div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex justify-between text-blue-700"><span>{tr('الربح المتاح', 'Available profit')}</span><span className="dir-ltr">{fmt(availableProfitPool)}</span></div><div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex justify-between text-indigo-700"><span>{tr('الموزع', 'Allocated')}</span><span className="dir-ltr">{fmt(distributionPreview.totalAllocated)}</span></div><div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex justify-between text-slate-700"><span>{tr('المتبقي', 'Remainder')}</span><span className="dir-ltr">{fmt(distributionPreview.remainder)}</span></div></div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2"><input value={displayAccountName(retainedEarningsAccount) || tr('الأرباح غير الموزعة', 'Retained Earnings')} readOnly className={`${inputClass} text-xs bg-gray-100 text-gray-700`} /><input value={distNote} onChange={e => setDistNote(e.target.value)} placeholder={tr('ملاحظة', 'Note')} className={inputClass} /></div>
-            {(distMethod === 'CUSTOM_RATIO' || distMethod === 'FIXED_AMOUNT') && <div className="space-y-2">{partnerRows.map(p => <div key={p.id} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center bg-gray-50 border border-gray-100 rounded-2xl p-3"><div className="text-xs font-black text-gray-700">{p.name}</div>{distMethod === 'CUSTOM_RATIO' ? <input type="text" min="0" max="100" inputMode="decimal" lang={englishNumberLang} value={englishDigits(distCustomRatios[p.id] || '')} onChange={e => setDistCustomRatios(prev => ({ ...prev, [p.id]: normalizeDecimalInput(e.target.value) }))} placeholder={tr('النسبة %', 'Ratio %')} className={`${inputClass} dir-ltr text-right`} /> : <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(distFixedAmounts[p.id] || '')} onChange={e => setDistFixedAmounts(prev => ({ ...prev, [p.id]: normalizeDecimalInput(e.target.value) }))} placeholder={tr('المبلغ', 'Amount')} className={`${inputClass} dir-ltr text-right`} />}<div className="text-[11px] text-gray-500 font-bold">{tr('الترحيل على جاري الشريك', 'Posted to partner current account')}</div></div>)}</div>}
-            <button disabled={!canPostEntries} onClick={postDistribution} className="w-full p-3.5 rounded-2xl bg-emerald-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-60"><Plus size={14} />{tr('ترحيل', 'Post Distribution')}</button>
+        <div className="space-y-3">
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <input
+                value={englishDigits(distPeriod)}
+                onChange={e => setDistPeriod(normalizeDigitsText(e.target.value))}
+                placeholder={tr('السنة/الفترة المالية', 'Fiscal period')}
+                className={`${inputClass} text-[11px]`}
+              />
+              <input
+                type="text"
+                min="0"
+                inputMode="decimal"
+                lang={englishNumberLang}
+                value={englishDigits(distTotalProfit)}
+                onChange={e => setDistTotalProfit(normalizeDecimalInput(e.target.value))}
+                placeholder={tr('إجمالي الربح المتاح', 'Total available profit')}
+                className={`${inputClass} dir-ltr text-right`}
+              />
+              <select
+                value={distMethod}
+                onChange={e => setDistMethod(e.target.value as 'CAPITAL_RATIO' | 'CUSTOM_RATIO' | 'FIXED_AMOUNT')}
+                className={`${inputClass} col-span-2 md:col-span-1 text-[11px]`}
+              >
+                <option value="CAPITAL_RATIO">{tr('حسب نسبة رأس المال', 'By capital share')}</option>
+                <option value="CUSTOM_RATIO">{tr('نسبة مخصصة', 'Custom ratio')}</option>
+                <option value="FIXED_AMOUNT">{tr('مبلغ ثابت', 'Fixed amount')}</option>
+              </select>
+              <EnglishDateInput
+                value={distDate}
+                onChange={setDistDate}
+                displayFormat="YMD"
+                className={`${inputClass} text-[11px] dir-ltr`}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5 text-[11px] font-black">
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 flex justify-between text-blue-700">
+                <span className="truncate">{tr('الربح المتاح', 'Available profit')}</span>
+                <span className="dir-ltr shrink-0">{fmt(availableProfitPool)}</span>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2 flex justify-between text-indigo-700">
+                <span className="truncate">{tr('الموزع', 'Allocated')}</span>
+                <span className="dir-ltr shrink-0">{fmt(distributionPreview.totalAllocated)}</span>
+              </div>
+              <div className="bg-slate-50 border border-slate-100 rounded-lg p-2 flex justify-between text-slate-700">
+                <span className="truncate">{tr('المتبقي', 'Remainder')}</span>
+                <span className="dir-ltr shrink-0">{fmt(distributionPreview.remainder)}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                value={displayAccountName(retainedEarningsAccount) || tr('الأرباح غير الموزعة', 'Retained Earnings')}
+                readOnly
+                className={`${inputClass} text-[11px] bg-gray-100 text-gray-700`}
+              />
+              <input
+                value={distNote}
+                onChange={e => setDistNote(e.target.value)}
+                placeholder={tr('ملاحظة', 'Note')}
+                className={inputClass}
+              />
+            </div>
+
+            {(distMethod === 'CUSTOM_RATIO' || distMethod === 'FIXED_AMOUNT') && (
+              <div className="space-y-2">
+                {partnerRows.map(p => (
+                  <div key={p.id} className="grid grid-cols-2 md:grid-cols-3 gap-2 items-center bg-gray-50 border border-gray-100 rounded-xl p-2">
+                    <div className="text-xs font-black text-gray-700 col-span-2 md:col-span-1">{p.name}</div>
+                    {distMethod === 'CUSTOM_RATIO' ? (
+                      <input
+                        type="text"
+                        min="0"
+                        max="100"
+                        inputMode="decimal"
+                        lang={englishNumberLang}
+                        value={englishDigits(distCustomRatios[p.id] || '')}
+                        onChange={e => setDistCustomRatios(prev => ({ ...prev, [p.id]: normalizeDecimalInput(e.target.value) }))}
+                        placeholder={tr('النسبة %', 'Ratio %')}
+                        className={`${inputClass} dir-ltr text-right`}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        min="0"
+                        inputMode="decimal"
+                        lang={englishNumberLang}
+                        value={englishDigits(distFixedAmounts[p.id] || '')}
+                        onChange={e => setDistFixedAmounts(prev => ({ ...prev, [p.id]: normalizeDecimalInput(e.target.value) }))}
+                        placeholder={tr('المبلغ', 'Amount')}
+                        className={`${inputClass} dir-ltr text-right`}
+                      />
+                    )}
+                    <div className="hidden md:block text-[11px] text-gray-500 font-bold">{tr('الترحيل على جاري الشريك', 'Posted to partner current account')}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              disabled={!canPostEntries}
+              onClick={postDistribution}
+              className="w-full p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"
+            >
+              <Plus size={13} />
+              {tr('ترحيل', 'Post Distribution')}
+            </button>
           </div>
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm"><h3 className="font-black text-sm mb-2">{tr('مستندات توزيع الأرباح', 'Profit Distribution Documents')}</h3>{profitDocs.map(doc => <div key={doc.id} className="bg-slate-50 border border-slate-100 rounded-xl p-2 mb-2 text-xs font-black"><div>{doc.reference} - {doc.period} - <span className="dir-ltr">{fmtDate(doc.date)}</span></div><div>{doc.method} - {fmt(doc.totalAllocated)} / {fmt(doc.totalProfit)}</div></div>)}</div>
+
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
+            <h3 className="font-black text-sm mb-2">{tr('مستندات توزيع الأرباح', 'Profit Distribution Documents')}</h3>
+            <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+              {profitDocs.map(doc => (
+                <div key={doc.id} className="bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs font-black">
+                  <div>{doc.reference} - {doc.period} - <span className="dir-ltr">{fmtDate(doc.date)}</span></div>
+                  <div>{doc.method} - {fmt(doc.totalAllocated)} / {fmt(doc.totalProfit)}</div>
+                </div>
+              ))}
+              {profitDocs.length === 0 && (
+                <div className="text-[11px] font-black text-gray-400">{tr('لا توجد مستندات بعد', 'No documents yet')}</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {tab === 'SETTLEMENT' && (
-        <div className="space-y-4">
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><select value={settlementDebitAccountId} onChange={e => setSettlementDebitAccountId(e.target.value)} className={`${inputClass} text-xs`}>{settlementAccounts.map(a => <option key={a.id} value={a.id}>{tr('مدين', 'Debit')}: {displayAccountName(a)}</option>)}</select><select value={settlementCreditAccountId} onChange={e => setSettlementCreditAccountId(e.target.value)} className={`${inputClass} text-xs`}>{settlementAccounts.map(a => <option key={a.id} value={a.id}>{tr('دائن', 'Credit')}: {displayAccountName(a)}</option>)}</select></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3"><input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(settlementAmount)} onChange={e => setSettlementAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('المبلغ', 'Amount')} className={`${inputClass} dir-ltr text-right`} /><EnglishDateInput value={settlementDate} onChange={setSettlementDate} displayFormat="YMD" className={`${inputClass} text-xs dir-ltr`} /><input value={settlementReason} onChange={e => setSettlementReason(e.target.value)} placeholder={tr('السبب (إلزامي)', 'Reason (required)')} className={inputClass} /></div>
-            <input value={settlementNote} onChange={e => setSettlementNote(e.target.value)} placeholder={tr('ملاحظة', 'Note')} className={inputClass} />
-            <button disabled={!canPostEntries} onClick={postManualSettlement} className="w-full p-3.5 rounded-2xl bg-sky-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-60"><Plus size={14} />{tr('ترحيل تسوية الحقوق', 'Post Settlement')}</button>
+        <div className="space-y-3">
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <select value={settlementDebitAccountId} onChange={e => setSettlementDebitAccountId(e.target.value)} className={`${inputClass} text-[11px]`}>
+                {settlementAccounts.map(a => <option key={a.id} value={a.id}>{tr('مدين', 'Debit')}: {displayAccountName(a)}</option>)}
+              </select>
+              <select value={settlementCreditAccountId} onChange={e => setSettlementCreditAccountId(e.target.value)} className={`${inputClass} text-[11px]`}>
+                {settlementAccounts.map(a => <option key={a.id} value={a.id}>{tr('دائن', 'Credit')}: {displayAccountName(a)}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(settlementAmount)} onChange={e => setSettlementAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('المبلغ', 'Amount')} className={`${inputClass} dir-ltr text-right`} />
+              <EnglishDateInput value={settlementDate} onChange={setSettlementDate} displayFormat="YMD" className={`${inputClass} text-[11px] dir-ltr`} />
+              <input value={settlementReason} onChange={e => setSettlementReason(e.target.value)} placeholder={tr('السبب (إلزامي)', 'Reason (required)')} className={inputClass} />
+              <input value={settlementNote} onChange={e => setSettlementNote(e.target.value)} placeholder={tr('ملاحظة', 'Note')} className={inputClass} />
+            </div>
+            <button disabled={!canPostEntries} onClick={postManualSettlement} className="w-full p-2.5 rounded-xl bg-sky-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('ترحيل تسوية الحقوق', 'Post Settlement')}</button>
           </div>
 
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
             <h3 className="font-black text-sm">{tr('تسوية جماعية', 'Bulk Settlement')}</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3"><select value={bulkMethod} onChange={e => setBulkMethod(e.target.value as 'CAPITAL_RATIO' | 'CUSTOM_RATIO')} className={`${inputClass} text-xs`}><option value="CAPITAL_RATIO">{tr('حسب نسبة رأس المال', 'By capital ratio')}</option><option value="CUSTOM_RATIO">{tr('حسب نسبة مخصصة', 'By custom ratio')}</option></select><input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(bulkAmount)} onChange={e => setBulkAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('المبلغ الإجمالي', 'Total amount')} className={`${inputClass} dir-ltr text-right`} /><EnglishDateInput value={bulkDate} onChange={setBulkDate} displayFormat="YMD" className={`${inputClass} text-xs dir-ltr`} /><select value={bulkSourceAccountId} onChange={e => setBulkSourceAccountId(e.target.value)} className={`${inputClass} text-xs`}>{equityAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select></div>
-            {bulkMethod === 'CUSTOM_RATIO' && <div className="space-y-2">{partnerRows.map(p => <div key={p.id} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center bg-gray-50 border border-gray-100 rounded-2xl p-3"><div className="text-xs font-black text-gray-700">{p.name}</div><input type="text" min="0" max="100" inputMode="decimal" lang={englishNumberLang} value={englishDigits(bulkCustomRatios[p.id] || '')} onChange={e => setBulkCustomRatios(prev => ({ ...prev, [p.id]: normalizeDecimalInput(e.target.value) }))} placeholder={tr('النسبة %', 'Ratio %')} className={`${inputClass} dir-ltr text-right`} /><div className="text-[11px] text-gray-500 font-bold">{tr('التوزيع على جاري الشركاء', 'Allocated to partner current accounts')}</div></div>)}</div>}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <select value={bulkMethod} onChange={e => setBulkMethod(e.target.value as 'CAPITAL_RATIO' | 'CUSTOM_RATIO')} className={`${inputClass} text-[11px]`}>
+                <option value="CAPITAL_RATIO">{tr('حسب نسبة رأس المال', 'By capital ratio')}</option>
+                <option value="CUSTOM_RATIO">{tr('حسب نسبة مخصصة', 'By custom ratio')}</option>
+              </select>
+              <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(bulkAmount)} onChange={e => setBulkAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('المبلغ الإجمالي', 'Total amount')} className={`${inputClass} dir-ltr text-right`} />
+              <EnglishDateInput value={bulkDate} onChange={setBulkDate} displayFormat="YMD" className={`${inputClass} text-[11px] dir-ltr`} />
+              <select value={bulkSourceAccountId} onChange={e => setBulkSourceAccountId(e.target.value)} className={`${inputClass} col-span-2 md:col-span-1 text-[11px]`}>
+                {equityAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
+              </select>
+            </div>
+            {bulkMethod === 'CUSTOM_RATIO' && (
+              <div className="space-y-2">
+                {partnerRows.map(p => (
+                  <div key={p.id} className="grid grid-cols-2 md:grid-cols-3 gap-2 items-center bg-gray-50 border border-gray-100 rounded-xl p-2">
+                    <div className="text-xs font-black text-gray-700 col-span-2 md:col-span-1">{p.name}</div>
+                    <input type="text" min="0" max="100" inputMode="decimal" lang={englishNumberLang} value={englishDigits(bulkCustomRatios[p.id] || '')} onChange={e => setBulkCustomRatios(prev => ({ ...prev, [p.id]: normalizeDecimalInput(e.target.value) }))} placeholder={tr('النسبة %', 'Ratio %')} className={`${inputClass} dir-ltr text-right`} />
+                    <div className="hidden md:block text-[11px] text-gray-500 font-bold">{tr('التوزيع على جاري الشركاء', 'Allocated to partner current accounts')}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <input value={bulkReason} onChange={e => setBulkReason(e.target.value)} placeholder={tr('سبب التسوية الجماعية', 'Bulk reason')} className={inputClass} />
-            <button disabled={!canPostEntries} onClick={postBulkSettlement} className="w-full p-3.5 rounded-2xl bg-indigo-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-60"><Plus size={14} />{tr('ترحيل التسوية الجماعية', 'Post Bulk Settlement')}</button>
+            <button disabled={!canPostEntries} onClick={postBulkSettlement} className="w-full p-2.5 rounded-xl bg-indigo-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('ترحيل التسوية الجماعية', 'Post Bulk Settlement')}</button>
           </div>
 
-          <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
+          <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
             <h3 className="font-black text-sm mb-2">{tr('سجل التسويات', 'Settlement Documents')}</h3>
-            {settlementDocs.map(doc => (
-              <div key={doc.id} className="bg-slate-50 border border-slate-100 rounded-xl p-2 mb-2 text-xs font-black">
-                <div>{doc.reference} - {doc.mode} - <span className="dir-ltr">{fmtDate(doc.date)}</span></div>
-                <div>{doc.reason} - {fmt(doc.amount)}</div>
-                {doc.attachments && doc.attachments.length > 0 && (
-                  <div className="mt-1 space-y-1">
-                    {doc.attachments.map(att => (
-                      <a key={att.id} href={att.dataUrl} download={att.name} className="block text-[11px] text-blue-700 truncate">
-                        {att.name}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+              {settlementDocs.map(doc => (
+                <div key={doc.id} className="bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs font-black">
+                  <div>{doc.reference} - {doc.mode} - <span className="dir-ltr">{fmtDate(doc.date)}</span></div>
+                  <div>{doc.reason} - {fmt(doc.amount)}</div>
+                  {doc.attachments && doc.attachments.length > 0 && (
+                    <div className="mt-1 space-y-1">
+                      {doc.attachments.map(att => (
+                        <a key={att.id} href={att.dataUrl} download={att.name} className="block text-[11px] text-blue-700 truncate">
+                          {att.name}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {settlementDocs.length === 0 && (
+                <div className="text-[11px] font-black text-gray-400">{tr('لا توجد تسويات بعد', 'No settlement documents yet')}</div>
+              )}
+            </div>
           </div>
         </div>
       )}

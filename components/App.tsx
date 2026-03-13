@@ -80,7 +80,10 @@ const AppContent: React.FC = () => {
                 else if (fTab === 'VOUCHERS') handleNavigate(vType === 'RECEIPT' ? 'receipts-list' : 'payments-list');
                 else handleNavigate(tab);
             }} />;
-            case 'journal-list': return <JournalManager onAddNew={() => openOverlay('add-journal')} />;
+            case 'journal-list': return <JournalManager
+                onAddNew={() => openOverlay('add-journal')}
+                onEditJournal={(journalId) => openOverlay('add-journal')}
+            />;
             case 'import-list': return <ImportManager onAddNew={() => openOverlay('add-import')} />;
             case 'sales': return <SalesInvoiceList
                 onNavigate={(tab, fTab) => {

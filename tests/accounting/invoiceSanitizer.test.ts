@@ -63,6 +63,7 @@ describe('invoice sanitizer', () => {
       paymentType: 'CASH',
       currency: 'ILS',
       exchangeRate: 1,
+      taxMode: 'NONE',
       subTotal: 25,
       totalAmount: 25
     });

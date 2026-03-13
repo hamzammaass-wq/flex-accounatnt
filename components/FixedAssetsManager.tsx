@@ -621,20 +621,20 @@ const FixedAssetsManager: React.FC = () => {
             )}
 
             {activeTab !== 'GROUPS' && (
-                <div className="space-y-4">
-                    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
+                <div className="space-y-3">
+                    <div className="bg-white rounded-[1.6rem] border border-gray-100 shadow-sm p-2.5">
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
                             <input
                                 type="text"
                                 value={assetSearchTerm}
                                 onChange={(e) => setAssetSearchTerm(e.target.value)}
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
+                                className="col-span-2 lg:col-span-1 w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none"
                                 placeholder={tr('بحث باسم الأصل أو المجموعة...', 'Search by asset/group...')}
                             />
                             <select
                                 value={assetGroupFilterId}
                                 onChange={(e) => setAssetGroupFilterId(e.target.value)}
-                                className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none"
                             >
                                 <option value="ALL">{tr('كل المجموعات', 'All groups')}</option>
                                 {assetGroups.map(group => (
@@ -646,7 +646,7 @@ const FixedAssetsManager: React.FC = () => {
                                 onChange={setAssetFromDateFilter}
                                 displayFormat="YMD"
                                 wrapperClassName="w-full"
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none dir-ltr"
                                 placeholder={tr('من تاريخ شراء', 'From purchase date')}
                             />
                             <EnglishDateInput
@@ -654,7 +654,7 @@ const FixedAssetsManager: React.FC = () => {
                                 onChange={setAssetToDateFilter}
                                 displayFormat="YMD"
                                 wrapperClassName="w-full"
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none dir-ltr"
                                 placeholder={tr('إلى تاريخ شراء', 'To purchase date')}
                             />
                             <input
@@ -663,11 +663,11 @@ const FixedAssetsManager: React.FC = () => {
                                 lang="en"
                                 value={toEnglishDigits(assetMinBookValueFilter)}
                                 onChange={(e) => setAssetMinBookValueFilter(toEnglishDigits(e.target.value))}
-                                className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr text-right"
+                                className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none dir-ltr text-right"
                                 placeholder={tr('أدنى قيمة دفترية', 'Min book value')}
                             />
                         </div>
-                        <div className="flex items-center justify-between mt-3 gap-2">
+                        <div className="flex items-center justify-between mt-2.5 gap-2">
                             <span className="text-[11px] font-black text-gray-500">
                                 {tr('نتائج الفلترة', 'Filtered results')}: <span className="text-slate-800">{filteredAssets.length}</span>
                             </span>
@@ -685,40 +685,43 @@ const FixedAssetsManager: React.FC = () => {
 
                     {filteredAssets.map(asset => {
                         const depreciation = calculateDepreciation(asset);
-                        const bookValue = asset.cost - depreciation;
+                        const bookValue = Math.max(0, asset.cost - depreciation);
                         const progress = (depreciation / (asset.cost - asset.salvageValue)) * 100;
 
                         return (
                             <div
                                 key={asset.id}
                                 onClick={() => setSelectedAsset({ ...asset })}
-                                className="bg-white p-6 rounded-[2.8rem] border border-gray-50 shadow-sm relative overflow-hidden group hover:shadow-xl hover:border-blue-100 transition-all duration-300 cursor-pointer active:scale-[0.98]"
+                                className="bg-white px-3 py-2.5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-md hover:border-blue-100 transition-all duration-200 cursor-pointer active:scale-[0.99]"
                             >
-                                <div className="flex justify-between items-start mb-5">
-                                    <div className="flex gap-4">
-                                        <div className={`p-4 rounded-2xl h-fit shadow-inner ${activeTab === 'ACTIVE' ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white' : 'bg-gray-100 text-gray-500'} transition-all`}>
+                                <div className="flex justify-between items-center gap-2 mb-0">
+                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                        <div className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center ${activeTab === 'ACTIVE' ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white' : 'bg-gray-100 text-gray-500'} transition-all`}>
                                             {getGroupIcon(asset.groupId || '')}
                                         </div>
-                                        <div>
-                                            <h3 className="font-black text-gray-800 text-base mb-1">{asset.name}</h3>
-                                            <div className="flex items-center gap-3 text-[10px] text-gray-400 font-bold uppercase">
+                                        <div className="min-w-0">
+                                            <h3 className="font-black text-gray-800 text-sm truncate">{asset.name}</h3>
+                                            <div className="hidden md:flex items-center gap-3 text-[10px] text-gray-400 font-bold uppercase">
                                                 <span className="flex items-center gap-1.5"><Calendar size={12} /> {formatDate(asset.purchaseDate)}</span>
                                                 <span>&bull;</span>
                                                 <span>{tr('قيمة', 'Cost')}: {asset.cost.toLocaleString()}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <span className="text-[11px] font-black text-slate-700 dir-ltr">
+                                            {bookValue.toLocaleString()} {baseCurrency}
+                                        </span>
                                         {activeTab === 'ACTIVE' && (
                                             <>
-                                                <button onClick={(e) => { e.stopPropagation(); setShowDisposeModal(asset.id); }} className="text-gray-400 hover:text-amber-500 p-2.5 rounded-xl hover:bg-amber-50 transition-all"><RefreshCw size={18} /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); deleteFixedAsset(asset.id); }} className="text-gray-400 hover:text-rose-500 p-2.5 rounded-xl hover:bg-rose-50 transition-all"><Trash2 size={18} /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); setShowDisposeModal(asset.id); }} className="text-gray-400 hover:text-amber-500 p-2 rounded-lg hover:bg-amber-50 transition-all"><RefreshCw size={16} /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); deleteFixedAsset(asset.id); }} className="text-gray-400 hover:text-rose-500 p-2 rounded-lg hover:bg-rose-50 transition-all"><Trash2 size={16} /></button>
                                             </>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="mb-5">
+                                <div className="hidden">
                                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-2 px-1">
                                         <span className="text-gray-400">{tr('الإهلاك التراكمي', 'Accumulated Depreciation')} ({isNaN(progress) ? 0 : progress.toFixed(0)}%)</span>
                                         <span className="text-gray-800 dir-ltr">{depreciation.toLocaleString()}</span>
@@ -728,7 +731,7 @@ const FixedAssetsManager: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="bg-gray-50/50 p-4 rounded-3xl border border-gray-100 flex justify-between items-center group-hover:bg-white transition-all">
+                                <div className="hidden bg-gray-50/50 p-4 rounded-3xl border border-gray-100 flex justify-between items-center group-hover:bg-white transition-all">
                                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{tr('القيمة الدفترية الحالية', 'Current Book Value')}</span>
                                     <span className="font-black text-slate-800 text-sm dir-ltr">{bookValue.toLocaleString()} {baseCurrency}</span>
                                 </div>

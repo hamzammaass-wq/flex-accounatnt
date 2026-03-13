@@ -4,7 +4,7 @@
   "mcpServers": {
     "firebase": {
       "command": "npx",
-      "args": ["-y", "firebase-tools", "mcp", "--dir", "c:\Users\yusuf\Desktop\copy-of-oo-of-al-mohaseb-al-zaki-(smart-accountant)"]
+      "args": ["-y", "firebase-tools", "mcp", "--dir", "C:\\Users\\yusuf\\Desktop\\copy-of-oo-of-al-mohaseb-al-zaki-(smart-accountant)"]
     }
   },
   "contextFileName": "FIREBASE.md"

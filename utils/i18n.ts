@@ -3,6 +3,12 @@ import { CompanySettings } from '../types';
 export type AppLanguage = CompanySettings['language'];
 type LocaleLanguage = 'ar' | 'en';
 
+const ENGLISH_LANGUAGE_VALUES = new Set([
+  'EN',
+  'ENGLISH',
+  'OTHER'
+]);
+
 const messages = {
   "ar": {
     "nav.dashboard": "الرئيسية",
@@ -165,16 +171,43 @@ const interpolate = (template: string, params?: Record<string, string | number>)
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => String(params[key] ?? ''));
 };
 
+export const normalizeAppLanguage = (language: AppLanguage | string | null | undefined): AppLanguage => {
+  const normalized = String(language || '').trim().toUpperCase();
+  if (normalized === 'AR' || normalized.startsWith('AR-')) return 'AR';
+  if (ENGLISH_LANGUAGE_VALUES.has(normalized) || normalized === 'EN' || normalized.startsWith('EN-')) return 'EN';
+  return normalized ? 'EN' : 'AR';
+};
+
+export const detectPreferredAppLanguage = (
+  preferredLanguages?: readonly string[] | string | null
+): AppLanguage => {
+  const candidates = Array.isArray(preferredLanguages)
+    ? preferredLanguages
+    : preferredLanguages
+      ? [preferredLanguages]
+      : typeof navigator !== 'undefined'
+        ? navigator.languages
+        : [];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAppLanguage(candidate);
+    if (normalized === 'AR') return 'AR';
+    if (normalized === 'EN') return 'EN';
+  }
+
+  return 'EN';
+};
+
 export const getLocaleLanguage = (language: AppLanguage): LocaleLanguage => {
-  return language === 'AR' ? 'ar' : 'en';
+  return normalizeAppLanguage(language) === 'AR' ? 'ar' : 'en';
 };
 
 export const getDocumentLanguageTag = (language: AppLanguage): string => {
-  return language === 'AR' ? 'ar-u-nu-latn' : 'en';
+  return normalizeAppLanguage(language) === 'AR' ? 'ar-u-nu-latn' : 'en';
 };
 
 export const isRtlLanguage = (language: AppLanguage): boolean => {
-  return language === 'AR';
+  return normalizeAppLanguage(language) === 'AR';
 };
 
 export const translate = (
@@ -188,9 +221,9 @@ export const translate = (
 };
 
 export const getDateLocale = (language: AppLanguage): string => {
-  return language === 'AR' ? 'ar-SA-u-nu-latn' : 'en-US';
+  return normalizeAppLanguage(language) === 'AR' ? 'ar-SA-u-nu-latn' : 'en-US';
 };
 
 export const getNumberLocale = (language: AppLanguage): string => {
-  return language === 'AR' ? 'ar-SA-u-nu-latn' : 'en-US';
+  return normalizeAppLanguage(language) === 'AR' ? 'ar-SA-u-nu-latn' : 'en-US';
 };

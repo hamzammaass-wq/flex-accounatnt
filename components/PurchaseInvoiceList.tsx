@@ -7,6 +7,8 @@ import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
+import { getInvoiceTaxVisibility } from '../utils/companySettings';
+import { getInvoiceTaxModeDescription, isInvoiceTaxApplied, resolveInvoiceTaxMode } from '../utils/invoiceTax';
 import {
   Plus, Search, FileText, User, Calendar,
   CheckCircle2, Clock, XCircle, ShoppingBag,
@@ -37,7 +39,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
-  const taxVisibleInInvoices = (companySettings.showTaxInInvoices ?? true) && !(companySettings.hidePurchaseTax ?? false);
+  const taxVisibleInInvoices = getInvoiceTaxVisibility(companySettings, 'purchase');
   const printPersonalData = companySettings.printPersonalData ?? true;
   const printElectronicInvoice = companySettings.printElectronicInvoice ?? true;
   const invoiceFooterNote = companySettings.invoiceFooterNote ?? '';
@@ -266,12 +268,15 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
       : printElectronicInvoice
         ? tr('فاتورة إلكترونية مشتريات', 'Electronic Purchase Invoice')
         : tr('فاتورة مشتريات', 'Purchase Invoice');
+    const invoiceTaxMode = resolveInvoiceTaxMode(invoice);
+    const taxableInvoice = taxVisibleInInvoices && isInvoiceTaxApplied(invoiceTaxMode, invoice.taxRate, invoice.taxAmount);
 
     const totalsBlock = `
       <div style="text-align: left; display: inline-block; min-width: 280px;">
         <p><strong>${tr('الإجمالي قبل الضريبة', 'Subtotal')}:</strong> ${formatPrintNumber(invoice.subTotal)} ${invoice.currency}</p>
         ${invoice.discountAmount > 0 ? `<p><strong>${tr('الخصم', 'Discount')}:</strong> -${formatPrintNumber(invoice.discountAmount)} ${invoice.currency}</p>` : ''}
-        ${(taxVisibleInInvoices && invoice.taxAmount > 0) ? `<p><strong>${tr('الضريبة', 'Tax')} (${invoice.taxRate}%):</strong> +${formatPrintNumber(invoice.taxAmount)} ${invoice.currency}</p>` : ''}
+        ${taxVisibleInInvoices ? `<p><strong>${tr('طريقة الضريبة', 'Tax mode')}:</strong> ${getInvoiceTaxModeDescription(invoiceTaxMode, tr)}</p>` : ''}
+        ${(taxableInvoice && invoice.taxAmount > 0) ? `<p><strong>${tr('الضريبة', 'Tax')} (${invoice.taxRate}%):</strong> +${formatPrintNumber(invoice.taxAmount)} ${invoice.currency}</p>` : ''}
         <h3>${tr('الإجمالي النهائي', 'Grand Total')}: ${formatPrintNumber(invoice.totalAmount)} ${invoice.currency}</h3>
         ${invoiceFooterNote ? `<p style="margin-top:8px; color:#666; font-size:12px;">${invoiceFooterNote}</p>` : ''}
       </div>

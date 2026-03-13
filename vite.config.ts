@@ -15,6 +15,48 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
+      build: {
+        chunkSizeWarningLimit: 700,
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              if (!id.includes('node_modules')) {
+                return undefined;
+              }
+
+              if (id.includes('firebase')) {
+                return 'vendor-firebase';
+              }
+
+              if (id.includes('xlsx')) {
+                return 'vendor-xlsx';
+              }
+
+              if (id.includes('recharts')) {
+                return 'vendor-charts';
+              }
+
+              if (id.includes('framer-motion')) {
+                return 'vendor-motion';
+              }
+
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+
+              if (id.includes('@google/genai')) {
+                return 'vendor-ai';
+              }
+
+              if (id.includes('react') || id.includes('scheduler')) {
+                return 'vendor-react';
+              }
+
+              return 'vendor';
+            }
+          }
+        }
+      },
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(geminiApiKey),

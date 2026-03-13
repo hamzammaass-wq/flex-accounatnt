@@ -38,7 +38,7 @@ import DeviceHubManager from './DeviceHubManager';
 import EnglishDateInput from './EnglishDateInput';
 import { useAccounting } from '../contexts/AccountingContext';
 import { CompanySettings, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule } from '../types';
-import { translate } from '../utils/i18n';
+import { normalizeAppLanguage, translate } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
 import {
@@ -51,6 +51,7 @@ import {
 } from '../utils/integrityCheck';
 
 type BooleanSettingKey =
+  | 'darkModeEnabled'
   | 'showTaxInInvoices'
   | 'hidePurchaseTax'
   | 'hideSalesTax'
@@ -200,7 +201,8 @@ const withCompanyDefaults = (settings: CompanySettings): CompanySettings => {
     showAccountBalanceUnderVoucher: coerceBoolean(settings.showAccountBalanceUnderVoucher, false),
     dottedNumbers: coerceBoolean(settings.dottedNumbers, false),
     hideVoucherColumnInStatement: coerceBoolean(settings.hideVoucherColumnInStatement, false),
-    printExpiryDate: coerceBoolean(settings.printExpiryDate, false)
+    printExpiryDate: coerceBoolean(settings.printExpiryDate, false),
+    darkModeEnabled: coerceBoolean((settings as any).darkModeEnabled, false)
   };
 };
 
@@ -213,6 +215,7 @@ const PERMISSION_MODULES: PermissionModule[] = [
   'JOURNAL',
   'REPORTS',
   'DIRECTORY',
+  'ACCOUNTS',
   'PRODUCTS',
   'HR',
   'SETTLEMENTS',
@@ -245,6 +248,7 @@ const getPermissionModuleLabel = (module: PermissionModule, tr: (ar: string, en:
     case 'JOURNAL': return tr('القيود', 'Journal');
     case 'REPORTS': return tr('التقارير', 'Reports');
     case 'DIRECTORY': return tr('الدليل', 'Directory');
+    case 'ACCOUNTS': return tr('الحسابات', 'Accounts');
     case 'PRODUCTS': return tr('الأصناف', 'Products');
     case 'HR': return tr('الموظفون', 'HR');
     case 'SETTLEMENTS': return tr('التسويات', 'Settlements');
@@ -258,7 +262,13 @@ const clonePermissions = (value: PermissionMatrix): PermissionMatrix => ({
   modules: PERMISSION_MODULES.reduce((acc, module) => {
     const row = value.modules?.[module] || ({} as Record<PermissionAction, boolean>);
     acc[module] = PERMISSION_ACTIONS.reduce((actionAcc, action) => {
-      actionAcc[action] = Boolean(row[action]);
+      if (typeof row[action] === 'boolean') {
+        actionAcc[action] = row[action];
+      } else if (module === 'ACCOUNTS') {
+        actionAcc[action] = action !== 'DELETE';
+      } else {
+        actionAcc[action] = false;
+      }
       return actionAcc;
     }, {} as Record<PermissionAction, boolean>);
     return acc;
@@ -317,10 +327,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     if (initialMode) setMode(initialMode);
   }, [initialMode]);
 
-  const normalizeLanguage = (language: CompanySettings['language'] | string | undefined): CompanySettings['language'] => {
-    if (language === 'EN' || language === 'OTHER') return 'EN';
-    return 'AR';
-  };
+  const normalizeLanguage = (language: CompanySettings['language'] | string | undefined): CompanySettings['language'] =>
+    normalizeAppLanguage(language);
 
   const [localCompany, setLocalCompany] = useState<CompanySettings>(() =>
     withCompanyDefaults({
@@ -981,7 +989,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       <div className="flex items-center gap-3">
         <div className="w-16 h-16 rounded-2xl bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
           {localCompany.logoUrl ? (
-            <img src={localCompany.logoUrl} alt={tr('شعار الشركة', 'Company logo')} className="w-full h-full object-cover" />
+            <img src={localCompany.logoUrl} alt={tr('شعار الشركة', 'Company logo')} className="w-full h-full object-contain bg-white p-2" />
           ) : (
             <Building className="w-6 h-6 text-gray-400" />
           )}
@@ -1203,6 +1211,14 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         }}
         className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-3 animate-in fade-in"
       >
+        <ToggleRow
+          label={tr('تشغيل الوضع الداكن', 'Enable dark mode')}
+          description={tr('يطبّق مظهرًا داكنًا على أغلب شاشات التطبيق بعد حفظ الإعدادات.', 'Applies a dark appearance across most app screens after saving settings.')}
+          checked={coerceBoolean(localCompany.darkModeEnabled, false)}
+          rtl={rtl}
+          onToggle={() => toggleSetting('darkModeEnabled')}
+        />
+
         <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
           <div className="text-xs font-black text-indigo-700">
             {tr('تنبيه نقص المخزون (إعداد عام)', 'Low Stock Alert (Global Setting)')}
@@ -1290,19 +1306,21 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           </button>
         </div>
 
-        <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-4 space-y-3">
+        <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3 space-y-2.5">
           <div className="text-xs font-black text-sky-700">
             {tr('تخصيص أنواع تنبيهات الإشعار', 'Notification categories customization')}
           </div>
+          <div className="grid grid-cols-2 gap-2">
           <ToggleRow
             label={tr('صوت تنبيه للتنبيهات', 'Alert sound for notifications')}
             description={tr('تشغيل/إيقاف صوت تنبيه مستقل عن إشعار سطح المكتب.', 'Enable/disable alert sound independently from desktop notification.')}
             checked={coerceBoolean(localCompany.alertsSoundEnabled, true)}
             rtl={rtl}
+            compact
             onToggle={() => toggleSetting('alertsSoundEnabled')}
           />
           {!coerceBoolean(localCompany.alertsDesktopNotificationsEnabled, false) && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">
+            <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
               {tr(
                 'ملاحظة: الإشعارات العامة معطلة حاليًا. فعّل خيار "إرسال إشعار سطح المكتب للتنبيهات" أولًا.',
                 'Note: desktop notifications are currently disabled. Enable "Send desktop notification for alerts" first.'
@@ -1314,6 +1332,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             description={tr('إرسال إشعار عند الشيكات القريبة أو المستحقة.', 'Send notification when checks are near due or overdue.')}
             checked={coerceBoolean(localCompany.alertsDesktopNotifyChecks, true)}
             rtl={rtl}
+            compact
             onToggle={() => toggleSetting('alertsDesktopNotifyChecks')}
           />
           <ToggleRow
@@ -1321,6 +1340,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             description={tr('إرسال إشعار عند الوصول لحد المخزون أو الصفر.', 'Send notification when item stock reaches threshold or zero.')}
             checked={coerceBoolean(localCompany.alertsDesktopNotifyLowStock, true)}
             rtl={rtl}
+            compact
             onToggle={() => toggleSetting('alertsDesktopNotifyLowStock')}
           />
           <ToggleRow
@@ -1328,6 +1348,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             description={tr('إرسال إشعار عند قرب أو انتهاء الصلاحية.', 'Send notification for near-expiry and expired items.')}
             checked={coerceBoolean(localCompany.alertsDesktopNotifyExpiry, true)}
             rtl={rtl}
+            compact
             onToggle={() => toggleSetting('alertsDesktopNotifyExpiry')}
           />
           <ToggleRow
@@ -1335,6 +1356,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             description={tr('إرسال إشعار للفواتير الآجلة التي تجاوزت الاستحقاق.', 'Send notification for credit invoices past due date.')}
             checked={coerceBoolean(localCompany.alertsDesktopNotifyOverdueInvoices, true)}
             rtl={rtl}
+            compact
             onToggle={() => toggleSetting('alertsDesktopNotifyOverdueInvoices')}
           />
           <ToggleRow
@@ -1342,8 +1364,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             description={tr('إرسال إشعار عند قرب نهاية عقد موظف.', 'Send notification when an employee contract is near expiry.')}
             checked={coerceBoolean(localCompany.alertsDesktopNotifyContractExpiry, true)}
             rtl={rtl}
+            compact
             onToggle={() => toggleSetting('alertsDesktopNotifyContractExpiry')}
           />
+        </div>
         </div>
 
         {options.map((opt) => (
@@ -2128,23 +2152,39 @@ const ToggleRow: React.FC<{
   description?: string;
   checked: boolean;
   rtl: boolean;
+  compact?: boolean;
   onToggle: () => void;
-}> = ({ label, description, checked, rtl, onToggle }) => (
-  <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center justify-between gap-4">
-    <div className={rtl ? 'text-right' : 'text-left'}>
-      <p className="text-sm font-black text-gray-800">{label}</p>
-      {description && <p className="text-xs text-gray-500 font-bold mt-1">{description}</p>}
+}> = ({ label, description, checked, rtl, compact = false, onToggle }) => {
+  const trackWidth = 52;
+  const knobSize = 22;
+  const thumbStart = 4;
+  const thumbEnd = trackWidth - knobSize - thumbStart;
+  const knobLeft = checked
+    ? (rtl ? thumbStart : thumbEnd)
+    : (rtl ? thumbEnd : thumbStart);
+
+  return (
+    <div className={`bg-gray-50 border border-gray-200 rounded-xl flex justify-between ${compact ? 'p-3 items-start gap-3 min-h-[90px]' : 'p-3 items-center gap-4'}`}>
+      <div className={`${rtl ? 'text-right' : 'text-left'} min-w-0 flex-1`}>
+        <p className={`${compact ? 'text-[12px] leading-5' : 'text-sm'} font-black text-gray-800`}>{label}</p>
+        {description && <p className={`${compact ? 'text-[10px] leading-4' : 'text-xs'} text-gray-500 font-bold mt-1`}>{description}</p>}
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        role="switch"
+        aria-checked={checked}
+        className={`w-[52px] h-[30px] !min-h-0 rounded-full border transition-[background-color,border-color,box-shadow] duration-200 ease-out relative shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-200 ${compact ? 'self-start mt-0.5' : ''} ${checked ? 'bg-blue-600 border-blue-600 shadow-[inset_0_1px_2px_rgba(255,255,255,0.15)]' : 'bg-slate-200 border-slate-300 shadow-[inset_0_1px_2px_rgba(15,23,42,0.08)]'}`}
+        aria-label={label}
+      >
+        <span
+          className="absolute top-1/2 h-[22px] w-[22px] -translate-y-1/2 rounded-full bg-white shadow-[0_2px_6px_rgba(15,23,42,0.18)] transition-[left] duration-200 ease-out"
+          style={{ left: knobLeft }}
+        />
+      </button>
     </div>
-    <button
-      type="button"
-      onClick={onToggle}
-      className={`w-14 h-8 rounded-full transition-colors relative ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}
-      aria-label={label}
-    >
-      <span className="absolute top-1 w-6 h-6 rounded-full bg-white transition-all" style={{ left: checked ? (rtl ? 4 : 28) : (rtl ? 28 : 4) }} />
-    </button>
-  </div>
-);
+  );
+};
 
 const MenuItem: React.FC<{ icon: React.ReactNode; title: string; desc: string; color: string; rtl: boolean; onClick: () => void }> = ({ icon, title, desc, color, rtl, onClick }) => (
   <button onClick={onClick} className="settings-card w-full bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group">

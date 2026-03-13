@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'aiflex-erp-v6';
+const CACHE_VERSION = 'aiflex-erp-v7';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const IS_DEV_SERVER =
   self.location.port === '3000' ||
@@ -9,21 +9,22 @@ const APP_SHELL_URLS = [
   '/index.html',
   '/index.css',
   '/manifest.webmanifest',
-  '/manifest.webmanifest?v=20260311-icons-v2',
-  '/brand/aiflex-erp-logo.svg',
-  '/brand/aiflex-erp-mark.svg',
+  '/manifest.webmanifest?v=20260313-brand-v3',
+  '/brand/aiflex-erp-logo.png',
+  '/brand/aiflex-erp-mark.png',
   '/icons/favicon-32.png',
-  '/icons/favicon-32.png?v=20260311-icons-v2',
+  '/icons/favicon-32.png?v=20260313-brand-v3',
   '/icons/apple-touch-icon.png',
-  '/icons/apple-touch-icon.png?v=20260311-icons-v2',
+  '/icons/apple-touch-icon.png?v=20260313-brand-v3',
+  '/icons/icon-48.png',
+  '/icons/icon-72.png',
+  '/icons/icon-96.png',
+  '/icons/icon-128.png',
   '/icons/icon-192.png',
-  '/icons/icon-192.png?v=20260311-icons-v2',
+  '/icons/icon-192.png?v=20260313-brand-v3',
+  '/icons/icon-256.png',
   '/icons/icon-512.png',
-  '/icons/icon-512.png?v=20260311-icons-v2',
-  '/icons/icon-192.webp',
-  '/icons/icon-512.webp',
-  '/icons/icon-192.svg',
-  '/icons/icon-512.svg'
+  '/icons/icon-512.png?v=20260313-brand-v3'
 ];
 
 const STATIC_DESTINATIONS = new Set(['document', 'script', 'style', 'image', 'font', 'manifest', 'worker']);

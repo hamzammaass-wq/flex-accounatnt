@@ -5,6 +5,7 @@ import {
   setPersistence,
   type Auth
 } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
 const firebaseApiKey = String(import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
 const firebaseAuthDomain = String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim();
@@ -35,6 +36,12 @@ export const firebaseApp = isFirebaseAuthEnabled
 export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
   ? getAuth(firebaseApp)
   : null;
+
+export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
+  ? getFirestore(firebaseApp)
+  : null;
+
+export const isFirebaseSyncEnabled = Boolean(firebaseDb);
 
 if (firebaseAuth) {
   void setPersistence(firebaseAuth, browserLocalPersistence);

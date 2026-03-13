@@ -186,32 +186,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                 <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
                     <div className="bg-white rounded-2xl border border-gray-100 p-4">
                         <h3 className="text-xs font-black text-gray-800 mb-3">{tr('قائمة أسعار الصنف', 'Item Price List')}</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] font-black">
-                            <div className="bg-blue-50 text-blue-700 rounded-xl p-3 flex justify-between">
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 text-[11px] font-black">
+                            <div className="min-w-[210px] bg-blue-50 text-blue-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
                                 <span>{tr('التكلفة الصافية', 'Net Cost')}</span>
                                 <span className="dir-ltr">{pricing.cost.toLocaleString()} {baseCurrency}</span>
                             </div>
-                            <div className="bg-violet-50 text-violet-700 rounded-xl p-3">
-                                <div className="flex justify-between mb-1">
+                            <div className="min-w-[210px] bg-violet-50 text-violet-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
+                                <span className="flex items-center gap-1.5">
                                     <span>{tr('سعر الجملة', 'Wholesale')}</span>
-                                    <span className="dir-ltr">{pricing.wholesalePrice.toLocaleString()}</span>
-                                </div>
-                                <div className="text-[10px] font-bold text-violet-500">
+                                    <span className="text-[10px] font-bold text-violet-500">
                                     {pricing.wholesalePricingMode === 'MARKUP'
                                         ? tr(`نسبة +${pricing.wholesaleMarkupPercent}%`, `Markup +${pricing.wholesaleMarkupPercent}%`)
                                         : tr('سعر ثابت', 'Fixed price')}
-                                </div>
+                                    </span>
+                                </span>
+                                <span className="dir-ltr">{pricing.wholesalePrice.toLocaleString()}</span>
                             </div>
-                            <div className="bg-emerald-50 text-emerald-700 rounded-xl p-3">
-                                <div className="flex justify-between mb-1">
+                            <div className="min-w-[210px] bg-emerald-50 text-emerald-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
+                                <span className="flex items-center gap-1.5">
                                     <span>{tr('سعر المفرق', 'Retail')}</span>
-                                    <span className="dir-ltr">{pricing.retailPrice.toLocaleString()}</span>
-                                </div>
-                                <div className="text-[10px] font-bold text-emerald-500">
+                                    <span className="text-[10px] font-bold text-emerald-500">
                                     {pricing.retailPricingMode === 'MARKUP'
                                         ? tr(`نسبة +${pricing.retailMarkupPercent}%`, `Markup +${pricing.retailMarkupPercent}%`)
                                         : tr('سعر ثابت', 'Fixed price')}
-                                </div>
+                                    </span>
+                                </span>
+                                <span className="dir-ltr">{pricing.retailPrice.toLocaleString()}</span>
                             </div>
                         </div>
                     </div>

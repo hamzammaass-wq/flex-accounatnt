@@ -1,5 +1,5 @@
 ﻿
-import React, { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from 'react';
 import {
   Transaction, Invoice, Account, Product, Contact, FixedAsset,
   CompanySettings, User, Currency, FinancialSummary, TransactionType,
@@ -18,8 +18,12 @@ import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { sanitizeInvoices } from '../utils/invoiceSanitizer';
 import { buildProductPricingPatch } from '../utils/productPricing';
 import { isProfitLossAccount } from '../utils/fiscalYear';
+import { DEFAULT_BRAND_MARK_URL, normalizeBrandLogoUrl } from '../utils/brandAssets';
+import { detectPreferredAppLanguage, normalizeAppLanguage } from '../utils/i18n';
+import { normalizeCompanyDisplaySettings, normalizeInvoiceTaxSettings } from '../utils/companySettings';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
-import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
 
 // ... (Existing Interfaces)
 
@@ -287,6 +291,7 @@ const PERMISSION_MODULES: PermissionModule[] = [
   'JOURNAL',
   'REPORTS',
   'DIRECTORY',
+  'ACCOUNTS',
   'PRODUCTS',
   'HR',
   'SETTLEMENTS',
@@ -308,27 +313,36 @@ const normalizeInventoryValuationMethod = (
 };
 
 const withNormalizedValuationSettings = (settings: CompanySettings): CompanySettings => {
-  const method = normalizeInventoryValuationMethod(settings);
-  const backupFrequency = settings.autoBackupFrequency === 'HOURLY' ? 'HOURLY' : 'DAILY';
-  const keepCountRaw = Number(settings.autoBackupKeepCount);
+  const normalizedSettings = normalizeCompanyDisplaySettings(normalizeInvoiceTaxSettings(settings));
+  const method = normalizeInventoryValuationMethod(normalizedSettings);
+  const backupFrequency = normalizedSettings.autoBackupFrequency === 'HOURLY' ? 'HOURLY' : 'DAILY';
+  const keepCountRaw = Number(normalizedSettings.autoBackupKeepCount);
   const keepCount = Number.isFinite(keepCountRaw) ? Math.max(1, Math.min(200, Math.floor(keepCountRaw))) : 30;
-  const lastRunAt = settings.autoBackupLastRunAt && !Number.isNaN(Date.parse(settings.autoBackupLastRunAt))
-    ? settings.autoBackupLastRunAt
+  const lastRunAt = normalizedSettings.autoBackupLastRunAt && !Number.isNaN(Date.parse(normalizedSettings.autoBackupLastRunAt))
+    ? normalizedSettings.autoBackupLastRunAt
     : undefined;
   return {
-    ...settings,
+    ...normalizedSettings,
+    logoUrl: normalizeBrandLogoUrl(normalizedSettings.logoUrl, DEFAULT_BRAND_MARK_URL),
     inventoryValuationMethod: method,
     useAverageCosting: method === 'AVERAGE',
-    autoBackupEnabled: Boolean(settings.autoBackupEnabled),
+    autoBackupEnabled: Boolean(normalizedSettings.autoBackupEnabled),
     autoBackupFrequency: backupFrequency,
-    autoBackupPassword: String(settings.autoBackupPassword || ''),
+    autoBackupPassword: String(normalizedSettings.autoBackupPassword || ''),
     autoBackupKeepCount: keepCount,
     autoBackupLastRunAt: lastRunAt,
-    googleDriveAutoUpload: Boolean(settings.googleDriveAutoUpload),
-    googleDriveClientId: String(settings.googleDriveClientId || '').trim(),
-    googleDriveFolderId: String(settings.googleDriveFolderId || '').trim()
+    googleDriveAutoUpload: Boolean(normalizedSettings.googleDriveAutoUpload),
+    googleDriveClientId: String(normalizedSettings.googleDriveClientId || '').trim(),
+    googleDriveFolderId: String(normalizedSettings.googleDriveFolderId || '').trim(),
+    darkModeEnabled: Boolean(normalizedSettings.darkModeEnabled),
+    language: normalizeAppLanguage(normalizedSettings.language)
   };
 };
+
+const withNormalizedCompanyProfile = (profile: CompanyProfile): CompanyProfile => ({
+  ...profile,
+  logoUrl: normalizeBrandLogoUrl(profile.logoUrl, DEFAULT_BRAND_MARK_URL)
+});
 
 const sanitizeFifoLayers = (layers: ProductFifoLayer[] | undefined): ProductFifoLayer[] => (
   Array.isArray(layers)
@@ -542,6 +556,12 @@ const STORAGE_KEYS = {
   currentCompany: 'al_mohaseb_current_company'
 } as const;
 
+const GUEST_USER_ID = 'guest_user';
+
+const isGuestUser = (user: User | null | undefined): user is User => (
+  Boolean(user && user.id === GUEST_USER_ID)
+);
+
 const mapFirebaseAuthUser = (authUser: FirebaseAuthUser, currentCompanyId: string): User => ({
   id: authUser.uid,
   email: authUser.email || '',
@@ -556,7 +576,12 @@ const mapFirebaseAuthUser = (authUser: FirebaseAuthUser, currentCompanyId: strin
 const APP_STORAGE_PREFIX = 'al_mohaseb_';
 const RESET_ALL_QUERY_PARAM = 'resetAllData';
 const RESET_SIGNAL_KEY = 'al_mohaseb_reset_signal';
+const FORCE_EMPTY_BOOTSTRAP_KEY = 'al_mohaseb_force_empty_bootstrap';
+const SIGNUP_TRIAL_SELECTION_KEY = 'al_mohaseb_signup_trial_selection_days';
 const BACKUP_HISTORY_KEY_PREFIX = 'al_mohaseb_backup_history_';
+const WORKSPACE_SYNC_QUEUE_KEY = 'al_mohaseb_workspace_sync_queue_v1';
+const LAST_WORKSPACE_SYNC_AT_KEY = 'al_mohaseb_workspace_last_sync_at';
+const WORKSPACE_SYNC_COLLECTION = 'workspace_sync_snapshots';
 const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
 const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -567,6 +592,115 @@ const MIN_BACKUP_PASSWORD_LENGTH = 4;
 
 const getCompanyWorkspaceKey = (companyId: string) => `al_mohaseb_workspace_${companyId}`;
 const getBackupHistoryKey = (companyId: string) => `${BACKUP_HISTORY_KEY_PREFIX}${companyId}`;
+
+type WorkspaceSyncQueueItem = {
+  companyId: string;
+  queuedAt: string;
+  workspaceUpdatedAt: string;
+  attempts: number;
+  ownerUserId?: string;
+  lastError?: string;
+};
+
+const isWorkspaceSyncQueueItem = (value: unknown): value is WorkspaceSyncQueueItem => {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<WorkspaceSyncQueueItem>;
+  return (
+    typeof item.companyId === 'string' &&
+    item.companyId.length > 0 &&
+    typeof item.queuedAt === 'string' &&
+    item.queuedAt.length > 0 &&
+    typeof item.workspaceUpdatedAt === 'string' &&
+    item.workspaceUpdatedAt.length > 0 &&
+    typeof item.attempts === 'number' &&
+    Number.isFinite(item.attempts) &&
+    (typeof item.ownerUserId === 'undefined' || typeof item.ownerUserId === 'string')
+  );
+};
+
+const readWorkspaceSyncQueue = (): WorkspaceSyncQueueItem[] => {
+  try {
+    if (typeof window === 'undefined') return [];
+    const raw = localStorage.getItem(WORKSPACE_SYNC_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isWorkspaceSyncQueueItem);
+  } catch {
+    return [];
+  }
+};
+
+const writeWorkspaceSyncQueue = (items: WorkspaceSyncQueueItem[]) => {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(WORKSPACE_SYNC_QUEUE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignore storage write failures so the app keeps working offline-first.
+  }
+};
+
+const upsertWorkspaceSyncQueueItem = (companyId: string, workspaceUpdatedAt: string, ownerUserId?: string) => {
+  if (!companyId) return;
+  const queue = readWorkspaceSyncQueue();
+  const index = queue.findIndex(item => item.companyId === companyId);
+  const nowIso = new Date().toISOString();
+  const nextItem: WorkspaceSyncQueueItem = {
+    companyId,
+    queuedAt: index >= 0 ? queue[index].queuedAt : nowIso,
+    workspaceUpdatedAt,
+    ownerUserId: ownerUserId || undefined,
+    attempts: 0
+  };
+  if (index >= 0) {
+    queue[index] = nextItem;
+  } else {
+    queue.unshift(nextItem);
+  }
+  writeWorkspaceSyncQueue(queue);
+};
+
+const updateWorkspaceSyncQueueItem = (companyId: string, updates: Partial<WorkspaceSyncQueueItem>) => {
+  const queue = readWorkspaceSyncQueue();
+  const index = queue.findIndex(item => item.companyId === companyId);
+  if (index < 0) return;
+  queue[index] = {
+    ...queue[index],
+    ...updates
+  };
+  writeWorkspaceSyncQueue(queue);
+};
+
+const removeWorkspaceSyncQueueItem = (companyId: string) => {
+  const queue = readWorkspaceSyncQueue();
+  writeWorkspaceSyncQueue(queue.filter(item => item.companyId !== companyId));
+};
+
+const readLastWorkspaceSyncAt = (): Date | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem(LAST_WORKSPACE_SYNC_AT_KEY);
+    if (!raw) return null;
+    const date = new Date(raw);
+    return Number.isFinite(date.getTime()) ? date : null;
+  } catch {
+    return null;
+  }
+};
+
+const consumePendingSignupTrialSelectionDays = (): number | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem(SIGNUP_TRIAL_SELECTION_KEY);
+    if (raw === null) return null;
+    localStorage.removeItem(SIGNUP_TRIAL_SELECTION_KEY);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, Math.min(365, Math.floor(parsed)));
+  } catch {
+    return null;
+  }
+};
 
 const clearAppBrowserStorage = async (): Promise<void> => {
   if (typeof window === 'undefined') return;
@@ -702,6 +836,18 @@ type CompanyWorkspaceSnapshot = {
 };
 
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+  const [forceEmptyBootstrap] = useState<boolean>(() => {
+    try {
+      const shouldForce = localStorage.getItem(FORCE_EMPTY_BOOTSTRAP_KEY) === '1';
+      if (shouldForce) {
+        localStorage.removeItem(FORCE_EMPTY_BOOTSTRAP_KEY);
+      }
+      return shouldForce;
+    } catch {
+      return false;
+    }
+  });
+
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
@@ -759,6 +905,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }
 
       await clearAppBrowserStorage();
+      try {
+        window.localStorage.setItem(FORCE_EMPTY_BOOTSTRAP_KEY, '1');
+      } catch {
+        // Ignore storage write failures and continue with navigation.
+      }
 
       if (cancelled) return;
       window.location.replace(`${url.pathname}${url.hash}`);
@@ -1767,7 +1918,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     taxNumber: '300012345600003',
     address: 'الرياض - حي الملز',
     phone: '920001234',
-    logoUrl: '/brand/aiflex-erp-mark.svg',
+    logoUrl: DEFAULT_BRAND_MARK_URL,
     annualLeaveDefaultOpenEndedDays: 21,
     annualLeaveDefaultFixedTermDays: 14,
     leaveAccrualPolicy: 'ANNUAL',
@@ -1826,7 +1977,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     googleDriveAutoUpload: false,
     googleDriveClientId: '',
     googleDriveFolderId: '',
-    language: 'AR'
+    darkModeEnabled: false,
+    language: detectPreferredAppLanguage()
   };
 
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
@@ -1872,7 +2024,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed) || parsed.length === 0) return fallback;
-      return parsed as CompanyProfile[];
+      return (parsed as CompanyProfile[]).map(withNormalizedCompanyProfile);
     } catch {
       return fallback;
     }
@@ -1895,6 +2047,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     [companies, currentCompanyId]
   );
   const [workspaceHydratedForCompanyId, setWorkspaceHydratedForCompanyId] = useState<string>('');
+  const [isOnline, setIsOnline] = useState<boolean>(() => (
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  ));
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(() => readLastWorkspaceSyncAt());
+  const [syncQueueVersion, setSyncQueueVersion] = useState<number>(0);
   const autoFiscalPostingInFlightRef = useRef(false);
   const autoBackupInFlightRef = useRef(false);
   const googleTokenRef = useRef<string>('');
@@ -1920,20 +2078,31 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     let cancelled = false;
 
     if (isFirebaseAuthEnabled && firebaseAuth) {
+      const resolvePersistedCompanyId = (): string => {
+        try {
+          return localStorage.getItem(STORAGE_KEYS.currentCompany) || currentCompanyId || 'cmp_default';
+        } catch {
+          return currentCompanyId || 'cmp_default';
+        }
+      };
+
       const syncFirebaseSession = (authUser: FirebaseAuthUser | null) => {
         if (cancelled) return;
+        const persistedCompanyId = resolvePersistedCompanyId();
 
         if (!authUser) {
           setCloudMemberships([]);
-          setCurrentUser(null);
+          setCurrentUser(prev => (
+            isGuestUser(prev)
+              ? {
+                ...prev,
+                companyId: persistedCompanyId,
+                status: 'ACTIVE',
+                lastActive: new Date().toISOString()
+              }
+              : null
+          ));
           return;
-        }
-
-        let persistedCompanyId = 'cmp_default';
-        try {
-          persistedCompanyId = localStorage.getItem(STORAGE_KEYS.currentCompany) || currentCompanyId || 'cmp_default';
-        } catch {
-          persistedCompanyId = currentCompanyId || 'cmp_default';
         }
 
         setCloudMemberships([]);
@@ -1949,7 +2118,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     setCloudMemberships([]);
-    setCurrentUser(null);
+    setCurrentUser(prev => (
+      isGuestUser(prev)
+        ? {
+          ...prev,
+          companyId: currentCompanyId || prev.companyId,
+          status: 'ACTIVE',
+          lastActive: new Date().toISOString()
+        }
+        : null
+    ));
 
     return () => {
       cancelled = true;
@@ -3929,7 +4107,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (
       newInvoice.postingStatus === 'POSTED' &&
       newInvoice.paymentType === 'CREDIT' &&
-      newInvoice.status !== 'QUOTATION' &&
       newInvoice.category !== 'sales_return' &&
       newInvoice.category !== 'purchase_return'
     ) {
@@ -4437,6 +4614,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [accounts, transactions, invoices, checks, contacts, assetGroups]);
 
   const addAccount = (account: Omit<Account, 'id'> & { id?: string }): MutationResult => {
+    const permission = enforcePermission('ACCOUNTS', 'ADD', 'Chart of Accounts');
+    if (!permission.ok) return permission;
+
     const created = {
       ...account,
       id: account.id || Math.random().toString(36).substr(2, 9),
@@ -4454,6 +4634,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateAccount = (id: string, updates: Partial<Account>): MutationResult => {
+    const permission = enforcePermission('ACCOUNTS', 'EDIT', 'Chart of Accounts');
+    if (!permission.ok) return permission;
+
     const existing = accounts.find(a => a.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Account not found.');
 
@@ -4487,6 +4670,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteAccount = (id: string): MutationResult => {
+    const permission = enforcePermission('ACCOUNTS', 'DELETE', 'Chart of Accounts');
+    if (!permission.ok) return permission;
+
     const existing = accounts.find(a => a.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Account not found.');
 
@@ -5405,7 +5591,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         taxNumber: meta?.taxNumber || defaultCompanySettings.taxNumber,
         address: meta?.address || defaultCompanySettings.address,
         phone: meta?.phone || defaultCompanySettings.phone,
-        logoUrl: meta?.logoUrl || defaultCompanySettings.logoUrl
+        logoUrl: normalizeBrandLogoUrl(meta?.logoUrl, defaultCompanySettings.logoUrl)
       },
       users: safeClone(initialUsers),
       accounts: safeClone(initialAccounts),
@@ -5458,7 +5644,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         taxNumber: profile.taxNumber || '',
         address: profile.address || '',
         phone: profile.phone || '',
-        logoUrl: profile.logoUrl || defaultCompanySettings.logoUrl
+        logoUrl: normalizeBrandLogoUrl(profile.logoUrl, defaultCompanySettings.logoUrl)
       },
       users: seededCurrentUser,
       accounts: safeClone(initialAccounts),
@@ -5467,7 +5653,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       invoiceSettlements: [],
       importExpenseDistributions: [],
       products: [],
-      itemGroups: safeClone(defaultItemGroups),
+      itemGroups: [],
       units: safeClone(initialUnits),
       contacts: safeClone(initialContacts.filter(contact => contact.id === 'cash_customer')),
       employees: [],
@@ -5513,17 +5699,22 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const buildInitialWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot => {
-    const existing = readWorkspaceSnapshot(companyId);
     const companyProfile = companies.find(company => company.id === companyId) || {
       id: companyId,
       name: defaultCompanySettings.name,
       taxNumber: '',
       address: '',
       phone: '',
-      logoUrl: undefined,
+      logoUrl: defaultCompanySettings.logoUrl,
       createdAt: new Date().toISOString(),
       trialEndsAt: addDaysIso(new Date().toISOString(), 14)
     };
+
+    if (forceEmptyBootstrap) {
+      return buildEmptyWorkspaceSnapshot(companyProfile);
+    }
+
+    const existing = readWorkspaceSnapshot(companyId);
     const isCloudCompany = cloudMemberships.some(membership => membership.companyId === companyId);
 
     if (existing) {
@@ -5660,7 +5851,77 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       auditLogs
     };
     localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
+    upsertWorkspaceSyncQueueItem(companyId, snapshot.updatedAt, currentUser?.id);
+    setSyncQueueVersion(prev => prev + 1);
   };
+
+  const persistLastWorkspaceSyncAt = (value: Date) => {
+    try {
+      localStorage.setItem(LAST_WORKSPACE_SYNC_AT_KEY, value.toISOString());
+    } catch {
+      // Ignore storage errors so sync status doesn't block data operations.
+    }
+  };
+
+  const syncData = useCallback<AccountingContextType['syncData']>(async () => {
+    if (!isOnline || isSyncing) return;
+    if (!isFirebaseSyncEnabled || !firebaseDb || !firebaseAuth) return;
+    if (!currentUser || isGuestUser(currentUser)) return;
+
+    const authUserId = firebaseAuth.currentUser?.uid;
+    if (!authUserId) return;
+
+    const queueItems = readWorkspaceSyncQueue().filter(item => (
+      !item.ownerUserId || item.ownerUserId === authUserId
+    ));
+    if (!queueItems.length) return;
+
+    setIsSyncing(true);
+    try {
+      for (const queueItem of queueItems) {
+        const snapshot = readWorkspaceSnapshot(queueItem.companyId);
+        if (!snapshot) {
+          removeWorkspaceSyncQueueItem(queueItem.companyId);
+          continue;
+        }
+
+        try {
+          await setDoc(
+            doc(firebaseDb, WORKSPACE_SYNC_COLLECTION, `${snapshot.companyId}_${authUserId}`),
+            {
+              schemaVersion: snapshot.schemaVersion,
+              companyId: snapshot.companyId,
+              userId: authUserId,
+              clientUpdatedAt: snapshot.updatedAt,
+              queuedAt: queueItem.queuedAt,
+              syncAttempt: queueItem.attempts + 1,
+              syncedAt: serverTimestamp(),
+              snapshot
+            },
+            { merge: true }
+          );
+
+          const latestQueueState = readWorkspaceSyncQueue().find(item => item.companyId === snapshot.companyId);
+          if (latestQueueState && latestQueueState.workspaceUpdatedAt !== snapshot.updatedAt) {
+            updateWorkspaceSyncQueueItem(snapshot.companyId, { attempts: 0, lastError: undefined });
+          } else {
+            removeWorkspaceSyncQueueItem(snapshot.companyId);
+          }
+
+          const syncedAt = new Date();
+          setLastSyncTime(syncedAt);
+          persistLastWorkspaceSyncAt(syncedAt);
+        } catch (error: any) {
+          updateWorkspaceSyncQueueItem(queueItem.companyId, {
+            attempts: Math.max(0, Number(queueItem.attempts) || 0) + 1,
+            lastError: String(error?.message || 'SYNC_FAILED')
+          });
+        }
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [currentUser, isOnline, isSyncing]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -5734,6 +5995,27 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   ]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOnline || isSyncing) return;
+    if (readWorkspaceSyncQueue().length === 0) return;
+    void syncData();
+  }, [isOnline, isSyncing, syncQueueVersion, syncData]);
+
+  useEffect(() => {
     if (!currentUser) return;
 
     const matched = users.find(u => u.id === currentUser.id) || users.find(u => u.email === currentUser.email);
@@ -5791,6 +6073,26 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   }, [users, currentCompanyId, currentUser, cloudMemberships]);
 
+  useEffect(() => {
+    if (!currentUser || isGuestUser(currentUser)) return;
+    const pendingTrialDays = consumePendingSignupTrialSelectionDays();
+    if (pendingTrialDays === null) return;
+
+    const targetCompanyId = currentCompanyId || currentUser.companyId || companies[0]?.id;
+    if (!targetCompanyId) return;
+
+    const nowIso = new Date().toISOString();
+    const nextTrialEndsAt = pendingTrialDays > 0 ? addDaysIso(nowIso, pendingTrialDays) : nowIso;
+    setCompanies(prev => prev.map(company => (
+      company.id === targetCompanyId
+        ? {
+          ...company,
+          trialEndsAt: nextTrialEndsAt
+        }
+        : company
+    )));
+  }, [currentUser, currentCompanyId, companies]);
+
   const switchCompany = (companyId: string): MutationResult => {
     const company = companies.find(c => c.id === companyId);
     if (!company) return makeError('VALIDATION_ERROR', 'Company not found.');
@@ -5813,20 +6115,22 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const nowIso = new Date().toISOString();
       const companyId = newId('cmp');
       const profile: CompanyProfile = {
-        id: companyId,
-        name,
-        taxNumber: input.taxNumber || '',
-        address: input.address || '',
-        phone: input.phone || '',
-        logoUrl: input.logoUrl,
-        createdAt: nowIso,
-        trialEndsAt: addDaysIso(nowIso, 14)
-      };
+      id: companyId,
+      name,
+      taxNumber: input.taxNumber || '',
+      address: input.address || '',
+      phone: input.phone || '',
+      logoUrl: normalizeBrandLogoUrl(input.logoUrl, defaultCompanySettings.logoUrl),
+      createdAt: nowIso,
+      trialEndsAt: addDaysIso(nowIso, 14)
+    };
 
       saveCurrentWorkspaceSnapshot(currentCompanyId);
 
       const snapshot = buildEmptyWorkspaceSnapshot(profile);
       localStorage.setItem(getCompanyWorkspaceKey(profile.id), JSON.stringify(snapshot));
+      upsertWorkspaceSyncQueueItem(profile.id, snapshot.updatedAt, currentUser?.id);
+      setSyncQueueVersion(prev => prev + 1);
 
       setCompanies(prev => [profile, ...prev.filter(company => company.id !== profile.id)]);
       setCurrentUser(prev => (
@@ -5851,12 +6155,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     setCompanies(prev => prev.map(company => (
       company.id === companyId
-        ? {
+        ? withNormalizedCompanyProfile({
           ...company,
           ...updates,
           id: company.id,
           createdAt: company.createdAt
-        }
+        })
         : company
     )));
     if (companyId === currentCompanyId) {
@@ -5866,7 +6170,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         taxNumber: updates.taxNumber ?? prev.taxNumber,
         address: updates.address ?? prev.address,
         phone: updates.phone ?? prev.phone,
-        logoUrl: updates.logoUrl ?? prev.logoUrl
+        logoUrl: normalizeBrandLogoUrl(updates.logoUrl ?? prev.logoUrl, defaultCompanySettings.logoUrl)
       }));
     }
     return makeSuccess();
@@ -6324,7 +6628,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     const targetFileName = fileName || buildBackupFileName(payload.createdAt);
     const upload = await uploadBackupPayloadToGoogleDrive(payload, targetFileName, true);
-    if (!upload.ok) {
+    if (upload.ok === false) {
       appendAuditLog({
         entityType: 'backup',
         action: 'GOOGLE_DRIVE_UPLOAD_REJECTED',
@@ -6616,7 +6920,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const due = !Number.isFinite(lastRunAt) || (Date.now() - lastRunAt) >= frequencyMs;
       if (!due) return;
       const result = await runAutoBackupCycle(false);
-      if (!result.ok) {
+      if (result.ok === false) {
         appendAuditLog({
           entityType: 'backup',
           action: 'AUTO_EXPORT_REJECTED',
@@ -6675,7 +6979,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       companySettings, updateCompanySettings,
       users, addUser, updateUser, deleteUser,
       summary,
-      isOnline: true, isSyncing: false, lastSyncTime: null, syncData: async () => { }, exportData, importData,
+      isOnline, isSyncing, lastSyncTime, syncData, exportData, importData,
       googleDriveStatus, connectGoogleDrive, disconnectGoogleDrive, uploadBackupToGoogleDrive, restoreFromGoogleDrive, runAutoBackupNow,
       permissions, updatePermissions, can, auditLogs, appendAuditLog,
 
