@@ -15,6 +15,10 @@ const SETTINGS_OPTION_KEYS = [
   'logoUrl',
   'language',
   'defaultTaxRate',
+  'annualLeaveDefaultOpenEndedDays',
+  'annualLeaveDefaultFixedTermDays',
+  'leaveAccrualPolicy',
+  'monthlyLeaveAccrualDays',
   'showTaxInInvoices',
   'hidePurchaseTax',
   'hideSalesTax',
@@ -34,6 +38,7 @@ const SETTINGS_OPTION_KEYS = [
   'alertsDesktopNotifyContractExpiry',
   'alertsSoundEnabled',
   'allowNegativeSalesQuantity',
+  'allowNegativeStock',
   'allowEditEntryDate',
   'journalDateLockEnabled',
   'journalDateLockFrom',
@@ -64,6 +69,7 @@ const SETTINGS_OPTION_KEYS = [
   'autoBackupFrequency',
   'autoBackupPassword',
   'autoBackupKeepCount',
+  'autoBackupLastRunAt',
   'googleDriveAutoUpload',
   'googleDriveClientId',
   'googleDriveFolderId',
@@ -100,11 +106,21 @@ const collectSourceFiles = (dir: string): string[] => {
 describe('settings wiring', () => {
   const typesSource = fs.readFileSync(TYPES_FILE, 'utf8');
   const contextSource = fs.readFileSync(CONTEXT_FILE, 'utf8');
+  const companySettingsBlock = typesSource.match(/export interface CompanySettings\s*{([\s\S]*?)^}/m)?.[1] || '';
+  const companySettingsKeys = Array.from(companySettingsBlock.matchAll(/^\s*([A-Za-z0-9_]+)\??:\s/mg)).map((match) => match[1]);
   const sourceFiles = collectSourceFiles(PROJECT_ROOT);
   const runtimeFiles = sourceFiles.filter((file) =>
     file !== TYPES_FILE && file !== SETTINGS_FILE
   );
   const runtimeFilesWithoutContext = runtimeFiles.filter((file) => file !== CONTEXT_FILE);
+
+  it('keeps the settings coverage list aligned with CompanySettings keys', () => {
+    const missingFromCoverage = companySettingsKeys.filter((key) => !SETTINGS_OPTION_KEYS.includes(key as typeof SETTINGS_OPTION_KEYS[number]));
+    const extraInCoverage = SETTINGS_OPTION_KEYS.filter((key) => !companySettingsKeys.includes(key));
+
+    expect(missingFromCoverage).toEqual([]);
+    expect(extraInCoverage).toEqual([]);
+  });
 
   it('keeps all settings options declared in CompanySettings and defaultCompanySettings', () => {
     SETTINGS_OPTION_KEYS.forEach((key) => {

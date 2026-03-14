@@ -22,7 +22,7 @@ import InventoryPricingManager from './InventoryPricingManager';
 const ProductList: React.FC = () => {
   const { 
     products, addProduct, updateProduct, deleteProduct, 
-    itemGroups, addItemGroup, baseCurrency, units, addUnit, companySettings, currentCompanyId
+    itemGroups, addItemGroup, baseCurrency, units, addUnit, companySettings, currentCompanyId, updateCompanySettings
   } = useAccounting();
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -449,6 +449,7 @@ const ProductList: React.FC = () => {
   };
   const metricDividerClass = isEnglish ? 'border-l border-gray-100' : 'border-r border-gray-100';
   const hasActiveFilters = !!searchTerm || groupFilter !== 'ALL' || stockFilter !== 'ALL' || sortBy !== 'LATEST';
+  const allowNegativeStock = companySettings.allowNegativeStock ?? false;
 
   const draftPricingPreview = useMemo(() => {
     const draftRetailInput = parseLocalizedPositiveDecimal(sellPrice);
@@ -490,6 +491,18 @@ const ProductList: React.FC = () => {
       isEnglish
     });
   };
+
+  const handleSetNegativeStock = (nextValue: boolean) => {
+    if (allowNegativeStock === nextValue) return;
+    const result = updateCompanySettings({
+      ...companySettings,
+      allowNegativeStock: nextValue
+    });
+    if (!result.ok) {
+      alert(result.message);
+    }
+  };
+  const handleToggleNegativeStock = () => handleSetNegativeStock(!allowNegativeStock);
 
   return (
     <div className={`app-page w-full max-w-[1680px] mx-auto overflow-x-hidden px-3 sm:px-4 lg:px-6 pb-[calc(var(--app-nav-height)+var(--app-safe-bottom)+0.75rem)] font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
@@ -546,6 +559,74 @@ const ProductList: React.FC = () => {
 
       {activeScreen === 'ITEMS' ? (
         <>
+      <div className="mb-4 rounded-[2rem] border border-slate-200/80 bg-white p-2 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.55)]">
+          <div className="rounded-[1.5rem] bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.12),_transparent_55%),linear-gradient(135deg,rgba(255,255,255,1)_0%,rgba(248,250,252,1)_100%)] px-4 py-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-black text-slate-900">{tr('السماح بالمخزون السالب', 'Allow negative stock')}</p>
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-black transition-colors ${
+                      allowNegativeStock
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {allowNegativeStock ? tr('مفعل', 'Enabled') : tr('موقوف', 'Disabled')}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] font-bold leading-5 text-slate-500">
+                  {tr(
+                    'عند إيقافه، يُمنع البيع أو المناقلة إذا كانت الكمية غير كافية.',
+                    'When disabled, sales and transfers are blocked if stock is not sufficient.'
+                  )}
+                </p>
+                <div
+                  className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[10px] font-black transition-colors ${
+                    allowNegativeStock
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full transition-colors ${
+                      allowNegativeStock ? 'bg-emerald-500' : 'bg-slate-400'
+                    }`}
+                  />
+                  {allowNegativeStock
+                    ? tr('مفعل: يمكن أن تهبط الكمية تحت الصفر عند الحاجة.', 'Enabled: stock can go below zero when needed.')
+                    : tr('موقوف: يمنع النزول تحت الصفر.', 'Disabled: going below zero is blocked.')}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleNegativeStock}
+                role="switch"
+                aria-checked={allowNegativeStock}
+                aria-label={tr('السماح بالمخزون السالب', 'Allow negative stock')}
+                className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`relative block h-10 w-[4.5rem] rounded-full border transition-all duration-300 ${
+                    allowNegativeStock
+                      ? 'border-emerald-500 bg-emerald-500 shadow-[0_12px_24px_-16px_rgba(16,185,129,0.95)]'
+                      : 'border-slate-400 bg-white'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 h-8 w-8 rounded-full bg-white shadow-[0_8px_20px_-12px_rgba(15,23,42,0.85)] transition-all duration-300 ${
+                      allowNegativeStock
+                        ? (isEnglish ? 'left-[2.1rem]' : 'right-[2.1rem]')
+                        : (isEnglish ? 'left-1' : 'right-1')
+                    }`}
+                  />
+                </span>
+              </button>
+            </div>
+          </div>
+      </div>
+
       {/* Threshold Config */}
       {showThresholdConfig && (
           <div className="bg-white p-5 rounded-[2rem] border border-amber-100 shadow-sm mb-6 animate-in slide-in-from-top-4">

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { CheckStatus, CheckType, TransactionType } from '../types';
 import EnglishDateInput from './EnglishDateInput';
@@ -45,10 +45,12 @@ const CheckPortfolio: React.FC = () => {
     const [clearAccountId, setClearAccountId] = useState('');
 
     const [showBounceModal, setShowBounceModal] = useState<string | null>(null);
+    const [showEndorsedReturnModal, setShowEndorsedReturnModal] = useState<string | null>(null);
 
     const [showDepositModal, setShowDepositModal] = useState<string | null>(null);
     const [depositBankId, setDepositBankId] = useState('');
     const [showCheckDetailsId, setShowCheckDetailsId] = useState<string | null>(null);
+    const [detailNoteDraft, setDetailNoteDraft] = useState('');
     const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
 
     const [checkType, setCheckType] = useState<CheckType>('INCOMING');
@@ -83,6 +85,11 @@ const CheckPortfolio: React.FC = () => {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    const getCompactNote = (value?: string) => {
+        const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+        if (!normalized) return '';
+        return normalized.length > 90 ? `${normalized.slice(0, 90)}...` : normalized;
+    };
 
     const getCheckImageUrls = (check: { imageUrls?: string[]; imageUrl?: string }) => {
         if (Array.isArray(check.imageUrls) && check.imageUrls.length > 0) {
@@ -173,8 +180,8 @@ const CheckPortfolio: React.FC = () => {
         if (activeTab === 'UNDER_COLLECTION') return c.status === 'UNDER_COLLECTION';
         if (activeTab === 'ENDORSED') return c.status === 'ENDORSED';
         if (activeTab === 'BOUNCED') return c.status === 'BOUNCED';
-        const matchesTab = ['CLEARED', 'BOUNCED', 'CANCELLED'].includes(c.status);
-        return matchesTab;
+        if (activeTab === 'ARCHIVE') return true;
+        return ['CLEARED', 'BOUNCED', 'CANCELLED'].includes(c.status);
     }).filter(c => {
         if (quickFilter === 'ALL') return true;
         if (quickFilter === 'DEPOSITED') return Boolean(c.depositedBankId);
@@ -191,6 +198,46 @@ const CheckPortfolio: React.FC = () => {
     const bankAccounts = useMemo(() => {
         return accounts.filter(a => !a.isGroup && a.parentId === 'acc_bank_root');
     }, [accounts]);
+    const clearModalCheck = showClearModal ? checks.find(c => c.id === showClearModal) || null : null;
+    const clearModalResolvedAccountId = clearModalCheck?.type === 'OUTGOING'
+        ? (clearModalCheck.bankAccountId || clearAccountId)
+        : clearModalCheck?.status === 'UNDER_COLLECTION'
+            ? (clearModalCheck.depositedBankId || clearAccountId)
+            : clearAccountId;
+    const clearModalResolvedAccount = clearModalResolvedAccountId
+        ? accounts.find(a => a.id === clearModalResolvedAccountId) || null
+        : null;
+    const outgoingClearUsesSourceBank = Boolean(
+        clearModalCheck?.type === 'OUTGOING' && clearModalCheck.bankAccountId
+    );
+    const underCollectionUsesDepositedBank = Boolean(
+        clearModalCheck?.status === 'UNDER_COLLECTION' && clearModalCheck.depositedBankId
+    );
+
+    useEffect(() => {
+        if (!showCheckDetailsId) {
+            setDetailNoteDraft('');
+            return;
+        }
+        const currentCheck = checks.find(c => c.id === showCheckDetailsId);
+        setDetailNoteDraft(currentCheck?.description || '');
+    }, [showCheckDetailsId, checks]);
+
+    useEffect(() => {
+        if (!clearModalCheck) {
+            setClearAccountId('');
+            return;
+        }
+        if (clearModalCheck.type === 'OUTGOING' && clearModalCheck.bankAccountId) {
+            setClearAccountId(clearModalCheck.bankAccountId);
+            return;
+        }
+        if (clearModalCheck.status === 'UNDER_COLLECTION' && clearModalCheck.depositedBankId) {
+            setClearAccountId(clearModalCheck.depositedBankId);
+            return;
+        }
+        setClearAccountId('');
+    }, [clearModalCheck]);
 
     const resetForm = () => {
         setCheckType('INCOMING');
@@ -251,12 +298,12 @@ const CheckPortfolio: React.FC = () => {
 
     const confirmClear = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!showClearModal || !clearAccountId) return;
+        if (!showClearModal || !clearModalResolvedAccountId) return;
 
         const check = checks.find(c => c.id === showClearModal);
         if (!check) return;
 
-        const targetAccount = accounts.find(a => a.id === clearAccountId);
+        const targetAccount = accounts.find(a => a.id === clearModalResolvedAccountId);
         const isIncoming = check.type === 'INCOMING';
 
         addTransaction({
@@ -265,8 +312,8 @@ const CheckPortfolio: React.FC = () => {
             category: 'journal',
             type: isIncoming ? TransactionType.INCOME : TransactionType.EXPENSE,
             date: new Date().toISOString().split('T')[0],
-            debitAccountId: isIncoming ? clearAccountId : 'acc_notes_payable',
-            creditAccountId: isIncoming ? 'acc_cheques_hand' : clearAccountId,
+            debitAccountId: isIncoming ? clearModalResolvedAccountId : 'acc_notes_payable',
+            creditAccountId: isIncoming ? 'acc_cheques_hand' : clearModalResolvedAccountId,
             checkId: check.id,
             currency: check.currency,
             exchangeRate: 1,
@@ -311,6 +358,52 @@ const CheckPortfolio: React.FC = () => {
         setShowBounceModal(null);
     };
 
+    const confirmEndorsedReturn = () => {
+        if (!showEndorsedReturnModal) return;
+        const check = checks.find(c => c.id === showEndorsedReturnModal);
+        if (!check || check.status !== 'ENDORSED') return;
+
+        const receiptTransaction = getIncomingReceiptTransaction(check.id);
+        const endorsementTransaction = getEndorsementTransaction(check.id);
+        const sourceAccountId = receiptTransaction?.creditAccountId;
+        const beneficiaryAccountId = endorsementTransaction?.debitAccountId;
+
+        if (!sourceAccountId || !beneficiaryAccountId) {
+            alert(tr(
+                'تعذر تحديد حساب الطرف الأصلي أو حساب المستفيد لهذا الشيك المجير.',
+                'Unable to resolve the original source account or endorsee account for this endorsed check.'
+            ));
+            return;
+        }
+
+        const sourceName = getContactName(check.originalContactId || check.contactId);
+        const beneficiaryName = check.endorseeContactId ? getContactName(check.endorseeContactId) : (check.endorseeName || tr('غير محدد', 'Unknown'));
+
+        updateCheck(showEndorsedReturnModal, {
+            status: 'BOUNCED',
+            bounceSettlementStatus: 'UNPAID',
+            bounceSettlementDate: undefined,
+            bounceSettlementNote: `${tr('إرجاع شيك مجير من', 'Returned endorsed check from')} ${sourceName} ${tr('إلى', 'to')} ${beneficiaryName}`
+        });
+
+        addTransaction({
+            amount: check.amount,
+            description: `${tr('إرجاع شيك مجير رقم', 'Returned endorsed check #')} ${check.checkNumber} - ${sourceName} ${tr('إلى', 'to')} ${beneficiaryName}`,
+            category: 'journal',
+            type: TransactionType.TRANSFER,
+            date: new Date().toISOString().split('T')[0],
+            debitAccountId: sourceAccountId,
+            creditAccountId: beneficiaryAccountId,
+            checkId: check.id,
+            contactId: check.endorseeContactId || check.contactId,
+            currency: check.currency,
+            exchangeRate: 1,
+            status: 'POSTED'
+        });
+
+        setShowEndorsedReturnModal(null);
+    };
+
     const toggleBouncedSettlement = (checkId: string) => {
         const check = checks.find(c => c.id === checkId);
         if (!check || check.status !== 'BOUNCED') return;
@@ -319,6 +412,20 @@ const CheckPortfolio: React.FC = () => {
             bounceSettlementStatus: nextIsPaid ? 'PAID' : 'UNPAID',
             bounceSettlementDate: nextIsPaid ? new Date().toISOString().split('T')[0] : undefined,
         });
+    };
+
+    const persistCheckDetailsNote = (checkId: string, nextNote: string) => {
+        const currentCheck = checks.find(c => c.id === checkId);
+        if (!currentCheck) return;
+        if ((currentCheck.description || '') === nextNote) return;
+        updateCheck(checkId, { description: nextNote });
+    };
+
+    const closeCheckDetails = () => {
+        if (showCheckDetailsId) {
+            persistCheckDetailsNote(showCheckDetailsId, detailNoteDraft);
+        }
+        setShowCheckDetailsId(null);
     };
 
     const handleDepositCheck = (e: React.FormEvent) => {
@@ -378,6 +485,18 @@ const CheckPortfolio: React.FC = () => {
             });
     };
 
+    const getIncomingReceiptTransaction = (checkId: string) =>
+        getRelatedTransactionsForCheck(checkId).find(transaction =>
+            transaction.debitAccountId === 'acc_cheques_hand'
+            && transaction.type === TransactionType.INCOME
+        );
+
+    const getEndorsementTransaction = (checkId: string) =>
+        getRelatedTransactionsForCheck(checkId).find(transaction =>
+            transaction.category === 'voucher_payment'
+            && transaction.creditAccountId === 'acc_cheques_hand'
+        );
+
     const getCheckFlowSummary = (checkId: string) => {
         const check = checks.find(c => c.id === checkId);
         if (!check) return null;
@@ -413,7 +532,7 @@ const CheckPortfolio: React.FC = () => {
     const buildCheckTimeline = (checkId: string) => {
         const data = getCheckFlowSummary(checkId);
         if (!data) return [];
-        const { check, depositedBankName, endorseeName, clearTx, bounceTx } = data;
+        const { check, depositedBankName, endorseeName, clearTx, bounceTx, sourceContactName, primaryContactName } = data;
         const events: Array<{ key: string; date: string; title: string; detail: string; tone: 'slate' | 'blue' | 'emerald' | 'rose' | 'purple' }> = [];
 
         events.push({
@@ -460,11 +579,14 @@ const CheckPortfolio: React.FC = () => {
         }
 
         if (check.status === 'BOUNCED' || bounceTx) {
+            const bouncedDetail = endorseeName
+                ? `${tr('تم إرجاع الأثر من', 'Accounting effect was returned from')} ${sourceContactName || primaryContactName} ${tr('إلى', 'to')} ${endorseeName}`
+                : tr('تم عكس الأثر المحاسبي وإعادة الرصيد للطرف المعني', 'Accounting effect was reversed and balance restored to related party');
             events.push({
                 key: 'bounced',
                 date: bounceTx?.date || check.dueDate || check.issueDate,
                 title: tr('شيك مرتجع', 'Bounced check'),
-                detail: tr('تم عكس الأثر المحاسبي وإعادة الرصيد للطرف المعني', 'Accounting effect was reversed and balance restored to related party'),
+                detail: bouncedDetail,
                 tone: 'rose'
             });
         }
@@ -765,7 +887,9 @@ const CheckPortfolio: React.FC = () => {
             <div className="space-y-2.5">
                 {filteredChecks.map(check => {
                     const isOverdue = new Date(check.dueDate) < new Date() && check.status === 'PENDING';
+                    const isOutgoingCheck = check.type === 'OUTGOING';
                     const checkImages = getCheckImageUrls(check);
+                    const compactNote = getCompactNote(check.description);
                     return (
                         <div key={check.id} className={`bg-white p-3 rounded-xl border shadow-sm animate-in slide-in-from-bottom-2 ${isOverdue ? 'border-rose-100' : 'border-gray-100'}`}>
                             <div className="flex justify-between items-start mb-2.5">
@@ -808,6 +932,13 @@ const CheckPortfolio: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
+
+                            {compactNote && (
+                                <div className="mb-2.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                    <div className="text-[9px] font-black text-slate-400 mb-1">{tr('ملاحظة', 'Note')}</div>
+                                    <p className="text-[10px] font-bold leading-5 text-slate-700">{compactNote}</p>
+                                </div>
+                            )}
 
                             {checkImages.length > 0 && (
                                 <div className="border-t border-gray-50 pt-2.5 mb-2.5">
@@ -858,15 +989,17 @@ const CheckPortfolio: React.FC = () => {
                             </div>
 
                             {check.status === 'PENDING' && (
-                                <div className="grid grid-cols-3 gap-1.5 pt-1.5">
+                                <div className={`grid gap-1.5 pt-1.5 ${isOutgoingCheck ? 'grid-cols-2' : 'grid-cols-3'}`}>
                                     <button onClick={() => setShowClearModal(check.id)} className="h-9 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-emerald-100 transition-colors">
-                                        <CheckCircle size={14} /> {tr('تحصيل / صرف', 'Clear / Pay')}
+                                        <CheckCircle size={14} /> {isOutgoingCheck ? tr('تأكيد صرفه', 'Confirm payment') : tr('تحصيل / صرف', 'Clear / Pay')}
                                     </button>
-                                    <button onClick={() => setShowDepositModal(check.id)} className="h-9 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-colors">
-                                        <Building2 size={14} /> {tr('إيداع بالبنك', 'Deposit to Bank')}
-                                    </button>
+                                    {!isOutgoingCheck && (
+                                        <button onClick={() => setShowDepositModal(check.id)} className="h-9 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-blue-100 transition-colors">
+                                            <Building2 size={14} /> {tr('إيداع بالبنك', 'Deposit to Bank')}
+                                        </button>
+                                    )}
                                     <button onClick={() => setShowBounceModal(check.id)} className="h-9 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors">
-                                        <XCircle size={14} /> {tr('مرتجع', 'Bounce')}
+                                        <XCircle size={14} /> {isOutgoingCheck ? tr('إرجاع الشيك', 'Return check') : tr('مرتجع', 'Bounce')}
                                     </button>
                                 </div>
                             )}
@@ -878,6 +1011,14 @@ const CheckPortfolio: React.FC = () => {
                                     </button>
                                     <button onClick={() => setShowBounceModal(check.id)} className="h-9 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-rose-100 transition-colors">
                                         <XCircle size={14} /> {tr('شيك مرتجع', 'Bounced Check')}
+                                    </button>
+                                </div>
+                            )}
+
+                            {check.status === 'ENDORSED' && (
+                                <div className="grid grid-cols-1 gap-1.5 pt-1.5">
+                                    <button onClick={() => setShowEndorsedReturnModal(check.id)} className="h-9 bg-amber-50 text-amber-700 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 hover:bg-amber-100 transition-colors">
+                                        <ArrowRightLeft size={14} /> {tr('إرجاع الشيك المجير', 'Return endorsed check')}
                                     </button>
                                 </div>
                             )}
@@ -901,18 +1042,65 @@ const CheckPortfolio: React.FC = () => {
                     zIndexClassName="z-[200]"
                     panelClassName="rounded-[2.5rem] p-8 shadow-2xl"
                 >
-                    <h3 className="font-black text-gray-800 text-lg mb-6">{tr('تحديد حساب التحصيل / الصرف', 'Select Clearing / Payment Account')}</h3>
+                    <h3 className="font-black text-gray-800 text-lg mb-6">
+                        {clearModalCheck?.type === 'OUTGOING'
+                            ? tr('تأكيد صرف الشيك الصادر', 'Confirm outgoing check payment')
+                            : clearModalCheck?.status === 'UNDER_COLLECTION'
+                                ? tr('تأكيد تحصيل الشيك', 'Confirm check collection')
+                                : tr('تحديد حساب التحصيل / الصرف', 'Select Clearing / Payment Account')}
+                    </h3>
                     <form onSubmit={confirmClear} className="space-y-6">
-                        <select
-                            value={clearAccountId}
-                            onChange={e => setClearAccountId(e.target.value)}
-                            className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none font-bold text-sm"
-                            required
-                        >
-                            <option value="">{tr('-- اختر الصندوق أو البنك --', '-- Select Cashbox or Bank --')}</option>
-                            {financialAccounts.map(acc => <option key={acc.id} value={acc.id}>{displayAccountName(acc)}</option>)}
-                        </select>
-                        <button type="submit" className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black text-sm shadow-xl">{tr('إتمام العملية', 'Complete Action')}</button>
+                        {outgoingClearUsesSourceBank || underCollectionUsesDepositedBank ? (
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-4">
+                                <div className="mb-1 text-[10px] font-black text-emerald-700">
+                                    {outgoingClearUsesSourceBank
+                                        ? tr('سيتم الخصم مباشرة من البنك المصدر', 'The amount will be deducted directly from the source bank')
+                                        : tr('سيتم التحصيل مباشرة في البنك المودع به', 'The amount will be collected directly in the deposited bank')}
+                                </div>
+                                <div className="text-sm font-black text-slate-800">
+                                    {displayAccountName(clearModalResolvedAccount)}
+                                </div>
+                            </div>
+                        ) : (
+                            <select
+                                value={clearAccountId}
+                                onChange={e => setClearAccountId(e.target.value)}
+                                className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none font-bold text-sm"
+                                required
+                            >
+                                <option value="">
+                                    {clearModalCheck?.type === 'OUTGOING'
+                                        ? tr('-- اختر الحساب الذي تم صرف الشيك منه --', '-- Select the account the check was paid from --')
+                                        : clearModalCheck?.status === 'UNDER_COLLECTION'
+                                            ? tr('-- اختر البنك أو الصندوق الذي تم التحصيل فيه --', '-- Select the bank or cashbox where the check was collected --')
+                                            : tr('-- اختر الصندوق أو البنك --', '-- Select Cashbox or Bank --')}
+                                </option>
+                                {financialAccounts.map(acc => <option key={acc.id} value={acc.id}>{displayAccountName(acc)}</option>)}
+                            </select>
+                        )}
+                        {clearModalCheck?.type === 'OUTGOING' && !outgoingClearUsesSourceBank && (
+                            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-[11px] font-bold leading-6 text-amber-800">
+                                {tr(
+                                    'هذا الشيك الصادر لا يحتوي بنكًا مصدرًا محفوظًا، لذلك يظهر اختيار الحساب يدويًا لهذا الشيك فقط.',
+                                    'This outgoing check has no saved source bank, so manual account selection is shown only for this check.'
+                                )}
+                            </div>
+                        )}
+                        {clearModalCheck?.status === 'UNDER_COLLECTION' && !underCollectionUsesDepositedBank && (
+                            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-[11px] font-bold leading-6 text-amber-800">
+                                {tr(
+                                    'هذا الشيك لا يحتوي بنك الإيداع محفوظًا، لذلك يظهر اختيار البنك يدويًا لهذا الشيك فقط.',
+                                    'This check has no saved deposit bank, so manual bank selection is shown only for this check.'
+                                )}
+                            </div>
+                        )}
+                        <button type="submit" className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black text-sm shadow-xl">
+                            {clearModalCheck?.type === 'OUTGOING'
+                                ? tr('تأكيد الصرف', 'Confirm payment')
+                                : clearModalCheck?.status === 'UNDER_COLLECTION'
+                                    ? tr('تأكيد التحصيل', 'Confirm collection')
+                                    : tr('إتمام العملية', 'Complete Action')}
+                        </button>
                         <button type="button" onClick={() => setShowClearModal(null)} className="w-full py-2 text-gray-400 font-bold text-xs">{tr('إلغاء', 'Cancel')}</button>
                     </form>
                 </ResponsiveDialog>
@@ -942,6 +1130,35 @@ const CheckPortfolio: React.FC = () => {
                         </button>
                         <button onClick={confirmBounce} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black text-xs shadow-xl shadow-rose-200 hover:bg-rose-700 transition-all active:scale-95">
                             {tr('تأكيد', 'Confirm')}
+                        </button>
+                    </div>
+                </ResponsiveDialog>
+            )}
+
+            {showEndorsedReturnModal && (
+                <ResponsiveDialog
+                    open={Boolean(showEndorsedReturnModal)}
+                    onClose={() => setShowEndorsedReturnModal(null)}
+                    size="md"
+                    zIndexClassName="z-[200]"
+                    panelClassName="rounded-[2.5rem] p-8 shadow-2xl text-center"
+                >
+                    <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-500 shadow-sm">
+                        <ArrowRightLeft size={32} />
+                    </div>
+                    <h3 className="font-black text-gray-800 text-lg mb-2">{tr('إرجاع شيك مجير', 'Return Endorsed Check')}</h3>
+                    <p className="text-gray-500 text-xs font-bold mb-8 leading-relaxed">
+                        {tr(
+                            'سيتم نقل الأثر المحاسبي من حساب الطرف الذي قُبض منه الشيك إلى حساب المستفيد الذي صُرف له الشيك، وتسجيله كشيك مرتجع.',
+                            'This will move the accounting effect from the original source account to the beneficiary account and mark the check as returned.'
+                        )}
+                    </p>
+                    <div className="flex gap-3">
+                        <button onClick={() => setShowEndorsedReturnModal(null)} className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black text-xs hover:bg-gray-200 transition-all active:scale-95">
+                            {tr('إلغاء', 'Cancel')}
+                        </button>
+                        <button onClick={confirmEndorsedReturn} className="flex-1 py-4 bg-amber-600 text-white rounded-2xl font-black text-xs shadow-xl shadow-amber-200 hover:bg-amber-700 transition-all active:scale-95">
+                            {tr('تأكيد الإرجاع', 'Confirm Return')}
                         </button>
                     </div>
                 </ResponsiveDialog>
@@ -980,7 +1197,7 @@ const CheckPortfolio: React.FC = () => {
                 return (
                     <ResponsiveDialog
                         open={Boolean(showCheckDetailsId)}
-                        onClose={() => setShowCheckDetailsId(null)}
+                        onClose={closeCheckDetails}
                         size="xl"
                         zIndexClassName="z-[210]"
                         panelClassName="rounded-[2rem] p-0 overflow-hidden"
@@ -1008,7 +1225,7 @@ const CheckPortfolio: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setShowCheckDetailsId(null)}
+                                        onClick={closeCheckDetails}
                                         className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
                                         aria-label={tr('إغلاق', 'Close')}
                                     >
@@ -1027,7 +1244,7 @@ const CheckPortfolio: React.FC = () => {
                                             <div className="bg-gray-50 rounded-xl p-2"><span className="text-gray-400 font-bold block">{tr('تاريخ الإصدار', 'Issue Date')}</span><span className="font-black dir-ltr">{check.issueDate}</span></div>
                                             <div className="bg-gray-50 rounded-xl p-2"><span className="text-gray-400 font-bold block">{tr('رقم الحساب', 'Account Number')}</span><span className="font-black dir-ltr">{check.accountNumber || '-'}</span></div>
                                         </div>
-                                        {check.description && (
+                                        {false && check.description && (
                                             <div className="bg-gray-50 rounded-xl p-3 text-[11px]">
                                                 <span className="text-gray-400 font-bold block mb-1">{tr('ملاحظات', 'Notes')}</span>
                                                 <p className="font-bold text-gray-700">{check.description}</p>
@@ -1062,6 +1279,25 @@ const CheckPortfolio: React.FC = () => {
                                     </div>
                                 </div>
 
+                                <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                            <h4 className="text-xs font-black text-gray-700">{tr('ملاحظات الشيك', 'Check Notes')}</h4>
+                                            <p className="mt-1 text-[10px] font-bold text-gray-400">
+                                                {tr('يمكنك تعديل الملاحظة في أي وقت، وسيتم حفظها عند الخروج من الحقل أو إغلاق الصفحة.', 'You can edit this note any time. It is saved when you leave the field or close the page.')}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        value={detailNoteDraft}
+                                        onChange={e => setDetailNoteDraft(e.target.value)}
+                                        onBlur={e => persistCheckDetailsNote(check.id, e.target.value)}
+                                        rows={3}
+                                        placeholder={tr('اكتب ملاحظتك هنا...', 'Write your note here...')}
+                                        className={`w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-[12px] font-bold text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 ${isEnglish ? 'text-left' : 'text-right'}`}
+                                    />
+                                </div>
+
                                 {images.length > 0 && (
                                     <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
                                         <div className="flex items-center justify-between gap-2 mb-3">
@@ -1087,6 +1323,24 @@ const CheckPortfolio: React.FC = () => {
                                 )}
 
                                 <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                    {check.status === 'ENDORSED' && (
+                                        <div className="mb-3 p-3 rounded-xl border border-amber-100 bg-amber-50/60 flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <div className="text-[10px] font-black text-amber-700">{tr('إرجاع الشيك المجير', 'Return endorsed check')}</div>
+                                                <div className="text-xs font-bold text-gray-600">
+                                                    {tr('إذا عاد الشيك من المستفيد، يمكنك تسجيل الإرجاع من هنا مباشرة.', 'If the check came back from the beneficiary, you can register the return directly from here.')}
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowEndorsedReturnModal(check.id)}
+                                                className="px-3 py-2 rounded-xl text-[11px] font-black border inline-flex items-center gap-1.5 bg-amber-600 text-white border-amber-600"
+                                            >
+                                                <ArrowRightLeft size={13} />
+                                                {tr('إرجاع الآن', 'Return now')}
+                                            </button>
+                                        </div>
+                                    )}
                                     {check.status === 'BOUNCED' && (
                                         <div className="mb-3 p-3 rounded-xl border border-rose-100 bg-rose-50/60 flex flex-wrap items-center justify-between gap-2">
                                             <div>

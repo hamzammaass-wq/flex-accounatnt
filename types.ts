@@ -224,6 +224,7 @@ export interface EmployeeContract extends EmployeeSalarySnapshot {
 export interface SalaryHistoryEntry {
   id: string;
   employeeId: string;
+  contractId?: string;
   date: string;
   source: 'EMPLOYEE_FORM' | 'CONTRACT';
   action: 'EMPLOYEE_CREATED' | 'SALARY_CHANGED' | 'CONTRACT_ADDED';
@@ -555,6 +556,7 @@ export interface CompanySettings {
   alertsDesktopNotifyContractExpiry: boolean;
   alertsSoundEnabled: boolean;
   allowNegativeSalesQuantity: boolean;
+  allowNegativeStock: boolean;
   allowEditEntryDate: boolean;
   journalDateLockEnabled: boolean;
   journalDateLockFrom?: string;

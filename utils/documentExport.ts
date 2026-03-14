@@ -8,6 +8,13 @@ interface HtmlSnapshotOptions {
   lang?: string;
 }
 
+interface PrintElementOptions {
+  title: string;
+  dir?: 'rtl' | 'ltr';
+  lang?: string;
+  autoCloseAfterPrint?: boolean;
+}
+
 interface PdfSnapshotOptions extends HtmlSnapshotOptions {
   padding?: number;
   backgroundColor?: string;
@@ -45,15 +52,42 @@ export const downloadTextFile = (content: string, fileName: string, mimeType = '
 
 const normalizeText = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
 
+const collectPrintStylesMarkup = () => {
+  if (typeof document === 'undefined') return '';
+  return Array.from(document.head.querySelectorAll('style, link[rel="stylesheet"]'))
+    .map(node => node.outerHTML)
+    .join('\n');
+};
+
+const shouldRemoveFormControl = (node: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) => {
+  if (node instanceof HTMLInputElement && node.type === 'hidden') return true;
+  if (node.getAttribute('aria-hidden') === 'true') return true;
+  const className = typeof node.className === 'string' ? node.className : '';
+  const isVisuallyHidden = /(?:opacity-0|pointer-events-none|h-px|w-px|sr-only)/.test(className);
+  return node.tabIndex === -1 && isVisuallyHidden;
+};
+
 const stripInteractiveElements = (element: HTMLElement) => {
   const clone = element.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('[data-document-actions], script, style, button').forEach(node => node.remove());
   clone.querySelectorAll('input, textarea, select').forEach(node => {
+    if (
+      (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) &&
+      shouldRemoveFormControl(node)
+    ) {
+      node.remove();
+      return;
+    }
+
     const replacement = document.createElement('span');
     if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
       replacement.textContent = node.value || node.placeholder || '';
     } else if (node instanceof HTMLSelectElement) {
       replacement.textContent = node.selectedOptions[0]?.textContent || '';
+    }
+    if (!replacement.textContent?.trim()) {
+      node.remove();
+      return;
     }
     replacement.className = 'inline-block min-h-[1em]';
     node.replaceWith(replacement);
@@ -136,6 +170,158 @@ export const downloadElementAsHtml = (element: HTMLElement | null, options: Html
 </html>`;
 
   downloadTextFile(html, options.fileName.endsWith('.html') ? options.fileName : `${options.fileName}.html`, 'text/html;charset=utf-8');
+  return true;
+};
+
+export const printElementContent = (element: HTMLElement | null, options: PrintElementOptions) => {
+  if (!element || typeof window === 'undefined') return false;
+
+  const clone = stripInteractiveElements(element);
+  expandSnapshotLayout(clone);
+
+  const dir = options.dir || 'rtl';
+  const lang = options.lang || (dir === 'rtl' ? 'ar' : 'en');
+  const stylesMarkup = collectPrintStylesMarkup();
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return false;
+
+  const autoCloseScript = options.autoCloseAfterPrint === false
+    ? ''
+    : 'window.onafterprint = () => window.close();';
+
+  const html = `<!doctype html>
+<html lang="${lang}" dir="${dir}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${options.title}</title>
+    ${stylesMarkup}
+    <style>
+      body {
+        font-family: ${dir === 'rtl' ? "'Tajawal', Arial, sans-serif" : "'Segoe UI', Arial, sans-serif"};
+        margin: 0;
+        padding: 24px;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      [data-document-actions], button {
+        display: none !important;
+      }
+      .report-header {
+        position: static !important;
+        top: auto !important;
+        backdrop-filter: none !important;
+      }
+      .financial-reports-page {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .financial-reports-page.statement-report-active .overflow-x-auto:has(table) {
+        overflow: visible !important;
+      }
+      .financial-reports-page.statement-report-active table {
+        width: 100% !important;
+        min-width: 0 !important;
+        table-layout: auto !important;
+      }
+      .financial-reports-page.statement-report-active table th,
+      .financial-reports-page.statement-report-active table td {
+        padding: 7px 8px !important;
+        font-size: 11px !important;
+        line-height: 1.45 !important;
+        vertical-align: top !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table {
+        width: 100% !important;
+        min-width: 0 !important;
+        table-layout: fixed !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
+      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1) {
+        width: 12% !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(2),
+      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(2) {
+        width: 48% !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(3),
+      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(3),
+      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(4),
+      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(4),
+      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(5),
+      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(5) {
+        width: 13.33% !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-description,
+      .financial-reports-page.statement-report-active .statement-operation-details,
+      .financial-reports-page.statement-report-active .statement-detail-card,
+      .financial-reports-page.statement-report-active .statement-detail-note,
+      .financial-reports-page.statement-report-active .statement-line-items {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .statement-ledger-date,
+      .statement-ledger-amount {
+        white-space: nowrap !important;
+        font-variant-numeric: tabular-nums;
+      }
+      .statement-detail-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 6px 10px !important;
+      }
+      .statement-operation-badges {
+        gap: 4px !important;
+      }
+      .statement-line-items {
+        gap: 6px !important;
+      }
+      .statement-line-item-meta {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, max-content)) !important;
+        gap: 4px 10px !important;
+        align-items: center !important;
+        justify-content: start !important;
+        line-height: 1.45 !important;
+      }
+      .statement-line-item-meta > * {
+        min-width: 0 !important;
+      }
+      .statement-line-items .rounded-lg {
+        break-inside: avoid !important;
+      }
+      .dir-ltr { direction: ltr; }
+      @media print {
+        @page {
+          margin: 10mm;
+        }
+        body {
+          padding: 8px;
+          background: #ffffff;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    ${clone.outerHTML}
+    <script>
+      window.onload = () => { setTimeout(() => window.print(), 120); };
+      ${autoCloseScript}
+    </script>
+  </body>
+</html>`;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
   return true;
 };
 

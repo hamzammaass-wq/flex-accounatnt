@@ -40,6 +40,7 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { CompanySettings, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule } from '../types';
 import { normalizeAppLanguage, translate } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { applyAppTheme } from '../utils/appTheme';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
 import {
   applyIntegritySafeFixes,
@@ -67,6 +68,7 @@ type BooleanSettingKey =
   | 'alertsDesktopNotifyContractExpiry'
   | 'alertsSoundEnabled'
   | 'allowNegativeSalesQuantity'
+  | 'allowNegativeStock'
   | 'allowEditEntryDate'
   | 'journalDateLockEnabled'
   | 'voucherInvoiceAllocationEnabled'
@@ -173,6 +175,7 @@ const withCompanyDefaults = (settings: CompanySettings): CompanySettings => {
     alertsDesktopNotifyContractExpiry: coerceBoolean((settings as any).alertsDesktopNotifyContractExpiry, true),
     alertsSoundEnabled: coerceBoolean((settings as any).alertsSoundEnabled, true),
     allowNegativeSalesQuantity: coerceBoolean(settings.allowNegativeSalesQuantity, false),
+    allowNegativeStock: coerceBoolean((settings as any).allowNegativeStock, false),
     allowEditEntryDate: coerceBoolean(settings.allowEditEntryDate, true),
     journalDateLockEnabled: coerceBoolean((settings as any).journalDateLockEnabled, false),
     journalDateLockFrom: (settings as any).journalDateLockFrom || '',
@@ -264,10 +267,8 @@ const clonePermissions = (value: PermissionMatrix): PermissionMatrix => ({
     acc[module] = PERMISSION_ACTIONS.reduce((actionAcc, action) => {
       if (typeof row[action] === 'boolean') {
         actionAcc[action] = row[action];
-      } else if (module === 'ACCOUNTS') {
-        actionAcc[action] = action !== 'DELETE';
       } else {
-        actionAcc[action] = false;
+        actionAcc[action] = true;
       }
       return actionAcc;
     }, {} as Record<PermissionAction, boolean>);
@@ -663,7 +664,36 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     alert(tr(messageAr, messageEn));
   };
 
+  const toggleDarkModeImmediately = () => {
+    const nextDarkModeEnabled = !coerceBoolean(localCompany.darkModeEnabled, false);
+    setLocalCompany(prev => ({
+      ...prev,
+      darkModeEnabled: nextDarkModeEnabled
+    }));
+    applyAppTheme(nextDarkModeEnabled);
+
+    const normalized = withCompanyDefaults({
+      ...companySettings,
+      darkModeEnabled: nextDarkModeEnabled,
+      language: normalizeLanguage(companySettings.language)
+    });
+    const result = updateCompanySettings(normalized);
+    if (result.ok) return;
+
+    const fallbackDarkModeEnabled = coerceBoolean(companySettings.darkModeEnabled, false);
+    applyAppTheme(fallbackDarkModeEnabled);
+    setLocalCompany(prev => ({
+      ...prev,
+      darkModeEnabled: fallbackDarkModeEnabled
+    }));
+    alert(result.message);
+  };
+
   const toggleSetting = (key: BooleanSettingKey) => {
+    if (key === 'darkModeEnabled') {
+      toggleDarkModeImmediately();
+      return;
+    }
     setLocalCompany(prev => ({
       ...prev,
       [key]: !coerceBoolean(prev[key], false)
@@ -1174,6 +1204,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       { key: 'alertsDesktopNotifySystem', ar: 'إشعارات تنبيهات النظام', en: 'Desktop notifications for system alerts' },
       { key: 'alertsDesktopNotifyManual', ar: 'إشعارات التنبيهات اليدوية', en: 'Desktop notifications for manual alerts' },
       { key: 'allowNegativeSalesQuantity', ar: 'البيع بالكمية سالب', en: 'Allow negative sales quantity' },
+      { key: 'allowNegativeStock', ar: 'السماح بالمخزون السالب', en: 'Allow negative stock' },
       { key: 'allowEditEntryDate', ar: 'تعديل تاريخ العملية في القيود', en: 'Allow editing entry date' },
       { key: 'journalDateLockEnabled', ar: 'قفل تاريخ القيود بفترة', en: 'Lock journal dates by period' },
       { key: 'autoAddItemPriceInInvoice', ar: 'إضافة سعر الصنف تلقائياً في الفاتورة', en: 'Auto-fill item price in invoice' },
@@ -1213,7 +1244,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       >
         <ToggleRow
           label={tr('تشغيل الوضع الداكن', 'Enable dark mode')}
-          description={tr('يطبّق مظهرًا داكنًا على أغلب شاشات التطبيق بعد حفظ الإعدادات.', 'Applies a dark appearance across most app screens after saving settings.')}
+          description={tr('يطبّق المظهر الداكن مباشرة على أغلب شاشات التطبيق ويحفظ الخيار تلقائيًا.', 'Applies the dark appearance immediately across most app screens and saves it automatically.')}
           checked={coerceBoolean(localCompany.darkModeEnabled, false)}
           rtl={rtl}
           onToggle={() => toggleSetting('darkModeEnabled')}

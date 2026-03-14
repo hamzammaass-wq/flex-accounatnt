@@ -166,7 +166,7 @@ interface AccountingContextType {
   deleteEmployee: (id: string) => void;
   employeeContracts: EmployeeContract[];
   addEmployeeContract: (contract: Omit<EmployeeContract, 'id' | 'createdAt'>, applyToEmployee?: boolean) => MutationResult;
-  updateEmployeeContract: (id: string, updates: Partial<EmployeeContract>) => MutationResult;
+  updateEmployeeContract: (id: string, updates: Partial<EmployeeContract>, applyToEmployee?: boolean) => MutationResult;
   deleteEmployeeContract: (id: string) => MutationResult;
   salaryHistory: SalaryHistoryEntry[];
   employeeLeaveRequests: EmployeeLeaveRequest[];
@@ -255,6 +255,8 @@ interface AccountingContextType {
 
   stockTransfers: StockTransfer[];
   addStockTransfer: (t: Omit<StockTransfer, 'id'>) => void;
+  updateStockTransfer: (id: string, updates: Partial<StockTransfer>) => void;
+  deleteStockTransfer: (id: string) => void;
   postStockTransfer: (id: string) => void;
   adjustWarehouseStock: (productId: string, warehouseId: string, quantity: number) => void;
 
@@ -458,6 +460,92 @@ const createRolePermissions = (
   });
 
   return modules;
+};
+
+const createFullPermissions = (): Record<PermissionModule, Record<PermissionAction, boolean>> => {
+  const modules = {} as Record<PermissionModule, Record<PermissionAction, boolean>>;
+
+  PERMISSION_MODULES.forEach(module => {
+    modules[module] = {} as Record<PermissionAction, boolean>;
+    PERMISSION_ACTIONS.forEach(action => {
+      modules[module][action] = true;
+    });
+  });
+
+  return modules;
+};
+
+const normalizePermissionMatrix = (value?: PermissionMatrix | null): PermissionMatrix => {
+  const modules = createFullPermissions();
+
+  PERMISSION_MODULES.forEach(module => {
+    PERMISSION_ACTIONS.forEach(action => {
+      const nextValue = value?.modules?.[module]?.[action];
+      if (typeof nextValue === 'boolean') {
+        modules[module][action] = nextValue;
+      }
+    });
+  });
+
+  const userOverrides: PermissionMatrix['userOverrides'] = {};
+  Object.entries(value?.userOverrides || {}).forEach(([userId, moduleOverrides]) => {
+    if (!moduleOverrides) return;
+
+    const normalizedModuleOverrides: Partial<Record<PermissionModule, Partial<Record<PermissionAction, boolean>>>> = {};
+
+    PERMISSION_MODULES.forEach(module => {
+      const actionOverrides = moduleOverrides[module];
+      if (!actionOverrides) return;
+
+      const normalizedActionOverrides: Partial<Record<PermissionAction, boolean>> = {};
+      PERMISSION_ACTIONS.forEach(action => {
+        if (typeof actionOverrides[action] === 'boolean') {
+          normalizedActionOverrides[action] = actionOverrides[action];
+        }
+      });
+
+      if (Object.keys(normalizedActionOverrides).length > 0) {
+        normalizedModuleOverrides[module] = normalizedActionOverrides;
+      }
+    });
+
+    if (Object.keys(normalizedModuleOverrides).length > 0) {
+      userOverrides[userId] = normalizedModuleOverrides;
+    }
+  });
+
+  return { modules, userOverrides };
+};
+
+const hasManualPermissionsConfiguration = (auditLogs?: AuditLogEntry[]): boolean => (
+  Array.isArray(auditLogs)
+    ? auditLogs.some(entry => entry.entityType === 'permissions' && entry.action === 'UPDATE')
+    : false
+);
+
+const isAccountantPresetPermissions = (value?: PermissionMatrix | null): boolean => {
+  if (!value?.modules) return false;
+  const accountantPreset = createRolePermissions('ACCOUNTANT');
+
+  return PERMISSION_MODULES.every(module =>
+    PERMISSION_ACTIONS.every(action =>
+      value.modules?.[module]?.[action] === accountantPreset[module][action]
+    )
+  );
+};
+
+const resolveWorkspacePermissions = (
+  value?: PermissionMatrix | null,
+  auditLogs?: AuditLogEntry[]
+): PermissionMatrix => {
+  if (!value) return normalizePermissionMatrix();
+
+  const hasOverrides = Object.keys(value.userOverrides || {}).length > 0;
+  if (!hasOverrides && !hasManualPermissionsConfiguration(auditLogs) && isAccountantPresetPermissions(value)) {
+    return normalizePermissionMatrix();
+  }
+
+  return normalizePermissionMatrix(value);
 };
 
 const safeClone = <T,>(value: T): T => {
@@ -1085,13 +1173,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     { id: 'u_cup', name: 'كوب', code: 'CUP' }
   ];
 
-  const seededProducts: Product[] = initialProducts.map(product => {
-    if (product.id === 'p1') return { ...product, warehouseStock: [{ warehouseId: 'wh_main', quantity: 10 }, { warehouseId: 'wh_branch', quantity: 5 }] };
-    if (product.id === 'p2') return { ...product, warehouseStock: [{ warehouseId: 'wh_main', quantity: 18 }, { warehouseId: 'wh_branch', quantity: 6 }] };
-    if (product.id === 'p3') return { ...product, warehouseStock: [{ warehouseId: 'wh_main', quantity: 6 }, { warehouseId: 'wh_branch', quantity: 2 }] };
-    if (product.id === 'p4') return { ...product, warehouseStock: [{ warehouseId: 'wh_main', quantity: 9 }, { warehouseId: 'wh_branch', quantity: 3 }] };
-    return product;
-  });
+  const seededProducts: Product[] = initialProducts.map(product => ({
+    ...product,
+    warehouseStock: [{ warehouseId: 'wh_main', quantity: product.stock }]
+  }));
 
   const seededContacts: Contact[] = [
     ...initialContacts,
@@ -1812,23 +1897,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const initialWarehouses: Warehouse[] = [
     { id: 'wh_main', name: 'المستودع الرئيسي', isMain: true, location: 'المقر الرئيسي' },
-    { id: 'wh_branch', name: 'Main Branch Warehouse', location: 'North branch' },
   ];
 
-  const initialStockTransfers: StockTransfer[] = [
-    {
-      id: 'st_001',
-      transferNumber: 'TRF-260211',
-      date: '2026-02-11',
-      fromWarehouseId: 'wh_main',
-      toWarehouseId: 'wh_branch',
-      items: [
-        { productId: 'p2', quantity: 2, description: 'Routine branch replenishment' }
-      ],
-      notes: 'Awaiting approval',
-      status: 'DRAFT'
-    }
-  ];
+  const initialStockTransfers: StockTransfer[] = [];
 
   const initialBoms: BillOfMaterial[] = [
     {
@@ -1940,6 +2011,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     alertsDesktopNotifyContractExpiry: true,
     alertsSoundEnabled: true,
     allowNegativeSalesQuantity: false,
+    allowNegativeStock: false,
     allowEditEntryDate: true,
     journalDateLockEnabled: false,
     journalDateLockFrom: '',
@@ -2037,10 +2109,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   });
   const [cloudMemberships, setCloudMemberships] = useState<CompanyMembership[]>([]);
-  const [permissions, setPermissions] = useState<PermissionMatrix>({
-    modules: createRolePermissions('ACCOUNTANT'),
-    userOverrides: {}
-  });
+  const [permissions, setPermissions] = useState<PermissionMatrix>(() => normalizePermissionMatrix());
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const currentCompany = useMemo(
     () => companies.find(c => c.id === currentCompanyId) || null,
@@ -2210,7 +2279,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeError('PERMISSION_DENIED', 'You do not have permission to edit permissions.');
     }
 
-    setPermissions(next);
+    setPermissions(normalizePermissionMatrix(next));
     appendAuditLog({
       entityType: 'permissions',
       action: 'UPDATE',
@@ -5140,23 +5209,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return [created, ...next];
     });
 
-    const afterSnapshot: EmployeeSalarySnapshot = {
-      salaryType: created.salaryType,
-      payBasis: created.payBasis,
-      basicSalary: created.basicSalary,
-      dailyWorkHours: created.dailyWorkHours,
-      hourlyRate: created.hourlyRate,
-      dailyRate: (created as any).dailyRate,
-      weeklyRate: (created as any).weeklyRate,
-      commissionRatePercent: (created as any).commissionRatePercent,
-      overtimeHourlyRate: created.overtimeHourlyRate,
-      housingAllowance: created.housingAllowance,
-      transportAllowance: created.transportAllowance,
-      otherAllowances: created.otherAllowances
-    };
+    const afterSnapshot = buildEmployeeSalarySnapshot(created);
 
     addSalaryHistoryEntry({
       employeeId: created.employeeId,
+      contractId: created.id,
       date: created.startDate,
       source: 'CONTRACT',
       action: 'CONTRACT_ADDED',
@@ -5166,36 +5223,38 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     if (applyToEmployee) {
-      setEmployees(prev => prev.map(e => e.id === created.employeeId ? {
-        ...e,
-        position: created.title || e.position,
-        salaryType: created.salaryType,
-        payBasis: (created as any).payBasis,
-        basicSalary: created.basicSalary,
-        dailyWorkHours: created.dailyWorkHours,
-        hourlyRate: created.hourlyRate,
-        dailyRate: (created as any).dailyRate,
-        weeklyRate: (created as any).weeklyRate,
-        commissionRatePercent: (created as any).commissionRatePercent,
-        overtimeHourlyRate: created.overtimeHourlyRate,
-        housingAllowance: created.housingAllowance,
-        transportAllowance: created.transportAllowance,
-        otherAllowances: created.otherAllowances,
-        annualLeaveEntitlementDays: created.annualLeaveEntitlementDays
-      } : e));
+      setEmployees(prev => applyContractSnapshotToEmployee(prev, created));
     }
 
     return makeSuccess();
   };
-  const updateEmployeeContract = (id: string, updates: Partial<EmployeeContract>): MutationResult => {
+  const updateEmployeeContract = (id: string, updates: Partial<EmployeeContract>, applyToEmployee = false): MutationResult => {
     const existing = employeeContracts.find(c => c.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Employee contract not found.');
+    const employee = employees.find(e => e.id === existing.employeeId);
     const { id: _ignoredId, employeeId: _ignoredEmployeeId, createdAt: _ignoredCreatedAt, ...allowedUpdates } = updates;
     const next: EmployeeContract = {
       ...existing,
       ...allowedUpdates
     };
+    const beforeSnapshot = buildEmployeeSalarySnapshot(existing);
+    const afterSnapshot = buildEmployeeSalarySnapshot(next);
     setEmployeeContracts(prev => prev.map(c => c.id === id ? next : c));
+    if (!isSameSalarySnapshot(beforeSnapshot, afterSnapshot)) {
+      addSalaryHistoryEntry({
+        employeeId: existing.employeeId,
+        contractId: existing.id,
+        date: new Date().toISOString().slice(0, 10),
+        source: 'CONTRACT',
+        action: 'SALARY_CHANGED',
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        note: next.title || existing.title || 'Contract updated'
+      });
+    }
+    if (applyToEmployee && employee) {
+      setEmployees(prev => applyContractSnapshotToEmployee(prev, next));
+    }
     appendAuditLog({
       entityType: 'employee_contract',
       entityId: id,
@@ -5210,6 +5269,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const existing = employeeContracts.find(c => c.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Employee contract not found.');
     setEmployeeContracts(prev => prev.filter(c => c.id !== id));
+    setSalaryHistory(prev => prev.filter(entry => entry.contractId !== id));
     appendAuditLog({
       entityType: 'employee_contract',
       entityId: id,
@@ -5565,6 +5625,31 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
   };
 
+  const applyContractSnapshotToEmployee = (
+    prevEmployees: Employee[],
+    contract: Pick<EmployeeContract, 'employeeId' | 'title' | 'salaryType' | 'payBasis' | 'basicSalary' | 'dailyWorkHours' | 'hourlyRate' | 'dailyRate' | 'weeklyRate' | 'commissionRatePercent' | 'overtimeHourlyRate' | 'housingAllowance' | 'transportAllowance' | 'otherAllowances' | 'annualLeaveEntitlementDays'>
+  ) => prevEmployees.map(employee => (
+    employee.id === contract.employeeId
+      ? {
+        ...employee,
+        position: contract.title || employee.position,
+        salaryType: contract.salaryType,
+        payBasis: contract.payBasis,
+        basicSalary: contract.basicSalary,
+        dailyWorkHours: contract.dailyWorkHours,
+        hourlyRate: contract.hourlyRate,
+        dailyRate: contract.dailyRate,
+        weeklyRate: contract.weeklyRate,
+        commissionRatePercent: contract.commissionRatePercent,
+        overtimeHourlyRate: contract.overtimeHourlyRate,
+        housingAllowance: contract.housingAllowance,
+        transportAllowance: contract.transportAllowance,
+        otherAllowances: contract.otherAllowances,
+        annualLeaveEntitlementDays: contract.annualLeaveEntitlementDays
+      }
+      : employee
+  ));
+
   const addUser = (user: Omit<User, 'id'>) => setUsers(prev => [...prev, { ...user, id: Math.random().toString(36).substr(2, 9) }]);
   const updateUser = (id: string, user: Partial<User>) => setUsers(prev => prev.map(u => u.id === id ? { ...u, ...user } : u));
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
@@ -5620,7 +5705,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       stockTransfers: safeClone(initialStockTransfers),
       boms: safeClone(initialBoms),
       productionOrders: safeClone(initialProductionOrders),
-      permissions: { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} },
+      permissions: normalizePermissionMatrix(),
       auditLogs: []
     };
   };
@@ -5673,7 +5758,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       stockTransfers: [],
       boms: [],
       productionOrders: [],
-      permissions: { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} },
+      permissions: normalizePermissionMatrix(),
       auditLogs: []
     };
   };
@@ -5770,7 +5855,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         stockTransfers: Array.isArray(parsed.stockTransfers) ? parsed.stockTransfers : safeClone(initialStockTransfers),
         boms: Array.isArray(parsed.boms) ? parsed.boms : safeClone(initialBoms),
         productionOrders: Array.isArray(parsed.productionOrders) ? parsed.productionOrders : safeClone(initialProductionOrders),
-        permissions: parsed.permissions || { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} },
+        permissions: resolveWorkspacePermissions(parsed.permissions, Array.isArray(parsed.auditLogs) ? parsed.auditLogs : []),
         auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : []
       });
     } catch {
@@ -5809,7 +5894,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setStockTransfers(normalizedSnapshot.stockTransfers || []);
     setBoms(normalizedSnapshot.boms || []);
     setProductionOrders(normalizedSnapshot.productionOrders || []);
-    setPermissions(normalizedSnapshot.permissions || { modules: createRolePermissions('ACCOUNTANT'), userOverrides: {} });
+    setPermissions(resolveWorkspacePermissions(normalizedSnapshot.permissions, normalizedSnapshot.auditLogs));
     setAuditLogs(normalizedSnapshot.auditLogs || []);
   };
 
@@ -5949,11 +6034,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   useEffect(() => {
     if (!currentCompanyId) return;
+    // Rehydrate only when the active company context changes.
+    // Depending on `companies` here causes settings updates to reload a stale
+    // workspace snapshot before the latest state is persisted.
     const loaded = buildInitialWorkspaceSnapshot(currentCompanyId);
     applyWorkspaceSnapshot(loaded);
     localStorage.setItem(getCompanyWorkspaceKey(currentCompanyId), JSON.stringify(loaded));
     setWorkspaceHydratedForCompanyId(currentCompanyId);
-  }, [companies, currentCompanyId, cloudMemberships, currentUser]);
+  }, [currentCompanyId, cloudMemberships, currentUser]);
 
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
@@ -6181,7 +6269,81 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const updateWarehouse = (id: string, updates: Partial<Warehouse>) => setWarehouses(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
   const deleteWarehouse = (id: string) => setWarehouses(prev => prev.filter(w => w.id !== id));
 
-  const addStockTransfer = (t: Omit<StockTransfer, 'id'>) => setStockTransfers(prev => [...prev, { ...t, id: 'st_' + Math.random().toString(36).substr(2, 9) }]);
+  const applyStockTransferToProducts = (
+    prevProducts: Product[],
+    transfer: StockTransfer,
+    direction: 1 | -1
+  ) => prevProducts.map(product => {
+    const transferItem = transfer.items.find(item => item.productId === product.id);
+    if (!transferItem || !Number.isFinite(Number(transferItem.quantity))) return product;
+
+    const quantity = Number(transferItem.quantity) || 0;
+    if (quantity === 0) return product;
+
+    const nextWarehouseStock = [...(product.warehouseStock || [])];
+    const applyWarehouseDelta = (warehouseId: string, delta: number) => {
+      if (!warehouseId || delta === 0) return;
+      const index = nextWarehouseStock.findIndex(stock => stock.warehouseId === warehouseId);
+      if (index >= 0) {
+        nextWarehouseStock[index] = {
+          ...nextWarehouseStock[index],
+          quantity: (nextWarehouseStock[index].quantity || 0) + delta
+        };
+        return;
+      }
+      nextWarehouseStock.push({ warehouseId, quantity: delta });
+    };
+
+    applyWarehouseDelta(transfer.fromWarehouseId, -quantity * direction);
+    applyWarehouseDelta(transfer.toWarehouseId, quantity * direction);
+
+    return {
+      ...product,
+      warehouseStock: nextWarehouseStock,
+      stock: nextWarehouseStock.reduce((sum, stock) => sum + (Number(stock.quantity) || 0), 0)
+    };
+  });
+
+  const addStockTransfer = (t: Omit<StockTransfer, 'id'>) => {
+    const nextTransfer = { ...t, id: 'st_' + Math.random().toString(36).substr(2, 9) };
+    setStockTransfers(prev => [...prev, nextTransfer]);
+    if (nextTransfer.status === 'POSTED') {
+      setProducts(prev => applyStockTransferToProducts(prev, nextTransfer, 1));
+    }
+  };
+
+  const updateStockTransfer = (id: string, updates: Partial<StockTransfer>) => {
+    const existingTransfer = stockTransfers.find(transfer => transfer.id === id);
+    if (!existingTransfer) return;
+
+    const nextTransfer: StockTransfer = {
+      ...existingTransfer,
+      ...updates,
+      id
+    };
+
+    setStockTransfers(prev => prev.map(transfer => transfer.id === id ? nextTransfer : transfer));
+    setProducts(prev => {
+      let nextProducts = prev;
+      if (existingTransfer.status === 'POSTED') {
+        nextProducts = applyStockTransferToProducts(nextProducts, existingTransfer, -1);
+      }
+      if (nextTransfer.status === 'POSTED') {
+        nextProducts = applyStockTransferToProducts(nextProducts, nextTransfer, 1);
+      }
+      return nextProducts;
+    });
+  };
+
+  const deleteStockTransfer = (id: string) => {
+    const existingTransfer = stockTransfers.find(transfer => transfer.id === id);
+    if (!existingTransfer) return;
+
+    setStockTransfers(prev => prev.filter(transfer => transfer.id !== id));
+    if (existingTransfer.status === 'POSTED') {
+      setProducts(prev => applyStockTransferToProducts(prev, existingTransfer, -1));
+    }
+  };
 
   const adjustWarehouseStock = (productId: string, warehouseId: string, quantity: number) => {
     setProducts(prev => prev.map(p => {
@@ -6211,41 +6373,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setStockTransfers(prev => prev.map(t => t.id === id ? { ...t, status: 'POSTED' } : t));
 
     // 2. Adjust Stock
-    setProducts(prevProducts => prevProducts.map(p => {
-      const transferItem = transfer.items.find(item => item.productId === p.id);
-      if (!transferItem) return p;
-
-      const currentStock = p.warehouseStock || [];
-      const fromStockItem = currentStock.find(s => s.warehouseId === transfer.fromWarehouseId);
-      const toStockItem = currentStock.find(s => s.warehouseId === transfer.toWarehouseId);
-
-      const fromQty = fromStockItem ? fromStockItem.quantity : 0;
-      const toQty = toStockItem ? toStockItem.quantity : 0;
-
-      // Create new warehouse stock array
-      let newWarehouseStock = [...currentStock];
-
-      // Update FROM
-      const fromIndex = newWarehouseStock.findIndex(s => s.warehouseId === transfer.fromWarehouseId);
-      if (fromIndex >= 0) {
-        newWarehouseStock[fromIndex] = { ...newWarehouseStock[fromIndex], quantity: fromQty - transferItem.quantity };
-      } else {
-        newWarehouseStock.push({ warehouseId: transfer.fromWarehouseId, quantity: 0 - transferItem.quantity });
-      }
-
-      // Update TO
-      const toIndex = newWarehouseStock.findIndex(s => s.warehouseId === transfer.toWarehouseId);
-      if (toIndex >= 0) {
-        newWarehouseStock[toIndex] = { ...newWarehouseStock[toIndex], quantity: toQty + transferItem.quantity };
-      } else {
-        newWarehouseStock.push({ warehouseId: transfer.toWarehouseId, quantity: transferItem.quantity });
-      }
-
-      // Verify global stock hasn't changed (transfer shouldn't change total stock) but re-sum just in case
-      // const newGlobalStock = newWarehouseStock.reduce((acc, curr) => acc + curr.quantity, 0); 
-
-      return { ...p, warehouseStock: newWarehouseStock };
-    }));
+    setProducts(prevProducts => applyStockTransferToProducts(prevProducts, transfer, 1));
   };
 
   // --- MANUFACTURING METHODS ---
@@ -6783,7 +6911,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       setStockTransfers(Array.isArray(data.stockTransfers) ? (data.stockTransfers as StockTransfer[]) : stockTransfers);
       setBoms(Array.isArray(data.boms) ? (data.boms as BillOfMaterial[]) : boms);
       setProductionOrders(Array.isArray(data.productionOrders) ? (data.productionOrders as ProductionOrder[]) : productionOrders);
-      setPermissions((data.permissions as PermissionMatrix) || permissions);
+      const importedAudit = Array.isArray(data.auditLogs) ? (data.auditLogs as AuditLogEntry[]) : [];
+      setPermissions(resolveWorkspacePermissions((data.permissions as PermissionMatrix) || permissions, importedAudit));
       setCompanies(prev => prev.map(company => (
         company.id === currentCompanyId
           ? {
@@ -6797,7 +6926,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           : company
       )));
 
-      const importedAudit = Array.isArray(data.auditLogs) ? (data.auditLogs as AuditLogEntry[]) : [];
       const restoreLog: AuditLogEntry = {
         id: newId('audit'),
         timestamp: new Date().toISOString(),
@@ -6985,7 +7113,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       // Warehouse Module
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
-      stockTransfers, addStockTransfer, postStockTransfer, adjustWarehouseStock,
+      stockTransfers, addStockTransfer, updateStockTransfer, deleteStockTransfer, postStockTransfer, adjustWarehouseStock,
 
       // Manufacturing Module
       boms, addBOM, updateBOM, deleteBOM,

@@ -20,6 +20,7 @@ import EnglishDateInput from './EnglishDateInput';
 import { getDisplayContactName } from '../utils/displayNames';
 
 type NoticeKind = 'CREDIT_NOTE' | 'DEBIT_NOTE';
+type NoticeViewKind = 'ALL' | NoticeKind;
 
 const AdjustmentNoticesManager: React.FC = () => {
   const {
@@ -38,6 +39,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     getDisplayContactName(contact || undefined, isEnglish);
 
   const [activeKind, setActiveKind] = useState<NoticeKind>('CREDIT_NOTE');
+  const [viewKind, setViewKind] = useState<NoticeViewKind>('ALL');
   const [showForm, setShowForm] = useState(false);
   const [selectedPartyId, setSelectedPartyId] = useState('');
   const [linkedInvoiceId, setLinkedInvoiceId] = useState('');
@@ -102,10 +104,13 @@ const AdjustmentNoticesManager: React.FC = () => {
   }, [invoices]);
 
   const noticeParties = useMemo(() => {
-    const category = activeKind === 'CREDIT_NOTE' ? 'customer_credit_note' : 'supplier_debit_note';
     const partyIds = new Set(
       allNotices
-        .filter(inv => inv.category === category)
+        .filter(inv => (
+          viewKind === 'ALL' ||
+          (viewKind === 'CREDIT_NOTE' && inv.category === 'customer_credit_note') ||
+          (viewKind === 'DEBIT_NOTE' && inv.category === 'supplier_debit_note')
+        ))
         .map(inv => inv.customerId)
         .filter((id): id is string => !!id)
     );
@@ -113,12 +118,15 @@ const AdjustmentNoticesManager: React.FC = () => {
     return contacts
       .filter(c => partyIds.has(c.id))
       .sort((a, b) => String(displayContactName(a)).localeCompare(String(displayContactName(b)), isEnglish ? 'en' : 'ar'));
-  }, [allNotices, contacts, activeKind, isEnglish]);
+  }, [allNotices, contacts, viewKind, isEnglish]);
 
   const notices = useMemo(() => {
-    const kindCategory = activeKind === 'CREDIT_NOTE' ? 'customer_credit_note' : 'supplier_debit_note';
     return allNotices
-      .filter(inv => inv.category === kindCategory)
+      .filter(inv => (
+        viewKind === 'ALL' ||
+        (viewKind === 'CREDIT_NOTE' && inv.category === 'customer_credit_note') ||
+        (viewKind === 'DEBIT_NOTE' && inv.category === 'supplier_debit_note')
+      ))
       .filter(inv => statusFilter === 'ALL' || (inv.postingStatus || 'POSTED') === statusFilter)
       .filter(inv => partyFilterId === 'ALL' || inv.customerId === partyFilterId)
       .filter(inv => !fromDateFilter || inv.date >= fromDateFilter)
@@ -136,7 +144,7 @@ const AdjustmentNoticesManager: React.FC = () => {
           contactDisplayName.toLowerCase().includes(q)
         );
       });
-  }, [allNotices, activeKind, statusFilter, partyFilterId, fromDateFilter, toDateFilter, contacts, searchTerm]);
+  }, [allNotices, viewKind, statusFilter, partyFilterId, fromDateFilter, toDateFilter, contacts, searchTerm]);
 
   const summary = useMemo(() => {
     const credit = allNotices.filter(n => n.category === 'customer_credit_note');
@@ -365,34 +373,46 @@ const AdjustmentNoticesManager: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
-        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('إجمالي الإشعارات', 'Total Notices')}</div><div className="text-lg font-black">{summary.total}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات دائنة', 'Credit Notes')}</div><div className="text-lg font-black text-emerald-600">{summary.creditCount}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات مدينة', 'Debit Notes')}</div><div className="text-lg font-black text-indigo-600">{summary.debitCount}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('مرحّل', 'Posted')}</div><div className="text-lg font-black text-blue-600">{summary.posted}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة الدائن', 'Credit Amount')}</div><div className="text-sm font-black text-emerald-600">{formatAmount(summary.creditAmount)}</div></div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-2.5"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة المدين', 'Debit Amount')}</div><div className="text-sm font-black text-indigo-600">{formatAmount(summary.debitAmount)}</div></div>
+      <div className="-mx-1 overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-2.5 px-1 md:grid md:min-w-0 md:grid-cols-6">
+          <div className="min-w-[9rem] rounded-2xl border border-gray-100 bg-white p-2.5 md:min-w-0"><div className="text-[10px] text-gray-400 font-black">{tr('إجمالي الإشعارات', 'Total Notices')}</div><div className="text-lg font-black">{summary.total}</div></div>
+          <div className="min-w-[9rem] rounded-2xl border border-gray-100 bg-white p-2.5 md:min-w-0"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات دائنة', 'Credit Notes')}</div><div className="text-lg font-black text-emerald-600">{summary.creditCount}</div></div>
+          <div className="min-w-[9rem] rounded-2xl border border-gray-100 bg-white p-2.5 md:min-w-0"><div className="text-[10px] text-gray-400 font-black">{tr('إشعارات مدينة', 'Debit Notes')}</div><div className="text-lg font-black text-indigo-600">{summary.debitCount}</div></div>
+          <div className="min-w-[9rem] rounded-2xl border border-gray-100 bg-white p-2.5 md:min-w-0"><div className="text-[10px] text-gray-400 font-black">{tr('مرحّل', 'Posted')}</div><div className="text-lg font-black text-blue-600">{summary.posted}</div></div>
+          <div className="min-w-[9.5rem] rounded-2xl border border-gray-100 bg-white p-2.5 md:min-w-0"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة الدائن', 'Credit Amount')}</div><div className="text-sm font-black text-emerald-600 whitespace-nowrap">{formatAmount(summary.creditAmount)}</div></div>
+          <div className="min-w-[9.5rem] rounded-2xl border border-gray-100 bg-white p-2.5 md:min-w-0"><div className="text-[10px] text-gray-400 font-black">{tr('قيمة المدين', 'Debit Amount')}</div><div className="text-sm font-black text-indigo-600 whitespace-nowrap">{formatAmount(summary.debitAmount)}</div></div>
+        </div>
       </div>
 
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-3.5 md:p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-2 items-center">
+        <div className="grid grid-cols-3 gap-2 items-center">
           <button
             type="button"
             onClick={() => {
-              setActiveKind('CREDIT_NOTE');
+              setViewKind('ALL');
               setPartyFilterId('ALL');
             }}
-            className={`px-3 py-2 rounded-xl text-xs font-black border ${activeKind === 'CREDIT_NOTE' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-gray-200 text-gray-500'}`}
+            className={`px-3 py-2 rounded-xl text-xs font-black border ${viewKind === 'ALL' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-gray-200 text-gray-500'}`}
+          >
+            {tr('كل السندات', 'All Notices')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setViewKind('CREDIT_NOTE');
+              setPartyFilterId('ALL');
+            }}
+            className={`px-3 py-2 rounded-xl text-xs font-black border ${viewKind === 'CREDIT_NOTE' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-gray-200 text-gray-500'}`}
           >
             {tr('عرض الدائن', 'Credit View')}
           </button>
           <button
             type="button"
             onClick={() => {
-              setActiveKind('DEBIT_NOTE');
+              setViewKind('DEBIT_NOTE');
               setPartyFilterId('ALL');
             }}
-            className={`px-3 py-2 rounded-xl text-xs font-black border ${activeKind === 'DEBIT_NOTE' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-500'}`}
+            className={`px-3 py-2 rounded-xl text-xs font-black border ${viewKind === 'DEBIT_NOTE' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-500'}`}
           >
             {tr('عرض المدين', 'Debit View')}
           </button>
@@ -401,7 +421,7 @@ const AdjustmentNoticesManager: React.FC = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={tr('بحث برقم الإشعار أو البيان أو الطرف...', 'Search by notice no, description, or party...')}
-            className="col-span-2 w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-sm font-bold outline-none"
+            className="col-span-3 w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-sm font-bold outline-none"
           />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

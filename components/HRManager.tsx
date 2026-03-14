@@ -283,6 +283,7 @@ const HRManager: React.FC = () => {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [contractsEmployeeId, setContractsEmployeeId] = useState<string | null>(null);
     const [showContractForm, setShowContractForm] = useState(false);
+    const [editingContractId, setEditingContractId] = useState<string | null>(null);
     const [contractType, setContractType] = useState<'FIXED_TERM' | 'OPEN_ENDED'>('OPEN_ENDED');
     const [contractStartDate, setContractStartDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [contractEndDate, setContractEndDate] = useState('');
@@ -304,6 +305,7 @@ const HRManager: React.FC = () => {
     const [applyContractToEmployeeProfile, setApplyContractToEmployeeProfile] = useState(true);
     const [viewStatementId, setViewStatementId] = useState<string | null>(null);
     const [statementRanges, setStatementRanges] = useState<Record<string, StatementRange>>({});
+    const [statementPayrollSummaryVisibility, setStatementPayrollSummaryVisibility] = useState<Record<string, boolean>>({});
     const [employeePayrollRanges, setEmployeePayrollRanges] = useState<Record<string, StatementRange>>({});
     const [payrollFocusEmployeeId, setPayrollFocusEmployeeId] = useState('');
 
@@ -368,33 +370,58 @@ const HRManager: React.FC = () => {
     const [recurringInstallments, setRecurringInstallments] = useState('');
     const [recurringNotes, setRecurringNotes] = useState('');
 
+    const populateContractForm = (emp: Employee, contract?: EmployeeContract | null) => {
+        const contractSource = contract || null;
+        setContractType(contractSource?.contractType || 'OPEN_ENDED');
+        setContractStartDate(contractSource?.startDate || emp.hireDate || new Date().toISOString().slice(0, 10));
+        setContractEndDate(contractSource?.endDate || '');
+        setContractTitle(contractSource?.title || emp.position || '');
+        setContractNotes(contractSource?.notes || '');
+        setContractPayBasis(contractSource?.payBasis || getEmployeePayBasis(emp));
+        setContractSalaryType(contractSource?.salaryType || emp.salaryType || 'FIXED');
+        setContractBasicSalary(String(contractSource?.basicSalary ?? emp.basicSalary ?? 0));
+        setContractDailyHours(String(contractSource?.dailyWorkHours ?? emp.dailyWorkHours ?? 8));
+        setContractHourlyRate(String(contractSource?.hourlyRate ?? emp.hourlyRate ?? 0));
+        setContractDailyRate(String(contractSource?.dailyRate ?? (emp as any).dailyRate ?? 0));
+        setContractWeeklyRate(String(contractSource?.weeklyRate ?? (emp as any).weeklyRate ?? 0));
+        setContractCommissionRatePercent(String(contractSource?.commissionRatePercent ?? (emp as any).commissionRatePercent ?? 0));
+        setContractOvertimeHourlyRate(String(contractSource?.overtimeHourlyRate ?? emp.overtimeHourlyRate ?? 0));
+        setContractHousingAllowance(String(contractSource?.housingAllowance ?? emp.housingAllowance ?? 0));
+        setContractTransportAllowance(String(contractSource?.transportAllowance ?? emp.transportAllowance ?? 0));
+        setContractOtherAllowances(String(contractSource?.otherAllowances ?? emp.otherAllowances ?? 0));
+        setContractAnnualLeaveEntitlementDays(String(
+            contractSource?.annualLeaveEntitlementDays
+            ?? emp.annualLeaveEntitlementDays
+            ?? getCompanyDefaultLeaveEntitlementDays(contractSource?.contractType || 'OPEN_ENDED')
+        ));
+        setApplyContractToEmployeeProfile(contractSource?.status !== 'CLOSED');
+    };
+
     const openContractsManager = (emp: Employee) => {
         setContractsEmployeeId(emp.id);
         setShowContractForm(false);
-        setContractType('OPEN_ENDED');
-        setContractStartDate(emp.hireDate || new Date().toISOString().slice(0, 10));
-        setContractEndDate('');
-        setContractTitle(emp.position || '');
-        setContractNotes('');
-        setContractPayBasis(getEmployeePayBasis(emp));
-        setContractSalaryType(emp.salaryType || 'FIXED');
-        setContractBasicSalary(String(emp.basicSalary || 0));
-        setContractDailyHours(String(emp.dailyWorkHours || 8));
-        setContractHourlyRate(String(emp.hourlyRate || 0));
-        setContractDailyRate(String((emp as any).dailyRate || 0));
-        setContractWeeklyRate(String((emp as any).weeklyRate || 0));
-        setContractCommissionRatePercent(String((emp as any).commissionRatePercent || 0));
-        setContractOvertimeHourlyRate(String(emp.overtimeHourlyRate || 0));
-        setContractHousingAllowance(String(emp.housingAllowance || 0));
-        setContractTransportAllowance(String(emp.transportAllowance || 0));
-        setContractOtherAllowances(String(emp.otherAllowances || 0));
-        setContractAnnualLeaveEntitlementDays(String(emp.annualLeaveEntitlementDays ?? getCompanyDefaultLeaveEntitlementDays('OPEN_ENDED')));
-        setApplyContractToEmployeeProfile(true);
+        setEditingContractId(null);
+        populateContractForm(emp);
+    };
+
+    const startAddContract = () => {
+        if (!contractsEmployee) return;
+        setEditingContractId(null);
+        populateContractForm(contractsEmployee);
+        setShowContractForm(true);
+    };
+
+    const handleEditEmployeeContract = (contract: EmployeeContract) => {
+        if (!contractsEmployee) return;
+        setEditingContractId(contract.id);
+        populateContractForm(contractsEmployee, contract);
+        setShowContractForm(true);
     };
 
     const closeContractsManager = () => {
         setContractsEmployeeId(null);
         setShowContractForm(false);
+        setEditingContractId(null);
     };
 
     const handleContractTypeChange = (nextType: 'FIXED_TERM' | 'OPEN_ENDED') => {
@@ -2449,6 +2476,7 @@ const HRManager: React.FC = () => {
                     </div>
                 </div>
 
+                {false && (
                 <div className="bg-white p-3 sm:p-4 rounded-[1.2rem] sm:rounded-[1.8rem] border border-gray-100 shadow-sm space-y-3">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2">
                         <div>
@@ -2644,8 +2672,8 @@ const HRManager: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                    <div className="space-y-1">
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div className="space-y-2 bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3 min-w-0">
                                                         <label className="text-[10px] font-black text-gray-500 block px-1">{tr('تاريخ دفع الدفعة', 'Batch Payment Date')}</label>
                                                         <EnglishDateInput
                                                             value={selectedPayrollRun.paymentBatch.paymentDate}
@@ -2654,7 +2682,7 @@ const HRManager: React.FC = () => {
                                                             className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-sm font-bold outline-none"
                                                         />
                                                     </div>
-                                                    <div className="space-y-1">
+                                                    <div className="space-y-2 bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3 min-w-0">
                                                         <label className="text-[10px] font-black text-gray-500 block px-1">{tr('حساب الصرف لدفعة الدفع', 'Payment account for batch')}</label>
                                                         <select
                                                             value={selectedPayrollRun.paymentBatch.paymentAccountId || ''}
@@ -2753,6 +2781,7 @@ const HRManager: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                )}
 
                 <div className="space-y-4">
                     {payrollEmployees.map(emp => {
@@ -2771,6 +2800,11 @@ const HRManager: React.FC = () => {
                         const duesSettlementAccountBalance = getEmployeeAccountBalance(emp.id, row.duesSettlementAccountId);
                         const duesSettlementReceivableBalance = Math.max(0, duesSettlementAccountBalance);
                         const duesSettlementExceedsReceivable = duesSettlementDeduction > 0 && isReceivableAccount(row.duesSettlementAccountId) && duesSettlementDeduction > duesSettlementReceivableBalance;
+                        const canEditFromStatement = !isAccrued && !isPaid;
+                        const canEditBaseFromStatement = canEditFromStatement && ['FIXED_MONTHLY', 'MONTHLY_PRORATED', 'MONTHLY_BY_HOURS', 'COMMISSION'].includes(payBasis);
+                        const hasVariableTimeInputs = ['HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY_BY_HOURS'].includes(payBasis);
+                        const showCalculationInputsCard = !canEditBaseFromStatement || hasVariableTimeInputs;
+                        const statementInputClass = 'w-24 rounded-lg border border-current/20 bg-white px-2 py-1.5 text-[11px] font-black dir-ltr text-center outline-none';
 
                         return (
                             <div key={emp.id} className={`bg-white rounded-[2rem] border transition-all duration-300 shadow-sm ${isExpanded ? 'ring-2 ring-emerald-100 border-emerald-200' : isPaid ? 'border-emerald-100 bg-emerald-50/20' : isAccrued ? 'border-indigo-100 bg-indigo-50/20' : 'border-gray-50'}`}>
@@ -2833,13 +2867,14 @@ const HRManager: React.FC = () => {
                                             </button>
                                         </div>
 
-                                        <div className="bg-white rounded-2xl border border-gray-100 p-3 space-y-3">
+                                        {showCalculationInputsCard && (
+                                            <div className="bg-white rounded-2xl border border-gray-100 p-3 space-y-3">
                                             <div className="flex items-center justify-between">
                                                 <span className="text-[10px] font-black text-slate-600">{tr('مدخلات احتساب الراتب', 'Payroll Calculation Inputs')}</span>
                                                 <span className="text-[10px] font-black text-indigo-600">{getPayBasisLabel(payBasis)}</span>
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                                {(payBasis === 'FIXED_MONTHLY' || payBasis === 'MONTHLY_PRORATED' || payBasis === 'MONTHLY_BY_HOURS' || payBasis === 'COMMISSION') && (
+                                                {!canEditBaseFromStatement && (payBasis === 'FIXED_MONTHLY' || payBasis === 'MONTHLY_PRORATED' || payBasis === 'MONTHLY_BY_HOURS' || payBasis === 'COMMISSION') && (
                                                     <div className="space-y-1 md:col-span-1">
                                                         <label className="text-[9px] font-black text-gray-400 px-1">
                                                             {payBasis === 'COMMISSION'
@@ -2868,7 +2903,7 @@ const HRManager: React.FC = () => {
                                                         )}
                                                     </div>
                                                 )}
-                                                {(payBasis === 'HOURLY' || payBasis === 'DAILY' || payBasis === 'WEEKLY' || payBasis === 'MONTHLY_BY_HOURS') && (
+                                                {hasVariableTimeInputs && (
                                                     <>
                                                         <div className="space-y-1">
                                                             <label className="text-[9px] font-black text-gray-400 px-1">{tr('الساعات المحتسبة', 'Regular Hours')}</label>
@@ -2912,17 +2947,16 @@ const HRManager: React.FC = () => {
                                                     </>
                                                 )}
                                             </div>
-                                        </div>
+                                            </div>
+                                        )}
 
-                                        {!isAccrued && !isPaid && (
+                                        {false && !isAccrued && !isPaid && (
                                             <div className="space-y-3">
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                    <div className="space-y-1">
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div className="space-y-2 bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3 min-w-0">
                                                         <label className="text-[9px] font-black text-gray-400 uppercase pr-1">{tr('مكافئات / إضافي مالي', 'Bonus / Additional Payment')}</label>
-                                                        <input type="text" inputMode="decimal" lang="en" value={row.bonus || ''} onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, bonus: parseLocalizedNumberInput(e.target.value) } }))} className="w-full p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-100 text-xs font-black text-emerald-700 dir-ltr text-center outline-none focus:ring-2 ring-emerald-200" />
+                                                        <input type="text" inputMode="decimal" lang="en" value={row.bonus || ''} onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, bonus: parseLocalizedNumberInput(e.target.value) } }))} className="w-full p-2.5 bg-white rounded-xl border border-emerald-100 text-xs font-black text-emerald-700 dir-ltr text-center outline-none focus:ring-2 ring-emerald-200" />
                                                     </div>
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     <div className="space-y-2 bg-rose-50/50 border border-rose-100 rounded-2xl p-3">
                                                         <label className="text-[9px] font-black text-rose-700 uppercase pr-1">{tr('خصم تأخير/جزاءات', 'Late Penalty Deduction')}</label>
                                                         <div className="grid grid-cols-1 gap-2">
@@ -2937,6 +2971,8 @@ const HRManager: React.FC = () => {
                                                             />
                                                         </div>
                                                     </div>
+                                                </div>
+                                                <div className="grid grid-cols-1 gap-3">
                                                     <div className="space-y-2 bg-amber-50/50 border border-amber-100 rounded-2xl p-3">
                                                         <label className="text-[9px] font-black text-amber-700 uppercase pr-1">{tr('خصم تسوية ذمم', 'Dues Settlement Deduction')}</label>
                                                         <div className="grid grid-cols-2 gap-2">
@@ -2991,8 +3027,99 @@ const HRManager: React.FC = () => {
                                                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{tr('تفاصيل احتساب الراتب', 'Salary Calculation Details')}</span>
                                             </div>
                                             <div className="space-y-2 text-xs font-bold">
-                                                <div className="flex justify-between text-gray-600">
-                                                    <span>
+                                                {canEditFromStatement && (
+                                                    <div className="rounded-xl border border-indigo-100 bg-white px-3 py-2 text-[10px] font-black text-indigo-600">
+                                                        {tr('يمكنك التعديل مباشرة من هذا الكشف، وسيُعاد احتساب الصافي فورًا.', 'You can edit directly from this statement and the net will recalculate instantly.')}
+                                                    </div>
+                                                )}
+                                                {canEditFromStatement && (
+                                                    <div className="space-y-2 rounded-xl border border-indigo-100 bg-white p-3">
+                                                        <div className="text-[10px] font-black text-indigo-600">
+                                                            {tr('تحكم سريع من كشف الراتب', 'Quick control from salary statement')}
+                                                        </div>
+                                                        {canEditBaseFromStatement && (
+                                                            <div className="flex items-center justify-between gap-3 text-gray-600">
+                                                                <span>{tr('تعديل أساس الأجر', 'Edit compensation base')}</span>
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="decimal"
+                                                                    lang="en"
+                                                                    value={row.customBaseSalary || ''}
+                                                                    onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, customBaseSalary: parseLocalizedNumberInput(e.target.value) } }))}
+                                                                    className={`${statementInputClass} text-gray-700`}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex items-center justify-between gap-3 text-blue-600">
+                                                            <span>{tr('حوافز ومكافآت', 'Bonus & Incentives')}</span>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                lang="en"
+                                                                value={row.bonus || ''}
+                                                                onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, bonus: parseLocalizedNumberInput(e.target.value) } }))}
+                                                                className={`${statementInputClass} text-blue-700`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-3 text-rose-600">
+                                                            <span>{tr('خصم تأخير/جزاءات', 'Late Penalty Deduction')}</span>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                lang="en"
+                                                                value={row.latePenaltyDeduction || ''}
+                                                                onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, latePenaltyDeduction: parseLocalizedNumberInput(e.target.value) } }))}
+                                                                className={`${statementInputClass} text-rose-700`}
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-2 rounded-lg border border-amber-100 bg-amber-50/60 p-2.5 text-amber-700">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span>{tr('خصم تسوية ذمم', 'Dues Settlement Deduction')}</span>
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="decimal"
+                                                                    lang="en"
+                                                                    value={row.duesSettlementDeduction || ''}
+                                                                    onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, duesSettlementDeduction: parseLocalizedNumberInput(e.target.value) } }))}
+                                                                    className={`${statementInputClass} text-amber-700`}
+                                                                />
+                                                            </div>
+                                                            <select
+                                                                value={row.duesSettlementAccountId || ''}
+                                                                onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, duesSettlementAccountId: e.target.value } }))}
+                                                                className="w-full rounded-lg border border-amber-100 bg-white px-2 py-2 text-[10px] font-black outline-none"
+                                                            >
+                                                                <option value="">{tr('-- حساب الذمة --', '-- Receivable Account --')}</option>
+                                                                {accounts.filter(a => !a.isGroup && isReceivableAccount(a.id)).map(acc => (
+                                                                    <option key={acc.id} value={acc.id}>{acc.code} - {displayAccountName(acc)}</option>
+                                                                ))}
+                                                            </select>
+                                                            {!!row.duesSettlementAccountId && (
+                                                                <div className="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-2 py-2 text-[10px] font-black">
+                                                                    <span className="text-amber-700">{tr('رصيد الموظف في', 'Employee balance in')} {displayAccountName(duesSettlementAccount || null) || tr('الحساب المختار', 'selected account')}</span>
+                                                                    <span className={`dir-ltr ${duesSettlementAccountBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{duesSettlementAccountBalance.toLocaleString()} {baseCurrency}</span>
+                                                                </div>
+                                                            )}
+                                                            {isReceivableAccount(row.duesSettlementAccountId) && duesSettlementReceivableBalance > 0 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setPayrollRows(p => ({
+                                                                        ...p,
+                                                                        [emp.id]: { ...row, duesSettlementDeduction: Math.min(duesSettlementReceivableBalance, Math.max(0, grossBeforeDeductions - latePenaltyDeduction)) }
+                                                                    }))}
+                                                                    className="w-full rounded-lg border border-amber-100 bg-white px-2 py-2 text-[10px] font-black text-amber-700"
+                                                                >
+                                                                    {tr('تعبئة من رصيد الذمم', 'Fill from receivable balance')} ({duesSettlementReceivableBalance.toLocaleString()})
+                                                                </button>
+                                                            )}
+                                                            {duesSettlementExceedsReceivable && (
+                                                                <p className="text-[10px] font-black text-rose-600">{tr('مبلغ تسوية الذمم أعلى من الرصيد المتاح.', 'Dues settlement amount exceeds available balance.')}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-start justify-between gap-3 text-gray-600">
+                                                    <span className="min-w-0 flex-1">
                                                         {tr('أساس الأجر', 'Compensation Base')} ({getPayBasisLabel(payBasis)})
                                                         {payBasis === 'HOURLY' ? ` (${row.hours}${tr('?', 'h')} x ${emp.hourlyRate})` : ''}
                                                         {payBasis === 'MONTHLY_BY_HOURS'
@@ -3007,7 +3134,18 @@ const HRManager: React.FC = () => {
                                                         {payBasis === 'FIXED_MONTHLY' ? ` ${tr('(ثابت)', '(Fixed)')}` : ''}
                                                         :
                                                     </span>
-                                                    <span dir="ltr">{regularPay.toLocaleString()}</span>
+                                                    {canEditBaseFromStatement ? (
+                                                        <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            lang="en"
+                                                            value={row.customBaseSalary || ''}
+                                                            onChange={e => setPayrollRows(p => ({ ...p, [emp.id]: { ...row, customBaseSalary: parseLocalizedNumberInput(e.target.value) } }))}
+                                                            className={`${statementInputClass} text-gray-700`}
+                                                        />
+                                                    ) : (
+                                                        <span dir="ltr">{regularPay.toLocaleString()}</span>
+                                                    )}
                                                 </div>
                                                 <div className="flex justify-between text-gray-600"><span>{tr('إجمالي البدلات الثابتة', 'Total Fixed Allowances')}:</span><span dir="ltr">+{allowances.toLocaleString()}</span></div>
                                                 {overtimePay > 0 && <div className="flex justify-between text-emerald-600"><span>{tr('ساعات إضافية', 'Overtime Hours')} ({row.overtimeHours}{tr('س', 'h')}):</span><span dir="ltr">+{overtimePay.toLocaleString()}</span></div>}
@@ -3404,12 +3542,15 @@ const HRManager: React.FC = () => {
     const handleEmployeeContractSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!contractsEmployeeId) return;
-        const result = addEmployeeContract({
+        const existingContractStatus = editingContractId
+            ? (employeeContractsList.find(contract => contract.id === editingContractId)?.status || 'ACTIVE')
+            : 'ACTIVE';
+        const contractPayload = {
             employeeId: contractsEmployeeId,
             contractType,
             startDate: contractStartDate || new Date().toISOString().slice(0, 10),
             endDate: contractType === 'FIXED_TERM' ? (contractEndDate || undefined) : undefined,
-            status: 'ACTIVE',
+            status: existingContractStatus as 'ACTIVE' | 'CLOSED',
             title: contractTitle.trim() || undefined,
             notes: contractNotes.trim() || undefined,
             salaryType: contractSalaryType,
@@ -3425,11 +3566,19 @@ const HRManager: React.FC = () => {
             transportAllowance: parseLocalizedNumberInput(contractTransportAllowance),
             otherAllowances: parseLocalizedNumberInput(contractOtherAllowances),
             annualLeaveEntitlementDays: Math.max(0, parseLocalizedNumberInput(contractAnnualLeaveEntitlementDays) || 0) || undefined
-        }, applyContractToEmployeeProfile);
+        };
+        const result = editingContractId
+            ? updateEmployeeContract(editingContractId, contractPayload, applyContractToEmployeeProfile)
+            : addEmployeeContract(contractPayload, applyContractToEmployeeProfile);
 
         if (!result.ok) return alert(result.message);
+        setEditingContractId(null);
         setShowContractForm(false);
-        alert(tr('تم حفظ العقد بنجاح', 'Contract saved successfully'));
+        alert(
+            editingContractId
+                ? tr('تم تعديل العقد بنجاح', 'Contract updated successfully')
+                : tr('تم حفظ العقد بنجاح', 'Contract saved successfully')
+        );
     };
 
     const formatSalarySnapshotSummary = (entry: Pick<EmployeeContract, 'salaryType' | 'payBasis' | 'basicSalary' | 'hourlyRate' | 'dailyRate' | 'weeklyRate' | 'commissionRatePercent' | 'housingAllowance' | 'transportAllowance' | 'otherAllowances'> | (SalaryHistoryEntry['after'])) => {
@@ -3452,6 +3601,7 @@ const HRManager: React.FC = () => {
                 [employeeId]: { startDate: payrollStartDate, endDate: payrollEndDate }
             };
         });
+        setEmployeeStatementPayrollSummaryVisible(employeeId, false);
         setViewStatementId(employeeId);
     };
 
@@ -3461,6 +3611,7 @@ const HRManager: React.FC = () => {
             ...prev,
             [employeeId]: normalized
         }));
+        setEmployeeStatementPayrollSummaryVisible(employeeId, true);
         setViewStatementId(employeeId);
     };
 
@@ -3474,6 +3625,12 @@ const HRManager: React.FC = () => {
                 [employeeId]: { ...current, ...patch }
             };
         });
+    };
+    const setEmployeeStatementPayrollSummaryVisible = (employeeId: string, visible: boolean) => {
+        setStatementPayrollSummaryVisibility(prev => ({
+            ...prev,
+            [employeeId]: visible
+        }));
     };
 
     const DEFAULT_ANNUAL_LEAVE_ENTITLEMENT_DAYS = getCompanyDefaultLeaveEntitlementDays('OPEN_ENDED');
@@ -4216,13 +4373,13 @@ const HRManager: React.FC = () => {
                         </div>
                     </div>
 
-                    <form onSubmit={handleRecurringDeductionSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <select value={recurringEmployeeId} onChange={e => setRecurringEmployeeId(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
+                    <form onSubmit={handleRecurringDeductionSubmit} className="space-y-3.5">
+                        <div className="grid grid-cols-2 gap-3">
+                            <select value={recurringEmployeeId} onChange={e => setRecurringEmployeeId(e.target.value)} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none">
                                 <option value="">{tr('-- اختر الموظف --', '-- Select Employee --')}</option>
                                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.code} - {emp.name}</option>)}
                             </select>
-                            <select value={recurringType} onChange={e => setRecurringType(e.target.value as EmployeeRecurringDeduction['type'])} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
+                            <select value={recurringType} onChange={e => setRecurringType(e.target.value as EmployeeRecurringDeduction['type'])} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none">
                                 <option value="ADVANCE">{tr('سلفة', 'Advance')}</option>
                                 <option value="LOAN">{tr('قرض', 'Loan')}</option>
                                 <option value="INSURANCE">{tr('تأمين', 'Insurance')}</option>
@@ -4230,25 +4387,25 @@ const HRManager: React.FC = () => {
                                 <option value="OTHER">{tr('أخرى', 'Other')}</option>
                             </select>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <input value={recurringLabel} onChange={e => setRecurringLabel(e.target.value)} placeholder={tr('اسم الاستقطاع', 'Deduction label')} className={`md:col-span-2 w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
-                            <input type="text" inputMode="decimal" lang="en" value={recurringAmount} onChange={e => setRecurringAmount(e.target.value)} placeholder={tr('المبلغ', 'Amount')} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black text-center dir-ltr outline-none" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <input value={recurringLabel} onChange={e => setRecurringLabel(e.target.value)} placeholder={tr('اسم الاستقطاع', 'Deduction label')} className={`w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
+                            <input type="text" inputMode="decimal" lang="en" value={recurringAmount} onChange={e => setRecurringAmount(e.target.value)} placeholder={tr('المبلغ', 'Amount')} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black text-center dir-ltr outline-none" />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <EnglishDateInput value={recurringStartDate} onChange={setRecurringStartDate} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none" aria-label={tr('بداية الاستقطاع', 'Deduction start')} />
-                            <EnglishDateInput value={recurringEndDate} onChange={setRecurringEndDate} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none" aria-label={tr('نهاية الاستقطاع', 'Deduction end')} />
-                            <input type="text" inputMode="numeric" lang="en" value={recurringInstallments} onChange={e => setRecurringInstallments(e.target.value)} placeholder={tr('عدد الدفعات (اختياري)', 'Installments (optional)')} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black text-center dir-ltr outline-none" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <EnglishDateInput value={recurringStartDate} onChange={setRecurringStartDate} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none" aria-label={tr('بداية الاستقطاع', 'Deduction start')} />
+                            <EnglishDateInput value={recurringEndDate} onChange={setRecurringEndDate} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none" aria-label={tr('نهاية الاستقطاع', 'Deduction end')} />
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <select value={recurringAccountId} onChange={e => setRecurringAccountId(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none">
+                        <div className="grid grid-cols-2 gap-3">
+                            <input type="text" inputMode="numeric" lang="en" value={recurringInstallments} onChange={e => setRecurringInstallments(e.target.value)} placeholder={tr('عدد الدفعات (اختياري)', 'Installments (optional)')} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black text-center dir-ltr outline-none" />
+                            <select value={recurringAccountId} onChange={e => setRecurringAccountId(e.target.value)} className="w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none">
                                 <option value="">{tr('-- حساب الاستقطاع --', '-- Deduction account --')}</option>
                                 {recurringAccountOptions.map(acc => <option key={acc.id} value={acc.id}>{acc.code} - {displayAccountName(acc)}</option>)}
                             </select>
-                            <input value={recurringNotes} onChange={e => setRecurringNotes(e.target.value)} placeholder={tr('ملاحظات', 'Notes')} className={`w-full p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
                         </div>
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                            <div className="text-[10px] font-black text-gray-400">{tr(`???: ${activeCount} - ?????? ??????: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`, `Active: ${activeCount} - Cycle total: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`)}</div>
-                            <button type="submit" className="px-5 py-3 bg-fuchsia-600 text-white rounded-xl text-xs font-black shadow-lg shadow-fuchsia-100 hover:bg-fuchsia-700 transition-all">{tr('إضافة استقطاع متكرر', 'Add Recurring Deduction')}</button>
+                        <input value={recurringNotes} onChange={e => setRecurringNotes(e.target.value)} placeholder={tr('ملاحظات', 'Notes')} className={`w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="text-[10px] font-black text-gray-400 text-center md:text-right">{tr(`نشط: ${activeCount} - قيمة الدورة: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`, `Active: ${activeCount} - Cycle total: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`)}</div>
+                            <button type="submit" className="w-full md:w-auto px-5 py-3 bg-fuchsia-600 text-white rounded-xl text-xs font-black shadow-lg shadow-fuchsia-100 hover:bg-fuchsia-700 transition-all">{tr('إضافة استقطاع متكرر', 'Add Recurring Deduction')}</button>
                         </div>
                     </form>
                 </div>
@@ -5035,8 +5192,10 @@ const HRManager: React.FC = () => {
         const rawEndDate = selectedRange.endDate || payrollEndDate;
         const statementStartDate = rawStartDate <= rawEndDate ? rawStartDate : rawEndDate;
         const statementEndDate = rawStartDate <= rawEndDate ? rawEndDate : rawStartDate;
+        const showPayrollSummary = statementPayrollSummaryVisibility[viewStatementId] ?? false;
         const openStatementPeriod = (range: StatementRange) => {
             updateStatementRange(emp.id, normalizeRange(range));
+            setEmployeeStatementPayrollSummaryVisible(emp.id, true);
         };
 
         const safeFormatDate = (dateString: string | undefined) => {
@@ -5275,6 +5434,39 @@ const HRManager: React.FC = () => {
             payrollPaidTotal,
             payrollRemaining
         } = computePayrollPeriodSummary(statementStartDate, statementEndDate);
+        const matchedStatementPayrollRun = payrollRuns.find(run =>
+            run.periodStart === statementStartDate &&
+            run.periodEnd === statementEndDate &&
+            run.employeeIds.includes(emp.id)
+        ) || null;
+        const hasPayrollSummaryData = Boolean(matchedStatementPayrollRun) || [
+            payrollAccrualTotal,
+            payrollDirectTotal,
+            payrollPaymentTotal,
+            latePenaltyDeductionTotal,
+            duesSettlementDeductionTotal,
+            otherDeductionTotal,
+            payrollEntitlementsTotal,
+            payrollDeductionsTotal,
+            payrollNetSalary,
+            payrollPaidTotal,
+            payrollRemaining
+        ].some(value => Math.abs(value) > 0.001);
+        const payrollSummaryCards = [
+            { label: tr('إجمالي المستحقات', 'Total Entitlements'), value: payrollEntitlementsTotal, tone: 'text-blue-700 bg-blue-50 border-blue-100' },
+            { label: tr('إجمالي الخصومات', 'Total Deductions'), value: payrollDeductionsTotal, tone: 'text-rose-700 bg-rose-50 border-rose-100' },
+            { label: tr('صافي الراتب', 'Net Salary'), value: payrollNetSalary, tone: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+            { label: tr('المدفوع', 'Paid'), value: payrollPaidTotal, tone: 'text-cyan-700 bg-cyan-50 border-cyan-100' },
+            { label: tr('المتبقي', 'Remaining'), value: payrollRemaining, tone: 'text-amber-700 bg-amber-50 border-amber-100' }
+        ];
+        const payrollBreakdownRows = [
+            { label: tr('استحقاق راتب مرحّل', 'Posted salary accrual'), value: payrollAccrualTotal, tone: 'text-slate-700' },
+            { label: tr('استحقاق وصرف مباشر', 'Direct accrual & payment'), value: payrollDirectTotal, tone: 'text-cyan-700' },
+            { label: tr('خصم تأخير/جزاءات', 'Late penalty deduction'), value: -latePenaltyDeductionTotal, tone: 'text-rose-700' },
+            { label: tr('خصم تسوية ذمم', 'Dues settlement deduction'), value: -duesSettlementDeductionTotal, tone: 'text-amber-700' },
+            { label: tr('خصومات أخرى', 'Other deductions'), value: -otherDeductionTotal, tone: 'text-fuchsia-700' },
+            { label: tr('المصروف خلال الفترة', 'Paid during period'), value: payrollPaidTotal, tone: 'text-emerald-700' }
+        ];
 
         const formatNumber = (value: number) => (value || 0).toLocaleString();
         const escapeHtml = (value: string) =>
@@ -5416,6 +5608,41 @@ const HRManager: React.FC = () => {
                         <td colspan="7" class="empty">${tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
                     </tr>
                 `;
+            const payrollSummarySectionHtml = showPayrollSummary ? `
+                <div class="payroll-section">
+                    <div class="payroll-head">
+                        <div>
+                            <div class="payroll-title">${tr('ملخص كشف الراتب', 'Payroll summary')}</div>
+                            <div class="sub">${tr('الفترة', 'Period')}: ${escapeHtml(safeFormatDate(statementStartDate))} - ${escapeHtml(safeFormatDate(statementEndDate))}</div>
+                        </div>
+                        ${matchedStatementPayrollRun
+                            ? `<div class="payroll-pill">${tr('دفعة الرواتب', 'Payroll Run')}: ${escapeHtml(matchedStatementPayrollRun.runNumber)} (${escapeHtml(matchedStatementPayrollRun.status)})</div>`
+                            : ''
+                        }
+                    </div>
+                    ${hasPayrollSummaryData
+                        ? `
+                            <div class="payroll-grid">
+                                ${payrollSummaryCards.map(card => `
+                                    <div class="payroll-card">
+                                        <div class="k">${escapeHtml(card.label)}</div>
+                                        <div class="v">${escapeHtml(formatNumber(card.value))}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="payroll-lines">
+                                ${payrollBreakdownRows.map(row => `
+                                    <div class="payroll-line">
+                                        <span>${escapeHtml(row.label)}</span>
+                                        <strong class="num">${escapeHtml(formatNumber(row.value))}</strong>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `
+                        : `<div class="empty">${tr('لا توجد بيانات رواتب ضمن الفترة المحددة', 'No payroll data in selected period')}</div>`
+                    }
+                </div>
+            ` : '';
 
             const html = `
                 <!DOCTYPE html>
@@ -5432,6 +5659,16 @@ const HRManager: React.FC = () => {
                         .card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; background: #f8fafc; }
                         .card .lbl { font-size: 11px; color: #64748b; margin-bottom: 6px; }
                         .card .val { font-size: 16px; font-weight: 800; }
+                        .payroll-section { margin: 14px 0; border: 1px solid #dbeafe; border-radius: 10px; padding: 12px; background: #f8fbff; }
+                        .payroll-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+                        .payroll-title { font-size: 15px; font-weight: 800; }
+                        .payroll-pill { border: 1px solid #c7d2fe; border-radius: 999px; padding: 4px 10px; background: #eef2ff; color: #3730a3; font-size: 11px; font-weight: 800; }
+                        .payroll-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+                        .payroll-card { border: 1px solid #dbeafe; border-radius: 8px; padding: 8px; background: #fff; }
+                        .payroll-card .k { font-size: 10px; color: #64748b; margin-bottom: 5px; }
+                        .payroll-card .v { font-size: 15px; font-weight: 800; }
+                        .payroll-lines { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+                        .payroll-line { display: flex; justify-content: space-between; gap: 8px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; background: #fff; font-size: 11px; font-weight: 700; }
                         table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
                         th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: center; }
                         th { background: #f1f5f9; font-weight: 800; }
@@ -5460,6 +5697,7 @@ const HRManager: React.FC = () => {
                         <div class="card"><div class="lbl">${tr('دائن الفترة', 'Period Credit')}</div><div class="val">${formatNumber(totalCredit)}</div></div>
                         <div class="card"><div class="lbl">${tr('رصيد ختامي', 'Closing Balance')}</div><div class="val">${formatNumber(closingBalance)}</div></div>
                     </div>
+                    ${payrollSummarySectionHtml}
 
                     <table>
                         <thead>
@@ -5504,7 +5742,14 @@ const HRManager: React.FC = () => {
             `${tr('الفترة', 'Period')}: ${safeFormatDate(statementStartDate)} - ${safeFormatDate(statementEndDate)}`,
             `${tr('الرصيد الافتتاحي', 'Opening Balance')}: ${formatNumber(openingBalance)}`,
             `${tr('الرصيد الختامي', 'Closing Balance')}: ${formatNumber(closingBalance)}`,
-            `${tr('عدد الحركات', 'Entries')}: ${displayEntries.length}`
+            `${tr('عدد الحركات', 'Entries')}: ${displayEntries.length}`,
+            ...(showPayrollSummary && hasPayrollSummaryData
+                ? [
+                    `${tr('صافي الراتب', 'Net Salary')}: ${formatNumber(payrollNetSalary)}`,
+                    `${tr('المدفوع', 'Paid')}: ${formatNumber(payrollPaidTotal)}`,
+                    `${tr('المتبقي', 'Remaining')}: ${formatNumber(payrollRemaining)}`
+                ]
+                : [])
         ].join('\n');
 
         const handleSaveStatementSnapshot = () => {
@@ -5540,7 +5785,7 @@ const HRManager: React.FC = () => {
                 <div className="font-tajawal h-full flex flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
                     <div className="bg-slate-900 px-4 pt-5 pb-4 text-white relative shrink-0">
                         <button onClick={closeEmployeeStatement} className="absolute left-3 top-3 p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all z-20"><X size={18} /></button>
-                        <div className="flex items-center justify-between gap-2.5 mb-3">
+                        <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
                             <div className="flex items-center gap-2.5 min-w-0">
                                 <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-black text-sm shrink-0">{emp.name.charAt(0)}</div>
                                 <div className="min-w-0">
@@ -5548,26 +5793,26 @@ const HRManager: React.FC = () => {
                                     <p className="text-[10px] text-white/60 font-bold truncate">{emp.position} - {emp.code}</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex flex-wrap items-center gap-1 shrink-0 lg:justify-end">
                                 <button
                                     onClick={() => previousEmployee && openEmployeeStatement(previousEmployee.id)}
                                     disabled={!previousEmployee}
                                     className={`px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 ${previousEmployee ? 'bg-white/10 hover:bg-white/20' : 'bg-white/5 text-white/40 cursor-not-allowed'}`}
                                 >
-                                    <ArrowRight size={12} /> {tr('??????', 'Previous')}
+                                    <ArrowRight size={12} /> {tr('السابق', 'Previous')}
                                 </button>
                                 <button
                                     onClick={() => nextEmployee && openEmployeeStatement(nextEmployee.id)}
                                     disabled={!nextEmployee}
                                     className={`px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 ${nextEmployee ? 'bg-white/10 hover:bg-white/20' : 'bg-white/5 text-white/40 cursor-not-allowed'}`}
                                 >
-                                    {tr('??????', 'Next')} <ArrowLeft size={12} />
+                                    {tr('التالي', 'Next')} <ArrowLeft size={12} />
                                 </button>
                                 <button
                                     onClick={handlePrintPayslip}
                                     className="px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30"
                                 >
-                                    <Receipt size={12} /> {tr('??? ????', 'Payslip')}
+                                    <Receipt size={12} /> {tr('كشف راتب', 'Payslip')}
                                 </button>
                                 <DocumentActions
                                     title={employeeStatementTitle}
@@ -5585,19 +5830,19 @@ const HRManager: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-amber-200 uppercase block mb-0.5">{tr('???? ???????', 'Opening Balance')}</span>
+                                <span className="text-[8px] font-black text-amber-200 uppercase block mb-0.5">{tr('الرصيد الافتتاحي', 'Opening Balance')}</span>
                                 <span className={`text-sm font-black ${openingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{openingBalance.toLocaleString()}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-blue-200 uppercase block mb-0.5">{tr('???? ?????', 'Closing Balance')}</span>
+                                <span className="text-[8px] font-black text-blue-200 uppercase block mb-0.5">{tr('الرصيد الختامي', 'Closing Balance')}</span>
                                 <span className={`text-sm font-black ${closingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{closingBalance.toLocaleString()}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-rose-300 uppercase block mb-0.5">{tr('???? ??????', 'Period Debit')}</span>
+                                <span className="text-[8px] font-black text-rose-300 uppercase block mb-0.5">{tr('مدين الفترة', 'Period Debit')}</span>
                                 <span className="text-sm font-black">{totalDebit.toLocaleString()}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[8px] font-black text-emerald-300 uppercase block mb-0.5">{tr('???? ??????', 'Period Credit')}</span>
+                                <span className="text-[8px] font-black text-emerald-300 uppercase block mb-0.5">{tr('دائن الفترة', 'Period Credit')}</span>
                                 <span className="text-sm font-black">{totalCredit.toLocaleString()}</span>
                             </div>
                         </div>
@@ -5607,51 +5852,139 @@ const HRManager: React.FC = () => {
                         <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
                             <div className="flex items-center gap-1.5 mb-2">
                                 <CalendarRange size={13} className="text-indigo-600" />
-                                <span className="text-[10px] font-black text-gray-600">{tr('????? ???? ??? ??????', 'Select statement period')}</span>
+                                <span className="text-[10px] font-black text-gray-600">{tr('اختر فترة كشف الحساب', 'Select statement period')}</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <EnglishDateInput
                                     value={rawStartDate}
-                                    onChange={value => updateStatementRange(emp.id, { startDate: value })}
+                                    onChange={value => {
+                                        setEmployeeStatementPayrollSummaryVisible(emp.id, false);
+                                        updateStatementRange(emp.id, { startDate: value });
+                                    }}
                                     className="w-full p-2 bg-gray-50 rounded-xl text-[10px] font-bold outline-none border border-gray-100 text-right"
-                                    aria-label={tr('????? ??? ??????', 'Statement start date')}
+                                    aria-label={tr('بداية كشف الحساب', 'Statement start date')}
                                 />
                                 <EnglishDateInput
                                     value={rawEndDate}
-                                    onChange={value => updateStatementRange(emp.id, { endDate: value })}
+                                    onChange={value => {
+                                        setEmployeeStatementPayrollSummaryVisible(emp.id, false);
+                                        updateStatementRange(emp.id, { endDate: value });
+                                    }}
                                     className="w-full p-2 bg-gray-50 rounded-xl text-[10px] font-bold outline-none border border-gray-100 text-right"
-                                    aria-label={tr('????? ??? ??????', 'Statement end date')}
+                                    aria-label={tr('نهاية كشف الحساب', 'Statement end date')}
                                 />
                             </div>
-                            <div className="flex gap-2 mt-2">
+                            <div className="flex flex-col sm:flex-row gap-2 mt-2">
                                 <button
-                                    onClick={() => updateStatementRange(emp.id, { startDate: payrollStartDate, endDate: payrollEndDate })}
+                                    onClick={() => {
+                                        setEmployeeStatementPayrollSummaryVisible(emp.id, false);
+                                        updateStatementRange(emp.id, { startDate: payrollStartDate, endDate: payrollEndDate });
+                                    }}
                                     className="flex-1 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg font-black text-[9px] border border-indigo-100"
                                 >
-                                    {tr('??? ???? ???????', 'Use payroll period')}
+                                    {tr('فترة الرواتب', 'Use payroll period')}
                                 </button>
                                 <button
                                     onClick={() => {
                                         if (!firstEntryDate || !lastEntryDate) return;
+                                        setEmployeeStatementPayrollSummaryVisible(emp.id, false);
                                         updateStatementRange(emp.id, { startDate: firstEntryDate, endDate: lastEntryDate });
                                     }}
                                     disabled={!firstEntryDate || !lastEntryDate}
                                     className={`flex-1 py-1.5 rounded-lg font-black text-[9px] border ${firstEntryDate && lastEntryDate ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed'}`}
                                 >
-                                    {tr('?? ????????', 'All transactions')}
+                                    {tr('كل الحركات', 'All transactions')}
                                 </button>
                             </div>
                             {rawStartDate > rawEndDate && (
-                                <p className="text-[9px] font-bold text-amber-600 mt-2">{tr('?? ????? ????? ??????? ???????? ????????.', 'Start and end dates were auto-corrected.')}</p>
+                                <p className="text-[9px] font-bold text-amber-600 mt-2">{tr('تم تصحيح تاريخ البداية والنهاية تلقائيًا.', 'Start and end dates were auto-corrected.')}</p>
                             )}
                         </div>
 
-                        <h4 className="text-[10px] font-black text-gray-400 px-1 uppercase">{tr('??? ???? ????', 'Detailed Statement')} ({displayEntries.length} {tr('?????', 'entries')})</h4>
-                        <p className="text-[10px] font-bold text-gray-400 px-1">{tr('??????', 'Period')}: {safeFormatDate(statementStartDate)} - {safeFormatDate(statementEndDate)}</p>
+                        {payrollMonthlyStatements.length > 0 && (
+                            <div className="bg-white p-3 rounded-xl border border-violet-100 shadow-sm space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <Receipt size={13} className="text-violet-600" />
+                                        <span className="text-[10px] font-black text-violet-700">{tr('فترات كشف الراتب', 'Payroll statement periods')}</span>
+                                    </div>
+                                    <span className="px-2 py-1 rounded-full bg-violet-50 text-violet-700 text-[9px] font-black">
+                                        {payrollMonthlyStatements.length} {tr('فترة', 'periods')}
+                                    </span>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {payrollMonthlyStatements.map(statement => {
+                                        const isActiveRange = statement.range.startDate === statementStartDate && statement.range.endDate === statementEndDate;
+                                        return (
+                                            <button
+                                                key={statement.key}
+                                                type="button"
+                                                onClick={() => openStatementPeriod(statement.range)}
+                                                className={`rounded-xl border px-3 py-2 text-right transition-colors ${isActiveRange ? 'border-violet-200 bg-violet-600 text-white' : 'border-violet-100 bg-violet-50/70 text-violet-700 hover:bg-violet-100'}`}
+                                            >
+                                                <span className="block text-[10px] font-black">{statement.title}</span>
+                                                <span className={`block text-[9px] font-bold ${isActiveRange ? 'text-violet-100' : 'text-violet-500'}`}>
+                                                    {statement.isDirectOnly ? tr('استحقاق وصرف مباشر', 'Direct accrual & payment') : tr('استحقاق مرحّل', 'Posted accrual')}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {showPayrollSummary && (
+                            <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm space-y-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                        <div className="flex items-center gap-1.5">
+                                            <Receipt size={13} className="text-indigo-600" />
+                                            <span className="text-[10px] font-black text-indigo-700">{tr('ملخص كشف الراتب داخل الكشف', 'Payroll summary inside statement')}</span>
+                                        </div>
+                                        <p className="text-[10px] font-bold text-gray-400 mt-1">
+                                            {tr('الفترة', 'Period')}: {safeFormatDate(statementStartDate)} - {safeFormatDate(statementEndDate)}
+                                        </p>
+                                    </div>
+                                    {matchedStatementPayrollRun && (
+                                        <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[9px] font-black text-indigo-700">
+                                            {tr('دفعة الرواتب', 'Payroll Run')}: {matchedStatementPayrollRun.runNumber}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {hasPayrollSummaryData ? (
+                                    <>
+                                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+                                            {payrollSummaryCards.map(card => (
+                                                <div key={card.label} className={`rounded-xl border p-2.5 ${card.tone}`}>
+                                                    <div className="text-[9px] font-black opacity-80 mb-1">{card.label}</div>
+                                                    <div className="text-sm font-black dir-ltr">{formatNumber(card.value)}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {payrollBreakdownRows.map(row => (
+                                                <div key={row.label} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                                    <span className={`text-[10px] font-black ${row.tone}`}>{row.label}</span>
+                                                    <span className={`text-[11px] font-black dir-ltr ${row.tone}`}>{formatNumber(row.value)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-[10px] font-bold text-slate-400">
+                                        {tr('لا توجد بيانات رواتب ضمن الفترة المحددة', 'No payroll data in selected period')}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <h4 className="text-[10px] font-black text-gray-400 px-1 uppercase">{tr('كشف حساب تفصيلي', 'Detailed Statement')} ({displayEntries.length} {tr('حركة', 'entries')})</h4>
+                        <p className="text-[10px] font-bold text-gray-400 px-1">{tr('الفترة', 'Period')}: {safeFormatDate(statementStartDate)} - {safeFormatDate(statementEndDate)}</p>
 
                         {Math.abs(openingBalance) > 0.001 && (
-                            <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-[10px] font-black flex justify-between items-center">
-                                <span className="text-amber-700">{tr('???? ??????? ??? ??????', 'Opening balance before period')}</span>
+                            <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-[10px] font-black flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-center">
+                                <span className="text-amber-700">{tr('رصيد ما قبل الفترة', 'Opening balance before period')}</span>
                                 <span className={`dir-ltr ${openingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{openingBalance.toLocaleString()}</span>
                             </div>
                         )}
@@ -5659,7 +5992,7 @@ const HRManager: React.FC = () => {
                         {displayEntries.length === 0 && (
                             <div className="text-center py-10 text-gray-300">
                                 <FileText size={28} className="mx-auto mb-2 opacity-50" />
-                                <p className="text-xs font-bold text-gray-400">{tr('?? ???? ?????? ??? ?????? ???????', 'No transactions in selected period')}</p>
+                                <p className="text-xs font-bold text-gray-400">{tr('لا توجد حركات ضمن الفترة المحددة', 'No transactions in selected period')}</p>
                             </div>
                         )}
 
@@ -5670,10 +6003,10 @@ const HRManager: React.FC = () => {
                                 : null;
                             return (
                                 <div key={entry.id + idx} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                                    <div className="flex justify-between items-start gap-2 mb-1.5">
-                                        <div className="flex items-center gap-2 min-w-0">
+                                    <div className="flex flex-col gap-2 mb-1.5 sm:flex-row sm:justify-between sm:items-start">
+                                        <div className="flex items-start gap-2 min-w-0">
                                             <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black flex items-center gap-1 shrink-0 ${catInfo.color}`}>{catInfo.icon} {catInfo.label}</span>
-                                            <p className="text-[11px] font-bold text-gray-700 truncate">{entry.description}</p>
+                                            <p className="text-[11px] font-bold text-gray-700 break-words">{entry.description}</p>
                                         </div>
                                         {linkedPayrollRange && (
                                             <button
@@ -5681,15 +6014,15 @@ const HRManager: React.FC = () => {
                                                 onClick={() => openStatementPeriod(linkedPayrollRange)}
                                                 className="shrink-0 px-2 py-1 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 text-[9px] font-black hover:bg-indigo-100"
                                             >
-                                                {tr('??? ??????', 'Period Statement')}
+                                                {tr('كشف الفترة', 'Period Statement')}
                                             </button>
                                         )}
                                     </div>
-                                    <div className="flex justify-between items-center text-[10px]">
+                                    <div className="flex flex-col gap-1.5 text-[10px] sm:flex-row sm:justify-between sm:items-center">
                                         <span className="text-gray-400 font-bold flex items-center gap-1"><Calendar size={9} /> {safeFormatDate(entry.date)}</span>
-                                        <div className="flex items-center gap-3">
-                                            {entry.debit > 0 && <span className="font-black text-rose-500">{entry.debit.toLocaleString()} {tr('????', 'Debit')}</span>}
-                                            {entry.credit > 0 && <span className="font-black text-emerald-500">{entry.credit.toLocaleString()} {tr('????', 'Credit')}</span>}
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            {entry.debit > 0 && <span className="font-black text-rose-500">{entry.debit.toLocaleString()} {tr('مدين', 'Debit')}</span>}
+                                            {entry.credit > 0 && <span className="font-black text-emerald-500">{entry.credit.toLocaleString()} {tr('دائن', 'Credit')}</span>}
                                             <span className={`font-black px-1.5 py-0.5 rounded text-[9px] ${entry.balance > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{entry.balance.toLocaleString()}</span>
                                         </div>
                                     </div>
@@ -5761,10 +6094,19 @@ const HRManager: React.FC = () => {
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
-                                    onClick={() => setShowContractForm(prev => !prev)}
+                                    onClick={() => {
+                                        if (showContractForm) {
+                                            setShowContractForm(false);
+                                            setEditingContractId(null);
+                                            return;
+                                        }
+                                        startAddContract();
+                                    }}
                                     className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black hover:bg-emerald-100 transition-colors"
                                 >
-                                    {showContractForm ? tr('إخفاء النموذج', 'Hide Form') : tr('إضافة عقد', 'Add Contract')}
+                                    {showContractForm
+                                        ? (editingContractId ? tr('إلغاء التعديل', 'Cancel edit') : tr('إخفاء النموذج', 'Hide Form'))
+                                        : tr('إضافة عقد', 'Add Contract')}
                                 </button>
                                 <button type="button" onClick={closeContractsManager} className="p-2 rounded-xl bg-gray-50 text-gray-500 hover:bg-gray-100">
                                     <X size={18} />
@@ -5778,8 +6120,13 @@ const HRManager: React.FC = () => {
                             <form onSubmit={handleEmployeeContractSubmit} className="bg-white border border-emerald-100 rounded-2xl p-4 space-y-3 shadow-sm">
                                 <div className="flex items-center gap-2 text-emerald-700">
                                     <Briefcase size={16} />
-                                    <h4 className="font-black text-sm">{tr('بيانات العقد', 'Contract Details')}</h4>
+                                    <h4 className="font-black text-sm">{editingContractId ? tr('تعديل العقد', 'Edit Contract') : tr('بيانات العقد', 'Contract Details')}</h4>
                                 </div>
+                                {editingContractId && (
+                                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[10px] font-black text-amber-700">
+                                        {tr('أنت الآن تعدل عقدًا محفوظًا. يمكنك حفظ التعديل أو إلغاؤه.', 'You are editing a saved contract. You can save or cancel the update.')}
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
                                         <label className="text-[10px] font-black text-gray-500 block mb-1">{tr('نوع العقد', 'Contract Type')}</label>
@@ -5825,9 +6172,24 @@ const HRManager: React.FC = () => {
                                             <input type="checkbox" checked={applyContractToEmployeeProfile} onChange={e => setApplyContractToEmployeeProfile(e.target.checked)} />
                                             {tr('تطبيق بيانات العقد على ملف الموظف الحالي', 'Apply contract salary data to current employee profile')}
                                         </label>
-                                        <button type="submit" className="w-full py-3 rounded-xl bg-emerald-600 text-white font-black text-sm hover:bg-emerald-700 transition-colors">
-                                            {tr('حفظ العقد', 'Save Contract')}
-                                        </button>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <button
+                                                type="submit"
+                                                className="w-full py-3 rounded-xl bg-emerald-600 text-white font-black text-sm hover:bg-emerald-700 transition-colors"
+                                            >
+                                                {editingContractId ? tr('حفظ التعديل', 'Save Changes') : tr('حفظ العقد', 'Save Contract')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowContractForm(false);
+                                                    setEditingContractId(null);
+                                                }}
+                                                className="w-full py-3 rounded-xl bg-gray-100 text-gray-700 font-black text-sm hover:bg-gray-200 transition-colors"
+                                            >
+                                                {tr('إلغاء', 'Cancel')}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </form>
@@ -5860,9 +6222,25 @@ const HRManager: React.FC = () => {
                                                     <span className={`px-2 py-1 rounded-lg text-[9px] font-black ${contract.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
                                                         {contract.status === 'ACTIVE' ? tr('نشط', 'Active') : tr('مغلق', 'Closed')}
                                                     </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleEditEmployeeContract(contract)}
+                                                        className="p-1.5 rounded-lg bg-white border border-blue-100 text-blue-500 hover:bg-blue-50"
+                                                        title={tr('تعديل العقد', 'Edit contract')}
+                                                    >
+                                                        <Edit2 size={13} />
+                                                    </button>
                                                     <button type="button" onClick={() => {
+                                                        if (!confirm(tr('هل تريد حذف هذا العقد؟', 'Delete this contract?'))) return;
                                                         const result = deleteEmployeeContract(contract.id);
-                                                        if (!result.ok) alert(result.message);
+                                                        if (!result.ok) {
+                                                            alert(result.message);
+                                                            return;
+                                                        }
+                                                        if (editingContractId === contract.id) {
+                                                            setEditingContractId(null);
+                                                            setShowContractForm(false);
+                                                        }
                                                     }} className="p-1.5 rounded-lg bg-white border border-rose-100 text-rose-500 hover:bg-rose-50">
                                                         <Trash2 size={13} />
                                                     </button>

@@ -2,6 +2,29 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { createPortal } from 'react-dom';
 import { AccountingProvider, useAccounting } from './contexts/AccountingContext';
 import Dashboard from './components/Dashboard';
+import TransactionList from './components/TransactionList';
+import AIAssistant from './components/AIAssistant';
+import Directory from './components/Directory';
+import ProductList from './components/ProductList';
+import FinancialReports from './components/FinancialReports';
+import DefinitionsMenu from './components/DefinitionsMenu';
+import SalesInvoiceList from './components/SalesInvoiceList';
+import PurchaseInvoiceList from './components/PurchaseInvoiceList';
+import PurchasesExpenses from './components/PurchasesExpenses';
+import CheckPortfolio from './components/CheckPortfolio';
+import TreasuryManager from './components/TreasuryManager';
+import VoucherManager from './components/VoucherManager';
+import JournalManager from './components/JournalManager';
+import ImportManager from './components/ImportManager';
+import HRManager from './components/HRManager';
+import SettlementManager from './components/SettlementManager';
+import EquityPartnersManager from './components/EquityPartnersManager';
+import FixedAssetsManager from './components/FixedAssetsManager';
+import ManufacturingManager from './components/ManufacturingManager';
+import BankReconciliationManager from './components/BankReconciliationManager';
+import AdjustmentNoticesManager from './components/AdjustmentNoticesManager';
+import NotificationCenterManager from './components/NotificationCenterManager';
+import { WarehouseManager } from './components/WarehouseManager';
 import type { TransactionTabType } from './components/TransactionForm';
 import type { SettingsMode } from './components/DefinitionsMenu';
 import AuthScreen from './components/AuthScreen';
@@ -11,6 +34,7 @@ import useResponsiveMode from './hooks/useResponsiveMode';
 import useMobileInteractions from './hooks/useMobileInteractions';
 import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft } from 'lucide-react';
 import { getDocumentLanguageTag, isRtlLanguage, translate } from './utils/i18n';
+import { applyAppTheme } from './utils/appTheme';
 
 // Fix: Added 'fixed-assets' to TabView to resolve type mismatch in Dashboard and App components
 export type TabView =
@@ -37,34 +61,7 @@ const GUEST_TRIAL_START_KEY = 'al_mohaseb_guest_trial_started_at';
 const GUEST_TRIAL_DAYS = 14;
 
 const TransactionForm = lazy(() => import('./components/TransactionForm'));
-const TransactionList = lazy(() => import('./components/TransactionList'));
-const AIAssistant = lazy(() => import('./components/AIAssistant'));
-const Directory = lazy(() => import('./components/Directory'));
-const ProductList = lazy(() => import('./components/ProductList'));
-const FinancialReports = lazy(() => import('./components/FinancialReports'));
-const DefinitionsMenu = lazy(() => import('./components/DefinitionsMenu'));
-const SalesInvoiceList = lazy(() => import('./components/SalesInvoiceList'));
-const PurchaseInvoiceList = lazy(() => import('./components/PurchaseInvoiceList'));
-const PurchasesExpenses = lazy(() => import('./components/PurchasesExpenses'));
-const CheckPortfolio = lazy(() => import('./components/CheckPortfolio'));
-const TreasuryManager = lazy(() => import('./components/TreasuryManager'));
-const VoucherManager = lazy(() => import('./components/VoucherManager'));
-const JournalManager = lazy(() => import('./components/JournalManager'));
-const ImportManager = lazy(() => import('./components/ImportManager'));
-const HRManager = lazy(() => import('./components/HRManager'));
-const SettlementManager = lazy(() => import('./components/SettlementManager'));
-const EquityPartnersManager = lazy(() => import('./components/EquityPartnersManager'));
-const FixedAssetsManager = lazy(() => import('./components/FixedAssetsManager'));
 const LiveVoiceAssistant = lazy(() => import('./components/LiveVoiceAssistant'));
-const WarehouseManager = lazy(async () => {
-  const module = await import('./components/WarehouseManager');
-  return { default: module.WarehouseManager };
-});
-const ManufacturingManager = lazy(() => import('./components/ManufacturingManager'));
-const BankReconciliationManager = lazy(() => import('./components/BankReconciliationManager'));
-const AdjustmentNoticesManager = lazy(() => import('./components/AdjustmentNoticesManager'));
-const NotificationCenterManager = lazy(() => import('./components/NotificationCenterManager'));
-const ExpenseVoucherEntryScreen = lazy(() => import('./components/ExpenseVoucherEntryScreen'));
 
 const ScreenFallback: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
   <div className={`w-full ${compact ? 'py-6' : 'py-12'} flex items-center justify-center`}>
@@ -137,13 +134,7 @@ const AppContent: React.FC = () => {
   }, [appLanguage, rtl]);
 
   useEffect(() => {
-    const themeName = darkModeEnabled ? 'dark' : 'light';
-    const themeColor = darkModeEnabled ? '#08111f' : '#f8fafc';
-    document.documentElement.setAttribute('data-app-theme', themeName);
-    document.documentElement.style.colorScheme = themeName;
-    document.body.setAttribute('data-app-theme', themeName);
-    document.body.style.backgroundColor = themeColor;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+    applyAppTheme(darkModeEnabled);
   }, [darkModeEnabled]);
 
   useEffect(() => {
@@ -352,6 +343,7 @@ const AppContent: React.FC = () => {
       case 'dashboard': return <Dashboard onNavigate={(tab, formTab, vType, defMode) => {
         if (tab === 'sales') handleNavigate('sales');
         else if (tab === 'purchases') handleNavigate('purchases');
+        else if (tab === 'purchases-expenses') handleNavigate('purchases-expenses');
         else if (formTab === 'SALES') openOverlay('add-sales');
         else if (formTab === 'PURCHASES') openOverlay('add-purchase');
         else if (formTab === 'MANUAL_PURCHASE') handleNavigate('purchases-expenses');
@@ -469,19 +461,7 @@ const AppContent: React.FC = () => {
       case 'add-sales': content = <TransactionForm initialMode="SALES" onBack={closeOverlay} />; break;
       case 'add-purchase': content = <TransactionForm initialMode="PURCHASES" onBack={closeOverlay} />; break;
       case 'add-manual-purchase': content = <TransactionForm initialMode="MANUAL_PURCHASE" onBack={closeOverlay} />; break;
-      case 'add-expense':
-        content = (
-          <ExpenseVoucherEntryScreen
-            onBack={closeOverlay}
-            onCreateNew={() => setOverlay('add-expense-form')}
-            onOpenLedger={() => {
-              closeOverlay();
-              handleNavigate('purchases-expenses');
-            }}
-            onEditInvoice={(invoiceId) => openEditTransaction({ mode: 'EXPENSES', invoiceId })}
-          />
-        );
-        break;
+      case 'add-expense': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
       case 'add-expense-form': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
       case 'add-import': content = <TransactionForm initialMode="IMPORT_EXPENSES" initialCategory="import_expenses" initialVoucherType="PAYMENT" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
       case 'add-voucher-receipt': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="RECEIPT" onBack={closeOverlay} />; break;
@@ -575,7 +555,7 @@ const AppContent: React.FC = () => {
 
           {!overlay && showCompanyMenu && <div className="h-[320px]" />}
 
-          {<Suspense fallback={<ScreenFallback />}>{renderMainContent()}</Suspense>}
+          {renderMainContent()}
         </div>
         {companyMenuPanel}
         {<Suspense fallback={<ScreenFallback compact />}>{renderOverlay()}</Suspense>}

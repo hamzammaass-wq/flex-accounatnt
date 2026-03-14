@@ -31,6 +31,86 @@
   line-height: 1.2;
 }
 
+.invoice-item-name-field {
+  resize: none;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.invoice-item-meta {
+  line-height: 1.2;
+}
+
+.invoice-number-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+}
+
+.invoice-number-input:focus {
+  background: #eef4ff !important;
+}
+
+.invoice-items-card {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.invoice-items-table thead th {
+  box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.18);
+}
+
+.invoice-items-table tbody td {
+  vertical-align: middle;
+}
+
+.invoice-line-total {
+  display: inline-block;
+  line-height: 1.1;
+  font-size: 18px;
+}
+
+.statement-operation-details {
+  min-width: 0;
+}
+
+.statement-operation-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.statement-detail-note,
+.statement-detail-card,
+.statement-line-item-meta {
+  line-height: 1.45;
+}
+
+.statement-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem 0.75rem;
+}
+
+.statement-ledger-date,
+.statement-ledger-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.statement-line-items {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.financial-reports-page.statement-report-active .overflow-x-auto:has(table) {
+  overflow-x: auto;
+}
+
+.financial-reports-page.statement-report-active table {
+  table-layout: auto;
+}
+
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -429,6 +509,39 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     overflow-x: hidden !important;
   }
 
+  .financial-reports-page.statement-report-active {
+    overflow-x: visible !important;
+  }
+
+  .financial-reports-page.statement-report-active .overflow-x-auto:has(table) {
+    overflow-x: auto !important;
+  }
+
+  .financial-reports-page.statement-report-active table {
+    min-width: 760px !important;
+    width: 760px !important;
+    table-layout: auto !important;
+  }
+
+  .financial-reports-page.statement-report-active table th,
+  .financial-reports-page.statement-report-active table td {
+    padding: 0.45rem 0.35rem !important;
+    font-size: 10px !important;
+    line-height: 1.45 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-ledger-date,
+  .financial-reports-page.statement-report-active .statement-ledger-amount {
+    white-space: nowrap !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-detail-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
   /* Ensure all inputs/selects/textarea/buttons don't overflow */
   .app-page input,
   .app-page select,
@@ -478,6 +591,17 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
+  .transaction-mobile-form .check-line-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: start !important;
+  }
+
+  @media (min-width: 430px) {
+    .transaction-mobile-form .check-line-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+  }
+
   .transaction-mobile-form .header-fields-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.45rem !important;
@@ -489,6 +613,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   .transaction-mobile-form .invoice-items-shell {
     overflow-x: visible !important;
+    border-radius: 0.95rem !important;
   }
 
   .transaction-mobile-form .invoice-items-table {
@@ -498,7 +623,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   .transaction-mobile-form .invoice-items-table th,
   .transaction-mobile-form .invoice-items-table td {
-    padding-inline: 0.28rem !important;
+    padding-inline: 0.34rem !important;
     font-size: 10px !important;
   }
 
@@ -509,54 +634,73 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   .transaction-mobile-form .invoice-items-table th:nth-child(2),
   .transaction-mobile-form .invoice-items-table td:nth-child(2) {
-    width: 30% !important;
+    width: 34% !important;
   }
 
   .transaction-mobile-form .invoice-items-table th:nth-child(3),
   .transaction-mobile-form .invoice-items-table td:nth-child(3) {
-    width: 12% !important;
+    width: 10% !important;
   }
 
   .transaction-mobile-form .invoice-items-table th:nth-child(4),
   .transaction-mobile-form .invoice-items-table td:nth-child(4),
   .transaction-mobile-form .invoice-items-table th:nth-child(5),
   .transaction-mobile-form .invoice-items-table td:nth-child(5) {
-    width: 15% !important;
+    width: 16% !important;
   }
 
   .transaction-mobile-form .invoice-items-table th:nth-child(6),
   .transaction-mobile-form .invoice-items-table td:nth-child(6) {
-    width: 12% !important;
+    width: 9% !important;
   }
 
   .transaction-mobile-form .invoice-items-table th:nth-child(7),
   .transaction-mobile-form .invoice-items-table td:nth-child(7) {
-    width: 10% !important;
+    width: 9% !important;
   }
 
   .transaction-mobile-form .invoice-items-table input {
-    padding: 0.32rem !important;
-    font-size: 10.5px !important;
+    padding: 0.38rem !important;
+    font-size: 11px !important;
   }
 
-  .transaction-mobile-form .invoice-items-table td:nth-child(2) > div {
+  .transaction-mobile-form .invoice-items-table td:nth-child(2) .invoice-item-name-field {
+    min-height: 3.1rem !important;
+    font-size: 10.4px !important;
+    line-height: 1.25 !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table td:nth-child(2) .invoice-item-meta {
     font-size: 8px !important;
   }
 
   .transaction-mobile-form .invoice-items-table td:nth-child(5) > span,
   .transaction-mobile-form .invoice-stock-cell::after {
-    font-size: 9px !important;
+    font-size: 10.5px !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table .invoice-line-total {
+    min-width: 4.6rem !important;
+    padding: 0.45rem 0.35rem !important;
+    font-size: 18px !important;
+    line-height: 1 !important;
   }
 
   .transaction-mobile-form .invoice-items-table td:nth-child(7) button {
-    padding: 0.25rem !important;
+    padding: 0.35rem !important;
+  }
+
+  .transaction-mobile-form .invoice-items-card {
+    border-radius: 1rem !important;
+    padding: 0.55rem !important;
   }
 
   .transaction-mobile-form .invoice-submit-panel {
     position: sticky !important;
     z-index: 35 !important;
     bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.3rem) !important;
-    padding: 0.72rem !important;
+    border-radius: 1rem !important;
+    padding: 0.8rem !important;
   }
 
   .dashboard-page .dashboard-primary-card,
@@ -618,6 +762,17 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .transaction-mobile-form .voucher-line-grid,
   .transaction-mobile-form .journal-line-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .transaction-mobile-form .check-line-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: start !important;
+  }
+
+  @media (min-width: 900px) {
+    .transaction-mobile-form .check-line-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
   }
 
   .transaction-mobile-form .header-fields-grid {

@@ -881,15 +881,18 @@ const InvoiceScreen: React.FC<{
             ? lastPrice
             : resolvePreferredInvoicePrice(product);
     };
-    const resolvePreferredWarehouseId = () => {
-        const main = warehouses.find(w => w.isMain);
-        return main ? main.id : (warehouses[0]?.id || '');
-    };
+    const mainWarehouse = useMemo(
+        () => warehouses.find(w => w.isMain) || warehouses[0] || null,
+        [warehouses]
+    );
+    const resolvePreferredWarehouseId = () => mainWarehouse?.id || '';
     const hasWarehouses = warehouses.length > 0;
     // Default to main warehouse if available.
     const [warehouseId, setWarehouseId] = useState(resolvePreferredWarehouseId);
 
     const [items, setItems] = useState<Omit<InvoiceItem, 'id'>[]>([]);
+    const [editingItemNumericCell, setEditingItemNumericCell] = useState<{ index: number; field: 'quantity' | 'unitPrice' } | null>(null);
+    const [editingItemNumericDraft, setEditingItemNumericDraft] = useState('');
     const [paymentType, setPaymentType] = useState<'CASH' | 'CREDIT'>('CASH');
     const [paymentAccountId, setPaymentAccountId] = useState('');
 
@@ -936,6 +939,11 @@ const InvoiceScreen: React.FC<{
         () => initialInvoiceId ? invoices.find(inv => inv.id === initialInvoiceId) || null : null,
         [initialInvoiceId, invoices]
     );
+    const restrictWarehouseSelectionToMain = !editingInvoice && !linkedInvoiceId;
+    const visibleWarehouses = useMemo(() => {
+        if (!restrictWarehouseSelectionToMain) return warehouses;
+        return mainWarehouse ? [mainWarehouse] : warehouses.slice(0, 1);
+    }, [restrictWarehouseSelectionToMain, warehouses, mainWarehouse]);
     const editBlockedReason = useMemo(() => {
         if (!editingInvoice) return '';
         if (editingInvoice.isReversal || editingInvoice.reversedById) {
@@ -1101,10 +1109,15 @@ const InvoiceScreen: React.FC<{
 
     useEffect(() => {
         if (isExpenseStyle || isQuotation) return;
-        if (!warehouseId || !warehouses.some(w => w.id === warehouseId)) {
-            setWarehouseId(resolvePreferredWarehouseId());
+        const preferredWarehouseId = restrictWarehouseSelectionToMain
+            ? (mainWarehouse?.id || warehouses[0]?.id || '')
+            : resolvePreferredWarehouseId();
+        const warehouseExists = warehouseId && warehouses.some(w => w.id === warehouseId);
+        const needsMainWarehouseLock = restrictWarehouseSelectionToMain && preferredWarehouseId && warehouseId !== preferredWarehouseId;
+        if (!warehouseExists || needsMainWarehouseLock) {
+            setWarehouseId(preferredWarehouseId);
         }
-    }, [warehouses, warehouseId, isExpenseStyle, isQuotation]);
+    }, [warehouses, warehouseId, isExpenseStyle, isQuotation, restrictWarehouseSelectionToMain, mainWarehouse]);
 
     useEffect(() => {
         if (isQuotation || paymentType !== 'CASH') return;
@@ -1258,6 +1271,23 @@ const InvoiceScreen: React.FC<{
             return { ...item, ...updates };
         }));
     };
+    const beginItemNumericCellEdit = (index: number, field: 'quantity' | 'unitPrice', value: number) => {
+        setEditingItemNumericCell({ index, field });
+        setEditingItemNumericDraft(String(Number.isFinite(value) ? value : 0));
+    };
+    const handleItemNumericCellChange = (index: number, field: 'quantity' | 'unitPrice', rawValue: string) => {
+        const normalized = normalizeEditableNumberInput(rawValue);
+        setEditingItemNumericDraft(normalized);
+        const parsed = parseFloat(normalized);
+        updateItem(index, field, Number.isFinite(parsed) ? parsed : 0);
+    };
+    const finishItemNumericCellEdit = (index: number, field: 'quantity' | 'unitPrice', rawValue?: string) => {
+        const normalized = normalizeEditableNumberInput(rawValue ?? editingItemNumericDraft);
+        const parsed = parseFloat(normalized);
+        updateItem(index, field, Number.isFinite(parsed) ? parsed : 0);
+        setEditingItemNumericCell(null);
+        setEditingItemNumericDraft('');
+    };
 
     const toggleDimensions = (index: number) => {
         setItems(prev => prev.map((item, i) => {
@@ -1312,6 +1342,14 @@ const InvoiceScreen: React.FC<{
         minimumFractionDigits: 0,
         maximumFractionDigits: 2
     });
+    const normalizeEditableNumberInput = (value: string) => toEnglishDigits(String(value || ''))
+        .replace(/\u066B/g, '.')
+        .replace(/[\u066C\u060C,]/g, '')
+        .replace(/[^\d.\-]/g, '');
+    const isEditingItemNumericCell = (index: number, field: 'quantity' | 'unitPrice') =>
+        editingItemNumericCell?.index === index && editingItemNumericCell?.field === field;
+    const getItemNumericCellDisplayValue = (index: number, field: 'quantity' | 'unitPrice', value: number) =>
+        isEditingItemNumericCell(index, field) ? editingItemNumericDraft : formatAmount(value);
     const getEffectiveInvoiceNumber = () => invoiceNumber.trim() || editingInvoice?.invoiceNumber || generateInvoiceNumber();
 
     const buildDraftInvoice = (): Invoice => ({
@@ -1599,6 +1637,13 @@ const InvoiceScreen: React.FC<{
         if (!(companySettings.allowNegativeSalesQuantity ?? false) && (isSales || isQuotation) && items.some(i => i.quantity < 0)) {
             return alert(tr('Negative quantity is disabled for sales invoices in settings.', 'Negative quantity is disabled for sales invoices in settings.'));
         }
+        if (!(companySettings.allowNegativeStock ?? false) && (isSales || isPurchaseReturn)) {
+            const invalidStockItem = preparedItems.find(item => !checkStock(item.productId, Number(item.quantity) || 0));
+            if (invalidStockItem) {
+                const productName = displayProductName(products.find(product => product.id === invalidStockItem.productId) || null) || tr('هذا الصنف', 'this item');
+                return alert(tr(`المخزون غير كافٍ للصنف ${productName}. فعّل السماح بالمخزون السالب إذا كنت تريد المتابعة.`, `Stock is not sufficient for ${productName}. Enable negative stock if you want to continue.`));
+            }
+        }
         if ((companySettings.updateSalesPriceOnInvoiceEntry ?? false) && isSales) {
             const latestPriceByProduct = new Map<string, number>();
             items.forEach((item) => {
@@ -1707,6 +1752,7 @@ const InvoiceScreen: React.FC<{
 
     const checkStock = (productId?: string, qty: number = 0) => {
         if (!productId) return true; // Checks for manual items always pass
+        if (companySettings.allowNegativeStock ?? false) return true;
         // Sales: check if we have enough stock to sell (in selected warehouse)
         if (isSales && !isQuotation) {
             const p = products.find(prod => prod.id === productId);
@@ -1954,9 +2000,14 @@ const InvoiceScreen: React.FC<{
                 <div className="grid grid-cols-2 gap-2">
                     {!isExpenseStyle && hasWarehouses && (
                         <div className={`relative min-w-0 ${(!isQuotation && paymentType === 'CASH') ? '' : 'col-span-2'}`}>
-                            <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full text-[12px] font-black bg-gray-50 border border-gray-100 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-indigo-300">
+                            <select
+                                value={warehouseId}
+                                onChange={e => setWarehouseId(e.target.value)}
+                                disabled={restrictWarehouseSelectionToMain}
+                                className="w-full appearance-none rounded-xl border border-gray-100 bg-gray-50 py-2 px-3 pl-8 pr-8 text-[12px] font-black focus:border-indigo-300 focus:outline-none disabled:cursor-default disabled:bg-blue-50/40 disabled:text-slate-900 disabled:opacity-100"
+                            >
                                 <option value="">{tr('المستودع', 'Warehouse')}</option>
-                                {warehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
+                                {visibleWarehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
                             </select>
                             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={13} />
                         </div>
@@ -2173,10 +2224,10 @@ const InvoiceScreen: React.FC<{
             </div>
 
             {/* 4. Items Sheet (Excel-like) */}
-            <div className="w-full bg-white border border-gray-200 rounded-xl p-2 shadow-sm">
+            <div className="invoice-items-card w-full rounded-[1.15rem] border border-slate-200 bg-white p-2.5 shadow-[0_14px_34px_-28px_rgba(15,23,42,0.55)]">
                 <div className="invoice-items-shell overflow-x-auto rounded-lg border border-slate-200">
                     <table className="invoice-items-table w-full min-w-full table-fixed text-[10px] sm:text-[11px] md:min-w-[620px]">
-                        <thead className="bg-slate-100 text-slate-600">
+                        <thead className="bg-slate-100/95 text-slate-700">
                             <tr>
                                 <th className="w-[6%] border-b border-slate-200 px-1 py-1.5 text-center font-black">#</th>
                                 <th className="w-[42%] border-b border-slate-200 px-1.5 py-1.5 text-start font-black">{tr('الصنف/الوصف', 'Item / Description')}</th>
@@ -2201,43 +2252,52 @@ const InvoiceScreen: React.FC<{
                                 const availableStock = getAvailableStock(item.productId);
                                 const lastInvoicePrice = resolveLastInvoicePrice(item.productId);
                                 return (
-                                    <tr key={idx} className="odd:bg-white even:bg-slate-50/40">
+                                    <tr key={idx} className="odd:bg-white even:bg-slate-50/60">
                                         <td className="border-b border-slate-100 px-1.5 py-1 text-center font-black text-slate-500">{idx + 1}</td>
                                         <td className="border-b border-slate-100 px-1.5 py-1">
-                                            <input
+                                            <textarea
                                                 value={item.description}
                                                 onChange={e => setItems(prev => prev.map((it, i) => i === idx ? { ...it, description: e.target.value } : it))}
-                                                className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-bold outline-none focus:border-indigo-300"
+                                                rows={2}
+                                                className="invoice-item-name-field w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[10.5px] font-bold leading-4 outline-none focus:border-indigo-300"
                                             />
-                                            <div className="mt-0.5 text-[9px] font-bold text-slate-400 truncate">
+                                            <div className="invoice-item-meta mt-0.5 text-[9px] font-bold text-slate-400 break-all">
                                                 {linkedProduct ? `${linkedProduct.itemCode || linkedProduct.barcode || linkedProduct.id}` : tr('بند يدوي', 'Manual line')}
                                             </div>
                                         </td>
                                         <td className="border-b border-slate-100 px-1.5 py-1">
                                             <input
-                                                type="number"
+                                                type="text"
                                                 inputMode="decimal"
-                                                value={item.quantity}
-                                                onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value))}
-                                                className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
+                                                lang="en"
+                                                value={getItemNumericCellDisplayValue(idx, 'quantity', item.quantity)}
+                                                onFocus={() => beginItemNumericCellEdit(idx, 'quantity', item.quantity)}
+                                                onChange={e => handleItemNumericCellChange(idx, 'quantity', e.target.value)}
+                                                onBlur={e => finishItemNumericCellEdit(idx, 'quantity', e.currentTarget.value)}
+                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
                                             />
                                         </td>
                                         <td className="border-b border-slate-100 px-1.5 py-1">
                                             <input
-                                                type="number"
+                                                type="text"
                                                 inputMode="decimal"
-                                                value={item.unitPrice}
-                                                onChange={e => updateItem(idx, 'unitPrice', parseFloat(e.target.value))}
-                                                className="w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
+                                                lang="en"
+                                                value={getItemNumericCellDisplayValue(idx, 'unitPrice', item.unitPrice)}
+                                                onFocus={() => beginItemNumericCellEdit(idx, 'unitPrice', item.unitPrice)}
+                                                onChange={e => handleItemNumericCellChange(idx, 'unitPrice', e.target.value)}
+                                                onBlur={e => finishItemNumericCellEdit(idx, 'unitPrice', e.currentTarget.value)}
+                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
                                             />
                                             {typeof lastInvoicePrice === 'number' && (
                                                 <div className="mt-0.5 text-center text-[9px] font-bold text-indigo-500 dir-ltr">
-                                                    {tr('آخر سعر', 'Last price')}: {lastInvoicePrice.toLocaleString()}
+                                                    {tr('آخر سعر', 'Last price')}: {formatAmount(lastInvoicePrice)}
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center">
-                                            <span className="font-black text-[11px] text-slate-800 dir-ltr">{Number(item.total || 0).toLocaleString()}</span>
+                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center align-middle">
+                                            <span className="invoice-line-total inline-flex min-w-[4.3rem] items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-2 py-2 text-[17px] sm:text-[18px] font-black text-slate-900 shadow-sm dir-ltr">
+                                                {formatAmount(Number(item.total || 0))}
+                                            </span>
                                         </td>
                                         <td
                                             className={`invoice-stock-cell border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black ${item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
@@ -2260,7 +2320,7 @@ const InvoiceScreen: React.FC<{
                 </div>
             </div>
             {/* 5. Fixed Totals Footer */}
-            <div className="bg-slate-900 rounded-xl text-white p-3 shadow-lg z-20 layout-footer">
+            <div className="invoice-submit-panel layout-footer z-20 rounded-[1.15rem] border border-slate-700/70 bg-[linear-gradient(135deg,#0f172a_0%,#172554_100%)] p-3 text-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.9)]">
 
                 {/* Expandable Discount / Tax summary row */}
                 <div className="flex justify-between items-center mb-2 px-1">
@@ -2299,9 +2359,9 @@ const InvoiceScreen: React.FC<{
                 </div>
 
                 {/* Final Total row */}
-                <div className="flex items-center justify-between mb-3 border-t border-slate-800 pt-2 px-1">
-                    <span className="text-[11px] font-black text-blue-400">{tr('الصافي النهائي', 'Final Net')}</span>
-                    <span className="text-xl font-black tracking-tighter dir-ltr">{totals.total.toLocaleString()}</span>
+                <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                    <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
+                    <span className="min-w-0 text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white">{totals.total.toLocaleString()}</span>
                 </div>
 
                 {/* Action Buttons */}
@@ -3261,6 +3321,9 @@ const VoucherScreen: React.FC<{
     const sheetInputClass = "w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none";
     const sheetHeaderClass = "px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500";
     const sheetIndexClass = "flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-black text-slate-500";
+    const checkFieldWrapClass = "flex min-w-0 flex-col items-stretch gap-1 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-2.5 shadow-sm xl:block xl:space-y-0 xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none";
+    const checkFieldLabelClass = "px-0.5 text-[10px] font-black leading-tight text-slate-400 xl:hidden";
+    const checkFieldControlClass = "min-w-0 w-full";
     const voucherHeaderActions = (
         <div className="relative flex items-center gap-1 shrink-0">
             <button
@@ -3569,36 +3632,72 @@ const VoucherScreen: React.FC<{
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-2 gap-2 xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] xl:items-center">
+                                <div className="grid check-line-grid grid-cols-2 gap-2 xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] xl:items-center">
                                     <div className={`${sheetIndexClass} hidden xl:flex`}>{idx + 1}</div>
-                                    <input placeholder={tr('رقم الشيك', 'Check Number')} value={line.checkNumber} onChange={e => updateCheckLine(line.id, 'checkNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
+                                    <div className={checkFieldWrapClass}>
+                                        <div className={checkFieldLabelClass}>{tr('رقم الشيك', 'Check Number')}</div>
+                                        <div className={checkFieldControlClass}>
+                                            <input placeholder={tr('رقم الشيك', 'Check Number')} value={line.checkNumber} onChange={e => updateCheckLine(line.id, 'checkNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
+                                        </div>
+                                    </div>
 
-                                    {voucherType === 'PAYMENT' && !line.isEndorsed ? (
-                                        <select
-                                            value={line.bankAccountId || ''}
-                                            onChange={e => updateCheckLine(line.id, 'bankAccountId', e.target.value)}
-                                            className={sheetInputClass}
-                                        >
-                                            <option value="">{tr('-- اختر البنك المسحوب عليه --', '-- Select Drawn Bank --')}</option>
-                                            {bankAccounts.map(acc => (
-                                                <option key={acc.id} value={acc.id}>{displayAccountName(acc)}</option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <input placeholder={tr('اسم البنك أو رقم البنك', 'Bank name or code')} value={line.bankName} onChange={e => updateCheckLine(line.id, 'bankName', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
-                                    )}
+                                    <div className={checkFieldWrapClass}>
+                                        <div className={checkFieldLabelClass}>{tr('البنك', 'Bank')}</div>
+                                        <div className={checkFieldControlClass}>
+                                            {voucherType === 'PAYMENT' && !line.isEndorsed ? (
+                                                <select
+                                                    value={line.bankAccountId || ''}
+                                                    onChange={e => updateCheckLine(line.id, 'bankAccountId', e.target.value)}
+                                                    className={sheetInputClass}
+                                                >
+                                                    <option value="">{tr('-- اختر البنك المسحوب عليه --', '-- Select Drawn Bank --')}</option>
+                                                    {bankAccounts.map(acc => (
+                                                        <option key={acc.id} value={acc.id}>{displayAccountName(acc)}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input placeholder={tr('اسم البنك أو رقم البنك', 'Bank name or code')} value={line.bankName} onChange={e => updateCheckLine(line.id, 'bankName', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
+                                            )}
+                                        </div>
+                                    </div>
 
-                                    <input placeholder={tr('رقم الحساب', 'Account Number')} value={line.accountNumber || ''} onChange={e => updateCheckLine(line.id, 'accountNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
-                                    <EnglishDateInput
-                                        value={line.dueDate}
-                                        onChange={value => updateCheckLine(line.id, 'dueDate', value)}
-                                        wrapperClassName="w-full"
-                                        className={`${sheetInputClass} dir-ltr text-center`}
-                                        disabled={line.isEndorsed}
-                                        aria-label={tr('تاريخ استحقاق الشيك', 'Check due date')}
-                                    />
-                                    <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCheckLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr font-black`} disabled={line.isEndorsed} />
-                                    <button onClick={() => removeLine('CHECK', line.id)} className="col-span-2 xl:col-span-1 inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-500 transition hover:bg-rose-100"><Trash2 size={15} /></button>
+                                    <div className={checkFieldWrapClass}>
+                                        <div className={checkFieldLabelClass}>{tr('رقم الحساب', 'Account Number')}</div>
+                                        <div className={checkFieldControlClass}>
+                                            <input placeholder={tr('رقم الحساب', 'Account Number')} value={line.accountNumber || ''} onChange={e => updateCheckLine(line.id, 'accountNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
+                                        </div>
+                                    </div>
+                                    <div className={checkFieldWrapClass}>
+                                        <div className={`${checkFieldLabelClass} text-center`}>{tr('الاستحقاق', 'Due')}</div>
+                                        <div className={checkFieldControlClass}>
+                                            <EnglishDateInput
+                                                value={line.dueDate}
+                                                onChange={value => updateCheckLine(line.id, 'dueDate', value)}
+                                                wrapperClassName="w-full min-w-0"
+                                                className={`${sheetInputClass} dir-ltr text-center`}
+                                                disabled={line.isEndorsed}
+                                                aria-label={tr('تاريخ استحقاق الشيك', 'Check due date')}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className={checkFieldWrapClass}>
+                                        <div className={`${checkFieldLabelClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
+                                        <div className={checkFieldControlClass}>
+                                            <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCheckLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr font-black`} disabled={line.isEndorsed} />
+                                        </div>
+                                    </div>
+                                    <div className={`${checkFieldWrapClass} w-fit justify-self-center p-1.5 xl:col-auto xl:w-auto xl:justify-self-auto`}>
+                                        <div className={`${checkFieldLabelClass} text-center`}>{tr('حذف', 'Delete')}</div>
+                                        <div className="flex justify-center xl:justify-stretch">
+                                            <button
+                                                onClick={() => removeLine('CHECK', line.id)}
+                                                aria-label={tr('حذف السطر', 'Delete line')}
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100 xl:h-[38px] xl:w-full"
+                                            >
+                                                <Trash2 size={15} />
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-2">
@@ -3607,7 +3706,7 @@ const VoucherScreen: React.FC<{
                                         {[0, 1].map((slotIndex) => {
                                             const imageValue = line.imageUrls?.[slotIndex] || '';
                                             return (
-                                                <div key={`${line.id}-img-${slotIndex}`} className="bg-gray-50 border border-gray-100 rounded-2xl p-2 space-y-2">
+                                                <div key={`${line.id}-img-${slotIndex}`} className="bg-gray-50 border border-gray-100 rounded-2xl p-1.5 space-y-1.5">
                                                     <div className="flex items-center justify-between">
                                                         <span className="text-[10px] font-black text-gray-500">
                                                             {tr(`صورة ${slotIndex + 1}`, `Image ${slotIndex + 1}`)}
@@ -3623,7 +3722,7 @@ const VoucherScreen: React.FC<{
                                                             </a>
                                                         )}
                                                     </div>
-                                                    <div className="h-24 rounded-xl bg-white border border-gray-100 overflow-hidden flex items-center justify-center">
+                                                    <div className="h-14 rounded-xl bg-white border border-gray-100 overflow-hidden flex items-center justify-center sm:h-16">
                                                         {imageValue ? (
                                                             <img
                                                                 src={imageValue}
@@ -3634,8 +3733,8 @@ const VoucherScreen: React.FC<{
                                                             <span className="text-[10px] font-bold text-gray-300">{tr('لا توجد صورة', 'No image')}</span>
                                                         )}
                                                     </div>
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <label className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-black border transition-colors ${line.isEndorsed ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-indigo-50 text-indigo-600 border-indigo-100 cursor-pointer hover:bg-indigo-100'}`}>
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <label className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black border transition-colors ${line.isEndorsed ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-indigo-50 text-indigo-600 border-indigo-100 cursor-pointer hover:bg-indigo-100'}`}>
                                                             <Upload size={11} />
                                                             {imageValue ? tr('تغيير', 'Replace') : tr('إضافة', 'Add')}
                                                             <input
@@ -3654,7 +3753,7 @@ const VoucherScreen: React.FC<{
                                                             <button
                                                                 type="button"
                                                                 onClick={() => clearCheckImage(line.id, slotIndex)}
-                                                                className="text-[10px] font-black px-2.5 py-1.5 rounded-lg border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
+                                                                className="text-[10px] font-black px-2 py-1 rounded-lg border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
                                                             >
                                                                 {tr('حذف', 'Remove')}
                                                             </button>

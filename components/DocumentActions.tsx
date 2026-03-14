@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileSpreadsheet, MessageCircle, MessageSquareText, MoreVertical, Printer, Save, Share2 } from 'lucide-react';
+import { FileSpreadsheet, MessageCircle, MessageSquareText, MoreVertical, Printer, Save, Share2, FileText } from 'lucide-react';
 
 interface DocumentActionsProps {
   title: string;
@@ -8,10 +8,11 @@ interface DocumentActionsProps {
   isEnglish?: boolean;
   tr: (ar: string, en: string) => string;
   onPrint: () => void;
-  onSave?: () => void;
-  onExcel?: () => void;
+  onSave?: () => void | Promise<void>;
+  onExcel?: () => void | Promise<void>;
   onWhatsapp?: () => void | Promise<void>;
   saveTitle?: string;
+  saveButtonIcon?: 'save' | 'fileText';
   className?: string;
   variant?: 'light' | 'dark';
   showSaveButton?: boolean;
@@ -28,6 +29,7 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
   onExcel,
   onWhatsapp,
   saveTitle,
+  saveButtonIcon = 'save',
   className = '',
   variant = 'light',
   showSaveButton = true,
@@ -159,6 +161,7 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
       ? 'border border-white/10 bg-slate-900/95 text-white shadow-2xl'
       : 'border border-gray-100 bg-white text-slate-700 shadow-xl';
   const disabledButtonClass = isBusy ? 'opacity-60 cursor-not-allowed' : '';
+  const SaveButtonIcon = saveButtonIcon === 'fileText' ? FileText : Save;
 
   return (
     <div
@@ -180,11 +183,15 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
         <button
           type="button"
           title={saveTitle || tr('تنزيل', 'Download')}
-          onClick={() => (onSave || onExcel)?.()}
+          onClick={() => {
+            const primaryAction = onSave || onExcel;
+            if (!primaryAction) return;
+            void runAsyncAction(primaryAction);
+          }}
           disabled={isBusy}
           className={`h-10 w-10 rounded-xl border flex items-center justify-center transition-all ${saveButtonClass} ${disabledButtonClass}`}
         >
-          <Save size={16} />
+          <SaveButtonIcon size={16} />
         </button>
       )}
 
@@ -215,8 +222,8 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
           <button
             type="button"
             onClick={() => {
-              setIsOpen(false);
-              onExcel?.();
+              if (!onExcel) return;
+              void runAsyncAction(onExcel);
             }}
             className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-sm font-black transition-colors ${
               onExcel ? (variant === 'dark' ? 'hover:bg-white/10' : 'hover:bg-gray-50') : 'opacity-40 cursor-not-allowed'

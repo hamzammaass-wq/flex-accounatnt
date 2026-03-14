@@ -5,7 +5,7 @@ import { Account, AccountType, TransactionType, Product, Invoice, Check, Transac
 import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { downloadElementAsHtml, exportElementAsCsv } from '../utils/documentExport';
+import { downloadElementAsPdf, exportElementAsCsv, printElementContent } from '../utils/documentExport';
 import { getFiscalYear, getFiscalYearStart, isProfitLossAccount, isReportYearClosed } from '../utils/fiscalYear';
 import {
     FileText, TrendingUp, Landmark, ChevronDown,
@@ -261,6 +261,119 @@ const FinancialReports: React.FC = () => {
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderStatementLedgerDetails = (tx: Transaction, controlAccountIds: string[]) => {
+        const invoice = tx.invoiceId ? invoices.find(inv => inv.id === tx.invoiceId) : undefined;
+        const voucherTransactions = tx.voucherId
+            ? transactions.filter(line => line.voucherId === tx.voucherId)
+            : [tx];
+
+        const checkIds = Array.from(new Set(
+            voucherTransactions
+                .map(line => line.checkId)
+                .filter((id): id is string => Boolean(id))
+        ));
+
+        const relatedChecks = checkIds
+            .map(id => checks.find(ch => ch.id === id))
+            .filter((ch): ch is Check => Boolean(ch));
+
+        const counterpartAccountIds = Array.from(new Set(
+            voucherTransactions
+                .flatMap(line => [line.debitAccountId, line.creditAccountId])
+                .filter((id): id is string => Boolean(id && !controlAccountIds.includes(id)))
+        ));
+
+        const counterpartAccounts = counterpartAccountIds
+            .map(id => accounts.find(acc => acc.id === id))
+            .filter((acc): acc is Account => Boolean(acc));
+
+        const hasDetails = Boolean(
+            tx.voucherId ||
+            tx.invoiceId ||
+            tx.category ||
+            invoice ||
+            relatedChecks.length > 0 ||
+            counterpartAccounts.length > 0
+        );
+
+        if (!hasDetails) return null;
+
+        return (
+            <div className="statement-operation-details mt-2 space-y-2">
+                <div className="statement-operation-badges flex flex-wrap gap-1.5 text-[10px]">
+                    {tx.voucherId && (
+                        <span className="rounded-md bg-indigo-50 px-2 py-0.5 font-black text-indigo-700">
+                            {tr('السند', 'Voucher')}: {tx.voucherId}
+                        </span>
+                    )}
+                    {invoice && (
+                        <span className="rounded-md bg-blue-50 px-2 py-0.5 font-black text-blue-700">
+                            {tr('فاتورة', 'Invoice')}: #{invoice.invoiceNumber}
+                        </span>
+                    )}
+                    {tx.category && (
+                        <span className="rounded-md bg-gray-100 px-2 py-0.5 font-black text-gray-600">
+                            {getOperationCategoryLabel(tx.category)}
+                        </span>
+                    )}
+                </div>
+
+                {counterpartAccounts.length > 0 && (
+                    <div className="statement-detail-note rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2 text-[10px] font-bold text-slate-600">
+                        <span className="text-gray-400">{tr('الحسابات المقابلة', 'Counter accounts')}:</span>{' '}
+                        {counterpartAccounts.map(acc => displayAccountName(acc)).join(' • ')}
+                    </div>
+                )}
+
+                {relatedChecks.length > 0 && (
+                    <div className="statement-check-list space-y-1.5">
+                        {relatedChecks.map(check => (
+                            <div key={check.id} className="statement-detail-card rounded-xl border border-amber-100 bg-amber-50/50 p-2.5 text-[10px] text-slate-600">
+                                <div className="statement-detail-grid grid gap-1.5 sm:grid-cols-2">
+                                    <div><span className="font-black text-slate-700">{tr('شيك', 'Check')}:</span> {check.checkNumber}</div>
+                                    <div><span className="font-black text-slate-700">{tr('البنك', 'Bank')}:</span> {displayAccountName(check.bankAccountId ? accounts.find(a => a.id === check.bankAccountId) || null : { id: '', name: check.bankName })}</div>
+                                    <div><span className="font-black text-slate-700">{tr('الاستحقاق', 'Due')}:</span> <span className="statement-ledger-date dir-ltr">{check.dueDate}</span></div>
+                                    <div className="statement-ledger-amount dir-ltr"><span className="font-black text-emerald-600">{tr('القيمة', 'Amount')}:</span> {formatPlainNumber(check.amount)} {check.currency}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {invoice && (
+                    <div className="statement-detail-card rounded-xl border border-blue-100 bg-blue-50/40 p-2.5">
+                        <div className="mb-2 text-[10px] font-black text-blue-700">
+                            {tr('بنود الفاتورة', 'Invoice items')}
+                        </div>
+                        <div className="statement-line-items space-y-1.5">
+                            {invoice.items.map(item => {
+                                const product = products.find(p => p.id === item.productId);
+                                return (
+                                    <div key={item.id} className="rounded-lg border border-white/80 bg-white/90 px-2.5 py-2 text-[10px] text-slate-600 shadow-sm">
+                                        <div className="font-black text-slate-700">
+                                            {item.description || displayProductName(product)}
+                                        </div>
+                                        <div className="statement-line-item-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                                            <span className="statement-ledger-amount dir-ltr">
+                                                {tr('الكمية', 'Qty')}: {formatPlainNumber(item.quantity)}
+                                            </span>
+                                            <span className="statement-ledger-amount dir-ltr">
+                                                {tr('السعر', 'Price')}: {formatPlainNumber(item.unitPrice)}
+                                            </span>
+                                            <span className="statement-ledger-amount dir-ltr font-black text-slate-700">
+                                                {tr('الإجمالي', 'Total')}: {formatPlainNumber(item.total)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
             </div>
@@ -732,14 +845,29 @@ const FinancialReports: React.FC = () => {
         `${tr('������', 'Currency')}: ${reportCurrency}`
     ].join('\n');
 
-    const handleSaveReportSnapshot = (title: string) => {
-        if (!activeReportRef.current) return;
-        downloadElementAsHtml(activeReportRef.current, {
+    const handleSaveReportPdf = async (title: string) => {
+        const success = await downloadElementAsPdf(activeReportRef.current, {
             title: `${title} - ${startDate} - ${endDate}`,
             fileName: `${title}-${startDate}-${endDate}`,
             dir: isEnglish ? 'ltr' : 'rtl',
+            lang: isEnglish ? 'en' : 'ar',
+            backgroundColor: '#f9fafb',
+            padding: 18
+        });
+        if (!success) {
+            alert(tr('تعذر حفظ التقرير بصيغة PDF حاليًا.', 'Could not save this report as PDF right now.'));
+        }
+    };
+
+    const handlePrintActiveReport = (title: string) => {
+        const success = printElementContent(activeReportRef.current, {
+            title: `${title} - ${startDate} - ${endDate}`,
+            dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar'
         });
+        if (!success) {
+            alert(tr('تعذر فتح نافذة طباعة التقرير.', 'Could not open the report print window.'));
+        }
     };
 
     const handleExportReportExcel = (title: string) => {
@@ -800,11 +928,12 @@ const FinancialReports: React.FC = () => {
                     shareText={buildReportShareText(title)}
                     isEnglish={isEnglish}
                     tr={tr}
-                    onPrint={() => window.print()}
-                    onSave={() => handleSaveReportSnapshot(title)}
+                    onPrint={() => handlePrintActiveReport(title)}
+                    onSave={() => handleSaveReportPdf(title)}
                     onExcel={() => handleExportReportExcel(title)}
-                    saveTitle={tr('تنزيل التقرير', 'Download report')}
-                    showSaveButton={false}
+                    saveTitle={tr('حفظ PDF', 'Save PDF')}
+                    saveButtonIcon="fileText"
+                    showSaveButton
                 />
             </div>
 
@@ -2697,7 +2826,7 @@ const FinancialReports: React.FC = () => {
             <div className="animate-in slide-in-from-bottom-4">
                 <ReportHeader title={title} />
                 <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-x-auto">
-                    <table className="w-full text-start min-w-[760px]">
+                    <table className="statement-report-table w-full text-start min-w-[760px]">
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-4">{tr('رقم السند', 'Voucher No.')}</th>
@@ -4056,9 +4185,9 @@ const FinancialReports: React.FC = () => {
                             {entriesWithBalance.map(e => (
                                 <tr key={e.id} className="hover:bg-gray-50">
                                     <td className="p-3 text-gray-500">{e.date}</td>
-                                    <td className="p-3 align-top">
+                                    <td className="statement-report-description p-3 align-top">
                                         <div className="font-bold text-gray-700">{e.description}</div>
-                                        {renderStatementOperationDetails(e.tx, receivableAccountIds)}
+                                        {renderStatementLedgerDetails(e.tx, receivableAccountIds)}
                                     </td>
                                     <td className="p-3 text-center dir-ltr text-rose-600">{e.debit > 0 ? formatValue(e.debit) : '-'}</td>
                                     <td className="p-3 text-center dir-ltr text-emerald-600">{e.credit > 0 ? formatValue(e.credit) : '-'}</td>
@@ -4303,7 +4432,7 @@ const FinancialReports: React.FC = () => {
                     <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className="text-sm font-black dir-ltr text-blue-700">{formatValue(closingBalance)}</p></div>
                 </div>
                 <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-x-auto">
-                    <table className="w-full text-start min-w-[760px]">
+                    <table className="statement-report-table w-full text-start min-w-[760px]">
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-3">{tr('التاريخ', 'Date')}</th>
@@ -4324,9 +4453,9 @@ const FinancialReports: React.FC = () => {
                             {entriesWithBalance.map(e => (
                                 <tr key={e.id} className="hover:bg-gray-50">
                                     <td className="p-3 text-gray-500">{e.date}</td>
-                                    <td className="p-3 align-top">
+                                    <td className="statement-report-description p-3 align-top">
                                         <div className="font-bold text-gray-700">{e.description}</div>
-                                        {renderStatementOperationDetails(e.tx, payableAccountIds)}
+                                        {renderStatementLedgerDetails(e.tx, payableAccountIds)}
                                     </td>
                                     <td className="p-3 text-center dir-ltr text-rose-600">{e.debit > 0 ? formatValue(e.debit) : '-'}</td>
                                     <td className="p-3 text-center dir-ltr text-emerald-600">{e.credit > 0 ? formatValue(e.credit) : '-'}</td>
@@ -4496,7 +4625,7 @@ const FinancialReports: React.FC = () => {
                     </select>
                 </div>
                 <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-x-auto">
-                    <table className="w-full text-start min-w-[760px]">
+                    <table className="statement-report-table w-full text-start min-w-[760px]">
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-3">{tr('التاريخ', 'Date')}</th>
@@ -4519,7 +4648,10 @@ const FinancialReports: React.FC = () => {
                             {ledgerEntries.map(({ tx, debit, credit, runningBalance: rowBalance }) => (
                                 <tr key={tx.id} className="text-xs hover:bg-gray-50">
                                     <td className="p-3 text-gray-500">{tx.date}</td>
-                                    <td className="p-3 font-bold text-gray-700">{tx.description}</td>
+                                    <td className="statement-report-description p-3 align-top">
+                                        <div className="font-bold text-gray-700">{tx.description}</div>
+                                        {renderStatementLedgerDetails(tx, [acc.id])}
+                                    </td>
                                     <td className="p-3 dir-ltr text-center text-emerald-600">{debit > 0 ? formatValue(debit) : '-'}</td>
                                     <td className="p-3 dir-ltr text-center text-rose-600">{credit > 0 ? formatValue(credit) : '-'}</td>
                                     <td className={`p-3 dir-ltr text-center font-black ${rowBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -5163,9 +5295,13 @@ const FinancialReports: React.FC = () => {
         }
     };
 
+    const statementReportActive = activeReport === 'CUSTOMER_STATEMENT'
+        || activeReport === 'SUPPLIER_STATEMENT'
+        || activeReport === 'ACCOUNT_LEDGER';
+
     return (
         <div
-            className={`financial-reports-page px-3 sm:px-4 pt-[calc(var(--app-safe-top)+0.5rem)] pb-[calc(var(--app-safe-bottom)+5.5rem)] app-page max-w-7xl mx-auto ${isEnglish ? 'text-left' : ''}`}
+            className={`financial-reports-page px-3 sm:px-4 pt-[calc(var(--app-safe-top)+0.5rem)] pb-[calc(var(--app-safe-bottom)+5.5rem)] app-page max-w-7xl mx-auto ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
         >
             <div ref={activeReportRef}>

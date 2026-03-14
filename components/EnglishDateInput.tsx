@@ -442,7 +442,7 @@ const EnglishDateInput: React.FC<EnglishDateInputProps> = ({
                 tabIndex={-1}
                 aria-hidden="true"
                 disabled={disabled}
-                className="absolute inset-0 h-full w-full opacity-0 pointer-events-none"
+                className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 pointer-events-none"
             />
             {showCalendarButton && (
                 <button
