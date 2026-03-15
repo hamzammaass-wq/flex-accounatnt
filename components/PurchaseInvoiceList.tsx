@@ -8,6 +8,7 @@ import ResponsiveDialog from './layout/ResponsiveDialog';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
 import { getInvoiceTaxVisibility } from '../utils/companySettings';
+import { buildInvoiceItemBarcodeMarkup, INVOICE_ITEM_BARCODE_CSS } from '../utils/invoicePrintBarcodes';
 import { getInvoiceTaxModeDescription, isInvoiceTaxApplied, resolveInvoiceTaxMode } from '../utils/invoiceTax';
 import {
   Plus, Search, FileText, User, Calendar,
@@ -45,6 +46,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
   const invoiceFooterNote = companySettings.invoiceFooterNote ?? '';
   const headerTopLines = companySettings.headerTopLines ?? 0;
   const printExpiryDate = companySettings.printExpiryDate ?? false;
+  const printItemBarcodeInInvoice = companySettings.printItemBarcodeInInvoice ?? false;
   const dottedNumbers = companySettings.dottedNumbers ?? false;
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
   const displayContactName = (contact?: { id: string; name: string } | null) =>
@@ -251,6 +253,9 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
       const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
       const itemLabel = product ? displayProductName(product) : item.description;
       const itemCode = product?.itemCode || product?.barcode || '-';
+      const itemBarcodeMarkup = printItemBarcodeInInvoice
+        ? buildInvoiceItemBarcodeMarkup(product?.barcode || product?.itemCode || '')
+        : '';
       return `
       <tr>
         <td>${index + 1}</td>
@@ -259,7 +264,11 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
         <td>${item.quantity}</td>
         <td dir="ltr">${formatPrintNumber(item.unitPrice)}</td>
         <td dir="ltr">${formatPrintNumber(item.total)}</td>
-      </tr>
+      </tr>${itemBarcodeMarkup ? `
+      <tr class="barcode-row">
+        <td colspan="2"></td>
+        <td class="barcode-row-cell" colspan="4">${itemBarcodeMarkup}</td>
+      </tr>` : ''}
     `;
     }).join('');
 
@@ -298,6 +307,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
             table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
             th { background: #6366f1; color: white; padding: 12px; text-align: center; font-size: 14px; }
             td { padding: 12px; text-align: center; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+            ${INVOICE_ITEM_BARCODE_CSS}
           </style>
         </head>
         <body>

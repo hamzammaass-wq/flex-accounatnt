@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'aiflex-erp-v7';
+const CACHE_VERSION = 'aiflex-erp-v10';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const IS_DEV_SERVER =
   self.location.port === '3000' ||
@@ -7,29 +7,64 @@ const IS_DEV_SERVER =
 const APP_SHELL_URLS = [
   '/',
   '/index.html',
-  '/index.css',
   '/manifest.webmanifest',
-  '/manifest.webmanifest?v=20260313-brand-v3',
+  '/manifest.webmanifest?v=20260315-appicon-v1',
+  '/brand/aiflex-erp-logo.svg',
   '/brand/aiflex-erp-logo.png',
   '/brand/aiflex-erp-mark.png',
   '/icons/favicon-32.png',
-  '/icons/favicon-32.png?v=20260313-brand-v3',
+  '/icons/favicon-32.png?v=20260315-appicon-v1',
   '/icons/apple-touch-icon.png',
-  '/icons/apple-touch-icon.png?v=20260313-brand-v3',
+  '/icons/apple-touch-icon.png?v=20260315-appicon-v1',
   '/icons/icon-48.png',
   '/icons/icon-72.png',
   '/icons/icon-96.png',
   '/icons/icon-128.png',
   '/icons/icon-192.png',
-  '/icons/icon-192.png?v=20260313-brand-v3',
+  '/icons/icon-48.png?v=20260315-appicon-v1',
+  '/icons/icon-72.png?v=20260315-appicon-v1',
+  '/icons/icon-96.png?v=20260315-appicon-v1',
+  '/icons/icon-128.png?v=20260315-appicon-v1',
+  '/icons/icon-192.png?v=20260315-appicon-v1',
   '/icons/icon-256.png',
   '/icons/icon-512.png',
-  '/icons/icon-512.png?v=20260313-brand-v3'
+  '/icons/icon-256.png?v=20260315-appicon-v1',
+  '/icons/icon-512.png?v=20260315-appicon-v1'
 ];
 
 const STATIC_DESTINATIONS = new Set(['document', 'script', 'style', 'image', 'font', 'manifest', 'worker']);
 
-const isCacheableResponse = (response) => Boolean(response) && (response.ok || response.type === 'opaque');
+const matchesContentType = (contentType, pattern) => pattern.test(contentType || '');
+
+const isCacheableResponse = (request, response) => {
+  if (!response) return false;
+  if (!(response.ok || response.type === 'opaque')) return false;
+  if (response.type === 'opaque') return true;
+
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  const destination = request.destination;
+
+  if (destination === 'script' && !matchesContentType(contentType, /(javascript|ecmascript|x-javascript)/)) {
+    return false;
+  }
+  if (destination === 'style' && !matchesContentType(contentType, /text\/css/)) {
+    return false;
+  }
+  if (destination === 'document' && !matchesContentType(contentType, /text\/html/)) {
+    return false;
+  }
+  if (destination === 'image' && !matchesContentType(contentType, /image\//)) {
+    return false;
+  }
+  if (destination === 'font' && !matchesContentType(contentType, /(font\/|application\/font|application\/octet-stream)/)) {
+    return false;
+  }
+  if (destination === 'manifest' && !matchesContentType(contentType, /(manifest|application\/json)/)) {
+    return false;
+  }
+
+  return true;
+};
 
 const shouldHandleRequest = (request) => {
   if (request.method !== 'GET') return false;
@@ -41,7 +76,7 @@ const shouldHandleRequest = (request) => {
 };
 
 const putInCache = async (request, response) => {
-  if (!isCacheableResponse(response)) return response;
+  if (!isCacheableResponse(request, response)) return response;
   const cache = await caches.open(APP_SHELL_CACHE);
   await cache.put(request, response.clone());
   return response;
@@ -57,7 +92,7 @@ self.addEventListener('install', (event) => {
     const cache = await caches.open(APP_SHELL_CACHE);
     await Promise.allSettled(APP_SHELL_URLS.map(async (url) => {
       const response = await fetch(url, { cache: 'reload' });
-      if (isCacheableResponse(response)) {
+      if (isCacheableResponse(new Request(url), response)) {
         await cache.put(url, response);
       }
     }));

@@ -827,6 +827,15 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 html[data-app-theme='dark'] {
   color-scheme: dark;
   --app-control-focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.28);
+  --dark-surface-strong: rgba(15, 23, 42, 0.94);
+  --dark-surface-soft: rgba(15, 23, 42, 0.72);
+  --dark-surface-hover: rgba(30, 41, 59, 0.96);
+  --dark-border-soft: rgba(71, 85, 105, 0.7);
+  --dark-text-primary: #e5eefb;
+  --dark-text-secondary: #cbd5e1;
+  --dark-text-muted: #94a3b8;
+  --dark-shadow-soft: 0 12px 28px rgba(2, 6, 23, 0.34);
+  --dark-shadow-strong: 0 20px 48px rgba(2, 6, 23, 0.46);
 }
 
 html[data-app-theme='dark'] body {
@@ -842,11 +851,23 @@ html[data-app-theme='dark'] .app-shell-frame,
 html[data-app-theme='dark'] .app-main-scroll,
 html[data-app-theme='dark'] .app-page {
   background-color: transparent;
-  color: #e5eefb;
+  color: var(--dark-text-primary);
 }
 
 html[data-app-theme='dark'] .app-shell-frame {
   background: rgba(6, 13, 26, 0.92);
+}
+
+html[data-app-theme='dark'] .bg-slate-900 {
+  background-color: #0f172a !important;
+}
+
+html[data-app-theme='dark'] .bg-slate-800 {
+  background-color: #172033 !important;
+}
+
+html[data-app-theme='dark'] .bg-slate-700 {
+  background-color: #223049 !important;
 }
 
 html[data-app-theme='dark'][data-device-class='tablet'][data-launch-mode='browser'] .app-shell-frame--centered,
@@ -866,7 +887,7 @@ html[data-app-theme='dark'] [class*='bg-white/80'],
 html[data-app-theme='dark'] [class*='bg-white/85'],
 html[data-app-theme='dark'] [class*='bg-white/90'],
 html[data-app-theme='dark'] [class*='bg-white/95'] {
-  background-color: rgba(15, 23, 42, 0.94) !important;
+  background-color: var(--dark-surface-strong) !important;
 }
 
 html[data-app-theme='dark'] .bg-gray-50,
@@ -881,17 +902,19 @@ html[data-app-theme='dark'] [class*='bg-gray-200/'],
 html[data-app-theme='dark'] [class*='bg-slate-50/'],
 html[data-app-theme='dark'] [class*='bg-slate-100/'],
 html[data-app-theme='dark'] [class*='bg-slate-200/'] {
-  background-color: rgba(15, 23, 42, 0.72) !important;
+  background-color: var(--dark-surface-soft) !important;
 }
 
 html[data-app-theme='dark'] .border-gray-50,
 html[data-app-theme='dark'] .border-gray-100,
 html[data-app-theme='dark'] .border-gray-200,
 html[data-app-theme='dark'] .border-gray-300,
+html[data-app-theme='dark'] .border-gray-400,
 html[data-app-theme='dark'] .border-slate-100,
 html[data-app-theme='dark'] .border-slate-200,
-html[data-app-theme='dark'] .border-slate-300 {
-  border-color: rgba(71, 85, 105, 0.7) !important;
+html[data-app-theme='dark'] .border-slate-300,
+html[data-app-theme='dark'] .border-slate-400 {
+  border-color: var(--dark-border-soft) !important;
 }
 
 html[data-app-theme='dark'] .text-black,
@@ -901,7 +924,16 @@ html[data-app-theme='dark'] .text-gray-700,
 html[data-app-theme='dark'] .text-slate-900,
 html[data-app-theme='dark'] .text-slate-800,
 html[data-app-theme='dark'] .text-slate-700 {
-  color: #e5eefb !important;
+  color: var(--dark-text-primary) !important;
+}
+
+html[data-app-theme='dark'] .text-gray-100,
+html[data-app-theme='dark'] .text-gray-200,
+html[data-app-theme='dark'] .text-gray-300,
+html[data-app-theme='dark'] .text-slate-100,
+html[data-app-theme='dark'] .text-slate-200,
+html[data-app-theme='dark'] .text-slate-300 {
+  color: var(--dark-text-secondary) !important;
 }
 
 html[data-app-theme='dark'] .text-gray-600,
@@ -910,13 +942,188 @@ html[data-app-theme='dark'] .text-gray-400,
 html[data-app-theme='dark'] .text-slate-600,
 html[data-app-theme='dark'] .text-slate-500,
 html[data-app-theme='dark'] .text-slate-400 {
-  color: #94a3b8 !important;
+  color: var(--dark-text-muted) !important;
+}
+
+html[data-app-theme='dark'] .hover\:text-gray-500:hover,
+html[data-app-theme='dark'] .hover\:text-gray-600:hover,
+html[data-app-theme='dark'] .hover\:text-slate-500:hover,
+html[data-app-theme='dark'] .hover\:text-slate-600:hover {
+  color: var(--dark-text-secondary) !important;
+}
+
+html[data-app-theme='dark'] .hover\:text-gray-700:hover,
+html[data-app-theme='dark'] .hover\:text-gray-800:hover,
+html[data-app-theme='dark'] .hover\:text-slate-700:hover,
+html[data-app-theme='dark'] .hover\:text-slate-800:hover {
+  color: #f8fbff !important;
 }
 
 html[data-app-theme='dark'] .hover\:bg-white:hover,
 html[data-app-theme='dark'] .hover\:bg-gray-50:hover,
 html[data-app-theme='dark'] .hover\:bg-slate-50:hover {
-  background-color: rgba(30, 41, 59, 0.96) !important;
+  background-color: var(--dark-surface-hover) !important;
+}
+
+html[data-app-theme='dark'] .shadow-sm,
+html[data-app-theme='dark'] .shadow-md,
+html[data-app-theme='dark'] .shadow-lg,
+html[data-app-theme='dark'] .shadow-xl,
+html[data-app-theme='dark'] .shadow-2xl {
+  box-shadow: var(--dark-shadow-soft) !important;
+}
+
+html[data-app-theme='dark'] .shadow-xl,
+html[data-app-theme='dark'] .shadow-2xl {
+  box-shadow: var(--dark-shadow-strong) !important;
+}
+
+html[data-app-theme='dark'] .shadow-inner {
+  box-shadow: inset 0 1px 2px rgba(2, 6, 23, 0.46) !important;
+}
+
+html[data-app-theme='dark'] [class*='shadow-blue-'],
+html[data-app-theme='dark'] [class*='shadow-cyan-'],
+html[data-app-theme='dark'] [class*='shadow-emerald-'],
+html[data-app-theme='dark'] [class*='shadow-green-'],
+html[data-app-theme='dark'] [class*='shadow-indigo-'],
+html[data-app-theme='dark'] [class*='shadow-orange-'],
+html[data-app-theme='dark'] [class*='shadow-pink-'],
+html[data-app-theme='dark'] [class*='shadow-purple-'],
+html[data-app-theme='dark'] [class*='shadow-rose-'],
+html[data-app-theme='dark'] [class*='shadow-violet-'] {
+  --tw-shadow-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+html[data-app-theme='dark'] .bg-blue-50,
+html[data-app-theme='dark'] .bg-blue-100,
+html[data-app-theme='dark'] .bg-blue-200,
+html[data-app-theme='dark'] .hover\:bg-blue-50:hover,
+html[data-app-theme='dark'] .hover\:bg-blue-100:hover {
+  background-color: rgba(37, 99, 235, 0.18) !important;
+}
+
+html[data-app-theme='dark'] .bg-cyan-50,
+html[data-app-theme='dark'] .bg-cyan-100,
+html[data-app-theme='dark'] .hover\:bg-cyan-50:hover,
+html[data-app-theme='dark'] .hover\:bg-cyan-100:hover {
+  background-color: rgba(8, 145, 178, 0.18) !important;
+}
+
+html[data-app-theme='dark'] .bg-emerald-50,
+html[data-app-theme='dark'] .bg-emerald-100,
+html[data-app-theme='dark'] .bg-emerald-200,
+html[data-app-theme='dark'] .bg-green-50,
+html[data-app-theme='dark'] .hover\:bg-emerald-50:hover,
+html[data-app-theme='dark'] .hover\:bg-emerald-100:hover,
+html[data-app-theme='dark'] .hover\:bg-green-50:hover {
+  background-color: rgba(5, 150, 105, 0.18) !important;
+}
+
+html[data-app-theme='dark'] .bg-indigo-50,
+html[data-app-theme='dark'] .bg-indigo-100,
+html[data-app-theme='dark'] .bg-indigo-200,
+html[data-app-theme='dark'] .hover\:bg-indigo-50:hover,
+html[data-app-theme='dark'] .hover\:bg-indigo-100:hover {
+  background-color: rgba(79, 70, 229, 0.2) !important;
+}
+
+html[data-app-theme='dark'] .bg-purple-50,
+html[data-app-theme='dark'] .bg-purple-100,
+html[data-app-theme='dark'] .bg-violet-50,
+html[data-app-theme='dark'] .bg-violet-100,
+html[data-app-theme='dark'] .bg-fuchsia-50,
+html[data-app-theme='dark'] .bg-fuchsia-100,
+html[data-app-theme='dark'] .hover\:bg-purple-50:hover,
+html[data-app-theme='dark'] .hover\:bg-violet-50:hover,
+html[data-app-theme='dark'] .hover\:bg-violet-100:hover,
+html[data-app-theme='dark'] .hover\:bg-fuchsia-50:hover {
+  background-color: rgba(126, 34, 206, 0.2) !important;
+}
+
+html[data-app-theme='dark'] .bg-amber-50,
+html[data-app-theme='dark'] .bg-amber-100,
+html[data-app-theme='dark'] .bg-orange-50,
+html[data-app-theme='dark'] .bg-orange-100,
+html[data-app-theme='dark'] .bg-yellow-50,
+html[data-app-theme='dark'] .hover\:bg-amber-50:hover,
+html[data-app-theme='dark'] .hover\:bg-orange-50:hover,
+html[data-app-theme='dark'] .hover\:bg-yellow-50:hover {
+  background-color: rgba(217, 119, 6, 0.18) !important;
+}
+
+html[data-app-theme='dark'] .bg-rose-50,
+html[data-app-theme='dark'] .bg-rose-100,
+html[data-app-theme='dark'] .bg-rose-200,
+html[data-app-theme='dark'] .bg-red-50,
+html[data-app-theme='dark'] .bg-red-100,
+html[data-app-theme='dark'] .bg-pink-50,
+html[data-app-theme='dark'] .hover\:bg-rose-50:hover,
+html[data-app-theme='dark'] .hover\:bg-red-50:hover,
+html[data-app-theme='dark'] .hover\:bg-pink-50:hover {
+  background-color: rgba(225, 29, 72, 0.18) !important;
+}
+
+html[data-app-theme='dark'] .bg-teal-50,
+html[data-app-theme='dark'] .bg-teal-100,
+html[data-app-theme='dark'] .hover\:bg-teal-50:hover {
+  background-color: rgba(13, 148, 136, 0.18) !important;
+}
+
+html[data-app-theme='dark'] .border-blue-100,
+html[data-app-theme='dark'] .border-blue-200,
+html[data-app-theme='dark'] .border-blue-300 {
+  border-color: rgba(96, 165, 250, 0.34) !important;
+}
+
+html[data-app-theme='dark'] .border-cyan-100,
+html[data-app-theme='dark'] .border-cyan-200 {
+  border-color: rgba(34, 211, 238, 0.32) !important;
+}
+
+html[data-app-theme='dark'] .border-emerald-100,
+html[data-app-theme='dark'] .border-emerald-200,
+html[data-app-theme='dark'] .border-emerald-300,
+html[data-app-theme='dark'] .border-green-100 {
+  border-color: rgba(52, 211, 153, 0.32) !important;
+}
+
+html[data-app-theme='dark'] .border-indigo-100,
+html[data-app-theme='dark'] .border-indigo-200,
+html[data-app-theme='dark'] .border-indigo-300 {
+  border-color: rgba(129, 140, 248, 0.34) !important;
+}
+
+html[data-app-theme='dark'] .border-purple-100,
+html[data-app-theme='dark'] .border-purple-200,
+html[data-app-theme='dark'] .border-violet-100,
+html[data-app-theme='dark'] .border-violet-200,
+html[data-app-theme='dark'] .border-violet-300,
+html[data-app-theme='dark'] .border-fuchsia-100 {
+  border-color: rgba(192, 132, 252, 0.34) !important;
+}
+
+html[data-app-theme='dark'] .border-amber-100,
+html[data-app-theme='dark'] .border-amber-200,
+html[data-app-theme='dark'] .border-orange-100,
+html[data-app-theme='dark'] .border-orange-200,
+html[data-app-theme='dark'] .border-yellow-100 {
+  border-color: rgba(251, 191, 36, 0.32) !important;
+}
+
+html[data-app-theme='dark'] .border-rose-100,
+html[data-app-theme='dark'] .border-rose-200,
+html[data-app-theme='dark'] .border-rose-300,
+html[data-app-theme='dark'] .border-red-100,
+html[data-app-theme='dark'] .border-red-200,
+html[data-app-theme='dark'] .border-pink-50,
+html[data-app-theme='dark'] .border-pink-100 {
+  border-color: rgba(251, 113, 133, 0.32) !important;
+}
+
+html[data-app-theme='dark'] .border-teal-100,
+html[data-app-theme='dark'] .border-teal-200 {
+  border-color: rgba(45, 212, 191, 0.32) !important;
 }
 
 html[data-app-theme='dark'] :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),

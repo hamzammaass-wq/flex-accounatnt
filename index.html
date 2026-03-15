@@ -8,12 +8,91 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>AIFLEX ERP</title>
-    <link rel="manifest" href="/manifest.webmanifest?v=20260313-brand-v3" />
-    <link rel="icon" href="/icons/favicon-32.png?v=20260313-brand-v3" type="image/png" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260313-brand-v3" />
+    <link rel="manifest" href="/manifest.webmanifest?v=20260315-appicon-v1" />
+    <link rel="icon" href="/icons/favicon-32.png?v=20260315-appicon-v1" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260315-appicon-v1" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://apis.google.com/js/api.js" async defer></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+      (function () {
+        var BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
+        var CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed|Unexpected token '<')/i;
+
+        function recoverBoot() {
+          var attempts = 0;
+          try {
+            attempts = Number(sessionStorage.getItem(BOOT_RECOVERY_KEY) || '0');
+          } catch (error) {
+            attempts = 0;
+          }
+          if (attempts >= 1) return;
+
+          try {
+            sessionStorage.setItem(BOOT_RECOVERY_KEY, String(attempts + 1));
+          } catch (error) {
+            // Ignore storage failures and continue recovery.
+          }
+
+          var swPromise = Promise.resolve();
+          if ('serviceWorker' in navigator) {
+            swPromise = navigator.serviceWorker
+              .getRegistrations()
+              .then(function (registrations) {
+                return Promise.all(registrations.map(function (registration) {
+                  return registration.unregister().catch(function () { return false; });
+                }));
+              })
+              .catch(function () { return undefined; });
+          }
+
+          var cachePromise = Promise.resolve();
+          if ('caches' in window) {
+            cachePromise = caches
+              .keys()
+              .then(function (keys) {
+                return Promise.all(keys.map(function (key) { return caches.delete(key); }));
+              })
+              .catch(function () { return undefined; });
+          }
+
+          Promise.all([swPromise, cachePromise]).finally(function () {
+            var cleanUrl = window.location.origin + window.location.pathname + window.location.hash;
+            window.location.replace(cleanUrl);
+          });
+        }
+
+        window.__bootRecovery = recoverBoot;
+
+        window.addEventListener('error', function (event) {
+          var target = event && event.target;
+          var isScriptLoadFailure = typeof HTMLScriptElement !== 'undefined' && target instanceof HTMLScriptElement;
+          var message = String((event && event.message) || '');
+          if (isScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+            recoverBoot();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event && event.reason;
+          var message = typeof reason === 'string' ? reason : String((reason && reason.message) || '');
+          if (CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+            event.preventDefault();
+            recoverBoot();
+          }
+        });
+
+        window.addEventListener('load', function () {
+          window.setTimeout(function () {
+            var root = document.getElementById('root');
+            var hasRenderedContent = !!(root && root.childNodes && root.childNodes.length > 0);
+            if (!hasRenderedContent) {
+              recoverBoot();
+            }
+          }, 7000);
+        });
+      })();
+    </script>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap');
 
@@ -69,6 +148,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/index.tsx" onerror="window.__bootRecovery && window.__bootRecovery()"></script>
   </body>
 </html>

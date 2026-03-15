@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
@@ -38,6 +39,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   const [itemCode, setItemCode] = useState('');
   const [itemCodeMode, setItemCodeMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [barcode, setBarcode] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [sellPrice, setSellPrice] = useState('');
@@ -57,6 +59,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   const [groupIcon, setGroupIcon] = useState('📦');
   const [newUnitName, setNewUnitName] = useState('');
   const [newUnitCode, setNewUnitCode] = useState('');
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const isEditing = !!product;
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const barcodeEnabled = companySettings.barcodeEnabled ?? true;
@@ -66,6 +69,11 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   const displayUnitName = (unit?: { id: string; name: string } | null) =>
     getDisplayUnitName(unit || undefined, isEnglish);
   const autoItemCodePreview = useMemo(() => buildNextItemCode(products, product?.id), [products, product?.id]);
+  const persistedAutoItemCode = useMemo(
+    () => normalizeItemCode(product?.itemCode || ''),
+    [product?.itemCode]
+  );
+  const effectiveAutoItemCode = persistedAutoItemCode || autoItemCodePreview;
   const title = isEditing
     ? tr('تعديل بيانات الصنف', 'Edit Item')
     : mode === 'DIRECTORY'
@@ -118,7 +126,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setGroupId(product.category || '');
     setUnitId(product.unitId || '');
     setItemCode(product.itemCode || '');
-    setItemCodeMode(product.itemCode ? 'MANUAL' : 'AUTO');
+    setItemCodeMode('AUTO');
     setBarcode(product.barcode || '');
     setImageUrl(product.imageUrl || '');
     setBuyPrice(product.buyPrice !== undefined ? String(product.buyPrice) : '');
@@ -134,6 +142,39 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setExpiryAlertLeadDays(product.expiryAlertLeadDays !== undefined ? String(product.expiryAlertLeadDays) : '');
     setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
   }, [product, initialName]);
+
+  useEffect(() => {
+    if (!showScanner) return;
+
+    const timer = window.setTimeout(() => {
+      const html5QrCode = new Html5Qrcode('quick-add-product-reader');
+      scannerRef.current = html5QrCode;
+
+      html5QrCode.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          setBarcode(decodedText);
+          setShowScanner(false);
+          html5QrCode.stop().catch(console.error);
+        },
+        () => {
+          // Ignore noisy interim scan errors while camera is active.
+        }
+      ).catch((error) => {
+        console.error('Barcode scanner failed to start', error);
+        alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
+        setShowScanner(false);
+      });
+    }, 100);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().then(() => scannerRef.current?.clear()).catch(console.error);
+      }
+    };
+  }, [showScanner, tr]);
 
   const handlePickImage = async (file?: File | null) => {
     if (!file) return;
@@ -219,7 +260,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     const normalizedExpiryDate = expiryDate.trim() || undefined;
     const manualItemCode = normalizeItemCode(itemCode);
     const resolvedItemCode = itemCodeMode === 'AUTO'
-      ? autoItemCodePreview
+      ? effectiveAutoItemCode
       : (manualItemCode || undefined);
     const isItemCodeTaken = !!resolvedItemCode && products.some((existingProduct) =>
       existingProduct.id !== product?.id
@@ -347,9 +388,9 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               {itemCodeMode === 'AUTO' ? (
                 <div className="rounded-xl border border-indigo-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    {tr('\u0633\u064a\u062a\u0645 \u062a\u0648\u0644\u064a\u062f\u0647 \u062a\u0644\u0642\u0627\u0626\u064a\u064b\u0627', 'It will be generated automatically')}
+                    {tr('سيبقى تلقائيًا حتى تعدله يدويًا', 'Stays automatic until you edit it manually')}
                   </span>
-                  <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{autoItemCodePreview}</span>
+                  <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{effectiveAutoItemCode}</span>
                 </div>
               ) : (
                 <input
@@ -363,7 +404,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
 
               {itemCodeMode === 'MANUAL' && (
                 <p className="text-[10px] font-bold text-slate-400 px-1">
-                  {tr('\u0627\u062a\u0631\u0643\u0647 \u0641\u0627\u0631\u063a\u064b\u0627 \u0625\u0630\u0627 \u0643\u0646\u062a \u0644\u0627 \u062a\u0631\u064a\u062f \u062a\u0631\u0645\u064a\u0632\u064b\u0627 \u0644\u0644\u0635\u0646\u0641.', 'Leave it blank if you do not want an item code.')}
+                  {tr('عند التعديل اليدوي فقط سيتوقف التوليد التلقائي لهذا الصنف.', 'Automatic generation stops only when you edit the code manually.')}
                 </p>
               )}
             </div>
@@ -378,9 +419,17 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
                     placeholder={tr('\u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062f (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)', 'Barcode (optional)')}
-                    className={inputClass}
+                    className={`${inputClass} ${isEnglish ? 'pl-11 pr-12' : 'pr-11 pl-12'}`}
                   />
-                  <ScanBarcode className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={18} />
+                  <ScanBarcode className={`absolute top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none ${isEnglish ? 'left-4' : 'right-4'}`} size={18} />
+                  <button
+                    type="button"
+                    onClick={() => setShowScanner(true)}
+                    className={`absolute top-1/2 -translate-y-1/2 rounded-xl bg-blue-50 p-2 text-blue-600 transition-colors hover:bg-blue-100 ${isEnglish ? 'right-3' : 'left-3'}`}
+                    title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
+                  >
+                    <Camera size={16} />
+                  </button>
                 </div>
               </div>
             )}
@@ -717,6 +766,26 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
         </div>
       </form>
 
+      {showScanner && (
+        <div className="fixed inset-0 z-[340] flex flex-col bg-black animate-in fade-in">
+          <div className="relative flex-1 bg-black">
+            <div id="quick-add-product-reader" className="h-full w-full"></div>
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center border-[50px] border-black/50">
+              <div className="h-64 w-64 rounded-3xl border-4 border-blue-500/50 animate-pulse"></div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between bg-black p-6 text-white">
+            <p className="text-sm font-bold">{tr('وجه الكاميرا نحو الباركود...', 'Point the camera at the barcode...')}</p>
+            <button
+              type="button"
+              onClick={() => setShowScanner(false)}
+              className="rounded-full bg-white/20 p-3 transition-all hover:bg-white/30"
+            >
+              <X size={24} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {showGroupForm && (
         <ResponsiveDialog

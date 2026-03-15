@@ -35,6 +35,7 @@ import useMobileInteractions from './hooks/useMobileInteractions';
 import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft } from 'lucide-react';
 import { getDocumentLanguageTag, isRtlLanguage, translate } from './utils/i18n';
 import { applyAppTheme } from './utils/appTheme';
+import InitialSetupWizard from './components/InitialSetupWizard';
 
 // Fix: Added 'fixed-assets' to TabView to resolve type mismatch in Dashboard and App components
 export type TabView =
@@ -59,6 +60,7 @@ type EditTransactionConfig = {
 const GUEST_USER_ID = 'guest_user';
 const GUEST_TRIAL_START_KEY = 'al_mohaseb_guest_trial_started_at';
 const GUEST_TRIAL_DAYS = 14;
+const INITIAL_SETUP_PENDING_KEY = 'al_mohaseb_initial_setup_pending';
 
 const TransactionForm = lazy(() => import('./components/TransactionForm'));
 const LiveVoiceAssistant = lazy(() => import('./components/LiveVoiceAssistant'));
@@ -83,6 +85,12 @@ const AppContent: React.FC = () => {
     currentCompany,
     currentCompanyId,
     trialDaysLeft,
+    companyAccessStatus,
+    companyAccessDaysLeft,
+    companyAccessEndsAt,
+    workspaceMaxCompanies,
+    workspaceRemainingCompanySlots,
+    workspaceCompanyLimitReached,
     switchCompany,
     createCompany
   } = useAccounting();
@@ -93,6 +101,7 @@ const AppContent: React.FC = () => {
   const [initialDefinitionsMode, setInitialDefinitionsMode] = useState<SettingsMode>('MENU');
   const [showCompanyMenu, setShowCompanyMenu] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
+  const [showInitialSetupWizard, setShowInitialSetupWizard] = useState(false);
   const companyMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [companyMenuStyle, setCompanyMenuStyle] = useState<React.CSSProperties | null>(null);
   const darkModeEnabled = Boolean(companySettings.darkModeEnabled);
@@ -100,6 +109,74 @@ const AppContent: React.FC = () => {
   const rtl = isRtlLanguage(appLanguage);
   const t = (key: Parameters<typeof translate>[1]) => translate(appLanguage, key);
   const { isMobile, isTablet, overlayVariant, shellVariant } = useResponsiveMode();
+  const companyAccessSummary = useMemo(() => {
+    const endsAtLabel = companyAccessEndsAt
+      ? new Date(companyAccessEndsAt).toLocaleDateString('en-GB')
+      : '-';
+
+    switch (companyAccessStatus) {
+      case 'ACTIVE':
+        return {
+          statusLabel: appLanguage === 'AR' ? 'مفعل' : 'Active',
+          shortLine: appLanguage === 'AR'
+            ? `الاشتراك مفعل، المتبقي ${companyAccessDaysLeft} يوم`
+            : `Subscription active, ${companyAccessDaysLeft} day(s) left`,
+          longLine: appLanguage === 'AR'
+            ? `الوصول مفعل حتى ${endsAtLabel}.`
+            : `Access is active until ${endsAtLabel}.`,
+          tone: 'border-emerald-200 bg-emerald-50 text-emerald-800'
+        };
+      case 'SUSPENDED':
+        return {
+          statusLabel: appLanguage === 'AR' ? 'موقوف' : 'Suspended',
+          shortLine: appLanguage === 'AR'
+            ? 'الوصول موقوف حاليًا'
+            : 'Access is currently suspended',
+          longLine: appLanguage === 'AR'
+            ? 'تم تقييد التعديل والترحيل والطباعة. يمكنك إدارة الاشتراك أو أخذ نسخة احتياطية.'
+            : 'Editing, posting, and printing are restricted. You can manage the subscription or run a backup.',
+          tone: 'border-rose-200 bg-rose-50 text-rose-800'
+        };
+      case 'EXPIRED':
+        return {
+          statusLabel: appLanguage === 'AR' ? 'منتهي' : 'Expired',
+          shortLine: appLanguage === 'AR'
+            ? 'الاشتراك منتهي'
+            : 'Subscription expired',
+          longLine: appLanguage === 'AR'
+            ? 'يسمح الآن بعرض البيانات والنسخ الاحتياطي وإدارة الاشتراك فقط.'
+            : 'Only data viewing, backup, and subscription management are available now.',
+          tone: 'border-amber-200 bg-amber-50 text-amber-800'
+        };
+      default:
+        return {
+          statusLabel: appLanguage === 'AR' ? 'تجريبي' : 'Trial',
+          shortLine: appLanguage === 'AR'
+            ? `الفترة التجريبية: ${trialDaysLeft} يوم متبقٍ`
+            : `Trial period: ${trialDaysLeft} day(s) left`,
+          longLine: appLanguage === 'AR'
+            ? `التجربة فعالة حتى ${endsAtLabel}.`
+            : `Trial access remains until ${endsAtLabel}.`,
+          tone: 'border-sky-200 bg-sky-50 text-sky-800'
+        };
+    }
+  }, [appLanguage, companyAccessDaysLeft, companyAccessEndsAt, companyAccessStatus, trialDaysLeft]);
+  const isCompanyAccessRestricted = companyAccessStatus === 'EXPIRED' || companyAccessStatus === 'SUSPENDED';
+  const resolveCompanyAccessEndLabel = (company: typeof currentCompany) => {
+    if (!company) return '-';
+    const targetDate = company.subscriptionStatus === 'TRIAL' ? company.trialEndsAt : company.subscriptionEndsAt;
+    if (!targetDate) return '-';
+    const parsed = new Date(targetDate);
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString('en-GB') : '-';
+  };
+  const getCompanyStatusLabel = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return appLanguage === 'AR' ? 'مفعل' : 'Active';
+      case 'EXPIRED': return appLanguage === 'AR' ? 'منتهي' : 'Expired';
+      case 'SUSPENDED': return appLanguage === 'AR' ? 'موقوف' : 'Suspended';
+      default: return appLanguage === 'AR' ? 'تجريبي' : 'Trial';
+    }
+  };
   const guestTrialInfo = useMemo(() => {
     if (!currentUser || currentUser.id !== GUEST_USER_ID) {
       return { expired: false, remainingDays: GUEST_TRIAL_DAYS };
@@ -236,6 +313,19 @@ const AppContent: React.FC = () => {
     return <AuthScreen guestTrialExpired={guestTrialInfo.expired} guestTrialDaysLeft={guestTrialInfo.remainingDays} />;
   }
 
+  if (showInitialSetupWizard) {
+    return (
+      <InitialSetupWizard
+        onComplete={() => {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem(INITIAL_SETUP_PENDING_KEY);
+          }
+          setShowInitialSetupWizard(false);
+        }}
+      />
+    );
+  }
+
   const handleNavigate = (tab: TabView, definitionsMode?: SettingsMode) => {
     if (definitionsMode) {
       setInitialDefinitionsMode(definitionsMode);
@@ -251,6 +341,31 @@ const AppContent: React.FC = () => {
     });
     setShowCompanyMenu(false);
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !currentUser) return;
+    const url = new URL(window.location.href);
+    const shouldOpenSubscription = url.searchParams.get('openSubscription') === '1';
+    const billingState = url.searchParams.get('billing');
+    if (!shouldOpenSubscription && !billingState) return;
+
+    handleNavigate('definitions', 'SUBSCRIPTION');
+
+    if (billingState) {
+      window.setTimeout(() => {
+        const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }, 0);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.id === GUEST_USER_ID) return;
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem(INITIAL_SETUP_PENDING_KEY) === '1') {
+      setShowInitialSetupWizard(true);
+    }
+  }, [currentUser]);
 
   const openOverlay = (view: OverlayView) => setOverlay(view);
   const openEditTransaction = (config: EditTransactionConfig) => {
@@ -275,6 +390,10 @@ const AppContent: React.FC = () => {
   const handleCreateCompany = async () => {
     const result = await createCompany({ name: newCompanyName.trim() });
     if (!result.ok) {
+      if (result.code === 'SUBSCRIPTION_LIMIT') {
+        setShowCompanyMenu(false);
+        handleNavigate('definitions', 'SUBSCRIPTION');
+      }
       alert(result.message);
       return;
     }
@@ -296,7 +415,36 @@ const AppContent: React.FC = () => {
           className="rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl space-y-3"
         >
           <div className="text-[10px] font-black text-gray-500">
-            {appLanguage === 'AR' ? `الفترة التجريبية: ${trialDaysLeft} يوم متبقٍ` : `Trial period: ${trialDaysLeft} day(s) left`}
+            {companyAccessSummary.shortLine}
+          </div>
+          <div className={`rounded-xl border px-3 py-3 ${workspaceCompanyLimitReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="text-[10px] font-black text-slate-500">
+              {appLanguage === 'AR' ? 'سعات الشركات في الاشتراك' : 'Company slots in subscription'}
+            </div>
+            <div className="mt-1 text-xs font-black text-slate-800">
+              {companies.length}/{workspaceMaxCompanies} {appLanguage === 'AR' ? 'شركة' : 'company slot(s)'}
+            </div>
+            <div className="mt-1 text-[10px] font-bold text-slate-500">
+              {workspaceRemainingCompanySlots > 0
+                ? (appLanguage === 'AR'
+                  ? `المتبقي ${workspaceRemainingCompanySlots} شركة جديدة.`
+                  : `${workspaceRemainingCompanySlots} new company slot(s) remaining.`)
+                : (appLanguage === 'AR'
+                  ? 'لا توجد سعات إضافية متبقية. يلزمك ترقية الاشتراك.'
+                  : 'No additional company slots left. Upgrade the subscription first.')}
+            </div>
+            {workspaceCompanyLimitReached && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCompanyMenu(false);
+                  handleNavigate('definitions', 'SUBSCRIPTION');
+                }}
+                className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-black text-white"
+              >
+                {appLanguage === 'AR' ? 'ترقية / إضافة شركات' : 'Upgrade / add company slots'}
+              </button>
+            )}
           </div>
           <div className="max-h-48 overflow-auto space-y-1.5">
             {companies.map(company => (
@@ -311,7 +459,7 @@ const AppContent: React.FC = () => {
               >
                 <span className="text-xs font-black truncate">{company.name}</span>
                 <span className="text-[10px] font-bold text-gray-400 shrink-0">
-                  {new Date(company.trialEndsAt).toLocaleDateString('en-GB')}
+                  {appLanguage === 'AR' ? 'الحالة' : 'Status'}: {getCompanyStatusLabel(company.subscriptionStatus)} | {resolveCompanyAccessEndLabel(company)}
                 </span>
               </button>
             ))}
@@ -554,6 +702,36 @@ const AppContent: React.FC = () => {
           )}
 
           {!overlay && showCompanyMenu && <div className="h-[320px]" />}
+
+          {!overlay && isCompanyAccessRestricted && (
+            <div className={`mb-3 rounded-2xl border px-4 py-4 shadow-sm ${companyAccessSummary.tone}`}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-sm font-black">{appLanguage === 'AR' ? 'الوصول مقيد' : 'Access restricted'}</div>
+                  <div className="text-xs font-bold mt-1">{companyAccessSummary.longLine}</div>
+                </div>
+                <div className="px-3 py-1 rounded-full bg-white/80 text-[11px] font-black">
+                  {companyAccessSummary.statusLabel}
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('definitions', 'SUBSCRIPTION')}
+                  className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black"
+                >
+                  {appLanguage === 'AR' ? 'إدارة الاشتراك' : 'Manage subscription'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('definitions', 'BACKUP')}
+                  className="px-3 py-2 rounded-xl bg-white/90 border border-current text-xs font-black"
+                >
+                  {appLanguage === 'AR' ? 'نسخة احتياطية' : 'Backup'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {renderMainContent()}
         </div>

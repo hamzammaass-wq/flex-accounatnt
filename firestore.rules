@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSubscriptionAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/subscription_admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/subscription_admins/$(request.auth.uid)).data.active == true;
+    }
+
+    match /subscription_admins/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create, update, delete: if isSubscriptionAdmin();
+    }
+
+    match /subscription_activation_codes/{codeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSubscriptionAdmin();
+    }
+
+    match /company_subscriptions/{companyId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isSubscriptionAdmin();
+    }
+
+    match /workspace_subscriptions/{userId} {
+      allow read, create, update: if isSignedIn() && request.auth.uid == userId;
+      allow delete: if isSubscriptionAdmin() || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    match /workspace_sync_snapshots/{snapshotId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

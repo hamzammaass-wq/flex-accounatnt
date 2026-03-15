@@ -2537,7 +2537,8 @@ const VoucherScreen: React.FC<{
     onSuccess: () => void;
     initialVoucherId?: string;
     outerHeaderActionsContainer?: HTMLDivElement | null;
-}> = ({ initialType = 'RECEIPT', sharedState, updateCurrency, onSuccess, initialVoucherId, outerHeaderActionsContainer }) => {
+    onVoucherTypeChange?: (type: 'RECEIPT' | 'PAYMENT') => void;
+}> = ({ initialType = 'RECEIPT', sharedState, updateCurrency, onSuccess, initialVoucherId, outerHeaderActionsContainer, onVoucherTypeChange }) => {
     const {
         addTransaction, contacts, accounts, addCheck, checks, updateCheck, deleteVoucher, baseCurrency, companySettings,
         invoices, invoiceSettlements, transactions, upsertInvoiceSettlementsForVoucher
@@ -2587,6 +2588,10 @@ const VoucherScreen: React.FC<{
             : tr('سند صرف', 'Payment Voucher'),
         [voucherType, isEnglish]
     );
+
+    useEffect(() => {
+        onVoucherTypeChange?.(voucherType);
+    }, [onVoucherTypeChange, voucherType]);
     const selectedContactLabel = selectedContact ? displayContactName(selectedContact) : '';
     const editingVoucherParts = useMemo(() => {
         if (!initialVoucherId) return [] as Transaction[];
@@ -3318,12 +3323,21 @@ const VoucherScreen: React.FC<{
         onSuccess();
     };
 
-    const sheetInputClass = "w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none";
-    const sheetHeaderClass = "px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500";
-    const sheetIndexClass = "flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-black text-slate-500";
-    const checkFieldWrapClass = "flex min-w-0 flex-col items-stretch gap-1 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-2.5 shadow-sm xl:block xl:space-y-0 xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none";
-    const checkFieldLabelClass = "px-0.5 text-[10px] font-black leading-tight text-slate-400 xl:hidden";
+    const totalAmountDisplay = Number(totalAmount || 0).toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    });
+    const voucherPrimaryInputClass = "w-full min-w-0 rounded-[1.05rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 outline-none transition placeholder:text-slate-300 shadow-[0_12px_30px_-28px_rgba(15,23,42,0.55)] focus:border-blue-200 focus:ring-2 focus:ring-blue-50";
+    const sheetInputClass = `${voucherPrimaryInputClass} h-12 px-3 py-0 text-[13px]`;
+    const sheetIndexClass = "inline-flex items-center justify-center rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-slate-400 shadow-sm";
+    const checkFieldWrapClass = "min-w-0 flex flex-col gap-1.5";
+    const checkFieldLabelClass = "px-1 text-[11px] font-black leading-tight text-slate-400";
     const checkFieldControlClass = "min-w-0 w-full";
+    const voucherSectionClass = "rounded-[1.45rem] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_18px_38px_-32px_rgba(15,23,42,0.35)]";
+    const voucherSectionTitleClass = "text-[0.95rem] font-black text-slate-700";
+    const cashSectionActionClass = "inline-flex items-center justify-center rounded-[0.9rem] border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-700 transition hover:bg-emerald-100";
+    const checkSectionActionClass = "inline-flex items-center justify-center rounded-[0.9rem] border border-indigo-100 bg-indigo-50 px-3 py-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100";
+    const endorseActionClass = "inline-flex items-center gap-1.5 justify-center rounded-[0.9rem] border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] font-black text-violet-700 transition hover:bg-violet-100";
     const voucherHeaderActions = (
         <div className="relative flex items-center gap-1 shrink-0">
             <button
@@ -3393,70 +3407,102 @@ const VoucherScreen: React.FC<{
                     {amountNotice}
                 </div>
             )}
-            <div className="transaction-entry-section bg-white p-3 rounded-xl shadow-sm border border-gray-200">
-                <div className="mb-3 text-center">
-                    <div className="min-w-0 px-2 text-center">
-                        <div className="truncate text-base font-black text-indigo-900">{voucherTitle}</div>
-                        <div className="truncate text-[10px] font-bold text-slate-400 dir-ltr">{voucherReference}</div>
+            <div className="rounded-[1.55rem] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-3 shadow-[0_20px_44px_-34px_rgba(15,23,42,0.42)]">
+                <div className="relative mb-4 min-h-[2.25rem] px-2">
+                    <div className={`absolute top-0 text-[11px] font-black text-slate-300 dir-ltr ${isEnglish ? 'right-0' : 'left-0'}`}>
+                        {voucherReference}
                     </div>
-                </div>
-                <div className="flex bg-gray-50 p-1 rounded-2xl mb-4">
-                    <button onClick={() => setVoucherType('RECEIPT')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${voucherType === 'RECEIPT' ? 'bg-white shadow text-emerald-600' : 'text-gray-400'}`}>{tr('سند قبض (وارد)', 'Receipt Voucher (Incoming)')}</button>
-                    <button onClick={() => setVoucherType('PAYMENT')} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${voucherType === 'PAYMENT' ? 'bg-white shadow text-rose-600' : 'text-gray-400'}`}>{tr('سند صرف (صادر)', 'Payment Voucher (Outgoing)')}</button>
+                    <div className="text-center">
+                        <div className="truncate text-[1.05rem] font-black tracking-tight text-[#1f3272]">{voucherTitle}</div>
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="transaction-entry-split min-w-0 col-span-1">
-                        <div className="min-w-0 space-y-2">
-                            <SearchableContactSelect
-                                contacts={filteredContacts}
-                                selectedId={contactId}
-                                selectedLabel={selectedContactLabel}
-                                onSelect={setContactId}
-                                onCreateNew={(nextName) => {
-                                    setQuickContactInitialName(nextName);
-                                    setShowQuickContact(true);
-                                }}
-                                displayContactName={displayContactName}
-                                placeholder={tr('اختر الطرف أو ابحث بالاسم أو الجوال...', 'Select or search by name or phone...')}
-                                emptyLabel={tr('لا يوجد طرف مطابق.', 'No matching contact found.')}
-                                createNewLabel={tr('إضافة طرف جديد', 'Add New Contact')}
-                                onActionClick={(nextName) => {
-                                    setQuickContactInitialName(nextName || '');
-                                    setShowQuickContact(true);
-                                }}
-                                actionIcon={<UserPlus size={16} />}
-                                actionLabel={tr('إضافة طرف جديد', 'Add New Contact')}
-                                actionButtonClassName="text-blue-500 hover:text-blue-600"
-                                isEnglish={isEnglish}
-                                inputClassName={inputClass + " !py-3"}
-                            />
-                        </div>
-                    </div>
-                    <input value={description} onChange={e => setDescription(e.target.value)} placeholder={tr('البيان / ملاحظات السند...', 'Voucher description / notes...')} className={`${inputClass} col-span-1`} />
-                    {selectedContact?.type === 'PARTNER' && (
-                        <div className={`col-span-2 rounded-2xl border p-3 text-[11px] font-black ${selectedCounterAccountId ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-rose-50 border-rose-100 text-rose-700'}`}>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span>{tr('حساب جاري الشريك', 'Partner current account')}</span>
-                                <span className="dir-ltr">{selectedCounterAccount ? displayAccountName(selectedCounterAccount) : tr('غير مربوط', 'Not linked')}</span>
-                            </div>
-                            <div className="mt-1">
-                                {voucherType === 'PAYMENT'
-                                    ? tr('عند الصرف: يتم ترحيل المبلغ على جاري الشريك مباشرة.', 'On payment: amount is posted directly to partner current.')
-                                    : tr('عند القبض: يتم إضافة المبلغ إلى جاري الشريك مباشرة.', 'On receipt: amount is added directly to partner current.')}
-                            </div>
-                            {!selectedCounterAccountId && (
-                                <div className="mt-1">
-                                    {tr('يرجى ربط الشريك بحسابه الجاري من الدليل أولاً.', 'Please link this partner to current account from Directory first.')}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                <div className="grid grid-cols-2 gap-2 rounded-[1.2rem] bg-slate-100/90 p-1 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
+                    <button
+                        type="button"
+                        onClick={() => setVoucherType('RECEIPT')}
+                        className={`rounded-[1rem] px-3 py-3 text-xs font-black transition-all ${voucherType === 'RECEIPT'
+                            ? 'border border-emerald-100 bg-white text-emerald-600 shadow-[0_14px_26px_-22px_rgba(16,185,129,0.8)]'
+                            : 'text-slate-400'
+                            }`}
+                    >
+                        {tr('سند قبض (وارد)', 'Receipt Voucher (Incoming)')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setVoucherType('PAYMENT')}
+                        className={`rounded-[1rem] px-3 py-3 text-xs font-black transition-all ${voucherType === 'PAYMENT'
+                            ? 'border border-rose-100 bg-white text-rose-600 shadow-[0_14px_26px_-22px_rgba(244,63,94,0.8)]'
+                            : 'text-slate-400'
+                            }`}
+                    >
+                        {tr('سند صرف (صادر)', 'Payment Voucher (Outgoing)')}
+                    </button>
                 </div>
+
+                <div className="mt-3 flex flex-col gap-2 min-[430px]:flex-row">
+                    <div className="min-w-0 flex-1">
+                        <SearchableContactSelect
+                            contacts={filteredContacts}
+                            selectedId={contactId}
+                            selectedLabel={selectedContactLabel}
+                            onSelect={setContactId}
+                            onCreateNew={(nextName) => {
+                                setQuickContactInitialName(nextName);
+                                setShowQuickContact(true);
+                            }}
+                            displayContactName={displayContactName}
+                            placeholder={tr('اختر الطرف أو ابحث بالاسم أو الجوال...', 'Select or search by name or phone...')}
+                            emptyLabel={tr('لا يوجد طرف مطابق.', 'No matching contact found.')}
+                            createNewLabel={tr('إضافة طرف جديد', 'Add New Contact')}
+                            onActionClick={(nextName) => {
+                                setQuickContactInitialName(nextName || '');
+                                setShowQuickContact(true);
+                            }}
+                            actionIcon={<UserPlus size={16} />}
+                            actionLabel={tr('إضافة طرف جديد', 'Add New Contact')}
+                            actionButtonClassName="text-blue-500 hover:text-blue-600"
+                            isEnglish={isEnglish}
+                            inputClassName={`${voucherPrimaryInputClass} !py-3`}
+                        />
+                    </div>
+
+                    <div className="relative min-w-0 flex-1">
+                        <TextQuote
+                            size={16}
+                            className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-300 ${isEnglish ? 'left-4' : 'right-4'}`}
+                        />
+                        <input
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                            placeholder={tr('البيان / ملاحظات السند...', 'Voucher description / notes...')}
+                            className={`${voucherPrimaryInputClass} ${isEnglish ? 'pl-4 pr-11' : 'pr-4 pl-11'}`}
+                        />
+                    </div>
+                </div>
+
+                {selectedContact?.type === 'PARTNER' && (
+                    <div className={`mt-3 rounded-[1.15rem] border p-3 text-[11px] font-black ${selectedCounterAccountId ? 'border-blue-100 bg-blue-50/80 text-blue-700' : 'border-rose-100 bg-rose-50/80 text-rose-700'}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>{tr('حساب جاري الشريك', 'Partner current account')}</span>
+                            <span className="dir-ltr">{selectedCounterAccount ? displayAccountName(selectedCounterAccount) : tr('غير مربوط', 'Not linked')}</span>
+                        </div>
+                        <div className="mt-1 leading-5">
+                            {voucherType === 'PAYMENT'
+                                ? tr('عند الصرف: يتم ترحيل المبلغ على جاري الشريك مباشرة.', 'On payment: amount is posted directly to partner current.')
+                                : tr('عند القبض: يتم إضافة المبلغ إلى جاري الشريك مباشرة.', 'On receipt: amount is added directly to partner current.')}
+                        </div>
+                        {!selectedCounterAccountId && (
+                            <div className="mt-1 leading-5">
+                                {tr('يرجى ربط الشريك بحسابه الجاري من الدليل أولاً.', 'Please link this partner to current account from Directory first.')}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {voucherInvoiceAllocationEnabled && contactId && allocationRows.length > 0 && (
-                <div className="bg-white p-3 rounded-xl shadow-sm border border-blue-100 space-y-3">
+                <div className="rounded-[1.45rem] border border-blue-100 bg-white px-3 py-3 shadow-[0_18px_38px_-32px_rgba(59,130,246,0.28)] space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <h3 className="font-black text-sm text-slate-700">{tr('تخصيص السداد على الفواتير', 'Allocate payment to invoices')}</h3>
@@ -3547,93 +3593,114 @@ const VoucherScreen: React.FC<{
             )}
 
             {/* Cash Lines */}
-            <div className="space-y-3">
-                <div className="flex flex-wrap justify-between items-center gap-2 px-2">
-                    <h3 className="font-black text-gray-600 text-sm">{tr('المدفوعات النقدية / التحويل', 'Cash / Transfer Lines')}</h3>
-                    <button onClick={addCashLine} className="text-xs bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100 transition-colors">{tr('+ إضافة', '+ Add')}</button>
+            <div className={voucherSectionClass}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className={voucherSectionTitleClass}>{tr('المدفوعات النقدية / التحويل', 'Cash / Transfer Lines')}</h3>
+                    <button type="button" onClick={addCashLine} className={cashSectionActionClass}>
+                        {tr('+ إضافة', '+ Add')}
+                    </button>
                 </div>
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                    <div className="hidden lg:grid lg:grid-cols-[3rem_minmax(0,2fr)_minmax(0,1fr)_3rem] gap-2 border-b border-slate-200 bg-slate-50">
-                        <div className={`${sheetHeaderClass} text-center`}>#</div>
-                        <div className={sheetHeaderClass}>{tr('الحساب المالي', 'Cash / Bank')}</div>
-                        <div className={`${sheetHeaderClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
-                        <div className={`${sheetHeaderClass} text-center`}>{tr('حذف', 'Delete')}</div>
-                    </div>
-                    <div className="divide-y divide-slate-200">
+
+                {cashLines.length > 0 ? (
+                    <div className="mt-3 space-y-2.5">
                         {cashLines.map((line, idx) => (
-                            <div key={line.id} className="transaction-line-card voucher-line-grid grid grid-cols-2 gap-2 p-3 lg:grid-cols-[3rem_minmax(0,2fr)_minmax(0,1fr)_3rem] lg:items-center animate-in slide-in-from-right-2">
-                                <div className={`${sheetIndexClass} hidden lg:flex`}>{idx + 1}</div>
-                                <select value={line.accountId} onChange={e => updateCashLine(line.id, 'accountId', e.target.value)} className={sheetInputClass}>
-                                    <option value="">{tr('الصندوق / البنك', 'Cash / Bank')}</option>
-                                    {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
-                                </select>
-                                <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCashLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr font-black`} />
-                                <button onClick={() => removeLine('CASH', line.id)} className="col-span-2 lg:col-span-1 inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-500 transition hover:bg-rose-100"><Trash2 size={15} /></button>
+                            <div key={line.id} className="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-2.5 shadow-[0_14px_28px_-28px_rgba(15,23,42,0.35)] animate-in slide-in-from-right-2">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                    <span className={sheetIndexClass}>{tr(`بند ${idx + 1}`, `Line ${idx + 1}`)}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => removeLine('CASH', line.id)}
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-[0.95rem] border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100"
+                                        aria-label={tr('حذف السطر', 'Delete line')}
+                                    >
+                                        <Trash2 size={15} />
+                                    </button>
+                                </div>
+
+                                <div className="grid gap-2 min-[430px]:grid-cols-[minmax(0,1.3fr)_minmax(0,0.85fr)]">
+                                    <div className="min-w-0">
+                                        <div className={checkFieldLabelClass}>{tr('الحساب المالي', 'Cash / Bank')}</div>
+                                        <select
+                                            value={line.accountId}
+                                            onChange={e => updateCashLine(line.id, 'accountId', e.target.value)}
+                                            className={`${sheetInputClass} ${isEnglish ? 'text-left' : 'text-right'}`}
+                                        >
+                                            <option value="">{tr('الصندوق / البنك', 'Cash / Bank')}</option>
+                                            {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="min-w-0">
+                                        <div className={`${checkFieldLabelClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            placeholder={tr('المبلغ', 'Amount')}
+                                            value={line.amount}
+                                            onChange={e => updateCashLine(line.id, 'amount', e.target.value)}
+                                            onBlur={e => notifyAmountAdded(e.target.value)}
+                                            className={`${sheetInputClass} text-center dir-ltr`}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>
-                </div>
+                ) : (
+                    <div className="mt-3 h-px bg-slate-200/80" />
+                )}
             </div>
             {/* Check Lines */}
-            <div className="space-y-3">
-                <div className="flex flex-wrap justify-between items-center gap-2 px-2">
-                    <h3 className="font-black text-gray-600 text-sm">{tr('الشيكات والأوراق المالية', 'Checks and Instruments')}</h3>
+            <div className={voucherSectionClass}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className={voucherSectionTitleClass}>{tr('الشيكات والأوراق المالية', 'Checks and Instruments')}</h3>
                     <div className="flex flex-wrap gap-2">
                         {voucherType === 'PAYMENT' && (
-                            <button onClick={() => setShowEndorseSelect(true)} className="text-[10px] bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg font-bold hover:bg-purple-100 transition-colors flex items-center gap-1">
+                            <button type="button" onClick={() => setShowEndorseSelect(true)} className={endorseActionClass}>
                                 <ArrowRightLeft size={12} /> {tr('تجيير شيك', 'Endorse Check')}
                             </button>
                         )}
-                        <button onClick={addCheckLine} className="text-[10px] bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold hover:bg-indigo-100 transition-colors">{tr('+ شيك جديد', '+ New Check')}</button>
+                        <button type="button" onClick={addCheckLine} className={checkSectionActionClass}>
+                            {tr('+ شيك جديد', '+ New Check')}
+                        </button>
                     </div>
                 </div>
 
-                {/* Check Endorsement Selector */}
                 {showEndorseSelect && (
-                    <div className="bg-white p-4 rounded-3xl border border-purple-100 shadow-lg animate-in fade-in">
-                        <div className="flex justify-between items-center mb-3">
-                            <h4 className="text-xs font-black text-purple-800">{tr('اختر شيك للتجيير (موجود بالصندوق)', 'Select check to endorse (in vault)')}</h4>
-                            <button onClick={() => setShowEndorseSelect(false)} className="text-gray-400"><X size={16} /></button>
+                    <div className="mt-3 rounded-[1.3rem] border border-violet-100 bg-violet-50/60 p-4 shadow-[0_18px_34px_-28px_rgba(139,92,246,0.42)] animate-in fade-in">
+                        <div className="mb-3 flex items-center justify-between">
+                            <h4 className="text-xs font-black text-violet-800">{tr('اختر شيك للتجيير (موجود بالصندوق)', 'Select check to endorse (in vault)')}</h4>
+                            <button type="button" onClick={() => setShowEndorseSelect(false)} className="text-violet-400 hover:text-violet-600"><X size={16} /></button>
                         </div>
                         {availableChecks.length > 0 ? (
                             <div className="space-y-2">
                                 {availableChecks.map(c => (
-                                    <div key={c.id} onClick={() => addEndorsedCheckLine(c)} className="p-3 bg-purple-50/50 rounded-xl border border-purple-50 cursor-pointer hover:bg-purple-100 transition-colors flex justify-between items-center gap-2 min-w-0">
+                                    <div key={c.id} onClick={() => addEndorsedCheckLine(c)} className="flex min-w-0 items-center justify-between gap-2 rounded-[1.1rem] border border-violet-100 bg-white p-3 transition-colors hover:bg-violet-100/70">
                                         <div className="min-w-0">
-                                            <div className="font-bold text-xs text-gray-700 truncate">#{c.checkNumber} - {displayBankName(c.bankName, c.bankAccountId)}</div>
-                                            <div className="text-[9px] text-gray-400">{tr('استحقاق', 'Due')}: {c.dueDate}</div>
+                                            <div className="truncate text-xs font-bold text-slate-700">#{c.checkNumber} - {displayBankName(c.bankName, c.bankAccountId)}</div>
+                                            <div className="text-[9px] text-slate-400">{tr('استحقاق', 'Due')}: {c.dueDate}</div>
                                         </div>
-                                        <div className="font-black text-purple-600 dir-ltr shrink-0">{c.amount.toLocaleString()}</div>
+                                        <div className="shrink-0 font-black text-violet-600 dir-ltr">{c.amount.toLocaleString()}</div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-center py-4 text-[10px] text-gray-400 font-bold">{tr('لا توجد شيكات واردة متاحة للتجيير', 'No incoming checks available for endorsement')}</div>
+                            <div className="py-4 text-center text-[10px] font-bold text-slate-400">{tr('لا توجد شيكات واردة متاحة للتجيير', 'No incoming checks available for endorsement')}</div>
                         )}
                     </div>
                 )}
 
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                    <div className="hidden xl:grid xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] gap-2 border-b border-slate-200 bg-slate-50">
-                        <div className={`${sheetHeaderClass} text-center`}>#</div>
-                        <div className={sheetHeaderClass}>{tr('رقم الشيك', 'Check no.')}</div>
-                        <div className={sheetHeaderClass}>{tr('البنك', 'Bank')}</div>
-                        <div className={sheetHeaderClass}>{tr('رقم الحساب', 'Account #')}</div>
-                        <div className={`${sheetHeaderClass} text-center`}>{tr('الاستحقاق', 'Due')}</div>
-                        <div className={`${sheetHeaderClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
-                        <div className={`${sheetHeaderClass} text-center`}>{tr('حذف', 'Delete')}</div>
-                    </div>
-                    <div className="divide-y divide-slate-200">
+                {checkLines.length > 0 ? (
+                    <div className="mt-3 space-y-3">
                         {checkLines.map((line, idx) => (
-                            <div key={line.id} className={`transaction-line-card p-3 space-y-3 animate-in slide-in-from-right-2 ${line.isEndorsed ? 'bg-purple-50/20' : 'bg-white'}`}>
-                                {line.isEndorsed && (
-                                    <div className="inline-flex rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-[10px] font-black text-purple-700">
-                                        {tr('شيك مجيّر', 'Endorsed Check')}
-                                    </div>
-                                )}
+                            <div key={line.id} className={`rounded-[1.35rem] border p-3 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.35)] animate-in slide-in-from-right-2 ${line.isEndorsed ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-slate-50/80'}`}>
+                                <div className="mb-3 flex items-center justify-between gap-2">
+                                    <span className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black ${line.isEndorsed ? 'bg-violet-100 text-violet-700' : 'bg-white text-slate-400 shadow-sm'}`}>
+                                        {line.isEndorsed ? tr('شيك مجيّر', 'Endorsed Check') : tr(`شيك ${idx + 1}`, `Check ${idx + 1}`)}
+                                    </span>
+                                </div>
 
-                                <div className="grid check-line-grid grid-cols-2 gap-2 xl:grid-cols-[3rem_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_3rem] xl:items-center">
-                                    <div className={`${sheetIndexClass} hidden xl:flex`}>{idx + 1}</div>
+                                <div className="grid gap-2 min-[430px]:grid-cols-3">
                                     <div className={checkFieldWrapClass}>
                                         <div className={checkFieldLabelClass}>{tr('رقم الشيك', 'Check Number')}</div>
                                         <div className={checkFieldControlClass}>
@@ -3645,12 +3712,8 @@ const VoucherScreen: React.FC<{
                                         <div className={checkFieldLabelClass}>{tr('البنك', 'Bank')}</div>
                                         <div className={checkFieldControlClass}>
                                             {voucherType === 'PAYMENT' && !line.isEndorsed ? (
-                                                <select
-                                                    value={line.bankAccountId || ''}
-                                                    onChange={e => updateCheckLine(line.id, 'bankAccountId', e.target.value)}
-                                                    className={sheetInputClass}
-                                                >
-                                                    <option value="">{tr('-- اختر البنك المسحوب عليه --', '-- Select Drawn Bank --')}</option>
+                                                <select value={line.bankAccountId || ''} onChange={e => updateCheckLine(line.id, 'bankAccountId', e.target.value)} className={`${sheetInputClass} ${isEnglish ? 'text-left' : 'text-right'}`}>
+                                                    <option value="">{tr('اسم البنك أو رقم البنك', 'Bank name or code')}</option>
                                                     {bankAccounts.map(acc => (
                                                         <option key={acc.id} value={acc.id}>{displayAccountName(acc)}</option>
                                                     ))}
@@ -3667,6 +3730,9 @@ const VoucherScreen: React.FC<{
                                             <input placeholder={tr('رقم الحساب', 'Account Number')} value={line.accountNumber || ''} onChange={e => updateCheckLine(line.id, 'accountNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
                                         </div>
                                     </div>
+                                </div>
+
+                                <div className="mt-2 grid gap-2 min-[430px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_4.5rem]">
                                     <div className={checkFieldWrapClass}>
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('الاستحقاق', 'Due')}</div>
                                         <div className={checkFieldControlClass}>
@@ -3680,85 +3746,79 @@ const VoucherScreen: React.FC<{
                                             />
                                         </div>
                                     </div>
+
                                     <div className={checkFieldWrapClass}>
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
                                         <div className={checkFieldControlClass}>
-                                            <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCheckLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr font-black`} disabled={line.isEndorsed} />
+                                            <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCheckLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr`} disabled={line.isEndorsed} />
                                         </div>
                                     </div>
-                                    <div className={`${checkFieldWrapClass} w-fit justify-self-center p-1.5 xl:col-auto xl:w-auto xl:justify-self-auto`}>
+
+                                    <div className={checkFieldWrapClass}>
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('حذف', 'Delete')}</div>
-                                        <div className="flex justify-center xl:justify-stretch">
-                                            <button
-                                                onClick={() => removeLine('CHECK', line.id)}
-                                                aria-label={tr('حذف السطر', 'Delete line')}
-                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100 xl:h-[38px] xl:w-full"
-                                            >
+                                        <div className={checkFieldControlClass}>
+                                            <button type="button" onClick={() => removeLine('CHECK', line.id)} aria-label={tr('حذف السطر', 'Delete line')} className="inline-flex h-12 w-full items-center justify-center rounded-[1rem] border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100">
                                                 <Trash2 size={15} />
                                             </button>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="space-y-2">
-                                    <div className="text-[10px] text-gray-400 font-black">{tr('إرفاق صور الشيك (حتى صورتين)', 'Attach check images (up to 2)')}</div>
-                                    <div className="grid grid-cols-2 gap-2">
+                                <div className="mt-3 space-y-2">
+                                    <div className="text-[11px] font-black text-slate-500">{tr('إرفاق صور الشيك (حتى صورتين)', 'Attach check images (up to 2)')}</div>
+                                    <div className="grid gap-2 min-[430px]:grid-cols-2">
                                         {[0, 1].map((slotIndex) => {
                                             const imageValue = line.imageUrls?.[slotIndex] || '';
                                             return (
-                                                <div key={`${line.id}-img-${slotIndex}`} className="bg-gray-50 border border-gray-100 rounded-2xl p-1.5 space-y-1.5">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-black text-gray-500">
-                                                            {tr(`صورة ${slotIndex + 1}`, `Image ${slotIndex + 1}`)}
-                                                        </span>
-                                                        {imageValue && (
-                                                            <a
-                                                                href={imageValue}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="text-[10px] font-black px-2 py-1 rounded-lg border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                                                            >
-                                                                {tr('عرض', 'View')}
-                                                            </a>
-                                                        )}
+                                                <div key={`${line.id}-img-${slotIndex}`} className="rounded-[1rem] border border-slate-200 bg-white p-2 shadow-[0_10px_22px_-24px_rgba(15,23,42,0.18)]">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-[10px] font-black text-slate-500">{tr(`صورة ${slotIndex + 1}`, `Image ${slotIndex + 1}`)}</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            {imageValue && (
+                                                                <a href={imageValue} target="_blank" rel="noreferrer" className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-black text-blue-600 transition-colors hover:bg-blue-100">
+                                                                    {tr('عرض', 'View')}
+                                                                </a>
+                                                            )}
+                                                            <label className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-black transition-colors ${line.isEndorsed ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400' : 'cursor-pointer border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
+                                                                <Upload size={11} />
+                                                                {imageValue ? tr('تغيير', 'Replace') : tr('إضافة', 'Add')}
+                                                                <input
+                                                                    type="file"
+                                                                    accept="image/*"
+                                                                    className="hidden"
+                                                                    disabled={line.isEndorsed}
+                                                                    onChange={async (event) => {
+                                                                        const file = event.target.files?.[0];
+                                                                        await handleSelectCheckImage(line.id, slotIndex, file);
+                                                                        event.currentTarget.value = '';
+                                                                    }}
+                                                                />
+                                                            </label>
+                                                        </div>
                                                     </div>
-                                                    <div className="h-14 rounded-xl bg-white border border-gray-100 overflow-hidden flex items-center justify-center sm:h-16">
-                                                        {imageValue ? (
-                                                            <img
-                                                                src={imageValue}
-                                                                alt={tr(`صورة الشيك ${slotIndex + 1}`, `Check image ${slotIndex + 1}`)}
-                                                                className="w-full h-full object-cover"
-                                                            />
-                                                        ) : (
-                                                            <span className="text-[10px] font-bold text-gray-300">{tr('لا توجد صورة', 'No image')}</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex flex-wrap items-center gap-1.5">
-                                                        <label className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black border transition-colors ${line.isEndorsed ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-indigo-50 text-indigo-600 border-indigo-100 cursor-pointer hover:bg-indigo-100'}`}>
-                                                            <Upload size={11} />
-                                                            {imageValue ? tr('تغيير', 'Replace') : tr('إضافة', 'Add')}
-                                                            <input
-                                                                type="file"
-                                                                accept="image/*"
-                                                                className="hidden"
-                                                                disabled={line.isEndorsed}
-                                                                onChange={async (event) => {
-                                                                    const file = event.target.files?.[0];
-                                                                    await handleSelectCheckImage(line.id, slotIndex, file);
-                                                                    event.currentTarget.value = '';
-                                                                }}
-                                                            />
-                                                        </label>
-                                                        {imageValue && !line.isEndorsed && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => clearCheckImage(line.id, slotIndex)}
-                                                                className="text-[10px] font-black px-2 py-1 rounded-lg border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors"
-                                                            >
+
+                                                    {imageValue ? (
+                                                        <a
+                                                            href={imageValue}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="mt-2 flex h-10 items-center justify-center rounded-[0.9rem] border border-slate-200 bg-slate-50 text-[10px] font-black text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50/70"
+                                                        >
+                                                            {tr('اضغط لعرض الصورة', 'Tap to view image')}
+                                                        </a>
+                                                    ) : (
+                                                        <div className="mt-2 flex h-10 items-center justify-center rounded-[0.9rem] border border-slate-100 bg-slate-50/60 text-[10px] font-bold text-slate-300">
+                                                            {tr('لا توجد صورة', 'No image')}
+                                                        </div>
+                                                    )}
+
+                                                    {imageValue && !line.isEndorsed && (
+                                                        <div className="mt-1.5 flex justify-end">
+                                                            <button type="button" onClick={() => clearCheckImage(line.id, slotIndex)} className="rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600 transition-colors hover:bg-rose-100">
                                                                 {tr('حذف', 'Remove')}
                                                             </button>
-                                                        )}
-                                                    </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             );
                                         })}
@@ -3767,17 +3827,19 @@ const VoucherScreen: React.FC<{
                             </div>
                         ))}
                     </div>
-                </div>
+                ) : (
+                    <div className="mt-3 h-px bg-slate-200/80" />
+                )}
             </div>
-            {/* Sticky Total - FIXED: Use totalAmount instead of totals */}
-            <div
-                className="bg-slate-900/98 backdrop-blur p-3 rounded-xl text-white shadow-lg mx-auto z-30 border border-white/5"
-            >
-                <div className="flex justify-between items-center mb-4 text-xs font-bold">
-                    <span className="text-gray-400 uppercase tracking-widest">{tr('إجمالي السند', 'Voucher Total')}</span>
-                    <span className="text-2xl sm:text-3xl font-black text-white dir-ltr">{totalAmount.toLocaleString()}</span>
+            <div className="invoice-submit-panel layout-footer z-20 rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-[0_22px_48px_-34px_rgba(15,23,42,0.42)]">
+                <div className="mb-3 flex items-end justify-between gap-3 rounded-[1.15rem] border border-slate-100 bg-slate-50/70 px-3 py-3">
+                    <div>
+                        <div className="text-[11px] font-black text-slate-400">{tr('إجمالي السند', 'Voucher Total')}</div>
+                        <div className="mt-1 text-[10px] font-bold text-slate-300 dir-ltr">{voucherCurrency}</div>
+                    </div>
+                    <span className="text-[2rem] font-black leading-none text-slate-800 dir-ltr">{totalAmountDisplay}</span>
                 </div>
-                <button onClick={handleSubmit} className="w-full bg-blue-600 hover:bg-blue-500 min-h-[54px] sm:min-h-[58px] py-3 rounded-2xl font-black text-base shadow-lg active:scale-[0.99] transition-all">
+                <button type="button" onClick={handleSubmit} className="w-full rounded-[1.2rem] bg-[#2f63f2] py-4 font-black text-white shadow-[0_18px_32px_-18px_rgba(47,99,242,0.88)] transition-all hover:bg-[#2557ea] active:scale-[0.99]">
                     {initialVoucherId ? tr('تحديث وترحيل السند', 'Update & Post Voucher') : tr('ترحيل السند', 'Post Voucher')}
                 </button>
             </div>
@@ -4783,6 +4845,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         [initialVoucherId, transactions]
     );
     const isEditing = Boolean(editingInvoice || editingVoucherLead);
+    const [currentVoucherType, setCurrentVoucherType] = useState<'RECEIPT' | 'PAYMENT'>(initialVoucherType || 'RECEIPT');
     const getRateForCurrency = (code: string) => {
         if (code === baseCurrency) return 1;
         return currencies.find(c => c.code === code)?.rate || 1;
@@ -4825,6 +4888,14 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         }
     }, [editingInvoice, editingVoucherLead, baseCurrency]);
 
+    useEffect(() => {
+        if (editingVoucherLead) {
+            setCurrentVoucherType(editingVoucherLead.type === TransactionType.EXPENSE ? 'PAYMENT' : 'RECEIPT');
+            return;
+        }
+        setCurrentVoucherType(initialVoucherType || 'RECEIPT');
+    }, [editingVoucherLead, initialVoucherType]);
+
     const screenTitle = useMemo(() => {
         const baseTitle = (() => {
         switch (mode) {
@@ -4836,7 +4907,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
             case 'MANUAL_PURCHASE': return tr('مشتريات يدوية', 'Manual Purchase');
             case 'EXPENSES': return tr('سند مصروف', 'Expense Voucher');
             case 'VOUCHERS':
-                return initialVoucherType === 'PAYMENT'
+                return currentVoucherType === 'PAYMENT'
                     ? tr('سند صرف', 'Payment Voucher')
                     : tr('سند قبض', 'Receipt Voucher');
             case 'IMPORT_EXPENSES': return tr('مصاريف استيراد', 'Import Expenses');
@@ -4845,7 +4916,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         }
         })();
         return isEditing ? `${tr('تعديل', 'Edit')} ${baseTitle}` : baseTitle;
-    }, [mode, initialVoucherType, isEnglish, isEditing]);
+    }, [mode, currentVoucherType, isEnglish, isEditing]);
 
     const handleFlowSuccess = () => {
         setMode(initialMode);
@@ -4969,6 +5040,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     onSuccess={handleFlowSuccess}
                     initialVoucherId={initialVoucherId}
                     outerHeaderActionsContainer={outerHeaderActionsContainer}
+                    onVoucherTypeChange={setCurrentVoucherType}
                 />
             ) : (
                 <InvoiceScreen

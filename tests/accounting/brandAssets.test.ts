@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_BRAND_LOGO_URL, DEFAULT_BRAND_MARK_URL, normalizeBrandLogoUrl } from '../../utils/brandAssets';
 
 describe('brand assets normalization', () => {
-  it('maps legacy svg brand paths to the new png assets', () => {
+  it('maps legacy brand paths to the current bundled assets', () => {
+    expect(normalizeBrandLogoUrl('/brand/aiflex-erp-logo.png', DEFAULT_BRAND_LOGO_URL)).toBe(DEFAULT_BRAND_LOGO_URL);
     expect(normalizeBrandLogoUrl('/brand/aiflex-erp-logo.svg', DEFAULT_BRAND_LOGO_URL)).toBe(DEFAULT_BRAND_LOGO_URL);
     expect(normalizeBrandLogoUrl('/brand/aiflex-erp-mark.svg')).toBe(DEFAULT_BRAND_MARK_URL);
   });

@@ -12,7 +12,7 @@ import {
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadTextFile, exportElementAsCsv } from '../utils/documentExport';
+import { buildElementPdfFile, downloadBlobFile, downloadTextFile, exportElementAsCsv, settleElementBeforeSnapshot } from '../utils/documentExport';
 
 const Directory: React.FC = () => {
     const { contacts, addContact, updateContact, deleteContact, transactions, invoices, baseCurrency, companySettings, products, accounts, checks } = useAccounting();
@@ -36,6 +36,7 @@ const Directory: React.FC = () => {
     const [newLinkedAccountId, setNewLinkedAccountId] = useState('');
     const statementExportRef = useRef<HTMLDivElement | null>(null);
     const statementContentRef = useRef<HTMLDivElement | null>(null);
+    const settleStatementSnapshot = () => settleElementBeforeSnapshot(statementExportRef.current);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const printPersonalData = companySettings.printPersonalData ?? true;
@@ -617,6 +618,7 @@ const Directory: React.FC = () => {
         `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.pdf`;
 
     const handleShareStatementWhatsApp = async (contact: Contact, closingBalance: number) => {
+        await settleStatementSnapshot();
         const pdfFile = await buildElementPdfFile(statementExportRef.current, {
             title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
             fileName: buildStatementPdfName(contact),
@@ -661,7 +663,8 @@ const Directory: React.FC = () => {
         );
     };
 
-    const handlePrintStatement = (contact: Contact) => {
+    const handlePrintStatement = async (contact: Contact) => {
+        await settleStatementSnapshot();
         const printWindow = window.open('', '_blank');
         if (!printWindow) {
             alert(tr('تعذر فتح نافذة كشف الحساب.', 'Could not open statement window.'));
@@ -673,7 +676,8 @@ const Directory: React.FC = () => {
         printWindow.focus();
     };
 
-    const downloadStatementSnapshot = (contact: Contact) => {
+    const downloadStatementSnapshot = async (contact: Contact) => {
+        await settleStatementSnapshot();
         downloadTextFile(
             buildStatementPrintHtml(contact, printCheckImagesInStatement),
             `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.html`,
@@ -681,7 +685,8 @@ const Directory: React.FC = () => {
         );
     };
 
-    const exportStatementExcel = (contact: Contact) => {
+    const exportStatementExcel = async (contact: Contact) => {
+        await settleStatementSnapshot();
         const success = exportElementAsCsv(
             statementContentRef.current,
             `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}`

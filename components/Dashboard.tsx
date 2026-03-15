@@ -31,6 +31,7 @@ import {
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
 import { SettingsMode } from './DefinitionsMenu';
+import { DEFAULT_BRAND_LOGO_URL } from '../utils/brandAssets';
 import { getDateLocale, getNumberLocale, translate } from '../utils/i18n';
 import { buildOperationalAlerts } from '../utils/operationalAlerts';
 
@@ -59,6 +60,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     numberingSystem: 'latn'
   }).format(today);
   const companyDisplayName = (companySettings.name || '').trim() || tr('الشركة', 'Company');
+
+  const normalizedHeaderLogoUrl = String(companySettings.logoUrl || '').trim();
+  const headerUsesProgramLogo = !normalizedHeaderLogoUrl || /\/brand\/aiflex-erp-(?:logo|mark)\.(?:png|svg)$/i.test(normalizedHeaderLogoUrl);
+  const headerLogoSrc = headerUsesProgramLogo ? DEFAULT_BRAND_LOGO_URL : normalizedHeaderLogoUrl;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(getNumberLocale(appLanguage), { minimumFractionDigits: 0 }).format(amount);
@@ -168,11 +173,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             <>
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  {companySettings.logoUrl ? (
+                  {headerLogoSrc ? (
                     <img
-                      src={companySettings.logoUrl}
+                      src={headerLogoSrc}
                       alt={tr('شعار الشركة', 'Company logo')}
-                      className="w-11 h-11 rounded-full object-contain bg-white p-1.5 border-2 border-white shadow-md"
+                      className={headerUsesProgramLogo
+                        ? 'h-11 w-24 sm:w-28 rounded-2xl object-contain bg-white px-2 py-1.5 border border-white shadow-md'
+                        : 'w-11 h-11 rounded-full object-contain bg-white p-1.5 border-2 border-white shadow-md'}
                     />
                   ) : (
                     <div className="w-11 h-11 rounded-full border-2 border-white shadow-md bg-slate-100 text-slate-600 flex items-center justify-center">

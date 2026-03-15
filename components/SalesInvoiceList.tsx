@@ -10,6 +10,7 @@ import { executeDeviceHubCommand } from '../utils/deviceHub';
 import { getSelectedThermalTemplate, getThermalTemplateCustomization } from '../utils/thermalPrintTemplates';
 import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
 import { getInvoiceTaxVisibility } from '../utils/companySettings';
+import { buildInvoiceItemBarcodeMarkup, INVOICE_ITEM_BARCODE_CSS } from '../utils/invoicePrintBarcodes';
 import { getInvoiceTaxModeDescription, isInvoiceTaxApplied, resolveInvoiceTaxMode } from '../utils/invoiceTax';
 import {
     Plus, Search, FileText, User, Calendar,
@@ -48,6 +49,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     const invoiceFooterNote = companySettings.invoiceFooterNote ?? '';
     const headerTopLines = companySettings.headerTopLines ?? 0;
     const printExpiryDate = companySettings.printExpiryDate ?? false;
+    const printItemBarcodeInInvoice = companySettings.printItemBarcodeInInvoice ?? false;
     const dottedNumbers = companySettings.dottedNumbers ?? false;
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayContactName = (contact?: { id: string; name: string } | null) =>
@@ -242,9 +244,12 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
             const itemLabel = product ? displayProductName(product) : item.description;
             const itemCode = product?.itemCode || product?.barcode || '-';
+            const itemBarcodeMarkup = printItemBarcodeInInvoice
+                ? buildInvoiceItemBarcodeMarkup(product?.barcode || product?.itemCode || '')
+                : '';
             return `
       <tr>
-        <td>${index + 1}</td><td dir="ltr">${itemCode}</td><td style="text-align: right;">${itemLabel} ${item.returned ? `<span style="color:red; font-size:10px">(${tr('مرتجع', 'Returned')})</span>` : ''}</td><td>${item.quantity}</td><td dir="ltr">${formatPrintNumber(item.unitPrice)}</td><td dir="ltr">${formatPrintNumber(item.total)}</td>
+        <td>${index + 1}</td><td dir="ltr">${itemCode}</td><td class="item-cell"><span class="item-cell-main">${itemLabel} ${item.returned ? `<span style="color:red; font-size:10px">(${tr('مرتجع', 'Returned')})</span>` : ''}</span>${itemBarcodeMarkup}</td><td>${item.quantity}</td><td dir="ltr">${formatPrintNumber(item.unitPrice)}</td><td dir="ltr">${formatPrintNumber(item.total)}</td>
       </tr>`;
         }).join('');
 
@@ -279,6 +284,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
             th { background: #3b82f6; color: white; padding: 12px; text-align: center; }
             td { padding: 12px; text-align: center; border-bottom: 1px solid #e2e8f0; }
+            ${INVOICE_ITEM_BARCODE_CSS}
           </style>
         </head>
         <body>
@@ -294,12 +300,13 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
       </html>`;
     };
 
-    const printInvoiceBrowser = (invoice: Invoice) => {
+    const printInvoiceBrowser = (invoice: Invoice): boolean => {
         const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
+        if (!printWindow) return false;
         const html = buildInvoicePrintHtml(invoice, true);
         printWindow.document.write(html);
         printWindow.document.close();
+        return true;
     };
 
     const buildThermalInvoicePayload = (invoice: Invoice) => {
@@ -384,6 +391,10 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     };
 
     const handlePrintInvoice = async (invoice: Invoice) => {
+        if (printItemBarcodeInInvoice && printInvoiceBrowser(invoice)) {
+            return;
+        }
+
         const thermal = await executeDeviceHubCommand({
             companyId: currentCompanyId,
             action: 'PRINT_RECEIPT',

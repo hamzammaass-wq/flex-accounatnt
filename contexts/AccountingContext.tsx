@@ -9,7 +9,7 @@ import {
   EmployeeLeaveRequest, EmployeeRecurringDeduction,
   BillOfMaterial, ProductionOrder, ProductionOrderStatus, MutationResult,
   PermissionAction, PermissionModule, PermissionMatrix, AuditLogEntry, BackupPayloadV1, UserRole,
-  CompanyMembership, CompanyProfile, CreateCompanyInput, ImportExpenseDistribution, InventoryValuationMethod, ProductFifoLayer
+  CloudCompanySubscription, CloudSubscriptionCode, CompanyMembership, CompanyProfile, CompanySubscriptionPlan, CompanySubscriptionStatus, CreateCompanyInput, ImportExpenseDistribution, InventoryValuationMethod, ProductFifoLayer, SubscriptionBillingCycle, SubscriptionCheckoutProvider, SubscriptionCheckoutResult, SubscriptionCodeIssueResult, SubscriptionDeviceBinding, SubscriptionProviderAvailability, WorkspaceSubscriptionAccount
   , InvoiceSettlement, FingerprintReaderDevice, FingerprintAttendanceBatch
 } from '../types';
 import { validateInvoiceInput, validateTransactionInput } from '../utils/validationRules';
@@ -20,9 +20,11 @@ import { buildProductPricingPatch } from '../utils/productPricing';
 import { isProfitLossAccount } from '../utils/fiscalYear';
 import { DEFAULT_BRAND_MARK_URL, normalizeBrandLogoUrl } from '../utils/brandAssets';
 import { detectPreferredAppLanguage, normalizeAppLanguage } from '../utils/i18n';
-import { normalizeCompanyDisplaySettings, normalizeInvoiceTaxSettings } from '../utils/companySettings';
+import { coerceCompanyBooleanSetting, normalizeCompanyDisplaySettings, normalizeInvoiceTaxSettings } from '../utils/companySettings';
+import { buildDefaultWorkspaceSubscription, getSubscriptionProviderAvailability, getWorkspaceEffectiveMaxCompanies, getWorkspaceRemainingCompanySlots, normalizeWorkspaceSubscription, prepareWorkspaceCheckout } from '../utils/subscriptionCommerce';
+import { buildCloudSubscriptionFromCompanyProfile, getCurrentSubscriptionDeviceBinding, getOrCreateSubscriptionDeviceId, isSubscriptionAdminEmail, normalizeCloudCompanySubscription, normalizeCloudSubscriptionCode } from '../utils/subscriptionCloud';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, limit as firestoreLimit } from 'firebase/firestore';
 import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
 
 // ... (Existing Interfaces)
@@ -98,9 +100,46 @@ interface AccountingContextType {
   currentCompanyId: string;
   currentCompany: CompanyProfile | null;
   trialDaysLeft: number;
+  companyAccessStatus: CompanySubscriptionStatus;
+  companyAccessDaysLeft: number;
+  companyAccessEndsAt?: string;
+  workspaceSubscription: WorkspaceSubscriptionAccount;
+  workspaceMaxCompanies: number;
+  workspaceRemainingCompanySlots: number;
+  workspaceCompanyLimitReached: boolean;
+  workspaceProviderAvailability: SubscriptionProviderAvailability;
   switchCompany: (companyId: string) => MutationResult;
   createCompany: (input: CreateCompanyInput) => Promise<MutationResult>;
+  updateWorkspaceSubscription: (updates: Partial<WorkspaceSubscriptionAccount>) => Promise<MutationResult>;
+  prepareSubscriptionCheckout: (
+    provider: SubscriptionCheckoutProvider,
+    billingCycle: SubscriptionBillingCycle,
+    desiredCompanyCount: number
+  ) => SubscriptionCheckoutResult;
   updateCompanyProfile: (companyId: string, updates: Partial<CompanyProfile>) => MutationResult;
+  updateCompanySubscription: (companyId: string, updates: Partial<CompanyProfile>) => Promise<MutationResult>;
+  activateCompanySubscription: (companyId: string, activationCode: string) => Promise<MutationResult>;
+  deviceBindingId: string;
+  cloudSubscription: CloudCompanySubscription | null;
+  subscriptionCloudBusy: boolean;
+  subscriptionCloudError: string;
+  subscriptionAdminEnabled: boolean;
+  subscriptionCodes: CloudSubscriptionCode[];
+  subscriptionCodesLoading: boolean;
+  subscriptionCompanies: CloudCompanySubscription[];
+  subscriptionCompaniesLoading: boolean;
+  issueSubscriptionCode: (input: {
+    plan: CompanySubscriptionPlan;
+    durationDays: number;
+    maxDevices: number;
+    expiresAt?: string;
+    notes?: string;
+    reservedCompanyId?: string;
+    reservedCompanyName?: string;
+  }) => Promise<SubscriptionCodeIssueResult>;
+  cancelSubscriptionCode: (code: string) => Promise<MutationResult>;
+  linkCurrentSubscriptionDevice: (companyId?: string) => Promise<MutationResult>;
+  unlinkSubscriptionDevice: (companyId: string, deviceId: string) => Promise<MutationResult>;
 
   transactions: Transaction[];
   addTransaction: (t: Omit<Transaction, 'id'>) => MutationResult;
@@ -336,15 +375,145 @@ const withNormalizedValuationSettings = (settings: CompanySettings): CompanySett
     googleDriveAutoUpload: Boolean(normalizedSettings.googleDriveAutoUpload),
     googleDriveClientId: String(normalizedSettings.googleDriveClientId || '').trim(),
     googleDriveFolderId: String(normalizedSettings.googleDriveFolderId || '').trim(),
+    printItemBarcodeInInvoice: coerceCompanyBooleanSetting(normalizedSettings.printItemBarcodeInInvoice, false),
     darkModeEnabled: Boolean(normalizedSettings.darkModeEnabled),
     language: normalizeAppLanguage(normalizedSettings.language)
   };
 };
 
-const withNormalizedCompanyProfile = (profile: CompanyProfile): CompanyProfile => ({
-  ...profile,
-  logoUrl: normalizeBrandLogoUrl(profile.logoUrl, DEFAULT_BRAND_MARK_URL)
-});
+const COMPANY_SUBSCRIPTION_STATUS_SET = new Set<CompanySubscriptionStatus>(['TRIAL', 'ACTIVE', 'EXPIRED', 'SUSPENDED']);
+const COMPANY_SUBSCRIPTION_PLAN_SET = new Set<CompanySubscriptionPlan>(['NONE', 'TRIAL', 'BASIC', 'PRO', 'ENTERPRISE']);
+const SUBSCRIPTION_RESTRICTED_ACTIONS = new Set<PermissionAction>(['ADD', 'EDIT', 'DELETE', 'POST', 'PRINT', 'REVERSE']);
+const ACTIVATION_CODE_CATALOG: Array<{ code: string; plan: CompanySubscriptionPlan; durationDays: number }> = [
+  { code: 'AIFLEX-BASIC-30', plan: 'BASIC', durationDays: 30 },
+  { code: 'AIFLEX-BASIC-90', plan: 'BASIC', durationDays: 90 },
+  { code: 'AIFLEX-PRO-90', plan: 'PRO', durationDays: 90 },
+  { code: 'AIFLEX-PRO-180', plan: 'PRO', durationDays: 180 },
+  { code: 'AIFLEX-ENTERPRISE-365', plan: 'ENTERPRISE', durationDays: 365 },
+  { code: 'AIFLEX-ENTERPRISE-730', plan: 'ENTERPRISE', durationDays: 730 }
+];
+
+const normalizeIsoDate = (value: unknown, fallbackIso: string): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return fallbackIso;
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : fallbackIso;
+};
+
+const normalizeOptionalIsoDate = (value: unknown): string | undefined => {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined;
+};
+
+const normalizeGraceDays = (value: unknown): number =>
+  Math.max(0, Math.min(30, Math.floor(Number(value) || 0)));
+
+const isSubscriptionAccessRestricted = (status: CompanySubscriptionStatus): boolean =>
+  status === 'EXPIRED' || status === 'SUSPENDED';
+
+const normalizeActivationCode = (value: unknown): string =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/[^A-Z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+const parseActivationCode = (value: unknown): { code: string; plan: CompanySubscriptionPlan; durationDays: number } | null => {
+  const normalized = normalizeActivationCode(value);
+  const match = ACTIVATION_CODE_CATALOG.find(item => item.code === normalized);
+  return match ? { ...match, code: normalized } : null;
+};
+
+function resolveCompanySubscriptionStatus(profile: Partial<CompanyProfile>): CompanySubscriptionStatus {
+  const now = Date.now();
+  const trialEndsAtMs = Date.parse(String(profile.trialEndsAt || ''));
+  const subscriptionEndsAtMs = Date.parse(String(profile.subscriptionEndsAt || ''));
+  const graceDays = normalizeGraceDays(profile.graceDays);
+  const subscriptionWindowEndsAtMs = Number.isFinite(subscriptionEndsAtMs)
+    ? subscriptionEndsAtMs + (graceDays * 24 * 60 * 60 * 1000)
+    : Number.NaN;
+  const explicitStatus = COMPANY_SUBSCRIPTION_STATUS_SET.has(profile.subscriptionStatus as CompanySubscriptionStatus)
+    ? profile.subscriptionStatus as CompanySubscriptionStatus
+    : null;
+
+  if (explicitStatus === 'SUSPENDED') return 'SUSPENDED';
+  if (explicitStatus === 'ACTIVE') {
+    return Number.isFinite(subscriptionWindowEndsAtMs) && subscriptionWindowEndsAtMs < now ? 'EXPIRED' : 'ACTIVE';
+  }
+  if (explicitStatus === 'TRIAL') {
+    return Number.isFinite(trialEndsAtMs) && trialEndsAtMs >= now ? 'TRIAL' : 'EXPIRED';
+  }
+  if (explicitStatus === 'EXPIRED') return 'EXPIRED';
+
+  if (Number.isFinite(subscriptionWindowEndsAtMs) && subscriptionWindowEndsAtMs >= now) return 'ACTIVE';
+  if (Number.isFinite(trialEndsAtMs) && trialEndsAtMs >= now) return 'TRIAL';
+  return 'EXPIRED';
+}
+
+function resolveCompanySubscriptionPlan(
+  profile: Partial<CompanyProfile>,
+  subscriptionStatus: CompanySubscriptionStatus
+): CompanySubscriptionPlan {
+  const explicitPlan = COMPANY_SUBSCRIPTION_PLAN_SET.has(profile.subscriptionPlan as CompanySubscriptionPlan)
+    ? profile.subscriptionPlan as CompanySubscriptionPlan
+    : null;
+
+  if (explicitPlan) {
+    if (subscriptionStatus === 'TRIAL') return explicitPlan === 'NONE' ? 'TRIAL' : explicitPlan;
+    return explicitPlan;
+  }
+
+  if (subscriptionStatus === 'TRIAL') return 'TRIAL';
+  if (subscriptionStatus === 'ACTIVE') return 'BASIC';
+  return 'NONE';
+}
+
+function resolveCompanyAccessEndsAt(
+  profile: Pick<CompanyProfile, 'subscriptionStatus' | 'trialEndsAt' | 'subscriptionEndsAt' | 'graceDays'>
+): string | undefined {
+  if (profile.subscriptionStatus === 'ACTIVE') {
+    if (!profile.subscriptionEndsAt) return undefined;
+    const graceDays = normalizeGraceDays(profile.graceDays);
+    return graceDays > 0 ? addDaysIso(profile.subscriptionEndsAt, graceDays) : profile.subscriptionEndsAt;
+  }
+  if (profile.subscriptionStatus === 'TRIAL') return profile.trialEndsAt || undefined;
+  return undefined;
+}
+
+function resolveDaysLeft(dateIso?: string | null): number {
+  if (!dateIso) return 0;
+  const ms = new Date(dateIso).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return 0;
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+}
+
+const withNormalizedCompanyProfile = (profile: CompanyProfile): CompanyProfile => {
+  const createdAt = normalizeIsoDate(profile.createdAt, new Date().toISOString());
+  const trialEndsAt = normalizeIsoDate(
+    profile.trialEndsAt,
+    new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString()
+  );
+  const subscriptionStatus = resolveCompanySubscriptionStatus({ ...profile, createdAt, trialEndsAt });
+  const graceDays = normalizeGraceDays(profile.graceDays);
+
+  return {
+    ...profile,
+    createdAt,
+    trialEndsAt,
+    subscriptionStatus,
+    subscriptionPlan: resolveCompanySubscriptionPlan(profile, subscriptionStatus),
+    subscriptionStartsAt: normalizeOptionalIsoDate(profile.subscriptionStartsAt)
+      || (subscriptionStatus === 'TRIAL' ? createdAt : undefined),
+    subscriptionEndsAt: normalizeOptionalIsoDate(profile.subscriptionEndsAt),
+    activationCode: String(profile.activationCode || '').trim() || undefined,
+    graceDays,
+    logoUrl: normalizeBrandLogoUrl(profile.logoUrl, DEFAULT_BRAND_MARK_URL)
+  };
+};
 
 const sanitizeFifoLayers = (layers: ProductFifoLayer[] | undefined): ProductFifoLayer[] => (
   Array.isArray(layers)
@@ -641,7 +810,8 @@ const selectCurrentMembership = (
 const STORAGE_KEYS = {
   currentUser: 'al_mohaseb_user',
   companies: 'al_mohaseb_companies',
-  currentCompany: 'al_mohaseb_current_company'
+  currentCompany: 'al_mohaseb_current_company',
+  workspaceSubscription: 'al_mohaseb_workspace_subscription'
 } as const;
 
 const GUEST_USER_ID = 'guest_user';
@@ -666,10 +836,15 @@ const RESET_ALL_QUERY_PARAM = 'resetAllData';
 const RESET_SIGNAL_KEY = 'al_mohaseb_reset_signal';
 const FORCE_EMPTY_BOOTSTRAP_KEY = 'al_mohaseb_force_empty_bootstrap';
 const SIGNUP_TRIAL_SELECTION_KEY = 'al_mohaseb_signup_trial_selection_days';
+const SIGNUP_COMPANY_NAME_KEY = 'al_mohaseb_signup_company_name';
 const BACKUP_HISTORY_KEY_PREFIX = 'al_mohaseb_backup_history_';
 const WORKSPACE_SYNC_QUEUE_KEY = 'al_mohaseb_workspace_sync_queue_v1';
 const LAST_WORKSPACE_SYNC_AT_KEY = 'al_mohaseb_workspace_last_sync_at';
 const WORKSPACE_SYNC_COLLECTION = 'workspace_sync_snapshots';
+const COMPANY_SUBSCRIPTIONS_COLLECTION = 'company_subscriptions';
+const WORKSPACE_SUBSCRIPTIONS_COLLECTION = 'workspace_subscriptions';
+const SUBSCRIPTION_CODES_COLLECTION = 'subscription_activation_codes';
+const SUBSCRIPTION_ADMINS_COLLECTION = 'subscription_admins';
 const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
 const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -785,6 +960,17 @@ const consumePendingSignupTrialSelectionDays = (): number | null => {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return null;
     return Math.max(0, Math.min(365, Math.floor(parsed)));
+  } catch {
+    return null;
+  }
+};
+
+const consumePendingSignupCompanyName = (): string | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = String(localStorage.getItem(SIGNUP_COMPANY_NAME_KEY) || '').trim();
+    localStorage.removeItem(SIGNUP_COMPANY_NAME_KEY);
+    return raw || null;
   } catch {
     return null;
   }
@@ -1010,7 +1196,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     };
   }, []);
 
-  const [baseCurrency, setBaseCurrency] = useState('ILS');
+  const [baseCurrency, setBaseCurrencyState] = useState('ILS');
 
   const initialAccounts: Account[] = [
     // 1 - ASSETS
@@ -2030,6 +2216,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     autoFiscalYearOpeningEntries: true,
     printPersonalData: true,
     printElectronicInvoice: true,
+    printItemBarcodeInInvoice: false,
     printStatementAllCurrencies: false,
     statementDateAscending: true,
     statementFooterNote: '',
@@ -2089,7 +2276,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       phone: defaultCompanySettings.phone,
       logoUrl: defaultCompanySettings.logoUrl,
       createdAt: nowIso,
-      trialEndsAt: addDaysIso(nowIso, 14)
+      trialEndsAt: addDaysIso(nowIso, 14),
+      subscriptionStatus: 'TRIAL',
+      subscriptionPlan: 'TRIAL',
+      subscriptionStartsAt: nowIso,
+      graceDays: 0
     }];
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.companies);
@@ -2108,12 +2299,42 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return 'cmp_default';
     }
   });
+  const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.workspaceSubscription);
+      if (!raw) return buildDefaultWorkspaceSubscription();
+      return normalizeWorkspaceSubscription(JSON.parse(raw));
+    } catch {
+      return buildDefaultWorkspaceSubscription();
+    }
+  });
   const [cloudMemberships, setCloudMemberships] = useState<CompanyMembership[]>([]);
   const [permissions, setPermissions] = useState<PermissionMatrix>(() => normalizePermissionMatrix());
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const deviceBindingId = useMemo(() => getOrCreateSubscriptionDeviceId(), []);
+  const [cloudSubscription, setCloudSubscription] = useState<CloudCompanySubscription | null>(null);
+  const [subscriptionCloudBusy, setSubscriptionCloudBusy] = useState(false);
+  const [subscriptionCloudError, setSubscriptionCloudError] = useState('');
+  const [subscriptionAdminEnabled, setSubscriptionAdminEnabled] = useState(false);
+  const [subscriptionCodes, setSubscriptionCodes] = useState<CloudSubscriptionCode[]>([]);
+  const [subscriptionCodesLoading, setSubscriptionCodesLoading] = useState(false);
+  const [subscriptionCompanies, setSubscriptionCompanies] = useState<CloudCompanySubscription[]>([]);
+  const [subscriptionCompaniesLoading, setSubscriptionCompaniesLoading] = useState(false);
   const currentCompany = useMemo(
     () => companies.find(c => c.id === currentCompanyId) || null,
     [companies, currentCompanyId]
+  );
+  const companyAccessStatus = useMemo<CompanySubscriptionStatus>(
+    () => currentCompany?.subscriptionStatus || 'TRIAL',
+    [currentCompany]
+  );
+  const companyAccessEndsAt = useMemo(
+    () => (currentCompany ? resolveCompanyAccessEndsAt(currentCompany) : undefined),
+    [currentCompany]
+  );
+  const companyAccessDaysLeft = useMemo(
+    () => resolveDaysLeft(companyAccessEndsAt),
+    [companyAccessEndsAt]
   );
   const [workspaceHydratedForCompanyId, setWorkspaceHydratedForCompanyId] = useState<string>('');
   const [isOnline, setIsOnline] = useState<boolean>(() => (
@@ -2128,10 +2349,122 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const googleTokenExpiresAtRef = useRef<number>(0);
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
-    if (!currentCompany?.trialEndsAt) return 0;
-    const ms = new Date(currentCompany.trialEndsAt).getTime() - Date.now();
-    return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+    if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
+    return resolveDaysLeft(currentCompany.trialEndsAt);
   }, [currentCompany]);
+  const currentDeviceBinding = useMemo<SubscriptionDeviceBinding>(
+    () => getCurrentSubscriptionDeviceBinding(deviceBindingId, currentUser),
+    [deviceBindingId, currentUser]
+  );
+  const workspaceProviderAvailability = useMemo(
+    () => getSubscriptionProviderAvailability(),
+    []
+  );
+  const workspaceMaxCompanies = useMemo(
+    () => getWorkspaceEffectiveMaxCompanies(workspaceSubscription, companies.length),
+    [companies.length, workspaceSubscription]
+  );
+  const workspaceRemainingCompanySlots = useMemo(
+    () => getWorkspaceRemainingCompanySlots(workspaceSubscription, companies.length),
+    [companies.length, workspaceSubscription]
+  );
+  const workspaceCompanyLimitReached = useMemo(
+    () => companies.length >= workspaceMaxCompanies,
+    [companies.length, workspaceMaxCompanies]
+  );
+
+  const applyCompanySubscriptionLocally = useCallback((
+    companyId: string,
+    updates: Partial<CompanyProfile>
+  ): CompanyProfile | null => {
+    const existing = companies.find(company => company.id === companyId);
+    if (!existing) return null;
+    const next = withNormalizedCompanyProfile({
+      ...existing,
+      ...updates,
+      id: existing.id,
+      createdAt: existing.createdAt
+    });
+
+    setCompanies(prev => prev.map(company => company.id === companyId ? next : company));
+    if (companyId === currentCompanyId) {
+      setCompanySettings(prev => ({
+        ...prev,
+        name: next.name,
+        taxNumber: next.taxNumber || prev.taxNumber,
+        address: next.address || prev.address,
+        phone: next.phone || prev.phone,
+        logoUrl: normalizeBrandLogoUrl(next.logoUrl ?? prev.logoUrl, defaultCompanySettings.logoUrl)
+      }));
+    }
+    return next;
+  }, [companies, currentCompanyId]);
+
+  const buildCompanyProfilePatchFromCloud = useCallback((
+    remote: CloudCompanySubscription,
+    company?: CompanyProfile | null,
+    overrideStatus?: CompanySubscriptionStatus
+  ): Partial<CompanyProfile> => {
+    const effectiveStatus = overrideStatus || remote.status;
+    return {
+      name: remote.companyName || company?.name || '',
+      trialEndsAt: effectiveStatus === 'TRIAL'
+        ? remote.endsAt || company?.trialEndsAt || addDaysIso(new Date().toISOString(), 14)
+        : company?.trialEndsAt || addDaysIso(new Date().toISOString(), 14),
+      subscriptionStatus: effectiveStatus,
+      subscriptionPlan: remote.plan,
+      subscriptionStartsAt: remote.startsAt || company?.subscriptionStartsAt || company?.createdAt || new Date().toISOString(),
+      subscriptionEndsAt: effectiveStatus === 'TRIAL' ? undefined : remote.endsAt,
+      activationCode: remote.activationCode,
+      graceDays: remote.graceDays
+    };
+  }, []);
+
+  const persistCloudSubscription = useCallback(async (
+    company: CompanyProfile,
+    options?: {
+      source?: CloudCompanySubscription['source'];
+      maxDevices?: number;
+      boundDevices?: SubscriptionDeviceBinding[];
+      notes?: string;
+      reservedCompanyId?: string;
+      reservedCompanyName?: string;
+    }
+  ): Promise<void> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) return;
+
+    const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, company.id);
+    const existingSnapshot = await getDoc(subscriptionRef);
+    const existingRemote = existingSnapshot.exists()
+      ? normalizeCloudCompanySubscription(company.id, existingSnapshot.data(), company)
+      : null;
+    const nextRemote: CloudCompanySubscription = {
+      ...buildCloudSubscriptionFromCompanyProfile(company, {
+        source: options?.source || (existingRemote?.source || (company.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL')),
+        updatedByUserId: currentUser.id,
+        updatedByEmail: currentUser.email,
+        maxDevices: options?.maxDevices || existingRemote?.maxDevices || 1,
+        boundDevices: options?.boundDevices || existingRemote?.boundDevices || [currentDeviceBinding],
+        notes: options?.notes || existingRemote?.notes
+      }),
+      reservedCompanyId: options?.reservedCompanyId || existingRemote?.reservedCompanyId,
+      reservedCompanyName: options?.reservedCompanyName || existingRemote?.reservedCompanyName
+    };
+
+    await setDoc(subscriptionRef, nextRemote, { merge: true });
+  }, [currentDeviceBinding, currentUser]);
+
+  const persistWorkspaceSubscriptionDoc = useCallback(async (
+    next: WorkspaceSubscriptionAccount
+  ): Promise<void> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) return;
+    const workspaceRef = doc(firebaseDb, WORKSPACE_SUBSCRIPTIONS_COLLECTION, currentUser.id);
+    const payload = normalizeWorkspaceSubscription(next, {
+      userId: currentUser.id,
+      userEmail: currentUser.email
+    });
+    await setDoc(workspaceRef, payload, { merge: true });
+  }, [currentUser]);
 
   const logout = async () => {
     setCurrentUser(null);
@@ -2227,11 +2560,244 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     ));
   }, [cloudMemberships, currentCompanyId, currentUser]);
 
+  useEffect(() => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
+      setSubscriptionAdminEnabled(false);
+      return;
+    }
+
+    const adminRef = doc(firebaseDb, SUBSCRIPTION_ADMINS_COLLECTION, currentUser.id);
+    const unsubscribe = onSnapshot(adminRef, (snapshot) => {
+      const bootstrapByEmail = isSubscriptionAdminEmail(currentUser.email);
+      const activeInCloud = snapshot.exists() && snapshot.data()?.active !== false;
+      setSubscriptionAdminEnabled(Boolean(activeInCloud || bootstrapByEmail));
+
+      if (!snapshot.exists() && bootstrapByEmail) {
+        void setDoc(adminRef, {
+          userId: currentUser.id,
+          email: currentUser.email || '',
+          active: true,
+          role: 'SUPER_ADMIN',
+          createdAt: new Date().toISOString()
+        }, { merge: true });
+      }
+    }, () => {
+      setSubscriptionAdminEnabled(isSubscriptionAdminEmail(currentUser.email));
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!firebaseDb || !subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
+      setSubscriptionCodes([]);
+      setSubscriptionCodesLoading(false);
+      return;
+    }
+
+    setSubscriptionCodesLoading(true);
+    const codesQuery = query(
+      collection(firebaseDb, SUBSCRIPTION_CODES_COLLECTION),
+      orderBy('createdAt', 'desc'),
+      firestoreLimit(100)
+    );
+
+    const unsubscribe = onSnapshot(codesQuery, (snapshot) => {
+      const nextCodes = snapshot.docs
+        .map(docSnapshot => normalizeCloudSubscriptionCode(docSnapshot.data()))
+        .filter((item): item is CloudSubscriptionCode => Boolean(item));
+      setSubscriptionCodes(nextCodes);
+      setSubscriptionCodesLoading(false);
+    }, (error) => {
+      setSubscriptionCloudError(String(error?.message || 'Failed to load subscription codes.'));
+      setSubscriptionCodesLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, subscriptionAdminEnabled]);
+
+  useEffect(() => {
+    if (!firebaseDb || !subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
+      setSubscriptionCompanies([]);
+      setSubscriptionCompaniesLoading(false);
+      return;
+    }
+
+    setSubscriptionCompaniesLoading(true);
+    const subscriptionsQuery = query(
+      collection(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION),
+      orderBy('updatedAt', 'desc'),
+      firestoreLimit(250)
+    );
+
+    const unsubscribe = onSnapshot(subscriptionsQuery, (snapshot) => {
+      const nextCompanies = snapshot.docs
+        .map(docSnapshot => {
+          const fallbackCompany = companies.find(company => company.id === docSnapshot.id) || null;
+          return normalizeCloudCompanySubscription(docSnapshot.id, docSnapshot.data(), fallbackCompany);
+        })
+        .filter((item): item is CloudCompanySubscription => Boolean(item));
+      setSubscriptionCompanies(nextCompanies);
+      setSubscriptionCompaniesLoading(false);
+    }, (error) => {
+      setSubscriptionCloudError(String(error?.message || 'Failed to load cloud subscription companies.'));
+      setSubscriptionCompaniesLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [companies, currentUser, subscriptionAdminEnabled]);
+
+  useEffect(() => {
+    if (!firebaseDb || !currentCompany || !currentUser || isGuestUser(currentUser)) {
+      setCloudSubscription(null);
+      return;
+    }
+
+    setSubscriptionCloudBusy(true);
+    const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, currentCompany.id);
+    const unsubscribe = onSnapshot(subscriptionRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        void persistCloudSubscription(currentCompany, {
+          source: currentCompany.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
+          boundDevices: [currentDeviceBinding]
+        })
+          .then(() => {
+            setSubscriptionCloudBusy(false);
+            setSubscriptionCloudError('');
+          })
+          .catch((error) => {
+            setSubscriptionCloudBusy(false);
+            setSubscriptionCloudError(String(error?.message || 'Failed to bootstrap cloud subscription.'));
+          });
+        return;
+      }
+
+      let remote = normalizeCloudCompanySubscription(currentCompany.id, snapshot.data(), currentCompany);
+      const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
+      const canAutoBindDevice = !existingDevice && remote.boundDevices.length < remote.maxDevices;
+
+      if (canAutoBindDevice) {
+        const nextDevices = [...remote.boundDevices, { ...currentDeviceBinding, firstSeenAt: new Date().toISOString() }];
+        const nextRemote = {
+          ...remote,
+          boundDevices: nextDevices,
+          updatedAt: new Date().toISOString(),
+          updatedByUserId: currentUser.id,
+          updatedByEmail: currentUser.email
+        };
+        void setDoc(subscriptionRef, nextRemote, { merge: true }).catch(() => {
+          // Let the current snapshot continue even if the auto-bind write fails.
+        });
+        remote = nextRemote;
+      } else if (existingDevice) {
+        const nextDevices = remote.boundDevices.map(device => (
+          device.deviceId === currentDeviceBinding.deviceId
+            ? {
+              ...device,
+              lastSeenAt: new Date().toISOString(),
+              lastUserId: currentUser.id,
+              lastUserEmail: currentUser.email
+            }
+            : device
+        ));
+        const changed = JSON.stringify(nextDevices) !== JSON.stringify(remote.boundDevices);
+        if (changed) {
+          void setDoc(subscriptionRef, {
+            boundDevices: nextDevices,
+            updatedAt: new Date().toISOString(),
+            updatedByUserId: currentUser.id,
+            updatedByEmail: currentUser.email
+          }, { merge: true }).catch(() => {
+            // Keep working even if heartbeat update fails.
+          });
+          remote = {
+            ...remote,
+            boundDevices: nextDevices
+          };
+        }
+      }
+
+      const deviceBlocked = !remote.boundDevices.some(device => device.deviceId === currentDeviceBinding.deviceId)
+        && remote.boundDevices.length >= remote.maxDevices;
+      const localPatch = buildCompanyProfilePatchFromCloud(
+        remote,
+        currentCompany,
+        deviceBlocked ? 'SUSPENDED' : undefined
+      );
+
+      setCloudSubscription(remote);
+      setSubscriptionCloudBusy(false);
+      setSubscriptionCloudError('');
+      applyCompanySubscriptionLocally(currentCompany.id, localPatch);
+    }, (error) => {
+      setSubscriptionCloudBusy(false);
+      setSubscriptionCloudError(String(error?.message || 'Failed to sync company subscription.'));
+    });
+
+    return () => unsubscribe();
+  }, [currentCompany, currentDeviceBinding, currentUser, persistCloudSubscription, applyCompanySubscriptionLocally, buildCompanyProfilePatchFromCloud]);
+
+  useEffect(() => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !companies.length) return;
+
+    const syncPromises = companies.map(company => (
+      setDoc(doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, company.id), {
+        companyId: company.id,
+        companyName: company.name,
+        ownerUserId: currentUser.id,
+        ownerEmail: currentUser.email,
+        updatedAt: new Date().toISOString()
+      }, { merge: true })
+    ));
+
+    void Promise.allSettled(syncPromises);
+  }, [companies, currentUser]);
+
   const makeSuccess = (): MutationResult => ({ ok: true });
   const makeError = (
-    code: 'POSTED_LOCKED' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR',
+    code: 'POSTED_LOCKED' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'SUBSCRIPTION_LIMIT',
     message: string
   ): MutationResult => ({ ok: false, code, message });
+
+  const updateWorkspaceSubscription = async (
+    updates: Partial<WorkspaceSubscriptionAccount>
+  ): Promise<MutationResult> => {
+    if (!currentUser || isGuestUser(currentUser)) {
+      return makeError('PERMISSION_DENIED', 'Sign in with a Firebase account before updating the commercial subscription.');
+    }
+
+    const next = normalizeWorkspaceSubscription(
+      {
+        ...workspaceSubscription,
+        ...updates,
+        updatedAt: new Date().toISOString()
+      },
+      {
+        ...workspaceSubscription,
+        userId: currentUser.id,
+        userEmail: currentUser.email,
+        maxCompanies: Math.max(workspaceSubscription.maxCompanies, companies.length)
+      }
+    );
+
+    try {
+      setWorkspaceSubscription(next);
+      await persistWorkspaceSubscriptionDoc(next);
+      return makeSuccess();
+    } catch (error: any) {
+      return makeError('VALIDATION_ERROR', error?.message || 'Failed to update the workspace subscription.');
+    }
+  };
+
+  const prepareSubscriptionCheckoutAction = (
+    provider: SubscriptionCheckoutProvider,
+    billingCycle: SubscriptionBillingCycle,
+    desiredCompanyCount: number
+  ): SubscriptionCheckoutResult => prepareWorkspaceCheckout({
+    provider,
+    billingCycle,
+    desiredCompanyCount
+  });
 
   const appendAuditLog: AccountingContextType['appendAuditLog'] = (entry) => {
     const nowIso = new Date().toISOString();
@@ -2269,6 +2835,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updatePermissions = (next: PermissionMatrix): MutationResult => {
+    const subscriptionLock = getSubscriptionMutationBlockResult('SETTINGS', 'EDIT', 'Settings > Permissions');
+    if (subscriptionLock) return subscriptionLock;
+
     if (!can('SETTINGS', 'EDIT')) {
       appendAuditLog({
         entityType: 'permissions',
@@ -2289,11 +2858,52 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
 
+  const getSubscriptionMutationBlockResult = (
+    module: PermissionModule,
+    action: PermissionAction,
+    screen: string
+  ): MutationResult | null => {
+    if (!currentCompany) return null;
+    if (!SUBSCRIPTION_RESTRICTED_ACTIONS.has(action)) return null;
+    if (!isSubscriptionAccessRestricted(companyAccessStatus)) return null;
+
+    const normalizedScreen = screen.toLowerCase();
+    const bypassAllowed = module === 'SETTINGS'
+      && (normalizedScreen.includes('subscription') || normalizedScreen.includes('backup'));
+    if (bypassAllowed) return null;
+
+    const isArabic = (companySettings.language ?? 'AR') === 'AR';
+    const companyName = currentCompany.name ? ` "${currentCompany.name}"` : '';
+    const message = isArabic
+      ? companyAccessStatus === 'SUSPENDED'
+        ? `تم إيقاف الوصول للشركة${companyName}. المتاح الآن هو النسخ الاحتياطي أو إدارة الاشتراك فقط.`
+        : `انتهى اشتراك الشركة${companyName}. المتاح الآن هو النسخ الاحتياطي أو إدارة الاشتراك فقط.`
+      : companyAccessStatus === 'SUSPENDED'
+        ? `Access for${companyName || ' this company'} is suspended. Only backup and subscription management are available now.`
+        : `The subscription for${companyName || ' this company'} has expired. Only backup and subscription management are available now.`;
+
+    appendAuditLog({
+      entityType: 'company_subscription',
+      entityId: currentCompany.id,
+      action: 'ACCESS_BLOCKED',
+      screen,
+      metadata: {
+        reason: 'SUBSCRIPTION_LOCKED',
+        module,
+        action,
+        subscriptionStatus: companyAccessStatus
+      }
+    });
+    return makeError('PERMISSION_DENIED', message);
+  };
+
   const enforcePermission = (
     module: PermissionModule,
     action: PermissionAction,
     screen: string
   ): MutationResult => {
+    const subscriptionLock = getSubscriptionMutationBlockResult(module, action, screen);
+    if (subscriptionLock) return subscriptionLock;
     if (can(module, action)) return makeSuccess();
     appendAuditLog({
       entityType: 'permission',
@@ -4821,7 +5431,21 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     window.alert(isEnglish ? messageEn : messageAr);
   };
 
+  const guardSubscriptionOnlyMutation = (
+    module: PermissionModule,
+    action: PermissionAction,
+    screen: string
+  ): boolean => {
+    const blocked = getSubscriptionMutationBlockResult(module, action, screen);
+    if (!blocked) return true;
+    showValidationAlert(blocked.message, blocked.message);
+    return false;
+  };
+
   const addProduct = (product: Omit<Product, 'id'> & { id?: string }): MutationResult => {
+    const permission = enforcePermission('PRODUCTS', 'ADD', 'Products');
+    if (!permission.ok) return permission;
+
     const candidateName = String(product.name || '').trim();
     if (!candidateName) {
       return makeError('VALIDATION_ERROR', 'Item name is required.');
@@ -4851,6 +5475,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateProduct = (id: string, updates: Partial<Product>): MutationResult => {
+    const permission = enforcePermission('PRODUCTS', 'EDIT', 'Products');
+    if (!permission.ok) return permission;
+
     const existing = products.find(product => product.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Product not found.');
 
@@ -4884,15 +5511,36 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
     return makeSuccess();
   };
-  const deleteProduct = (id: string) => setProducts(prev => prev.filter(p => p.id !== id));
+  const deleteProduct = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Products')) return;
+    setProducts(prev => prev.filter(p => p.id !== id));
+  };
 
-  const addItemGroup = (group: Omit<ItemGroup, 'id'>) => setItemGroups(prev => [...prev, { ...group, id: 'ig_' + Math.random().toString(36).substr(2, 9) }]);
-  const updateItemGroup = (id: string, updates: Partial<ItemGroup>) => setItemGroups(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
-  const deleteItemGroup = (id: string) => setItemGroups(prev => prev.filter(g => g.id !== id));
+  const addItemGroup = (group: Omit<ItemGroup, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Settings > Item Groups')) return;
+    setItemGroups(prev => [...prev, { ...group, id: 'ig_' + Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateItemGroup = (id: string, updates: Partial<ItemGroup>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Settings > Item Groups')) return;
+    setItemGroups(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+  };
+  const deleteItemGroup = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Settings > Item Groups')) return;
+    setItemGroups(prev => prev.filter(g => g.id !== id));
+  };
 
-  const addUnit = (unit: Omit<UnitOfMeasure, 'id'>) => setUnits(prev => [...prev, { ...unit, id: 'u_' + Math.random().toString(36).substr(2, 9) }]);
-  const updateUnit = (id: string, updates: Partial<UnitOfMeasure>) => setUnits(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
-  const deleteUnit = (id: string) => setUnits(prev => prev.filter(u => u.id !== id));
+  const addUnit = (unit: Omit<UnitOfMeasure, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Settings > Units')) return;
+    setUnits(prev => [...prev, { ...unit, id: 'u_' + Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateUnit = (id: string, updates: Partial<UnitOfMeasure>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Settings > Units')) return;
+    setUnits(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
+  };
+  const deleteUnit = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Settings > Units')) return;
+    setUnits(prev => prev.filter(u => u.id !== id));
+  };
 
   const sanitizePartnerAccountId = (value: string) =>
     String(value || '')
@@ -4941,6 +5589,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addContact = (contact: Omit<Contact, 'id'> & { id?: string }): MutationResult => {
+    const permission = enforcePermission('DIRECTORY', 'ADD', 'Directory');
+    if (!permission.ok) return permission;
+
     const candidateName = String(contact.name || '').trim();
     if (!candidateName) {
       return makeError('VALIDATION_ERROR', 'Contact name is required.');
@@ -5007,6 +5658,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateContact = (id: string, updates: Partial<Contact>): MutationResult => {
+    const permission = enforcePermission('DIRECTORY', 'EDIT', 'Directory');
+    if (!permission.ok) return permission;
+
     const existing = contacts.find(c => c.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Contact not found.');
 
@@ -5133,6 +5787,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addEmployee = (emp: Omit<Employee, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('HR', 'ADD', 'HR')) return;
     const created: Employee = { ...emp, id: 'emp_' + Math.random().toString(36).substr(2, 9) };
     setEmployees(prev => [...prev, created]);
 
@@ -5161,6 +5816,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateEmployee = (id: string, updates: Partial<Employee>) => {
+    if (!guardSubscriptionOnlyMutation('HR', 'EDIT', 'HR')) return;
     const existing = employees.find(e => e.id === id);
     if (!existing) return;
     const next = { ...existing, ...updates };
@@ -5181,6 +5837,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteEmployee = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('HR', 'DELETE', 'HR')) return;
     setEmployees(prev => prev.filter(e => e.id !== id));
     setEmployeeContracts(prev => prev.filter(c => c.employeeId !== id));
     setSalaryHistory(prev => prev.filter(h => h.employeeId !== id));
@@ -5188,6 +5845,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setEmployeeRecurringDeductions(prev => prev.filter(d => d.employeeId !== id));
   };
   const addEmployeeContract = (contract: Omit<EmployeeContract, 'id' | 'createdAt'>, applyToEmployee = true): MutationResult => {
+    const permission = enforcePermission('HR', 'ADD', 'HR > Contracts');
+    if (!permission.ok) return permission;
+
     const employee = employees.find(e => e.id === contract.employeeId);
     if (!employee) return makeError('VALIDATION_ERROR', 'Employee not found.');
 
@@ -5229,6 +5889,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
   const updateEmployeeContract = (id: string, updates: Partial<EmployeeContract>, applyToEmployee = false): MutationResult => {
+    const permission = enforcePermission('HR', 'EDIT', 'HR > Contracts');
+    if (!permission.ok) return permission;
+
     const existing = employeeContracts.find(c => c.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Employee contract not found.');
     const employee = employees.find(e => e.id === existing.employeeId);
@@ -5266,6 +5929,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
   const deleteEmployeeContract = (id: string): MutationResult => {
+    const permission = enforcePermission('HR', 'DELETE', 'HR > Contracts');
+    if (!permission.ok) return permission;
+
     const existing = employeeContracts.find(c => c.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Employee contract not found.');
     setEmployeeContracts(prev => prev.filter(c => c.id !== id));
@@ -5291,6 +5957,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addEmployeeLeaveRequest: AccountingContextType['addEmployeeLeaveRequest'] = (req) => {
+    const permission = enforcePermission('HR', 'ADD', 'HR > Leaves');
+    if (!permission.ok) return permission;
+
     const employee = employees.find(e => e.id === req.employeeId);
     if (!employee) return makeError('VALIDATION_ERROR', 'Employee not found.');
     if (!req.effectiveFrom || !req.effectiveTo) return makeError('VALIDATION_ERROR', 'Leave dates are required.');
@@ -5318,6 +5987,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateEmployeeLeaveRequest: AccountingContextType['updateEmployeeLeaveRequest'] = (id, updates) => {
+    const permission = enforcePermission('HR', 'EDIT', 'HR > Leaves');
+    if (!permission.ok) return permission;
+
     const existing = employeeLeaveRequests.find(r => r.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Leave request not found.');
     const next: EmployeeLeaveRequest = {
@@ -5343,6 +6015,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteEmployeeLeaveRequest: AccountingContextType['deleteEmployeeLeaveRequest'] = (id) => {
+    const permission = enforcePermission('HR', 'DELETE', 'HR > Leaves');
+    if (!permission.ok) return permission;
+
     const existing = employeeLeaveRequests.find(r => r.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Leave request not found.');
     setEmployeeLeaveRequests(prev => prev.filter(r => r.id !== id));
@@ -5357,6 +6032,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addEmployeeRecurringDeduction: AccountingContextType['addEmployeeRecurringDeduction'] = (item) => {
+    const permission = enforcePermission('HR', 'ADD', 'HR > Recurring Deductions');
+    if (!permission.ok) return permission;
+
     const employee = employees.find(e => e.id === item.employeeId);
     if (!employee) return makeError('VALIDATION_ERROR', 'Employee not found.');
     if (!item.label?.trim()) return makeError('VALIDATION_ERROR', 'Deduction label is required.');
@@ -5383,6 +6061,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateEmployeeRecurringDeduction: AccountingContextType['updateEmployeeRecurringDeduction'] = (id, updates) => {
+    const permission = enforcePermission('HR', 'EDIT', 'HR > Recurring Deductions');
+    if (!permission.ok) return permission;
+
     const existing = employeeRecurringDeductions.find(d => d.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Recurring deduction not found.');
     const next: EmployeeRecurringDeduction = {
@@ -5403,6 +6084,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteEmployeeRecurringDeduction: AccountingContextType['deleteEmployeeRecurringDeduction'] = (id) => {
+    const permission = enforcePermission('HR', 'DELETE', 'HR > Recurring Deductions');
+    if (!permission.ok) return permission;
+
     const existing = employeeRecurringDeductions.find(d => d.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Recurring deduction not found.');
     setEmployeeRecurringDeductions(prev => prev.filter(d => d.id !== id));
@@ -5417,6 +6101,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addFingerprintDevice: AccountingContextType['addFingerprintDevice'] = (device) => {
+    const permission = enforcePermission('SETTINGS', 'ADD', 'Settings > Fingerprint Readers');
+    if (!permission.ok) return permission;
+
     const created: FingerprintReaderDevice = {
       id: device.id || newId('fpdev'),
       name: (device.name || '').trim() || 'Fingerprint Reader',
@@ -5446,6 +6133,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateFingerprintDevice: AccountingContextType['updateFingerprintDevice'] = (id, updates) => {
+    const permission = enforcePermission('SETTINGS', 'EDIT', 'Settings > Fingerprint Readers');
+    if (!permission.ok) return permission;
+
     const existing = fingerprintDevices.find(d => d.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Fingerprint device not found.');
     const next: FingerprintReaderDevice = { ...existing, ...updates, id: existing.id, createdAt: existing.createdAt };
@@ -5462,6 +6152,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteFingerprintDevice: AccountingContextType['deleteFingerprintDevice'] = (id) => {
+    const permission = enforcePermission('SETTINGS', 'DELETE', 'Settings > Fingerprint Readers');
+    if (!permission.ok) return permission;
+
     const existing = fingerprintDevices.find(d => d.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Fingerprint device not found.');
     setFingerprintDevices(prev => prev.filter(d => d.id !== id));
@@ -5476,6 +6169,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addFingerprintAttendanceBatch: AccountingContextType['addFingerprintAttendanceBatch'] = (batch) => {
+    const permission = enforcePermission('SETTINGS', 'ADD', 'Settings > Fingerprint Readers');
+    if (!permission.ok) return permission;
+
     const created: FingerprintAttendanceBatch = {
       id: batch.id || newId('fpbatch'),
       deviceId: batch.deviceId,
@@ -5497,6 +6193,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateFingerprintAttendanceBatch: AccountingContextType['updateFingerprintAttendanceBatch'] = (id, updates) => {
+    const permission = enforcePermission('SETTINGS', 'EDIT', 'Settings > Fingerprint Readers');
+    if (!permission.ok) return permission;
+
     const existing = fingerprintAttendanceBatches.find(b => b.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Fingerprint batch not found.');
     const next: FingerprintAttendanceBatch = { ...existing, ...updates, id: existing.id, importedAt: existing.importedAt };
@@ -5513,6 +6212,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteFingerprintAttendanceBatch: AccountingContextType['deleteFingerprintAttendanceBatch'] = (id) => {
+    const permission = enforcePermission('SETTINGS', 'DELETE', 'Settings > Fingerprint Readers');
+    if (!permission.ok) return permission;
+
     const existing = fingerprintAttendanceBatches.find(b => b.id === id);
     if (!existing) return makeError('VALIDATION_ERROR', 'Fingerprint batch not found.');
     setFingerprintAttendanceBatches(prev => prev.filter(b => b.id !== id));
@@ -5525,32 +6227,84 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
     return makeSuccess();
   };
-  const addDepartment = (dept: Omit<Department, 'id'>) => setDepartments(prev => [...prev, { ...dept, id: 'dept_' + Math.random().toString(36).substr(2, 9) }]);
-  const deleteDepartment = (id: string) => setDepartments(prev => prev.filter(d => d.id !== id));
+  const addDepartment = (dept: Omit<Department, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('HR', 'ADD', 'HR > Departments')) return;
+    setDepartments(prev => [...prev, { ...dept, id: 'dept_' + Math.random().toString(36).substr(2, 9) }]);
+  };
+  const deleteDepartment = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('HR', 'DELETE', 'HR > Departments')) return;
+    setDepartments(prev => prev.filter(d => d.id !== id));
+  };
 
-  const addTicket = (ticket: Omit<SupportTicket, 'id' | 'createdAt'>) => setTickets(prev => [{ ...ticket, id: 'tkt_' + Math.random().toString(36).substr(2, 9), createdAt: new Date().toISOString() }, ...prev]);
-  const updateTicketStatus = (id: string, status: TicketStatus) => setTickets(prev => prev.map(t => t.id === id ? { ...t, status } : t));
-  const deleteTicket = (id: string) => setTickets(prev => prev.filter(t => t.id !== id));
-  const addFixedAsset = (asset: Omit<FixedAsset, 'id'>) => setFixedAssets(prev => [...prev, { ...asset, id: Math.random().toString(36).substr(2, 9) }]);
-  const updateFixedAsset = (id: string, updates: Partial<FixedAsset>) => setFixedAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
-  const deleteFixedAsset = (id: string) => setFixedAssets(prev => prev.filter(a => a.id !== id));
-  const addAssetGroup = (group: Omit<FixedAssetGroup, 'id'>) => setAssetGroups(prev => [
-    ...prev,
-    {
-      ...group,
-      id: 'ag_' + Math.random().toString(36).substr(2, 9),
-      assetAccountId: group.assetAccountId || 'acc_fixed_assets_root',
-      accumulatedDepreciationAccountId: group.accumulatedDepreciationAccountId || 'acc_accumulated_depreciation',
-      depreciationExpenseAccountId: group.depreciationExpenseAccountId || 'acc_depreciation_exp'
-    }
-  ]);
-  const deleteAssetGroup = (id: string) => setAssetGroups(prev => prev.filter(g => g.id !== id));
-  const addCheck = (check: Omit<Check, 'id'> & { id?: string }) => setChecks(prev => [...prev, { ...check, id: check.id || Math.random().toString(36).substr(2, 9) }]);
-  const updateCheck = (id: string, updates: Partial<Check>) => setChecks(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-  const deleteCheck = (id: string) => setChecks(prev => prev.filter(c => c.id !== id));
-  const addCurrency = (currency: Currency) => setCurrencies(prev => [...prev, currency]);
-  const deleteCurrency = (code: string) => setCurrencies(prev => prev.filter(c => c.code !== code));
-  const updateCurrencyRate = (code: string, rate: number) => setCurrencies(prev => prev.map(c => c.code === code ? { ...c, rate } : c));
+  const addTicket = (ticket: Omit<SupportTicket, 'id' | 'createdAt'>) => {
+    if (!guardSubscriptionOnlyMutation('DIRECTORY', 'ADD', 'Support Tickets')) return;
+    setTickets(prev => [{ ...ticket, id: 'tkt_' + Math.random().toString(36).substr(2, 9), createdAt: new Date().toISOString() }, ...prev]);
+  };
+  const updateTicketStatus = (id: string, status: TicketStatus) => {
+    if (!guardSubscriptionOnlyMutation('DIRECTORY', 'EDIT', 'Support Tickets')) return;
+    setTickets(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+  };
+  const deleteTicket = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('DIRECTORY', 'DELETE', 'Support Tickets')) return;
+    setTickets(prev => prev.filter(t => t.id !== id));
+  };
+  const addFixedAsset = (asset: Omit<FixedAsset, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'ADD', 'Fixed Assets')) return;
+    setFixedAssets(prev => [...prev, { ...asset, id: Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateFixedAsset = (id: string, updates: Partial<FixedAsset>) => {
+    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'EDIT', 'Fixed Assets')) return;
+    setFixedAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
+  };
+  const deleteFixedAsset = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'DELETE', 'Fixed Assets')) return;
+    setFixedAssets(prev => prev.filter(a => a.id !== id));
+  };
+  const addAssetGroup = (group: Omit<FixedAssetGroup, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'ADD', 'Fixed Asset Groups')) return;
+    setAssetGroups(prev => [
+      ...prev,
+      {
+        ...group,
+        id: 'ag_' + Math.random().toString(36).substr(2, 9),
+        assetAccountId: group.assetAccountId || 'acc_fixed_assets_root',
+        accumulatedDepreciationAccountId: group.accumulatedDepreciationAccountId || 'acc_accumulated_depreciation',
+        depreciationExpenseAccountId: group.depreciationExpenseAccountId || 'acc_depreciation_exp'
+      }
+    ]);
+  };
+  const deleteAssetGroup = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'DELETE', 'Fixed Asset Groups')) return;
+    setAssetGroups(prev => prev.filter(g => g.id !== id));
+  };
+  const addCheck = (check: Omit<Check, 'id'> & { id?: string }) => {
+    if (!guardSubscriptionOnlyMutation('TREASURY', 'ADD', 'Checks')) return;
+    setChecks(prev => [...prev, { ...check, id: check.id || Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateCheck = (id: string, updates: Partial<Check>) => {
+    if (!guardSubscriptionOnlyMutation('TREASURY', 'EDIT', 'Checks')) return;
+    setChecks(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  };
+  const deleteCheck = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('TREASURY', 'DELETE', 'Checks')) return;
+    setChecks(prev => prev.filter(c => c.id !== id));
+  };
+  const setBaseCurrency = (code: string) => {
+    if (!guardSubscriptionOnlyMutation('SETTINGS', 'EDIT', 'Settings > Currency')) return;
+    setBaseCurrencyState(code);
+  };
+  const addCurrency = (currency: Currency) => {
+    if (!guardSubscriptionOnlyMutation('SETTINGS', 'ADD', 'Settings > Currency')) return;
+    setCurrencies(prev => [...prev, currency]);
+  };
+  const deleteCurrency = (code: string) => {
+    if (!guardSubscriptionOnlyMutation('SETTINGS', 'DELETE', 'Settings > Currency')) return;
+    setCurrencies(prev => prev.filter(c => c.code !== code));
+  };
+  const updateCurrencyRate = (code: string, rate: number) => {
+    if (!guardSubscriptionOnlyMutation('SETTINGS', 'EDIT', 'Settings > Currency')) return;
+    setCurrencies(prev => prev.map(c => c.code === code ? { ...c, rate } : c));
+  };
   const updateCompanySettings = (settings: CompanySettings): MutationResult => {
     const permission = enforcePermission('SETTINGS', 'EDIT', 'Settings');
     if (!permission.ok) return permission;
@@ -5792,7 +6546,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       phone: '',
       logoUrl: defaultCompanySettings.logoUrl,
       createdAt: new Date().toISOString(),
-      trialEndsAt: addDaysIso(new Date().toISOString(), 14)
+      trialEndsAt: addDaysIso(new Date().toISOString(), 14),
+      subscriptionStatus: 'TRIAL' as const,
+      subscriptionPlan: 'TRIAL' as const,
+      subscriptionStartsAt: new Date().toISOString(),
+      graceDays: 0
     };
 
     if (forceEmptyBootstrap) {
@@ -5865,7 +6623,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const applyWorkspaceSnapshot = (snapshot: CompanyWorkspaceSnapshot) => {
     const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
-    setBaseCurrency(normalizedSnapshot.baseCurrency || 'ILS');
+    setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
     setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
     setUsers(normalizedSnapshot.users || []);
     setAccounts(normalizedSnapshot.accounts || []);
@@ -6017,6 +6775,45 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser]);
 
   useEffect(() => {
+    const fallback = buildDefaultWorkspaceSubscription({
+      userId: currentUser?.id,
+      userEmail: currentUser?.email,
+      status: 'TRIAL',
+      plan: 'TRIAL',
+      provider: 'TRIAL',
+      maxCompanies: Math.max(1, companies.length),
+      expiresAt: currentCompany?.trialEndsAt
+    });
+
+    if (!currentUser || isGuestUser(currentUser) || !firebaseDb) {
+      setWorkspaceSubscription(normalizeWorkspaceSubscription(fallback, fallback));
+      return;
+    }
+
+    const workspaceRef = doc(firebaseDb, WORKSPACE_SUBSCRIPTIONS_COLLECTION, currentUser.id);
+    const unsubscribe = onSnapshot(workspaceRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setWorkspaceSubscription(normalizeWorkspaceSubscription(snapshot.data(), fallback));
+        return;
+      }
+
+      const bootstrap = normalizeWorkspaceSubscription(fallback, fallback);
+      setWorkspaceSubscription(bootstrap);
+      void setDoc(workspaceRef, bootstrap, { merge: true }).catch(() => {
+        // Ignore bootstrap sync errors and keep local fallback.
+      });
+    }, () => {
+      setWorkspaceSubscription(prev => normalizeWorkspaceSubscription(prev, fallback));
+    });
+
+    return unsubscribe;
+  }, [companies.length, currentCompany?.trialEndsAt, currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.workspaceSubscription, JSON.stringify(workspaceSubscription));
+  }, [workspaceSubscription]);
+
+  useEffect(() => {
     if (!companies.length) return;
     localStorage.setItem(STORAGE_KEYS.companies, JSON.stringify(companies));
   }, [companies]);
@@ -6164,7 +6961,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   useEffect(() => {
     if (!currentUser || isGuestUser(currentUser)) return;
     const pendingTrialDays = consumePendingSignupTrialSelectionDays();
-    if (pendingTrialDays === null) return;
+    const pendingCompanyName = consumePendingSignupCompanyName();
+    if (pendingTrialDays === null && !pendingCompanyName) return;
 
     const targetCompanyId = currentCompanyId || currentUser.companyId || companies[0]?.id;
     if (!targetCompanyId) return;
@@ -6173,12 +6971,31 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const nextTrialEndsAt = pendingTrialDays > 0 ? addDaysIso(nowIso, pendingTrialDays) : nowIso;
     setCompanies(prev => prev.map(company => (
       company.id === targetCompanyId
-        ? {
+        ? withNormalizedCompanyProfile({
           ...company,
-          trialEndsAt: nextTrialEndsAt
-        }
+          name: pendingCompanyName || company.name,
+          trialEndsAt: pendingTrialDays === null ? company.trialEndsAt : nextTrialEndsAt,
+          subscriptionStatus: pendingTrialDays === null
+            ? company.subscriptionStatus
+            : (pendingTrialDays > 0 ? 'TRIAL' : 'EXPIRED'),
+          subscriptionPlan: pendingTrialDays === null
+            ? company.subscriptionPlan
+            : (pendingTrialDays > 0 ? 'TRIAL' : 'NONE'),
+          subscriptionStartsAt: pendingTrialDays === null
+            ? company.subscriptionStartsAt
+            : nowIso,
+          subscriptionEndsAt: pendingTrialDays === null
+            ? company.subscriptionEndsAt
+            : undefined
+        })
         : company
     )));
+    if (pendingCompanyName && targetCompanyId === currentCompanyId) {
+      setCompanySettings(prev => ({
+        ...prev,
+        name: pendingCompanyName
+      }));
+    }
   }, [currentUser, currentCompanyId, companies]);
 
   const switchCompany = (companyId: string): MutationResult => {
@@ -6198,6 +7015,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!permission.ok) return permission;
     const name = (input.name || '').trim();
     if (!name) return makeError('VALIDATION_ERROR', 'Company name is required.');
+    if (companies.length >= workspaceMaxCompanies) {
+      const message = companySettings.language === 'AR'
+        ? `الخطة الحالية تسمح حتى ${workspaceMaxCompanies} شركة فقط. لديك الآن ${companies.length} شركة. قم بترقية الاشتراك أو إضافة شركات إضافية من شاشة الاشتراك.`
+        : `Your current subscription allows up to ${workspaceMaxCompanies} companies. You already use ${companies.length}. Upgrade the subscription or add extra company slots first.`;
+      return makeError('SUBSCRIPTION_LIMIT', message);
+    }
 
     try {
       const nowIso = new Date().toISOString();
@@ -6210,7 +7033,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       phone: input.phone || '',
       logoUrl: normalizeBrandLogoUrl(input.logoUrl, defaultCompanySettings.logoUrl),
       createdAt: nowIso,
-      trialEndsAt: addDaysIso(nowIso, 14)
+      trialEndsAt: addDaysIso(nowIso, 14),
+      subscriptionStatus: input.subscriptionStatus || 'TRIAL',
+      subscriptionPlan: input.subscriptionPlan || 'TRIAL',
+      subscriptionStartsAt: input.subscriptionStartsAt || nowIso,
+      subscriptionEndsAt: input.subscriptionEndsAt,
+      activationCode: String(input.activationCode || '').trim() || undefined,
+      graceDays: Number.isFinite(Number(input.graceDays)) ? Math.max(0, Math.min(30, Math.floor(Number(input.graceDays)))) : 0
     };
 
       saveCurrentWorkspaceSnapshot(currentCompanyId);
@@ -6219,6 +7048,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       localStorage.setItem(getCompanyWorkspaceKey(profile.id), JSON.stringify(snapshot));
       upsertWorkspaceSyncQueueItem(profile.id, snapshot.updatedAt, currentUser?.id);
       setSyncQueueVersion(prev => prev + 1);
+
+      await persistCloudSubscription(profile, {
+        source: profile.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
+        boundDevices: [currentDeviceBinding]
+      });
 
       setCompanies(prev => [profile, ...prev.filter(company => company.id !== profile.id)]);
       setCurrentUser(prev => (
@@ -6236,38 +7070,494 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   };
 
+  const issueSubscriptionCode = async (input: {
+    plan: CompanySubscriptionPlan;
+    durationDays: number;
+    maxDevices: number;
+    expiresAt?: string;
+    notes?: string;
+    reservedCompanyId?: string;
+    reservedCompanyName?: string;
+  }): Promise<SubscriptionCodeIssueResult> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !subscriptionAdminEnabled) {
+      return { ok: false, code: 'PERMISSION_DENIED', message: 'You do not have permission to issue subscription codes.' };
+    }
+
+    const plan = input.plan === 'BASIC' || input.plan === 'PRO' || input.plan === 'ENTERPRISE'
+      ? input.plan
+      : null;
+    if (!plan) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'A paid plan is required for cloud activation codes.' };
+    }
+
+    const durationDays = Math.max(1, Math.min(3650, Math.floor(Number(input.durationDays) || 0)));
+    const maxDevices = Math.max(1, Math.min(20, Math.floor(Number(input.maxDevices) || 1)));
+    const expiresAt = normalizeOptionalIsoDate(input.expiresAt);
+    const notes = String(input.notes || '').trim() || undefined;
+    const reservedCompanyId = String(input.reservedCompanyId || '').trim() || undefined;
+    const reservedCompanyName = String(input.reservedCompanyName || '').trim() || undefined;
+    const nowIso = new Date().toISOString();
+
+    try {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+        const candidateCode = normalizeActivationCode(`AIFLEX-${plan}-${durationDays}-${suffix}`);
+        const candidateRef = doc(firebaseDb, SUBSCRIPTION_CODES_COLLECTION, candidateCode);
+        const existing = await getDoc(candidateRef);
+        if (existing.exists()) continue;
+
+        const payload: CloudSubscriptionCode = {
+          code: candidateCode,
+          status: 'AVAILABLE',
+          plan,
+          durationDays,
+          maxDevices,
+          createdAt: nowIso,
+          createdByUserId: currentUser.id,
+          createdByEmail: currentUser.email,
+          expiresAt,
+          notes,
+          reservedCompanyId,
+          reservedCompanyName
+        };
+
+        await setDoc(candidateRef, payload, { merge: false });
+        return { ok: true, code: candidateCode };
+      }
+
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'Could not generate a unique activation code. Try again.' };
+    } catch (error: any) {
+      return {
+        ok: false,
+        code: 'VALIDATION_ERROR',
+        message: String(error?.message || 'Failed to issue subscription code.')
+      };
+    }
+  };
+
+  const cancelSubscriptionCode = async (code: string): Promise<MutationResult> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !subscriptionAdminEnabled) {
+      return makeError('PERMISSION_DENIED', 'You do not have permission to cancel activation codes.');
+    }
+
+    const normalizedCode = normalizeActivationCode(code);
+    if (!normalizedCode) return makeError('VALIDATION_ERROR', 'Activation code is required.');
+    const codeRef = doc(firebaseDb, SUBSCRIPTION_CODES_COLLECTION, normalizedCode);
+    const snapshot = await getDoc(codeRef);
+    const existing = snapshot.exists() ? normalizeCloudSubscriptionCode(snapshot.data()) : null;
+    if (!existing) return makeError('VALIDATION_ERROR', 'Activation code not found.');
+    if (existing.status === 'USED') return makeError('VALIDATION_ERROR', 'Used activation codes cannot be cancelled.');
+    if (existing.status === 'CANCELLED') return makeSuccess();
+
+    await setDoc(codeRef, {
+      status: 'CANCELLED',
+      cancelledAt: new Date().toISOString(),
+      cancelledByUserId: currentUser.id,
+      cancelledByEmail: currentUser.email
+    }, { merge: true });
+    return makeSuccess();
+  };
+
+  const linkCurrentSubscriptionDevice = async (companyId = currentCompanyId): Promise<MutationResult> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
+      return makeError('VALIDATION_ERROR', 'Cloud subscriptions require a signed-in Firebase account.');
+    }
+
+    const company = companies.find(item => item.id === companyId);
+    if (!company) return makeError('VALIDATION_ERROR', 'Company not found.');
+    const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, companyId);
+
+    try {
+      setSubscriptionCloudBusy(true);
+      const nextRemote = await runTransaction(firebaseDb, async (transaction) => {
+        const snapshot = await transaction.get(subscriptionRef);
+        const remote = snapshot.exists()
+          ? normalizeCloudCompanySubscription(companyId, snapshot.data(), company)
+          : buildCloudSubscriptionFromCompanyProfile(company, {
+            source: company.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
+            updatedByUserId: currentUser.id,
+            updatedByEmail: currentUser.email,
+            boundDevices: []
+          });
+
+        const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
+        if (!existingDevice && remote.boundDevices.length >= remote.maxDevices) {
+          throw new Error('Device limit reached for this company subscription.');
+        }
+
+        const boundDevices = existingDevice
+          ? remote.boundDevices.map(device => (
+            device.deviceId === currentDeviceBinding.deviceId
+              ? {
+                ...device,
+                lastSeenAt: new Date().toISOString(),
+                lastUserId: currentUser.id,
+                lastUserEmail: currentUser.email
+              }
+              : device
+          ))
+          : [...remote.boundDevices, currentDeviceBinding];
+
+        const next: CloudCompanySubscription = {
+          ...remote,
+          companyName: company.name,
+          boundDevices,
+          updatedAt: new Date().toISOString(),
+          updatedByUserId: currentUser.id,
+          updatedByEmail: currentUser.email
+        };
+
+        transaction.set(subscriptionRef, next, { merge: true });
+        return next;
+      });
+
+      setCloudSubscription(nextRemote);
+      applyCompanySubscriptionLocally(companyId, buildCompanyProfilePatchFromCloud(nextRemote, company));
+      setSubscriptionCloudBusy(false);
+      setSubscriptionCloudError('');
+      return makeSuccess();
+    } catch (error: any) {
+      setSubscriptionCloudBusy(false);
+      const message = String(error?.message || 'Failed to link this device.');
+      setSubscriptionCloudError(message);
+      return makeError('VALIDATION_ERROR', message);
+    }
+  };
+
+  const unlinkSubscriptionDevice = async (companyId: string, deviceId: string): Promise<MutationResult> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
+      return makeError('VALIDATION_ERROR', 'Cloud subscriptions require a signed-in Firebase account.');
+    }
+    if (!can('SETTINGS', 'EDIT')) {
+      return makeError('PERMISSION_DENIED', 'You do not have permission to manage subscription devices.');
+    }
+
+    const company = companies.find(item => item.id === companyId);
+    if (!company) return makeError('VALIDATION_ERROR', 'Company not found.');
+    const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, companyId);
+
+    try {
+      setSubscriptionCloudBusy(true);
+      const nextRemote = await runTransaction(firebaseDb, async (transaction) => {
+        const snapshot = await transaction.get(subscriptionRef);
+        const remote = snapshot.exists()
+          ? normalizeCloudCompanySubscription(companyId, snapshot.data(), company)
+          : null;
+        if (!remote) throw new Error('Cloud subscription not found.');
+
+        const nextDevices = remote.boundDevices.filter(device => device.deviceId !== deviceId);
+        if (nextDevices.length === remote.boundDevices.length) {
+          throw new Error('Device not found in this company subscription.');
+        }
+
+        const next: CloudCompanySubscription = {
+          ...remote,
+          boundDevices: nextDevices,
+          updatedAt: new Date().toISOString(),
+          updatedByUserId: currentUser.id,
+          updatedByEmail: currentUser.email
+        };
+        transaction.set(subscriptionRef, next, { merge: true });
+        return next;
+      });
+
+      setCloudSubscription(nextRemote);
+      applyCompanySubscriptionLocally(
+        companyId,
+        buildCompanyProfilePatchFromCloud(
+          nextRemote,
+          company,
+          deviceId === currentDeviceBinding.deviceId ? 'SUSPENDED' : undefined
+        )
+      );
+      setSubscriptionCloudBusy(false);
+      setSubscriptionCloudError('');
+      return makeSuccess();
+    } catch (error: any) {
+      setSubscriptionCloudBusy(false);
+      const message = String(error?.message || 'Failed to unlink the selected device.');
+      setSubscriptionCloudError(message);
+      return makeError('VALIDATION_ERROR', message);
+    }
+  };
+
+  const updateCompanySubscription = async (companyId: string, updates: Partial<CompanyProfile>): Promise<MutationResult> => {
+    if (!can('SETTINGS', 'EDIT')) {
+      appendAuditLog({
+        entityType: 'company_subscription',
+        entityId: companyId,
+        action: 'UPDATE_DENIED',
+        screen: 'Settings > Subscription',
+        metadata: { reason: 'PERMISSION_DENIED' }
+      });
+      return makeError('PERMISSION_DENIED', 'You do not have permission to manage company subscriptions.');
+    }
+
+    const existing = companies.find(company => company.id === companyId);
+    if (!existing) return makeError('VALIDATION_ERROR', 'Company not found.');
+
+    const next = withNormalizedCompanyProfile({
+      ...existing,
+      ...updates,
+      id: existing.id,
+      createdAt: existing.createdAt
+    });
+
+    try {
+      await persistCloudSubscription(next, {
+        source: 'MANUAL',
+        maxDevices: cloudSubscription?.maxDevices || 1,
+        boundDevices: cloudSubscription?.boundDevices || [currentDeviceBinding]
+      });
+    } catch (error: any) {
+      const message = String(error?.message || 'Failed to sync subscription settings to the cloud.');
+      setSubscriptionCloudError(message);
+      return makeError('VALIDATION_ERROR', message);
+    }
+
+    applyCompanySubscriptionLocally(companyId, next);
+    if (companyId === currentCompanyId) {
+      setCloudSubscription(prev => prev ? {
+        ...prev,
+        ...buildCloudSubscriptionFromCompanyProfile(next, {
+          source: 'MANUAL',
+          updatedByUserId: currentUser?.id,
+          updatedByEmail: currentUser?.email,
+          maxDevices: prev.maxDevices,
+          boundDevices: prev.boundDevices
+        })
+      } : prev);
+    }
+    appendAuditLog({
+      entityType: 'company_subscription',
+      entityId: companyId,
+      action: 'UPDATE',
+      screen: 'Settings > Subscription',
+      before: safeClone(existing),
+      after: safeClone(next)
+    });
+    return makeSuccess();
+  };
+
+  const activateCompanySubscription = async (companyId: string, activationCode: string): Promise<MutationResult> => {
+    if (!can('SETTINGS', 'EDIT')) {
+      appendAuditLog({
+        entityType: 'company_subscription',
+        entityId: companyId,
+        action: 'ACTIVATE_DENIED',
+        screen: 'Settings > Subscription',
+        metadata: { reason: 'PERMISSION_DENIED' }
+      });
+      return makeError('PERMISSION_DENIED', 'You do not have permission to activate subscriptions.');
+    }
+
+    const existing = companies.find(company => company.id === companyId);
+    if (!existing) return makeError('VALIDATION_ERROR', 'Company not found.');
+
+    const normalizedCode = normalizeActivationCode(activationCode);
+    if (!normalizedCode) return makeError('VALIDATION_ERROR', 'Activation code is required.');
+
+    if (firebaseDb && currentUser && !isGuestUser(currentUser)) {
+      try {
+        setSubscriptionCloudBusy(true);
+        const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, companyId);
+        const codeRef = doc(firebaseDb, SUBSCRIPTION_CODES_COLLECTION, normalizedCode);
+        const nextRemote = await runTransaction(firebaseDb, async (transaction) => {
+          const codeSnapshot = await transaction.get(codeRef);
+          const codeRecord = codeSnapshot.exists() ? normalizeCloudSubscriptionCode(codeSnapshot.data()) : null;
+          if (!codeRecord) throw new Error('Activation code is invalid.');
+          if (codeRecord.status !== 'AVAILABLE') throw new Error('This activation code is no longer available.');
+          if (codeRecord.expiresAt && Date.parse(codeRecord.expiresAt) < Date.now()) {
+            throw new Error('This activation code has expired.');
+          }
+          if (codeRecord.reservedCompanyId && codeRecord.reservedCompanyId !== companyId) {
+            throw new Error('This activation code is reserved for another company.');
+          }
+
+          const subscriptionSnapshot = await transaction.get(subscriptionRef);
+          const remote = subscriptionSnapshot.exists()
+            ? normalizeCloudCompanySubscription(companyId, subscriptionSnapshot.data(), existing)
+            : buildCloudSubscriptionFromCompanyProfile(existing, {
+              source: existing.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
+              updatedByUserId: currentUser.id,
+              updatedByEmail: currentUser.email,
+              boundDevices: []
+            });
+
+          const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
+          if (!existingDevice && remote.boundDevices.length >= codeRecord.maxDevices) {
+            throw new Error('This subscription has reached its device limit.');
+          }
+
+          const nextDevices = existingDevice
+            ? remote.boundDevices.map(device => (
+              device.deviceId === currentDeviceBinding.deviceId
+                ? {
+                  ...device,
+                  lastSeenAt: new Date().toISOString(),
+                  lastUserId: currentUser.id,
+                  lastUserEmail: currentUser.email
+                }
+                : device
+            ))
+            : [...remote.boundDevices, currentDeviceBinding];
+
+          const nowIso = new Date().toISOString();
+          const currentEndsAtMs = Date.parse(String(remote.endsAt || ''));
+          const extensionBaseIso = remote.status === 'ACTIVE' && Number.isFinite(currentEndsAtMs) && currentEndsAtMs > Date.now()
+            ? String(remote.endsAt)
+            : nowIso;
+
+          const next: CloudCompanySubscription = {
+            ...remote,
+            companyId,
+            companyName: existing.name,
+            status: 'ACTIVE',
+            plan: codeRecord.plan,
+            startsAt: remote.status === 'ACTIVE' ? (remote.startsAt || nowIso) : nowIso,
+            endsAt: addDaysIso(extensionBaseIso, codeRecord.durationDays),
+            activationCode: codeRecord.code,
+            maxDevices: Math.max(remote.maxDevices, codeRecord.maxDevices),
+            source: 'ACTIVATION_CODE',
+            updatedAt: nowIso,
+            updatedByUserId: currentUser.id,
+            updatedByEmail: currentUser.email,
+            boundDevices: nextDevices,
+            reservedCompanyId: codeRecord.reservedCompanyId,
+            reservedCompanyName: codeRecord.reservedCompanyName
+          };
+
+          transaction.set(subscriptionRef, next, { merge: true });
+          transaction.set(codeRef, {
+            status: 'USED',
+            usedAt: nowIso,
+            usedByCompanyId: companyId,
+            usedByCompanyName: existing.name,
+            usedByDeviceId: currentDeviceBinding.deviceId,
+            usedByUserId: currentUser.id,
+            usedByEmail: currentUser.email
+          }, { merge: true });
+
+          return next;
+        });
+
+        setCloudSubscription(nextRemote);
+        applyCompanySubscriptionLocally(companyId, buildCompanyProfilePatchFromCloud(nextRemote, existing));
+        setSubscriptionCloudBusy(false);
+        setSubscriptionCloudError('');
+        appendAuditLog({
+          entityType: 'company_subscription',
+          entityId: companyId,
+          action: existing.subscriptionStatus === 'ACTIVE' ? 'RENEW' : 'ACTIVATE',
+          screen: 'Settings > Subscription',
+          before: safeClone(existing),
+          after: safeClone(nextRemote),
+          metadata: {
+            activationCode: normalizedCode,
+            source: 'FIRESTORE'
+          }
+        });
+        return makeSuccess();
+      } catch (error: any) {
+        setSubscriptionCloudBusy(false);
+        const message = String(error?.message || 'Failed to activate the company subscription.');
+        setSubscriptionCloudError(message);
+        appendAuditLog({
+          entityType: 'company_subscription',
+          entityId: companyId,
+          action: 'ACTIVATE_REJECTED',
+          screen: 'Settings > Subscription',
+          metadata: { reason: message, activationCode: normalizedCode, source: 'FIRESTORE' }
+        });
+        return makeError('VALIDATION_ERROR', message);
+      }
+    }
+
+    const parsedCode = parseActivationCode(normalizedCode);
+    if (!parsedCode) {
+      appendAuditLog({
+        entityType: 'company_subscription',
+        entityId: companyId,
+        action: 'ACTIVATE_REJECTED',
+        screen: 'Settings > Subscription',
+        metadata: { reason: 'INVALID_ACTIVATION_CODE', source: 'LOCAL_FALLBACK' }
+      });
+      return makeError('VALIDATION_ERROR', 'Activation code is invalid.');
+    }
+
+    const nowIso = new Date().toISOString();
+    const currentEndsAtMs = Date.parse(String(existing.subscriptionEndsAt || ''));
+    const extensionBaseIso = existing.subscriptionStatus === 'ACTIVE' && Number.isFinite(currentEndsAtMs) && currentEndsAtMs > Date.now()
+      ? String(existing.subscriptionEndsAt)
+      : nowIso;
+
+    const next = withNormalizedCompanyProfile({
+      ...existing,
+      subscriptionStatus: 'ACTIVE',
+      subscriptionPlan: parsedCode.plan,
+      subscriptionStartsAt: existing.subscriptionStatus === 'ACTIVE'
+        ? existing.subscriptionStartsAt || nowIso
+        : nowIso,
+      subscriptionEndsAt: addDaysIso(extensionBaseIso, parsedCode.durationDays),
+      activationCode: parsedCode.code
+    });
+
+    applyCompanySubscriptionLocally(companyId, next);
+    appendAuditLog({
+      entityType: 'company_subscription',
+      entityId: companyId,
+      action: existing.subscriptionStatus === 'ACTIVE' ? 'RENEW' : 'ACTIVATE',
+      screen: 'Settings > Subscription',
+      before: safeClone(existing),
+      after: safeClone(next),
+      metadata: {
+        plan: parsedCode.plan,
+        durationDays: parsedCode.durationDays,
+        source: 'LOCAL_FALLBACK'
+      }
+    });
+    return makeSuccess();
+  };
+
   const updateCompanyProfile = (companyId: string, updates: Partial<CompanyProfile>): MutationResult => {
     const permission = enforcePermission('SETTINGS', 'EDIT', 'Company Switcher');
     if (!permission.ok) return permission;
-    if (!companies.some(c => c.id === companyId)) return makeError('VALIDATION_ERROR', 'Company not found.');
+    const existing = companies.find(c => c.id === companyId);
+    if (!existing) return makeError('VALIDATION_ERROR', 'Company not found.');
 
-    setCompanies(prev => prev.map(company => (
-      company.id === companyId
-        ? withNormalizedCompanyProfile({
-          ...company,
-          ...updates,
-          id: company.id,
-          createdAt: company.createdAt
-        })
-        : company
-    )));
-    if (companyId === currentCompanyId) {
-      setCompanySettings(prev => ({
-        ...prev,
-        name: updates.name ?? prev.name,
-        taxNumber: updates.taxNumber ?? prev.taxNumber,
-        address: updates.address ?? prev.address,
-        phone: updates.phone ?? prev.phone,
-        logoUrl: normalizeBrandLogoUrl(updates.logoUrl ?? prev.logoUrl, defaultCompanySettings.logoUrl)
-      }));
+    const next = withNormalizedCompanyProfile({
+      ...existing,
+      ...updates,
+      id: existing.id,
+      createdAt: existing.createdAt
+    });
+
+    applyCompanySubscriptionLocally(companyId, next);
+    if (firebaseDb && currentUser && !isGuestUser(currentUser)) {
+      void persistCloudSubscription(next, {
+        source: cloudSubscription?.source || (next.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL'),
+        maxDevices: cloudSubscription?.maxDevices || 1,
+        boundDevices: cloudSubscription?.boundDevices || [currentDeviceBinding]
+      }).catch((error: any) => {
+        setSubscriptionCloudError(String(error?.message || 'Failed to sync company profile to cloud subscription.'));
+      });
     }
     return makeSuccess();
   };
 
   // --- WAREHOUSE METHODS ---
-  const addWarehouse = (w: Omit<Warehouse, 'id'>) => setWarehouses(prev => [...prev, { ...w, id: 'wh_' + Math.random().toString(36).substr(2, 9) }]);
-  const updateWarehouse = (id: string, updates: Partial<Warehouse>) => setWarehouses(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
-  const deleteWarehouse = (id: string) => setWarehouses(prev => prev.filter(w => w.id !== id));
+  const addWarehouse = (w: Omit<Warehouse, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Warehouses')) return;
+    setWarehouses(prev => [...prev, { ...w, id: 'wh_' + Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateWarehouse = (id: string, updates: Partial<Warehouse>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Warehouses')) return;
+    setWarehouses(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
+  };
+  const deleteWarehouse = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Warehouses')) return;
+    setWarehouses(prev => prev.filter(w => w.id !== id));
+  };
 
   const applyStockTransferToProducts = (
     prevProducts: Product[],
@@ -6305,6 +7595,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   });
 
   const addStockTransfer = (t: Omit<StockTransfer, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Stock Transfers')) return;
     const nextTransfer = { ...t, id: 'st_' + Math.random().toString(36).substr(2, 9) };
     setStockTransfers(prev => [...prev, nextTransfer]);
     if (nextTransfer.status === 'POSTED') {
@@ -6313,6 +7604,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const updateStockTransfer = (id: string, updates: Partial<StockTransfer>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Stock Transfers')) return;
     const existingTransfer = stockTransfers.find(transfer => transfer.id === id);
     if (!existingTransfer) return;
 
@@ -6336,6 +7628,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const deleteStockTransfer = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Stock Transfers')) return;
     const existingTransfer = stockTransfers.find(transfer => transfer.id === id);
     if (!existingTransfer) return;
 
@@ -6346,6 +7639,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const adjustWarehouseStock = (productId: string, warehouseId: string, quantity: number) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Warehouse Stock')) return;
     setProducts(prev => prev.map(p => {
       if (p.id !== productId) return p;
       const currentStock = p.warehouseStock || [];
@@ -6366,6 +7660,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const postStockTransfer = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'POST', 'Stock Transfers')) return;
     const transfer = stockTransfers.find(t => t.id === id);
     if (!transfer || transfer.status === 'POSTED') return;
 
@@ -6377,15 +7672,34 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   // --- MANUFACTURING METHODS ---
-  const addBOM = (bom: Omit<BillOfMaterial, 'id'>) => setBoms(prev => [...prev, { ...bom, id: 'bom_' + Math.random().toString(36).substr(2, 9) }]);
-  const updateBOM = (id: string, updates: Partial<BillOfMaterial>) => setBoms(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
-  const deleteBOM = (id: string) => setBoms(prev => prev.filter(b => b.id !== id));
+  const addBOM = (bom: Omit<BillOfMaterial, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Manufacturing BOM')) return;
+    setBoms(prev => [...prev, { ...bom, id: 'bom_' + Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateBOM = (id: string, updates: Partial<BillOfMaterial>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Manufacturing BOM')) return;
+    setBoms(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+  };
+  const deleteBOM = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Manufacturing BOM')) return;
+    setBoms(prev => prev.filter(b => b.id !== id));
+  };
 
-  const addProductionOrder = (order: Omit<ProductionOrder, 'id'>) => setProductionOrders(prev => [...prev, { ...order, id: 'po_' + Math.random().toString(36).substr(2, 9) }]);
-  const updateProductionOrder = (id: string, updates: Partial<ProductionOrder>) => setProductionOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
-  const deleteProductionOrder = (id: string) => setProductionOrders(prev => prev.filter(o => o.id !== id));
+  const addProductionOrder = (order: Omit<ProductionOrder, 'id'>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Production Orders')) return;
+    setProductionOrders(prev => [...prev, { ...order, id: 'po_' + Math.random().toString(36).substr(2, 9) }]);
+  };
+  const updateProductionOrder = (id: string, updates: Partial<ProductionOrder>) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Production Orders')) return;
+    setProductionOrders(prev => prev.map(o => o.id === id ? { ...o, ...updates } : o));
+  };
+  const deleteProductionOrder = (id: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'DELETE', 'Production Orders')) return;
+    setProductionOrders(prev => prev.filter(o => o.id !== id));
+  };
 
   const executeProduction = (orderId: string) => {
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'POST', 'Production Orders')) return;
     const order = productionOrders.find(o => o.id === orderId);
     if (!order || order.status === 'COMPLETED') return;
 
@@ -6882,7 +8196,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         ...((data.companySettings as CompanySettings) || {})
       });
 
-      setBaseCurrency((data.baseCurrency as string) || 'ILS');
+      setBaseCurrencyState((data.baseCurrency as string) || 'ILS');
       setCompanySettings(restoredSettings);
       setUsers(Array.isArray(data.users) ? (data.users as User[]) : users);
       setAccounts(Array.isArray(data.accounts) ? (data.accounts as Account[]) : accounts);
@@ -7083,7 +8397,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   return (
     <AccountingContext.Provider value={{
       currentUser, setCurrentUser, logout,
-      companies, currentCompanyId, currentCompany, trialDaysLeft, switchCompany, createCompany, updateCompanyProfile,
+      companies, currentCompanyId, currentCompany, trialDaysLeft, companyAccessStatus, companyAccessDaysLeft, companyAccessEndsAt,
+      workspaceSubscription, workspaceMaxCompanies, workspaceRemainingCompanySlots, workspaceCompanyLimitReached, workspaceProviderAvailability,
+      switchCompany, createCompany, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
+      deviceBindingId, cloudSubscription, subscriptionCloudBusy, subscriptionCloudError, subscriptionAdminEnabled, subscriptionCodes, subscriptionCodesLoading, subscriptionCompanies, subscriptionCompaniesLoading, issueSubscriptionCode, cancelSubscriptionCode, linkCurrentSubscriptionDevice, unlinkSubscriptionDevice,
       transactions, addTransaction, deleteTransaction, setTransactions, updateTransaction, postVoucher, deleteVoucher, reverseTransaction,
       invoices, createInvoice, updateInvoice, deleteInvoice, postInvoice, reverseInvoice, returnInvoiceItem, setInvoices,
       invoiceSettlements, upsertInvoiceSettlementsForVoucher,

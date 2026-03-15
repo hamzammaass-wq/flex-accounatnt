@@ -5,7 +5,7 @@ import { Account, AccountType, TransactionType, Product, Invoice, Check, Transac
 import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { downloadElementAsPdf, exportElementAsCsv, printElementContent } from '../utils/documentExport';
+import { downloadElementAsPdf, exportElementAsCsv, printElementContent, settleElementBeforeSnapshot } from '../utils/documentExport';
 import { getFiscalYear, getFiscalYearStart, isProfitLossAccount, isReportYearClosed } from '../utils/fiscalYear';
 import {
     FileText, TrendingUp, Landmark, ChevronDown,
@@ -838,6 +838,7 @@ const FinancialReports: React.FC = () => {
     };
 
     const activeReportRef = useRef<HTMLDivElement | null>(null);
+    const settleActiveReportSnapshot = () => settleElementBeforeSnapshot(activeReportRef.current);
 
     const buildReportShareText = (title: string) => [
         title,
@@ -846,6 +847,7 @@ const FinancialReports: React.FC = () => {
     ].join('\n');
 
     const handleSaveReportPdf = async (title: string) => {
+        await settleActiveReportSnapshot();
         const success = await downloadElementAsPdf(activeReportRef.current, {
             title: `${title} - ${startDate} - ${endDate}`,
             fileName: `${title}-${startDate}-${endDate}`,
@@ -859,7 +861,8 @@ const FinancialReports: React.FC = () => {
         }
     };
 
-    const handlePrintActiveReport = (title: string) => {
+    const handlePrintActiveReport = async (title: string) => {
+        await settleActiveReportSnapshot();
         const success = printElementContent(activeReportRef.current, {
             title: `${title} - ${startDate} - ${endDate}`,
             dir: isEnglish ? 'ltr' : 'rtl',
@@ -870,7 +873,8 @@ const FinancialReports: React.FC = () => {
         }
     };
 
-    const handleExportReportExcel = (title: string) => {
+    const handleExportReportExcel = async (title: string) => {
+        await settleActiveReportSnapshot();
         const success = exportElementAsCsv(activeReportRef.current, `${title}-${startDate}-${endDate}`);
         if (!success) {
             alert(tr('���� ����� ��� ������� ������.', 'Could not export this report right now.'));

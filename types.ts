@@ -9,7 +9,7 @@ export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENS
 
 export type MutationResult =
   | { ok: true }
-  | { ok: false; code: 'POSTED_LOCKED' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR'; message: string };
+  | { ok: false; code: 'POSTED_LOCKED' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'SUBSCRIPTION_LIMIT'; message: string };
 
 export type PermissionAction = 'VIEW' | 'ADD' | 'EDIT' | 'DELETE' | 'POST' | 'PRINT' | 'REVERSE';
 export type PermissionModule =
@@ -577,6 +577,7 @@ export interface CompanySettings {
   // Print options
   printPersonalData: boolean;
   printElectronicInvoice: boolean;
+  printItemBarcodeInInvoice: boolean;
   printStatementAllCurrencies: boolean;
   statementDateAscending: boolean;
   statementFooterNote: string;
@@ -603,6 +604,134 @@ export interface CompanySettings {
   language: 'AR' | 'EN';
 }
 
+export type CompanySubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED';
+export type CompanySubscriptionPlan = 'NONE' | 'TRIAL' | 'BASIC' | 'PRO' | 'ENTERPRISE';
+export type CloudSubscriptionCodeStatus = 'AVAILABLE' | 'USED' | 'CANCELLED' | 'EXPIRED';
+export type SubscriptionBillingCycle = 'MONTHLY' | 'YEARLY';
+export type SubscriptionProvider = 'NONE' | 'TRIAL' | 'MANUAL' | 'STRIPE' | 'APPLE' | 'GOOGLE';
+export type SubscriptionCheckoutProvider = 'STRIPE' | 'APPLE' | 'GOOGLE';
+export type SubscriptionCheckoutMode = 'EXTERNAL_URL' | 'STORE_PRODUCT';
+
+export interface SubscriptionDeviceBinding {
+  deviceId: string;
+  label: string;
+  platform?: string;
+  userAgent?: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastUserId?: string;
+  lastUserEmail?: string;
+}
+
+export interface CloudCompanySubscription {
+  companyId: string;
+  companyName?: string;
+  ownerUserId?: string;
+  ownerEmail?: string;
+  status: CompanySubscriptionStatus;
+  plan: CompanySubscriptionPlan;
+  startsAt?: string;
+  endsAt?: string;
+  graceDays: number;
+  activationCode?: string;
+  maxDevices: number;
+  source: 'TRIAL' | 'MANUAL' | 'ACTIVATION_CODE' | 'CLOUD_SYNC';
+  updatedAt: string;
+  updatedByUserId?: string;
+  updatedByEmail?: string;
+  boundDevices: SubscriptionDeviceBinding[];
+  reservedCompanyId?: string;
+  reservedCompanyName?: string;
+  notes?: string;
+}
+
+export interface CloudSubscriptionCode {
+  code: string;
+  status: CloudSubscriptionCodeStatus;
+  plan: CompanySubscriptionPlan;
+  durationDays: number;
+  maxDevices: number;
+  createdAt: string;
+  createdByUserId?: string;
+  createdByEmail?: string;
+  expiresAt?: string;
+  notes?: string;
+  reservedCompanyId?: string;
+  reservedCompanyName?: string;
+  usedAt?: string;
+  usedByCompanyId?: string;
+  usedByCompanyName?: string;
+  usedByDeviceId?: string;
+  usedByUserId?: string;
+  usedByEmail?: string;
+}
+
+export interface WorkspaceSubscriptionAccount {
+  userId: string;
+  userEmail?: string;
+  status: CompanySubscriptionStatus;
+  plan: CompanySubscriptionPlan;
+  billingCycle: SubscriptionBillingCycle;
+  provider: SubscriptionProvider;
+  includedCompanies: number;
+  extraCompanyCount: number;
+  maxCompanies: number;
+  currency: 'USD';
+  basePriceUsd: number;
+  extraCompanyPriceUsd: number;
+  startedAt: string;
+  renewalDate?: string;
+  expiresAt?: string;
+  providerCustomerId?: string;
+  providerSubscriptionId?: string;
+  providerProductId?: string;
+  lastCheckoutSessionId?: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionProviderAvailability {
+  stripeReady: boolean;
+  appleReady: boolean;
+  googleReady: boolean;
+}
+
+export interface WorkspaceSubscriptionQuote {
+  plan: CompanySubscriptionPlan;
+  billingCycle: SubscriptionBillingCycle;
+  provider: SubscriptionCheckoutProvider;
+  desiredCompanyCount: number;
+  includedCompanies: number;
+  extraCompanyCount: number;
+  maxCompanies: number;
+  currency: 'USD';
+  basePriceUsd: number;
+  extraCompanyPriceUsd: number;
+  totalPriceUsd: number;
+  providerReady: boolean;
+  checkoutMode?: SubscriptionCheckoutMode;
+  checkoutUrl?: string;
+  productId?: string;
+}
+
+export type SubscriptionCheckoutResult =
+  | {
+    ok: true;
+    provider: SubscriptionCheckoutProvider;
+    mode: SubscriptionCheckoutMode;
+    message: string;
+    url?: string;
+    productId?: string;
+  }
+  | {
+    ok: false;
+    code: 'VALIDATION_ERROR' | 'NOT_CONFIGURED';
+    message: string;
+  };
+
+export type SubscriptionCodeIssueResult =
+  | { ok: true; code: string }
+  | { ok: false; code: 'PERMISSION_DENIED' | 'VALIDATION_ERROR'; message: string };
+
 export interface CompanyProfile {
   id: string;
   name: string;
@@ -612,6 +741,12 @@ export interface CompanyProfile {
   logoUrl?: string;
   createdAt: string;
   trialEndsAt: string;
+   subscriptionStatus: CompanySubscriptionStatus;
+   subscriptionPlan: CompanySubscriptionPlan;
+   subscriptionStartsAt?: string;
+   subscriptionEndsAt?: string;
+   activationCode?: string;
+   graceDays?: number;
 }
 
 export interface CreateCompanyInput {
@@ -620,6 +755,12 @@ export interface CreateCompanyInput {
   address?: string;
   phone?: string;
   logoUrl?: string;
+  subscriptionStatus?: CompanySubscriptionStatus;
+  subscriptionPlan?: CompanySubscriptionPlan;
+  subscriptionStartsAt?: string;
+  subscriptionEndsAt?: string;
+  activationCode?: string;
+  graceDays?: number;
 }
 
 export type UserRole = 'ADMIN' | 'ACCOUNTANT' | 'VIEWER';

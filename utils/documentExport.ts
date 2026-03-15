@@ -50,6 +50,21 @@ export const downloadTextFile = (content: string, fileName: string, mimeType = '
   triggerDownload(new Blob([content], { type: mimeType }), fileName);
 };
 
+export const settleElementBeforeSnapshot = async (element: HTMLElement | null) => {
+  if (!element || typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  const activeElement = document.activeElement as HTMLElement | null;
+  if (activeElement && element.contains(activeElement) && typeof activeElement.blur === 'function') {
+    activeElement.blur();
+  }
+
+  await new Promise<void>(resolve => {
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => resolve());
+    }, 0);
+  });
+};
+
 const normalizeText = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
 
 const collectPrintStylesMarkup = () => {

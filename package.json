@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "brand:sync": "node scripts/sync-brand-icons.mjs",
+    "build": "npm run brand:sync && vite build",
     "preview": "vite preview",
     "deploy:hosting": "npm run build && npx firebase-tools deploy --only hosting",
     "cap:sync": "npm run build && npx cap sync",

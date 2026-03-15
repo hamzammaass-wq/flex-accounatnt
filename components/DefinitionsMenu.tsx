@@ -23,7 +23,8 @@ import {
   Cable,
   Cloud,
   CloudUpload,
-  CloudDownload
+  CloudDownload,
+  BookOpen
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
 import CurrencyManager from './CurrencyManager';
@@ -36,12 +37,15 @@ import FingerprintReadersManager from './FingerprintReadersManager';
 import BarcodeDevicesManager from './BarcodeDevicesManager';
 import DeviceHubManager from './DeviceHubManager';
 import EnglishDateInput from './EnglishDateInput';
+import PolicyGuideScreen from './PolicyGuideScreen';
 import { useAccounting } from '../contexts/AccountingContext';
-import { CompanySettings, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule } from '../types';
+import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider } from '../types';
 import { normalizeAppLanguage, translate } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { applyAppTheme } from '../utils/appTheme';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
+import { createStripeWorkspaceCheckoutSession } from '../utils/subscriptionCheckoutClient';
+import { buildWorkspaceSubscriptionQuote } from '../utils/subscriptionCommerce';
 import {
   applyIntegritySafeFixes,
   IntegrityArea,
@@ -78,6 +82,7 @@ type BooleanSettingKey =
   | 'invoiceExpiryDateEnabled'
   | 'printPersonalData'
   | 'printElectronicInvoice'
+  | 'printItemBarcodeInInvoice'
   | 'printStatementAllCurrencies'
   | 'statementDateAscending'
   | 'showAccountBalanceUnderVoucher'
@@ -93,6 +98,10 @@ type BooleanSettingKey =
 export type SettingsMode =
   | 'MENU'
   | 'COMPANIES'
+  | 'SUBSCRIPTION'
+  | 'SUBSCRIPTION_REPORTS'
+  | 'POLICY'
+  | 'USAGE_GUIDE'
   | 'COMPANY'
   | 'ACCOUNTS'
   | 'TAXES'
@@ -146,6 +155,22 @@ const normalizeInventoryValuationMethod = (
 
 type BrowserNotificationPermission = NotificationPermission | 'unsupported';
 
+const SUBSCRIPTION_STATUS_OPTIONS: CompanySubscriptionStatus[] = ['TRIAL', 'ACTIVE', 'EXPIRED', 'SUSPENDED'];
+const SUBSCRIPTION_PLAN_OPTIONS: CompanySubscriptionPlan[] = ['TRIAL', 'BASIC', 'PRO', 'ENTERPRISE', 'NONE'];
+
+const formatIsoDateInputValue = (value?: string): string => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+};
+
+const toIsoDateAtStartOfDay = (value: string): string | undefined => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return undefined;
+  const parsed = new Date(`${normalized}T00:00:00`);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined;
+};
+
 const detectBrowserNotificationPermission = (): BrowserNotificationPermission => {
   if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
   return window.Notification.permission;
@@ -194,6 +219,7 @@ const withCompanyDefaults = (settings: CompanySettings): CompanySettings => {
     autoFiscalYearOpeningEntries: coerceBoolean((settings as any).autoFiscalYearOpeningEntries, true),
     printPersonalData: coerceBoolean(settings.printPersonalData, true),
     printElectronicInvoice: coerceBoolean(settings.printElectronicInvoice, true),
+    printItemBarcodeInInvoice: coerceBoolean((settings as any).printItemBarcodeInInvoice, false),
     printStatementAllCurrencies: coerceBoolean(settings.printStatementAllCurrencies, false),
     statementDateAscending: coerceBoolean(settings.statementDateAscending, true),
     statementFooterNote: settings.statementFooterNote ?? '',
@@ -280,15 +306,39 @@ const clonePermissions = (value: PermissionMatrix): PermissionMatrix => ({
 const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' }) => {
   const [mode, setMode] = useState<SettingsMode>(initialMode);
   const {
+    currentUser,
     companySettings,
     updateCompanySettings,
     companies,
     currentCompany,
     currentCompanyId,
-    trialDaysLeft,
+    companyAccessStatus,
+    companyAccessDaysLeft,
+    companyAccessEndsAt,
+    workspaceSubscription,
+    workspaceMaxCompanies,
+    workspaceRemainingCompanySlots,
+    workspaceCompanyLimitReached,
+    workspaceProviderAvailability,
     switchCompany,
     createCompany,
+    prepareSubscriptionCheckout,
     updateCompanyProfile,
+    updateCompanySubscription,
+    activateCompanySubscription,
+    deviceBindingId,
+    cloudSubscription,
+    subscriptionCloudBusy,
+    subscriptionCloudError,
+    subscriptionAdminEnabled,
+    subscriptionCodes,
+    subscriptionCodesLoading,
+    subscriptionCompanies,
+    subscriptionCompaniesLoading,
+    issueSubscriptionCode,
+    cancelSubscriptionCode,
+    linkCurrentSubscriptionDevice,
+    unlinkSubscriptionDevice,
     permissions,
     updatePermissions,
     exportData,
@@ -363,6 +413,25 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [googleDriveAutoUpload, setGoogleDriveAutoUpload] = useState(Boolean(companySettings.googleDriveAutoUpload));
   const [googleDriveClientId, setGoogleDriveClientId] = useState(companySettings.googleDriveClientId || '');
   const [googleDriveFolderId, setGoogleDriveFolderId] = useState(companySettings.googleDriveFolderId || '');
+  const [subscriptionStatusDraft, setSubscriptionStatusDraft] = useState<CompanySubscriptionStatus>('TRIAL');
+  const [subscriptionPlanDraft, setSubscriptionPlanDraft] = useState<CompanySubscriptionPlan>('TRIAL');
+  const [subscriptionEndsAtDraft, setSubscriptionEndsAtDraft] = useState('');
+  const [subscriptionGraceDaysDraft, setSubscriptionGraceDaysDraft] = useState('0');
+  const [activationCodeDraft, setActivationCodeDraft] = useState('');
+  const [subscriptionStatusMessage, setSubscriptionStatusMessage] = useState('');
+  const [billingCycleDraft, setBillingCycleDraft] = useState<SubscriptionBillingCycle>('MONTHLY');
+  const [billingCompanyCountDraft, setBillingCompanyCountDraft] = useState('1');
+  const [billingStatusMessage, setBillingStatusMessage] = useState('');
+  const [issuePlanDraft, setIssuePlanDraft] = useState<CompanySubscriptionPlan>('BASIC');
+  const [issueDurationDaysDraft, setIssueDurationDaysDraft] = useState('30');
+  const [issueMaxDevicesDraft, setIssueMaxDevicesDraft] = useState('1');
+  const [issueExpiresAtDraft, setIssueExpiresAtDraft] = useState('');
+  const [issueNotesDraft, setIssueNotesDraft] = useState('');
+  const [issueReservedCompanyDraft, setIssueReservedCompanyDraft] = useState('');
+  const [issuedCodeMessage, setIssuedCodeMessage] = useState('');
+  const [subscriptionReportSearch, setSubscriptionReportSearch] = useState('');
+  const [subscriptionReportCompanyStatusFilter, setSubscriptionReportCompanyStatusFilter] = useState<'ALL' | CompanySubscriptionStatus>('ALL');
+  const [subscriptionReportCodeStatusFilter, setSubscriptionReportCodeStatusFilter] = useState<'ALL' | CloudSubscriptionCodeStatus>('ALL');
   const [auditSearch, setAuditSearch] = useState('');
   const [newCompanyName, setNewCompanyName] = useState('');
   const [integrityReport, setIntegrityReport] = useState<IntegrityReport | null>(null);
@@ -395,8 +464,165 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   ]);
 
   useEffect(() => {
+    const nextStatus = currentCompany?.subscriptionStatus || 'TRIAL';
+    const nextPlan = currentCompany?.subscriptionPlan || (nextStatus === 'TRIAL' ? 'TRIAL' : 'NONE');
+    const nextEndsAt = nextStatus === 'TRIAL'
+      ? currentCompany?.trialEndsAt
+      : currentCompany?.subscriptionEndsAt;
+
+    setSubscriptionStatusDraft(nextStatus);
+    setSubscriptionPlanDraft(nextPlan);
+    setSubscriptionEndsAtDraft(formatIsoDateInputValue(nextEndsAt));
+    setSubscriptionGraceDaysDraft(String(currentCompany?.graceDays ?? 0));
+    setActivationCodeDraft(currentCompany?.activationCode || '');
+  }, [currentCompany]);
+
+  useEffect(() => {
+    setBillingCompanyCountDraft(String(Math.max(1, companies.length + (workspaceRemainingCompanySlots > 0 ? 1 : 0))));
+  }, [companies.length, workspaceRemainingCompanySlots]);
+
+  useEffect(() => {
     setBrowserNotificationPermission(detectBrowserNotificationPermission());
   }, [mode]);
+
+  const subscriptionMeta = useMemo(() => {
+    const endsAtText = companyAccessEndsAt
+      ? new Date(companyAccessEndsAt).toLocaleDateString('en-GB')
+      : '-';
+
+    switch (companyAccessStatus) {
+      case 'ACTIVE':
+        return {
+          badge: tr('اشتراك مفعل', 'Active subscription'),
+          tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+          summary: tr(
+            `الوصول مفعل حاليًا. المتبقي ${companyAccessDaysLeft} يوم حتى نهاية الوصول.`,
+            `Access is active. ${companyAccessDaysLeft} day(s) remain until access ends.`
+          ),
+          endsAtText
+        };
+      case 'SUSPENDED':
+        return {
+          badge: tr('موقوف', 'Suspended'),
+          tone: 'border-rose-200 bg-rose-50 text-rose-700',
+          summary: tr(
+            'الوصول موقوف. يسمح الآن بإدارة الاشتراك والنسخ الاحتياطي فقط.',
+            'Access is suspended. Only subscription management and backup are allowed now.'
+          ),
+          endsAtText
+        };
+      case 'EXPIRED':
+        return {
+          badge: tr('منتهي', 'Expired'),
+          tone: 'border-amber-200 bg-amber-50 text-amber-700',
+          summary: tr(
+            'الاشتراك منتهي. يسمح الآن بعرض البيانات والنسخ الاحتياطي وإدارة الاشتراك فقط.',
+            'The subscription has expired. Only viewing data, backup, and subscription management are allowed now.'
+          ),
+          endsAtText
+        };
+      default:
+        return {
+          badge: tr('فترة تجريبية', 'Trial'),
+          tone: 'border-sky-200 bg-sky-50 text-sky-700',
+          summary: tr(
+            `التجربة فعالة، والمتبقي ${companyAccessDaysLeft} يوم.`,
+            `The trial is active with ${companyAccessDaysLeft} day(s) remaining.`
+          ),
+          endsAtText
+        };
+    }
+  }, [appLanguage, companyAccessDaysLeft, companyAccessEndsAt, companyAccessStatus]);
+
+  const desiredBillingCompanyCount = useMemo(
+    () => Math.max(1, Math.floor(Number(billingCompanyCountDraft) || Math.max(1, companies.length))),
+    [billingCompanyCountDraft, companies.length]
+  );
+
+  const workspaceQuotes = useMemo(() => (
+    (['STRIPE', 'APPLE', 'GOOGLE'] as SubscriptionCheckoutProvider[]).map(provider => (
+      buildWorkspaceSubscriptionQuote({
+        provider,
+        billingCycle: billingCycleDraft,
+        desiredCompanyCount: desiredBillingCompanyCount
+      })
+    ))
+  ), [billingCycleDraft, desiredBillingCompanyCount]);
+
+  const formatUsd = (value: number) => `$${Number(value || 0).toFixed(Number.isInteger(value) ? 0 : 2)}`;
+
+  const getBillingCycleLabel = (cycle: SubscriptionBillingCycle) => (
+    cycle === 'YEARLY' ? tr('سنوي', 'Yearly') : tr('شهري', 'Monthly')
+  );
+
+  const getCheckoutProviderLabel = (provider: SubscriptionCheckoutProvider) => {
+    switch (provider) {
+      case 'APPLE': return 'Apple';
+      case 'GOOGLE': return 'Google';
+      default: return 'Stripe';
+    }
+  };
+
+  const getWorkspaceProviderLabel = () => {
+    switch (workspaceSubscription.provider) {
+      case 'APPLE': return 'Apple';
+      case 'GOOGLE': return 'Google';
+      case 'STRIPE': return 'Stripe';
+      case 'MANUAL': return tr('يدوي', 'Manual');
+      case 'TRIAL': return tr('تجريبي', 'Trial');
+      default: return '-';
+    }
+  };
+
+  const handleStartSubscriptionCheckout = async (provider: SubscriptionCheckoutProvider) => {
+    if (provider === 'STRIPE') {
+      try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const checkout = await createStripeWorkspaceCheckoutSession({
+          billingCycle: billingCycleDraft,
+          desiredCompanyCount: desiredBillingCompanyCount,
+          successUrl: origin ? `${origin}/?openSubscription=1&billing=success` : undefined,
+          cancelUrl: origin ? `${origin}/?openSubscription=1&billing=cancelled` : undefined
+        });
+
+        if (!checkout.url) {
+          setBillingStatusMessage(tr('تعذر إنشاء جلسة دفع Stripe حاليًا.', 'Could not create a Stripe checkout session right now.'));
+          return;
+        }
+
+        if (typeof window !== 'undefined') {
+          window.open(checkout.url, '_blank', 'noopener,noreferrer');
+        }
+        setBillingStatusMessage(appLanguage === 'AR'
+          ? `تم إنشاء جلسة Stripe لعدد ${desiredBillingCompanyCount} شركة.`
+          : `Stripe checkout session created for ${desiredBillingCompanyCount} companies.`);
+        return;
+      } catch (error: any) {
+        setBillingStatusMessage(String(error?.message || tr('فشل إنشاء جلسة Stripe.', 'Failed to create Stripe checkout session.')));
+        return;
+      }
+    }
+
+    const result = prepareSubscriptionCheckout(provider, billingCycleDraft, desiredBillingCompanyCount);
+    if (!result.ok) {
+      setBillingStatusMessage(appLanguage === 'AR'
+        ? 'بوابة الدفع لهذه الجهة غير مهيأة بعد. أضف الروابط أو معرفات المنتجات في ملف البيئة أولًا.'
+        : result.message);
+      return;
+    }
+
+    if (result.mode === 'EXTERNAL_URL' && result.url && typeof window !== 'undefined') {
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+      setBillingStatusMessage(appLanguage === 'AR'
+        ? `تم تجهيز رابط الدفع عبر ${getCheckoutProviderLabel(provider)} لعدد ${desiredBillingCompanyCount} شركة.`
+        : `Prepared ${getCheckoutProviderLabel(provider)} checkout for ${desiredBillingCompanyCount} companies.`);
+      return;
+    }
+
+    setBillingStatusMessage(appLanguage === 'AR'
+      ? `تم تجهيز منتج ${getCheckoutProviderLabel(provider)} بالمعرف ${result.productId || '-'}. فعّل الربط الأصلي داخل التطبيق لإتمام الشراء المباشر.`
+      : `${getCheckoutProviderLabel(provider)} product ${result.productId || '-'} is ready. Complete the native in-app billing hookup to finish direct purchase.`);
+  };
 
   const runIntegrity = (overrides?: Partial<Parameters<typeof runIntegrityCheck>[0]>) => {
     const report = runIntegrityCheck({
@@ -909,11 +1135,152 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const handleCreateCompany = async () => {
     const result = await createCompany({ name: newCompanyName.trim() });
     if (!result.ok) {
+      if (result.code === 'SUBSCRIPTION_LIMIT') {
+        setMode('SUBSCRIPTION');
+      }
       alert(result.message);
       return;
     }
     setNewCompanyName('');
     alert(tr('تم إنشاء الشركة بنجاح', 'Company created successfully.'));
+  };
+
+  const getSubscriptionStatusLabel = (status: CompanySubscriptionStatus) => {
+    switch (status) {
+      case 'ACTIVE': return tr('مفعل', 'Active');
+      case 'EXPIRED': return tr('منتهي', 'Expired');
+      case 'SUSPENDED': return tr('موقوف', 'Suspended');
+      default: return tr('تجريبي', 'Trial');
+    }
+  };
+
+  const getSubscriptionPlanLabel = (plan: CompanySubscriptionPlan) => {
+    switch (plan) {
+      case 'BASIC': return tr('أساسية', 'Basic');
+      case 'PRO': return tr('احترافية', 'Pro');
+      case 'ENTERPRISE': return tr('مؤسسات', 'Enterprise');
+      case 'NONE': return tr('بدون خطة', 'No plan');
+      default: return tr('تجريبية', 'Trial');
+    }
+  };
+
+  const resolveCompanyAccessEndLabel = (company: CompanyProfile) => {
+    const targetDate = company.subscriptionStatus === 'TRIAL'
+      ? company.trialEndsAt
+      : company.subscriptionEndsAt;
+    if (!targetDate) return '-';
+    const parsed = new Date(targetDate);
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString('en-GB') : '-';
+  };
+
+  const formatDeviceSeenAt = (value?: string) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString('en-GB') : '-';
+  };
+
+  const handleActivateSubscription = async () => {
+    const result = await activateCompanySubscription(currentCompanyId, activationCodeDraft.trim());
+    if (!result.ok) {
+      setSubscriptionStatusMessage(result.message);
+      alert(result.message);
+      return;
+    }
+    setSubscriptionStatusMessage(tr('تم تفعيل الاشتراك أو تمديده بنجاح.', 'Subscription activated or renewed successfully.'));
+  };
+
+  const handleSaveSubscription = async () => {
+    if (!currentCompany) return;
+
+    const normalizedGraceDays = Math.max(0, Math.min(30, Math.floor(Number(subscriptionGraceDaysDraft) || 0)));
+    const nextEndsAtIso = toIsoDateAtStartOfDay(subscriptionEndsAtDraft);
+    if ((subscriptionStatusDraft === 'TRIAL' || subscriptionStatusDraft === 'ACTIVE') && !nextEndsAtIso) {
+      const message = tr('يرجى تحديد تاريخ نهاية واضح للتجربة أو الاشتراك.', 'Please provide a clear end date for the trial or subscription.');
+      setSubscriptionStatusMessage(message);
+      alert(message);
+      return;
+    }
+    const nextPlan = subscriptionStatusDraft === 'TRIAL'
+      ? 'TRIAL'
+      : (subscriptionPlanDraft === 'TRIAL' ? 'BASIC' : subscriptionPlanDraft);
+
+    const updates: Partial<CompanyProfile> = {
+      subscriptionStatus: subscriptionStatusDraft,
+      subscriptionPlan: nextPlan,
+      graceDays: normalizedGraceDays,
+      activationCode: activationCodeDraft.trim() || currentCompany.activationCode,
+      subscriptionStartsAt: currentCompany.subscriptionStartsAt || new Date().toISOString()
+    };
+
+    if (subscriptionStatusDraft === 'TRIAL') {
+      updates.trialEndsAt = nextEndsAtIso || currentCompany.trialEndsAt;
+      updates.subscriptionEndsAt = undefined;
+    } else {
+      updates.subscriptionEndsAt = nextEndsAtIso;
+    }
+
+    const result = await updateCompanySubscription(currentCompanyId, updates);
+    if (!result.ok) {
+      setSubscriptionStatusMessage(result.message);
+      alert(result.message);
+      return;
+    }
+    setSubscriptionStatusMessage(tr('تم حفظ حالة الاشتراك بنجاح.', 'Subscription settings saved successfully.'));
+  };
+
+  const handleIssueSubscriptionCode = async () => {
+    const durationDays = Math.max(1, Math.min(3650, Math.floor(Number(issueDurationDaysDraft) || 0)));
+    const maxDevices = Math.max(1, Math.min(20, Math.floor(Number(issueMaxDevicesDraft) || 1)));
+    const reservedCompany = companies.find(company => company.id === issueReservedCompanyDraft);
+    const result = await issueSubscriptionCode({
+      plan: issuePlanDraft,
+      durationDays,
+      maxDevices,
+      expiresAt: toIsoDateAtStartOfDay(issueExpiresAtDraft),
+      notes: issueNotesDraft.trim() || undefined,
+      reservedCompanyId: reservedCompany?.id,
+      reservedCompanyName: reservedCompany?.name
+    });
+
+    if (!result.ok) {
+      setIssuedCodeMessage(result.message);
+      alert(result.message);
+      return;
+    }
+
+    setIssuedCodeMessage(`${tr('تم إصدار الكود', 'Issued code')}: ${result.code}`);
+    setIssueNotesDraft('');
+    setIssueExpiresAtDraft('');
+  };
+
+  const handleCancelIssuedCode = async (code: string) => {
+    const result = await cancelSubscriptionCode(code);
+    if (!result.ok) {
+      setIssuedCodeMessage(result.message);
+      alert(result.message);
+      return;
+    }
+    setIssuedCodeMessage(tr('تم إلغاء الكود بنجاح.', 'The activation code was cancelled successfully.'));
+  };
+
+  const handleLinkCurrentDevice = async () => {
+    const result = await linkCurrentSubscriptionDevice(currentCompanyId);
+    if (!result.ok) {
+      setSubscriptionStatusMessage(result.message);
+      alert(result.message);
+      return;
+    }
+    setSubscriptionStatusMessage(tr('تم ربط هذا الجهاز بالشركة الحالية بنجاح.', 'This device was linked to the current company successfully.'));
+  };
+
+  const handleUnlinkDevice = async (deviceId: string) => {
+    const result = await unlinkSubscriptionDevice(currentCompanyId, deviceId);
+    if (!result.ok) {
+      setSubscriptionStatusMessage(result.message);
+      alert(result.message);
+      return;
+    }
+    setSubscriptionStatusMessage(tr('تم فك ربط الجهاز المحدد.', 'The selected device was unlinked successfully.'));
   };
 
   const handleLogoFile = (file: File | null) => {
@@ -952,8 +1319,42 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
   const renderCompaniesForm = () => (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700">
-        {tr('الشركة الحالية', 'Current company')}: {currentCompany?.name || '-'} | {tr('التجربة المتبقية', 'Trial left')}: {trialDaysLeft} {tr('يوم', 'day(s)')}
+      <div className={`rounded-xl border px-3 py-3 text-xs font-black ${subscriptionMeta.tone}`}>
+        <div>{tr('الشركة الحالية', 'Current company')}: {currentCompany?.name || '-'}</div>
+        <div className="mt-1">
+          {tr('الحالة الحالية', 'Current status')}: {subscriptionMeta.badge}
+          {' | '}
+          {tr('نهاية الوصول', 'Access ends')}: {subscriptionMeta.endsAtText}
+        </div>
+      </div>
+
+      <div className={`rounded-xl border px-4 py-4 ${workspaceCompanyLimitReached ? 'border-amber-200 bg-amber-50' : 'border-blue-100 bg-blue-50'}`}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-sm font-black text-slate-800">{tr('حد الشركات في الحساب', 'Company limit in account')}</div>
+            <div className="text-[11px] font-bold text-gray-500 mt-1">
+              {tr('الخطة الأساسية تشمل شركة واحدة، ويمكن إضافة شركات إضافية مدفوعة على نفس الحساب.', 'The base plan includes one company, and extra paid companies can be added on the same account.')}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMode('SUBSCRIPTION')}
+            className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-black"
+          >
+            {tr('ترقية الاشتراك', 'Upgrade subscription')}
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-black">
+          <div className="rounded-xl border border-white/70 bg-white/80 px-3 py-3 text-slate-700">
+            {tr('المستخدم', 'Used')}: {companies.length}
+          </div>
+          <div className="rounded-xl border border-white/70 bg-white/80 px-3 py-3 text-slate-700">
+            {tr('المسموح', 'Allowed')}: {workspaceMaxCompanies}
+          </div>
+          <div className="rounded-xl border border-white/70 bg-white/80 px-3 py-3 text-slate-700">
+            {tr('المتبقي', 'Remaining')}: {workspaceRemainingCompanySlots}
+          </div>
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -962,7 +1363,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             <div className={rtl ? 'text-right min-w-0' : 'text-left min-w-0'}>
               <p className="text-sm font-black text-slate-800 truncate">{company.name}</p>
               <p className="text-[11px] font-bold text-gray-400">
-                {tr('تنتهي التجربة', 'Trial ends')}: {new Date(company.trialEndsAt).toLocaleDateString('en-GB')}
+                {getSubscriptionStatusLabel(company.subscriptionStatus)} | {getSubscriptionPlanLabel(company.subscriptionPlan)} | {tr('حتى', 'until')}: {resolveCompanyAccessEndLabel(company)}
               </p>
             </div>
             <button
@@ -997,6 +1398,830 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       </div>
     </div>
   );
+
+  const renderSubscriptionForm = () => (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-5 animate-in fade-in">
+      <div className={`rounded-2xl border px-4 py-4 ${subscriptionMeta.tone}`}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-[11px] font-black opacity-80">{tr('إدارة الاشتراك', 'Subscription management')}</div>
+            <div className="text-lg font-black mt-1">{currentCompany?.name || companySettings.name}</div>
+          </div>
+          <div className="px-3 py-1 rounded-full bg-white/70 text-[11px] font-black">
+            {subscriptionMeta.badge}
+          </div>
+        </div>
+        <div className="mt-3 text-sm font-bold leading-6">{subscriptionMeta.summary}</div>
+        <div className="mt-2 text-[11px] font-bold opacity-80">
+          {tr('الخطة الحالية', 'Current plan')}: {getSubscriptionPlanLabel(currentCompany?.subscriptionPlan || 'TRIAL')}
+          {' | '}
+          {tr('الانتهاء', 'Ends at')}: {subscriptionMeta.endsAtText}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-indigo-100 bg-[linear-gradient(135deg,rgba(239,246,255,1),rgba(245,243,255,1))] p-4 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-sm font-black text-slate-900">{tr('الفوترة وحد الشركات', 'Billing and company slots')}</div>
+            <div className="text-[11px] font-bold text-slate-500 mt-1">
+              {tr('شركة واحدة مشمولة في الخطة الأساسية، وكل شركة إضافية تُحسب تلقائيًا حسب الدورة التي تختارها.', 'One company is included in the base plan, and each extra company is priced automatically based on the billing cycle you choose.')}
+            </div>
+          </div>
+          <div className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-black text-indigo-700">
+            {getBillingCycleLabel(workspaceSubscription.billingCycle)} | {getWorkspaceProviderLabel()}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs font-black">
+          <div className="rounded-xl border border-white/70 bg-white/85 px-3 py-3 text-slate-700">
+            {tr('الخطة التجارية', 'Commercial plan')}: {getSubscriptionPlanLabel(workspaceSubscription.plan)}
+          </div>
+          <div className="rounded-xl border border-white/70 bg-white/85 px-3 py-3 text-slate-700">
+            {tr('الشركات المستخدمة', 'Used companies')}: {companies.length}
+          </div>
+          <div className="rounded-xl border border-white/70 bg-white/85 px-3 py-3 text-slate-700">
+            {tr('الشركات المسموحة', 'Allowed companies')}: {workspaceMaxCompanies}
+          </div>
+          <div className="rounded-xl border border-white/70 bg-white/85 px-3 py-3 text-slate-700">
+            {tr('المتبقي الآن', 'Remaining now')}: {workspaceRemainingCompanySlots}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+          <div className="rounded-2xl border border-white/70 bg-white/85 p-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {(['MONTHLY', 'YEARLY'] as SubscriptionBillingCycle[]).map(cycle => (
+                <button
+                  key={cycle}
+                  type="button"
+                  onClick={() => setBillingCycleDraft(cycle)}
+                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${billingCycleDraft === cycle
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600'
+                    }`}
+                >
+                  {getBillingCycleLabel(cycle)}
+                </button>
+              ))}
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
+              <input
+                value={billingCompanyCountDraft}
+                onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                className="w-full p-3 rounded-xl border border-indigo-100 bg-white outline-none font-black dir-ltr"
+                inputMode="numeric"
+                placeholder="1"
+              />
+            </div>
+            <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/70 px-3 py-3 text-[11px] font-bold text-indigo-700 leading-6">
+              {tr('الأساسي', 'Base')}: {formatUsd(billingCycleDraft === 'MONTHLY' ? 10 : 100)}
+              {' | '}
+              {tr('كل شركة إضافية', 'Each extra company')}: {formatUsd(billingCycleDraft === 'MONTHLY' ? 3 : 20)}
+              <br />
+              {tr('الإجمالي لهذه التهيئة', 'Total for this setup')}: {formatUsd(workspaceQuotes[0]?.totalPriceUsd || 0)}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/70 bg-white/85 p-4 min-w-[220px]">
+            <div className="text-xs font-black text-slate-500">{tr('جاهزية الربط', 'Provider readiness')}</div>
+            <div className="mt-3 space-y-2 text-xs font-black text-slate-700">
+              <div>Stripe: {workspaceProviderAvailability.stripeReady ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}</div>
+              <div>Apple: {workspaceProviderAvailability.appleReady ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}</div>
+              <div>Google: {workspaceProviderAvailability.googleReady ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+          {workspaceQuotes.map(quote => (
+            <div key={quote.provider} className="rounded-2xl border border-white/80 bg-white/90 p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-black text-slate-800">{getCheckoutProviderLabel(quote.provider)}</div>
+                <div className={`rounded-full px-3 py-1 text-[10px] font-black ${quote.providerReady ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {quote.providerReady ? tr('جاهز', 'Ready') : tr('قيد التجهيز', 'Setup pending')}
+                </div>
+              </div>
+              <div className="text-[12px] font-bold leading-6 text-slate-600">
+                {tr('يشمل', 'Includes')} {quote.maxCompanies} {tr('شركة', 'company slot(s)')}
+                <br />
+                {tr('الإجمالي', 'Total')}: {formatUsd(quote.totalPriceUsd)}
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-[11px] font-bold text-slate-600 leading-6">
+                {tr('الأساسي', 'Base')}: {formatUsd(quote.basePriceUsd)}
+                {' | '}
+                {tr('إضافي', 'Extra')}: {formatUsd(quote.extraCompanyPriceUsd)} x {quote.extraCompanyCount}
+                {quote.productId ? (
+                  <>
+                    <br />
+                    ID: <span className="dir-ltr text-left inline-block">{quote.productId}</span>
+                  </>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => { void handleStartSubscriptionCheckout(quote.provider); }}
+                className={`w-full rounded-xl px-4 py-3 text-sm font-black transition ${quote.providerReady
+                  ? 'bg-slate-900 text-white hover:bg-slate-800'
+                  : 'bg-slate-100 text-slate-500'
+                  }`}
+              >
+                {quote.provider === 'STRIPE'
+                  ? tr('فتح الدفع', 'Open checkout')
+                  : tr('تجهيز الشراء', 'Prepare purchase')}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {billingStatusMessage && (
+          <div className="rounded-xl border border-indigo-100 bg-white/90 px-3 py-3 text-xs font-black text-indigo-700">
+            {billingStatusMessage}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-black text-slate-800">{tr('المزامنة السحابية', 'Cloud sync')}</div>
+              <div className="text-[11px] font-bold text-gray-500 mt-1">
+                {tr('تتم مزامنة حالة الشركة والكود والجهاز مع Firestore عند توفر حساب Firebase.', 'Company status, activation code, and device binding are synced with Firestore when a Firebase account is available.')}
+              </div>
+            </div>
+            <div className={`px-3 py-1 rounded-full text-[11px] font-black ${subscriptionCloudBusy ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {subscriptionCloudBusy ? tr('جاري المزامنة', 'Syncing') : tr('متصل', 'Connected')}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-[12px] font-bold text-gray-700 leading-6">
+            <div>{tr('المستخدم الحالي', 'Current user')}: {currentUser?.email || '-'}</div>
+            <div className="dir-ltr text-left">{tr('معرف الجهاز', 'Device ID')}: {deviceBindingId}</div>
+            <div>{tr('عدد الأجهزة المسموح', 'Allowed devices')}: {cloudSubscription?.maxDevices || 1}</div>
+          </div>
+
+          {subscriptionCloudError && (
+            <div className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700">
+              {subscriptionCloudError}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleLinkCurrentDevice}
+            className="w-full bg-white border border-gray-200 text-slate-700 font-black py-3 rounded-xl"
+          >
+            {tr('ربط هذا الجهاز الآن', 'Link this device now')}
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
+          <div>
+            <div className="text-sm font-black text-slate-800">{tr('الأجهزة المرتبطة بالشركة', 'Bound company devices')}</div>
+            <div className="text-[11px] font-bold text-gray-500 mt-1">
+              {tr('كل تفعيل يربط الشركة بالجهاز. عند امتلاء الحد المسموح يتم منع الأجهزة الجديدة حتى إزالة جهاز أو استخدام كود جديد بحد أعلى.', 'Each activation binds the company to devices. Once the device limit is full, new devices are blocked until one is removed or a new code with a higher limit is used.')}
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-72 overflow-auto">
+            {(cloudSubscription?.boundDevices || []).length === 0 && (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-4 text-xs font-bold text-gray-400 text-center">
+                {tr('لا توجد أجهزة مرتبطة بعد.', 'No bound devices yet.')}
+              </div>
+            )}
+
+            {(cloudSubscription?.boundDevices || []).map(device => (
+              <div key={device.deviceId} className="rounded-xl border border-gray-200 bg-white px-3 py-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-black text-slate-800 truncate">{device.label}</div>
+                  <div className="text-[11px] font-bold text-gray-500 dir-ltr text-left mt-1">{device.deviceId}</div>
+                  <div className="text-[11px] font-bold text-gray-400 mt-1">
+                    {tr('آخر ظهور', 'Last seen')}: {formatDeviceSeenAt(device.lastSeenAt)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUnlinkDevice(device.deviceId)}
+                  className={`px-3 py-2 rounded-lg text-xs font-black ${device.deviceId === deviceBindingId ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                >
+                  {device.deviceId === deviceBindingId ? tr('فك هذا الجهاز', 'Unlink this device') : tr('فك الربط', 'Unlink')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+          <div>
+            <div className="text-sm font-black text-slate-800">{tr('تفعيل أو تمديد بالكود', 'Activate or renew with code')}</div>
+            <div className="text-[11px] font-bold text-gray-500 mt-1">
+              {tr('أدخل كود التفعيل لتمديد الاشتراك مباشرة على الشركة الحالية.', 'Enter an activation code to extend the current company instantly.')}
+            </div>
+          </div>
+
+          <input
+            value={activationCodeDraft}
+            onChange={(e) => setActivationCodeDraft(e.target.value.toUpperCase())}
+            className="w-full p-3 bg-white rounded-xl border border-blue-200 outline-none text-sm font-black dir-ltr"
+            placeholder="AIFLEX-BASIC-30"
+          />
+
+          <div className="rounded-xl border border-dashed border-blue-200 bg-white/80 px-3 py-3 text-[11px] font-bold text-blue-700 leading-6 dir-ltr">
+            AIFLEX-BASIC-30
+            <br />
+            AIFLEX-BASIC-90
+            <br />
+            AIFLEX-PRO-180
+            <br />
+            AIFLEX-ENTERPRISE-365
+          </div>
+
+          <button
+            type="button"
+            onClick={handleActivateSubscription}
+            className="w-full bg-blue-600 text-white font-black py-3 rounded-xl"
+          >
+            {tr('تفعيل / تمديد الاشتراك', 'Activate / renew subscription')}
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
+          <div>
+            <div className="text-sm font-black text-slate-800">{tr('تحكم يدوي', 'Manual control')}</div>
+            <div className="text-[11px] font-bold text-gray-500 mt-1">
+              {tr('لتغيير الحالة أو الخطة أو تاريخ الانتهاء يدويًا من داخل الإعدادات.', 'Use this to change status, plan, or end date manually from settings.')}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('الحالة', 'Status')}</label>
+              <select
+                value={subscriptionStatusDraft}
+                onChange={(e) => setSubscriptionStatusDraft(e.target.value as CompanySubscriptionStatus)}
+                className="w-full p-3 bg-white rounded-xl border border-gray-200 outline-none font-bold"
+              >
+                {SUBSCRIPTION_STATUS_OPTIONS.map(status => (
+                  <option key={status} value={status}>{getSubscriptionStatusLabel(status)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('الخطة', 'Plan')}</label>
+              <select
+                value={subscriptionPlanDraft}
+                onChange={(e) => setSubscriptionPlanDraft(e.target.value as CompanySubscriptionPlan)}
+                className="w-full p-3 bg-white rounded-xl border border-gray-200 outline-none font-bold"
+                disabled={subscriptionStatusDraft === 'TRIAL'}
+              >
+                {SUBSCRIPTION_PLAN_OPTIONS.map(plan => (
+                  <option key={plan} value={plan}>{getSubscriptionPlanLabel(plan)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">
+                {subscriptionStatusDraft === 'TRIAL' ? tr('نهاية التجربة', 'Trial ends') : tr('نهاية الوصول', 'Access end date')}
+              </label>
+              <EnglishDateInput
+                value={subscriptionEndsAtDraft}
+                onChange={setSubscriptionEndsAtDraft}
+                displayFormat="YMD"
+                className="w-full p-3 bg-white rounded-xl border border-gray-200 outline-none font-bold dir-ltr"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('مهلة السماح بالأيام', 'Grace days')}</label>
+              <input
+                value={subscriptionGraceDaysDraft}
+                onChange={(e) => setSubscriptionGraceDaysDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
+                className="w-full p-3 bg-white rounded-xl border border-gray-200 outline-none font-bold dir-ltr"
+                inputMode="numeric"
+                placeholder="0"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveSubscription}
+            className="w-full bg-slate-900 text-white font-black py-3 rounded-xl"
+          >
+            {tr('حفظ إعدادات الاشتراك', 'Save subscription settings')}
+          </button>
+        </div>
+      </div>
+
+      {subscriptionAdminEnabled && (
+        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-black text-slate-800">{tr('لوحة أكواد التفعيل', 'Activation codes control panel')}</div>
+              <div className="text-[11px] font-bold text-gray-500 mt-1">
+                {tr('هذه اللوحة مخصصة للمشرف السحابي لإصدار أكواد جديدة وربطها بخطة وعدد أجهزة وشركة محددة عند الحاجة.', 'This panel is for the cloud admin to issue new codes with a plan, device count, and optional reserved company.')}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setMode('SUBSCRIPTION_REPORTS')}
+                className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-black"
+              >
+                {tr('تقارير الاشتراكات', 'Subscription reports')}
+              </button>
+              <div className="px-3 py-1 rounded-full bg-white/80 text-[11px] font-black text-violet-700">
+                {tr('مشرف سحابي', 'Cloud admin')}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('الخطة', 'Plan')}</label>
+              <select
+                value={issuePlanDraft}
+                onChange={(e) => setIssuePlanDraft(e.target.value as CompanySubscriptionPlan)}
+                className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold"
+              >
+                <option value="BASIC">{getSubscriptionPlanLabel('BASIC')}</option>
+                <option value="PRO">{getSubscriptionPlanLabel('PRO')}</option>
+                <option value="ENTERPRISE">{getSubscriptionPlanLabel('ENTERPRISE')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('المدة بالأيام', 'Duration in days')}</label>
+              <input
+                value={issueDurationDaysDraft}
+                onChange={(e) => setIssueDurationDaysDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+                className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold dir-ltr"
+                inputMode="numeric"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('عدد الأجهزة', 'Device limit')}</label>
+              <input
+                value={issueMaxDevicesDraft}
+                onChange={(e) => setIssueMaxDevicesDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
+                className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold dir-ltr"
+                inputMode="numeric"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('تاريخ انتهاء الكود', 'Code expiry date')}</label>
+              <EnglishDateInput
+                value={issueExpiresAtDraft}
+                onChange={setIssueExpiresAtDraft}
+                displayFormat="YMD"
+                className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold dir-ltr"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('تقييد لشركة محددة', 'Reserve for company')}</label>
+              <select
+                value={issueReservedCompanyDraft}
+                onChange={(e) => setIssueReservedCompanyDraft(e.target.value)}
+                className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold"
+              >
+                <option value="">{tr('غير مقيّد', 'Not reserved')}</option>
+                {companies.map(company => (
+                  <option key={company.id} value={company.id}>{company.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2 xl:col-span-1">
+              <label className="block text-xs font-bold text-gray-500 mb-1">{tr('ملاحظات', 'Notes')}</label>
+              <input
+                value={issueNotesDraft}
+                onChange={(e) => setIssueNotesDraft(e.target.value)}
+                className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold"
+                placeholder={tr('مثال: عميل معرض الافتتاح', 'Example: launch event client')}
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleIssueSubscriptionCode}
+            className="w-full bg-violet-700 text-white font-black py-3 rounded-xl"
+          >
+            {tr('إصدار كود جديد', 'Issue new code')}
+          </button>
+
+          {issuedCodeMessage && (
+            <div className="rounded-xl border border-violet-100 bg-white px-3 py-2 text-xs font-black text-violet-700 dir-ltr text-left">
+              {issuedCodeMessage}
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-white/70 bg-white/80 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-sm font-black text-slate-800">{tr('الأكواد المصدرة', 'Issued activation codes')}</div>
+              <div className="text-[11px] font-bold text-gray-500">
+                {subscriptionCodesLoading ? tr('جار التحميل...', 'Loading...') : `${subscriptionCodes.length} ${tr('كود', 'code(s)')}`}
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-80 overflow-auto">
+              {!subscriptionCodesLoading && subscriptionCodes.length === 0 && (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-4 text-xs font-bold text-gray-400 text-center">
+                  {tr('لا توجد أكواد مصدرة حتى الآن.', 'No activation codes have been issued yet.')}
+                </div>
+              )}
+
+              {subscriptionCodes.map(code => (
+                <div key={code.code} className="rounded-xl border border-gray-200 bg-white px-3 py-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="dir-ltr text-left text-sm font-black text-slate-800">{code.code}</div>
+                    <div className={`px-3 py-1 rounded-full text-[11px] font-black ${code.status === 'AVAILABLE'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : code.status === 'USED'
+                        ? 'bg-slate-200 text-slate-700'
+                        : 'bg-rose-100 text-rose-700'
+                      }`}>
+                      {code.status}
+                    </div>
+                  </div>
+                  <div className="text-[11px] font-bold text-gray-500 leading-6">
+                    {getSubscriptionPlanLabel(code.plan)} | {code.durationDays} {tr('يوم', 'day(s)')} | {tr('أجهزة', 'Devices')}: {code.maxDevices}
+                    <br />
+                    {tr('أنشئ في', 'Created at')}: {formatDeviceSeenAt(code.createdAt)}
+                    {code.expiresAt ? ` | ${tr('ينتهي في', 'Expires at')}: ${formatDeviceSeenAt(code.expiresAt)}` : ''}
+                    {code.usedByCompanyName ? ` | ${tr('استخدم بواسطة', 'Used by')}: ${code.usedByCompanyName}` : ''}
+                  </div>
+                  {code.status === 'AVAILABLE' && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancelIssuedCode(code.code)}
+                      className="px-3 py-2 rounded-lg bg-rose-600 text-white text-xs font-black"
+                    >
+                      {tr('إلغاء الكود', 'Cancel code')}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-[12px] font-bold text-gray-600 leading-6">
+        <div>{tr('عند انتهاء أو إيقاف الاشتراك: يسمح بعرض البيانات والنسخ الاحتياطي وإدارة الاشتراك فقط.', 'When the subscription is expired or suspended: only data viewing, backup, and subscription management remain available.')}</div>
+        <div>{tr('يتم منع الإضافة والتعديل والحذف والترحيل والطباعة الرسمية تلقائيًا من داخل النظام.', 'Add, edit, delete, posting, and official printing are blocked automatically across the app.')}</div>
+      </div>
+
+      {subscriptionStatusMessage && (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700">
+          {subscriptionStatusMessage}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderSubscriptionReports = () => {
+    const searchNeedle = subscriptionReportSearch.trim().toLowerCase();
+
+    const resolveEffectiveCompanyStatus = (subscription: CloudCompanySubscription): CompanySubscriptionStatus => {
+      if (subscription.status === 'SUSPENDED') return 'SUSPENDED';
+      if (subscription.status === 'EXPIRED') return 'EXPIRED';
+
+      const endsAtMs = Date.parse(String(subscription.endsAt || ''));
+      if (!Number.isFinite(endsAtMs)) {
+        return subscription.status === 'TRIAL' ? 'TRIAL' : 'ACTIVE';
+      }
+
+      if (subscription.status === 'TRIAL') {
+        return endsAtMs >= Date.now() ? 'TRIAL' : 'EXPIRED';
+      }
+
+      const graceMs = Math.max(0, Number(subscription.graceDays) || 0) * 24 * 60 * 60 * 1000;
+      return endsAtMs + graceMs >= Date.now() ? 'ACTIVE' : 'EXPIRED';
+    };
+
+    const resolveEffectiveCodeStatus = (code: CloudSubscriptionCode): CloudSubscriptionCodeStatus => {
+      if (code.status !== 'AVAILABLE') return code.status;
+      const expiresAtMs = Date.parse(String(code.expiresAt || ''));
+      return Number.isFinite(expiresAtMs) && expiresAtMs < Date.now() ? 'EXPIRED' : 'AVAILABLE';
+    };
+
+    const getCodeStatusLabel = (status: CloudSubscriptionCodeStatus) => {
+      switch (status) {
+        case 'USED': return tr('مستخدم', 'Used');
+        case 'CANCELLED': return tr('ملغي', 'Cancelled');
+        case 'EXPIRED': return tr('منتهي', 'Expired');
+        default: return tr('متاح', 'Available');
+      }
+    };
+
+    const getStatusTone = (status: CompanySubscriptionStatus) => {
+      switch (status) {
+        case 'ACTIVE': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        case 'SUSPENDED': return 'bg-rose-100 text-rose-700 border-rose-200';
+        case 'EXPIRED': return 'bg-amber-100 text-amber-700 border-amber-200';
+        default: return 'bg-sky-100 text-sky-700 border-sky-200';
+      }
+    };
+
+    const getCodeTone = (status: CloudSubscriptionCodeStatus) => {
+      switch (status) {
+        case 'USED': return 'bg-slate-100 text-slate-700 border-slate-200';
+        case 'CANCELLED': return 'bg-rose-100 text-rose-700 border-rose-200';
+        case 'EXPIRED': return 'bg-amber-100 text-amber-700 border-amber-200';
+        default: return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      }
+    };
+
+    const companyRows = subscriptionCompanies.map(subscription => {
+      const fallbackCompany = companies.find(company => company.id === subscription.companyId) || null;
+      const effectiveStatus = resolveEffectiveCompanyStatus(subscription);
+      return {
+        ...subscription,
+        effectiveStatus,
+        displayName: subscription.companyName || fallbackCompany?.name || subscription.companyId,
+        usedSlots: subscription.boundDevices.length,
+        freeSlots: Math.max(0, subscription.maxDevices - subscription.boundDevices.length)
+      };
+    });
+
+    const filteredCompanies = companyRows.filter(company => {
+      if (subscriptionReportCompanyStatusFilter !== 'ALL' && company.effectiveStatus !== subscriptionReportCompanyStatusFilter) {
+        return false;
+      }
+      if (!searchNeedle) return true;
+      return [
+        company.displayName,
+        company.companyId,
+        company.activationCode,
+        company.plan,
+        company.source,
+        company.updatedByEmail
+      ].some(value => String(value || '').toLowerCase().includes(searchNeedle));
+    });
+
+    const deviceRows = companyRows
+      .flatMap(company => company.boundDevices.map(device => ({
+        ...device,
+        companyId: company.companyId,
+        companyName: company.displayName,
+        plan: company.plan,
+        companyStatus: company.effectiveStatus,
+        maxDevices: company.maxDevices
+      })))
+      .sort((a, b) => Date.parse(String(b.lastSeenAt || '')) - Date.parse(String(a.lastSeenAt || '')));
+
+    const filteredDevices = deviceRows.filter(device => {
+      if (!searchNeedle) return true;
+      return [
+        device.companyName,
+        device.companyId,
+        device.deviceId,
+        device.label,
+        device.platform,
+        device.lastUserEmail
+      ].some(value => String(value || '').toLowerCase().includes(searchNeedle));
+    });
+
+    const codeRows = subscriptionCodes
+      .map(code => ({
+        ...code,
+        effectiveStatus: resolveEffectiveCodeStatus(code)
+      }))
+      .filter(code => {
+        if (subscriptionReportCodeStatusFilter !== 'ALL' && code.effectiveStatus !== subscriptionReportCodeStatusFilter) {
+          return false;
+        }
+        if (!searchNeedle) return true;
+        return [
+          code.code,
+          code.plan,
+          code.usedByCompanyName,
+          code.reservedCompanyName,
+          code.createdByEmail,
+          code.usedByEmail,
+          code.notes
+        ].some(value => String(value || '').toLowerCase().includes(searchNeedle));
+      });
+
+    const summary = {
+      totalCompanies: companyRows.length,
+      activeCompanies: companyRows.filter(company => company.effectiveStatus === 'ACTIVE').length,
+      expiredCompanies: companyRows.filter(company => company.effectiveStatus === 'EXPIRED').length,
+      suspendedCompanies: companyRows.filter(company => company.effectiveStatus === 'SUSPENDED').length,
+      totalDevices: deviceRows.length,
+      usedCodes: subscriptionCodes.filter(code => resolveEffectiveCodeStatus(code) === 'USED').length,
+      expiredCodes: subscriptionCodes.filter(code => resolveEffectiveCodeStatus(code) === 'EXPIRED').length,
+      availableCodes: subscriptionCodes.filter(code => resolveEffectiveCodeStatus(code) === 'AVAILABLE').length
+    };
+
+    return (
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-5 animate-in fade-in">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-[11px] font-black text-slate-500">{tr('شاشة مستقلة للمشرف السحابي', 'Standalone cloud admin screen')}</div>
+              <div className="text-xl font-black text-slate-900 mt-1">{tr('تقارير الاشتراكات', 'Subscription reports')}</div>
+              <div className="text-[11px] font-bold text-slate-500 mt-2">
+                {tr('متابعة مركزية للشركات المفعلة والأجهزة المربوطة والأكواد المستخدمة والمنتهية من Firestore مباشرة.', 'A central view of subscribed companies, bound devices, and used or expired activation codes directly from Firestore.')}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-700">
+                {subscriptionCompaniesLoading || subscriptionCodesLoading ? tr('جاري التحديث...', 'Refreshing...') : tr('محدث الآن', 'Up to date')}
+              </div>
+              <button
+                type="button"
+                onClick={() => setMode('SUBSCRIPTION')}
+                className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-black"
+              >
+                {tr('العودة إلى إدارة الاشتراك', 'Back to subscription')}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-4">
+            <div className="text-[10px] font-black text-emerald-700">{tr('شركات مفعلة', 'Active companies')}</div>
+            <div className="mt-2 text-2xl font-black text-emerald-800 dir-ltr">{summary.activeCompanies}</div>
+          </div>
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4">
+            <div className="text-[10px] font-black text-amber-700">{tr('شركات منتهية', 'Expired companies')}</div>
+            <div className="mt-2 text-2xl font-black text-amber-800 dir-ltr">{summary.expiredCompanies}</div>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+            <div className="text-[10px] font-black text-blue-700">{tr('الأجهزة المرتبطة', 'Bound devices')}</div>
+            <div className="mt-2 text-2xl font-black text-blue-800 dir-ltr">{summary.totalDevices}</div>
+          </div>
+          <div className="rounded-2xl border border-violet-100 bg-violet-50 px-4 py-4">
+            <div className="text-[10px] font-black text-violet-700">{tr('الأكواد المستخدمة / المنتهية', 'Used / expired codes')}</div>
+            <div className="mt-2 text-2xl font-black text-violet-800 dir-ltr">{summary.usedCodes} / {summary.expiredCodes}</div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+          <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr_1fr] gap-3">
+            <input
+              value={subscriptionReportSearch}
+              onChange={(e) => setSubscriptionReportSearch(e.target.value)}
+              className="w-full p-3 rounded-xl border border-gray-200 bg-white outline-none font-bold"
+              placeholder={tr('ابحث باسم الشركة أو الكود أو الجهاز...', 'Search by company, code, or device...')}
+            />
+            <select
+              value={subscriptionReportCompanyStatusFilter}
+              onChange={(e) => setSubscriptionReportCompanyStatusFilter(e.target.value as 'ALL' | CompanySubscriptionStatus)}
+              className="w-full p-3 rounded-xl border border-gray-200 bg-white outline-none font-bold"
+            >
+              <option value="ALL">{tr('كل حالات الشركات', 'All company statuses')}</option>
+              {SUBSCRIPTION_STATUS_OPTIONS.map(status => (
+                <option key={status} value={status}>{getSubscriptionStatusLabel(status)}</option>
+              ))}
+            </select>
+            <select
+              value={subscriptionReportCodeStatusFilter}
+              onChange={(e) => setSubscriptionReportCodeStatusFilter(e.target.value as 'ALL' | CloudSubscriptionCodeStatus)}
+              className="w-full p-3 rounded-xl border border-gray-200 bg-white outline-none font-bold"
+            >
+              <option value="ALL">{tr('كل حالات الأكواد', 'All code statuses')}</option>
+              {(['AVAILABLE', 'USED', 'EXPIRED', 'CANCELLED'] as CloudSubscriptionCodeStatus[]).map(status => (
+                <option key={status} value={status}>{getCodeStatusLabel(status)}</option>
+              ))}
+            </select>
+          </div>
+          {subscriptionCloudError && (
+            <div className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700">
+              {subscriptionCloudError}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm font-black text-slate-800">{tr('الشركات', 'Companies')}</div>
+            <div className="text-[11px] font-bold text-slate-500">{filteredCompanies.length} / {summary.totalCompanies}</div>
+          </div>
+          <div className="space-y-3 max-h-[28rem] overflow-auto">
+            {!subscriptionCompaniesLoading && filteredCompanies.length === 0 && (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
+                {tr('لا توجد شركات مطابقة ضمن الفلاتر الحالية.', 'No companies match the current filters.')}
+              </div>
+            )}
+            {filteredCompanies.map(company => (
+              <div key={company.companyId} className="rounded-2xl border border-gray-200 bg-white px-4 py-4 space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="text-base font-black text-slate-900">{company.displayName}</div>
+                    <div className="dir-ltr text-left text-[11px] font-bold text-slate-400 mt-1">{company.companyId}</div>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full border text-[11px] font-black ${getStatusTone(company.effectiveStatus)}`}>
+                    {getSubscriptionStatusLabel(company.effectiveStatus)}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 text-[11px] font-bold text-slate-600">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('الخطة', 'Plan')}: {getSubscriptionPlanLabel(company.plan)}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('الأجهزة', 'Devices')}: {company.usedSlots}/{company.maxDevices}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('الانتهاء', 'Ends at')}: {formatDeviceSeenAt(company.endsAt)}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('آخر تحديث', 'Updated')}: {formatDeviceSeenAt(company.updatedAt)}</div>
+                </div>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 text-[11px] font-bold text-slate-500">
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2">
+                    {tr('كود آخر تفعيل', 'Last activation code')}: <span className="dir-ltr text-left text-slate-700">{company.activationCode || '-'}</span>
+                  </div>
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2">
+                    {tr('مصدر الاشتراك', 'Subscription source')}: <span className="dir-ltr text-left text-slate-700">{company.source}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm font-black text-slate-800">{tr('الأجهزة المرتبطة', 'Bound devices')}</div>
+            <div className="text-[11px] font-bold text-slate-500">{filteredDevices.length} / {summary.totalDevices}</div>
+          </div>
+          <div className="space-y-3 max-h-[24rem] overflow-auto">
+            {!subscriptionCompaniesLoading && filteredDevices.length === 0 && (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
+                {tr('لا توجد أجهزة مطابقة ضمن الفلاتر الحالية.', 'No devices match the current filters.')}
+              </div>
+            )}
+            {filteredDevices.map(device => (
+              <div key={`${device.companyId}-${device.deviceId}`} className="rounded-2xl border border-gray-200 bg-white px-4 py-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="text-sm font-black text-slate-900">{device.label}</div>
+                    <div className="text-[11px] font-bold text-slate-500 mt-1">{device.companyName}</div>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full border text-[11px] font-black ${getStatusTone(device.companyStatus)}`}>
+                    {getSubscriptionStatusLabel(device.companyStatus)}
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-1 xl:grid-cols-4 gap-3 text-[11px] font-bold text-slate-600">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 dir-ltr text-left">{device.deviceId}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('المنصة', 'Platform')}: {device.platform || '-'}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('آخر ظهور', 'Last seen')}: {formatDeviceSeenAt(device.lastSeenAt)}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('آخر مستخدم', 'Last user')}: {device.lastUserEmail || '-'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm font-black text-slate-800">{tr('الأكواد', 'Activation codes')}</div>
+            <div className="text-[11px] font-bold text-slate-500">
+              {tr('متاح', 'Available')}: {summary.availableCodes} | {tr('مستخدم', 'Used')}: {summary.usedCodes} | {tr('منتهي', 'Expired')}: {summary.expiredCodes}
+            </div>
+          </div>
+          <div className="space-y-3 max-h-[28rem] overflow-auto">
+            {!subscriptionCodesLoading && codeRows.length === 0 && (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
+                {tr('لا توجد أكواد متاحة لعرضها حاليًا.', 'There are no activation codes to show right now.')}
+              </div>
+            )}
+            {!subscriptionCodesLoading && codeRows.length > 0 && filteredCodes.length === 0 && (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
+                {tr('لا توجد أكواد مطابقة ضمن الفلاتر الحالية.', 'No activation codes match the current filters.')}
+              </div>
+            )}
+            {filteredCodes.map(code => (
+              <div key={code.code} className="rounded-2xl border border-gray-200 bg-white px-4 py-4 space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="dir-ltr text-left text-sm font-black text-slate-900">{code.code}</div>
+                  <div className={`px-3 py-1 rounded-full border text-[11px] font-black ${getCodeTone(code.effectiveStatus)}`}>
+                    {getCodeStatusLabel(code.effectiveStatus)}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 text-[11px] font-bold text-slate-600">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{getSubscriptionPlanLabel(code.plan)}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{code.durationDays} {tr('يوم', 'day(s)')}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('الأجهزة', 'Devices')}: {code.maxDevices}</div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">{tr('الإنشاء', 'Created')}: {formatDeviceSeenAt(code.createdAt)}</div>
+                </div>
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 text-[11px] font-bold text-slate-500">
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2">{tr('ينتهي في', 'Expires at')}: {formatDeviceSeenAt(code.expiresAt)}</div>
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2">{tr('استخدم بواسطة', 'Used by')}: {code.usedByCompanyName || '-'}</div>
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2">{tr('محجوز لشركة', 'Reserved for')}: {code.reservedCompanyName || '-'}</div>
+                </div>
+                {code.notes && (
+                  <div className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-[11px] font-bold text-violet-700">
+                    {code.notes}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderCompanyForm = () => (
     <form
@@ -1234,6 +2459,12 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             ? 'bg-amber-100 text-amber-700 border-amber-200'
             : 'bg-slate-100 text-slate-600 border-slate-200';
 
+    /* printToggleOptions.splice(2, 0, {
+      key: 'printItemBarcodeInInvoice',
+      ar: 'طباعة باركود الأصناف داخل الفاتورة',
+      en: 'Print item barcodes on invoices'
+    }); */
+
     return (
       <form
         onSubmit={(e) => {
@@ -1463,6 +2694,11 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       { key: 'hideVoucherColumnInStatement', ar: 'إخفاء عمود السند في الكشف', en: 'Hide voucher column in statement' },
       { key: 'printExpiryDate', ar: 'طباعة تاريخ الإنتهاء', en: 'Print expiry date' },
     ];
+    printToggleOptions.splice(2, 0, {
+      key: 'printItemBarcodeInInvoice',
+      ar: 'طباعة باركود الأصناف داخل الفاتورة',
+      en: 'Print item barcodes on invoices'
+    });
 
     return (
       <form
@@ -2113,6 +3349,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const renderContent = () => {
     switch (mode) {
       case 'COMPANIES': return renderCompaniesForm();
+      case 'SUBSCRIPTION': return renderSubscriptionForm();
+      case 'SUBSCRIPTION_REPORTS': return renderSubscriptionReports();
+      case 'POLICY': return <PolicyGuideScreen mode="POLICY" language={appLanguage} onBack={() => setMode('MENU')} />;
+      case 'USAGE_GUIDE': return <PolicyGuideScreen mode="USAGE_GUIDE" language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'COMPANY': return renderCompanyForm();
       case 'LANGUAGE': return renderLanguageForm();
       case 'TAXES': return renderTaxesForm();
@@ -2138,6 +3378,12 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         return (
           <div className="space-y-3">
             <MenuItem icon={<Building2 className="w-6 h-6" />} title={tr('الشركات', 'Companies')} desc={tr('التبديل بين الشركات وإضافة شركة جديدة', 'Switch and manage multiple companies')} color="teal" rtl={rtl} onClick={() => setMode('COMPANIES')} />
+            <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('إدارة الاشتراك', 'Subscription')} desc={tr('تفعيل الاشتراك، تمديده، وضبط حالة الوصول للشركة الحالية', 'Activate, renew, and control company access status')} color="emerald" rtl={rtl} onClick={() => setMode('SUBSCRIPTION')} />
+            <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سياسة الخصوصية', 'Privacy Policy')} desc={tr('شروط الاستخدام وسياسة حماية البيانات الخاصة بالتطبيق', 'Usage terms and data privacy policy for the app')} color="rose" rtl={rtl} onClick={() => setMode('POLICY')} />
+            <MenuItem icon={<BookOpen className="w-6 h-6" />} title={tr('دليل الاستخدام', 'Usage Guide')} desc={tr('خطوات سريعة لبدء الاستخدام وإعداد الخيارات الأساسية', 'Quick steps to start using the app and configure core options')} color="purple" rtl={rtl} onClick={() => setMode('USAGE_GUIDE')} />
+            {subscriptionAdminEnabled && (
+              <MenuItem icon={<Cloud className="w-6 h-6" />} title={tr('تقارير الاشتراكات', 'Subscription Reports')} desc={tr('عرض الشركات السحابية والأجهزة المرتبطة والأكواد المستخدمة والمنتهية', 'View cloud companies, bound devices, and used or expired codes')} color="purple" rtl={rtl} onClick={() => setMode('SUBSCRIPTION_REPORTS')} />
+            )}
             <MenuItem icon={<Globe className="w-6 h-6" />} title={t('settings.language')} desc={t('settings.languageDesc')} color="green" rtl={rtl} onClick={() => setMode('LANGUAGE')} />
             <MenuItem icon={<Building className="w-6 h-6" />} title={t('settings.companyData')} desc={t('settings.companyDesc')} color="blue" rtl={rtl} onClick={() => setMode('COMPANY')} />
             <MenuItem icon={<Percent className="w-6 h-6" />} title={t('settings.taxes')} desc={tr('التحكم بنسبة الضريبة وعرضها في الفواتير', 'Control tax rate and tax visibility in invoices')} color="rose" rtl={rtl} onClick={() => setMode('TAXES')} />

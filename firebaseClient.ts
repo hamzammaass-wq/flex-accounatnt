@@ -6,6 +6,7 @@ import {
   type Auth
 } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getFunctions, type Functions } from 'firebase/functions';
 
 const firebaseApiKey = String(import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
 const firebaseAuthDomain = String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim();
@@ -13,6 +14,7 @@ const firebaseProjectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || '')
 const firebaseStorageBucket = String(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim();
 const firebaseMessagingSenderId = String(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim();
 const firebaseAppId = String(import.meta.env.VITE_FIREBASE_APP_ID || '').trim();
+const firebaseFunctionsRegion = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim() || 'us-central1';
 
 export const isFirebaseAuthEnabled = Boolean(
   firebaseApiKey && firebaseAuthDomain && firebaseProjectId && firebaseAppId
@@ -39,6 +41,10 @@ export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
 
 export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
   ? getFirestore(firebaseApp)
+  : null;
+
+export const firebaseFunctions: Functions | null = isFirebaseAuthEnabled && firebaseApp
+  ? getFunctions(firebaseApp, firebaseFunctionsRegion)
   : null;
 
 export const isFirebaseSyncEnabled = Boolean(firebaseDb);

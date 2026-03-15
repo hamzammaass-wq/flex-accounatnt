@@ -1,0 +1,292 @@
+import {
+  CompanySubscriptionPlan,
+  CompanySubscriptionStatus,
+  SubscriptionBillingCycle,
+  SubscriptionCheckoutProvider,
+  SubscriptionCheckoutResult,
+  SubscriptionProvider,
+  SubscriptionProviderAvailability,
+  WorkspaceSubscriptionAccount,
+  WorkspaceSubscriptionQuote
+} from '../types';
+
+const INCLUDED_COMPANIES = 1;
+const MAX_COMPANIES_CAP = 50;
+const DEFAULT_PLAN: CompanySubscriptionPlan = 'BASIC';
+const DEFAULT_CYCLE: SubscriptionBillingCycle = 'MONTHLY';
+
+const PRICING: Record<SubscriptionBillingCycle, { basePriceUsd: number; extraCompanyPriceUsd: number }> = {
+  MONTHLY: { basePriceUsd: 10, extraCompanyPriceUsd: 3 },
+  YEARLY: { basePriceUsd: 100, extraCompanyPriceUsd: 20 }
+};
+
+const STRIPE_CHECKOUT_URLS: Record<SubscriptionBillingCycle, string> = {
+  MONTHLY: String(import.meta.env.VITE_STRIPE_CHECKOUT_MONTHLY_URL || '').trim(),
+  YEARLY: String(import.meta.env.VITE_STRIPE_CHECKOUT_YEARLY_URL || '').trim()
+};
+
+const APPLE_PRODUCT_PREFIX = String(import.meta.env.VITE_APPLE_SUBSCRIPTION_PRODUCT_PREFIX || '').trim();
+const GOOGLE_PRODUCT_PREFIX = String(import.meta.env.VITE_GOOGLE_SUBSCRIPTION_PRODUCT_PREFIX || '').trim();
+const HAS_FIREBASE_FUNCTIONS_BACKEND = Boolean(String(import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim());
+
+const isValidStatus = (value: unknown): value is CompanySubscriptionStatus => (
+  value === 'TRIAL' || value === 'ACTIVE' || value === 'EXPIRED' || value === 'SUSPENDED'
+);
+
+const isValidPlan = (value: unknown): value is CompanySubscriptionPlan => (
+  value === 'NONE' || value === 'TRIAL' || value === 'BASIC' || value === 'PRO' || value === 'ENTERPRISE'
+);
+
+const isValidCycle = (value: unknown): value is SubscriptionBillingCycle => (
+  value === 'MONTHLY' || value === 'YEARLY'
+);
+
+const isValidProvider = (value: unknown): value is SubscriptionProvider => (
+  value === 'NONE'
+  || value === 'TRIAL'
+  || value === 'MANUAL'
+  || value === 'STRIPE'
+  || value === 'APPLE'
+  || value === 'GOOGLE'
+);
+
+const normalizeOptionalIsoDate = (value: unknown): string | undefined => {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined;
+};
+
+const clampCompanyCount = (value: unknown, fallback = INCLUDED_COMPANIES): number => (
+  Math.max(INCLUDED_COMPANIES, Math.min(MAX_COMPANIES_CAP, Math.floor(Number(value) || fallback)))
+);
+
+const clampExtraCompanyCount = (value: unknown): number => (
+  Math.max(0, Math.min(MAX_COMPANIES_CAP - INCLUDED_COMPANIES, Math.floor(Number(value) || 0)))
+);
+
+const buildStoreProductId = (
+  provider: Extract<SubscriptionCheckoutProvider, 'APPLE' | 'GOOGLE'>,
+  cycle: SubscriptionBillingCycle,
+  desiredCompanyCount: number
+): string | undefined => {
+  const prefix = provider === 'APPLE' ? APPLE_PRODUCT_PREFIX : GOOGLE_PRODUCT_PREFIX;
+  if (!prefix) return undefined;
+  return `${prefix}.basic.${cycle.toLowerCase()}.${desiredCompanyCount}c`;
+};
+
+const buildCheckoutUrl = (baseUrl: string, quote: WorkspaceSubscriptionQuote): string => {
+  try {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://example.invalid';
+    const url = /^https?:\/\//i.test(baseUrl) ? new URL(baseUrl) : new URL(baseUrl, origin);
+    url.searchParams.set('plan', quote.plan);
+    url.searchParams.set('billingCycle', quote.billingCycle);
+    url.searchParams.set('companyCount', String(quote.desiredCompanyCount));
+    url.searchParams.set('maxCompanies', String(quote.maxCompanies));
+    url.searchParams.set('extraCompanies', String(quote.extraCompanyCount));
+    url.searchParams.set('currency', quote.currency);
+    url.searchParams.set('totalPriceUsd', String(quote.totalPriceUsd));
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
+};
+
+export const getSubscriptionProviderAvailability = (): SubscriptionProviderAvailability => ({
+  stripeReady: Boolean((STRIPE_CHECKOUT_URLS.MONTHLY && STRIPE_CHECKOUT_URLS.YEARLY) || HAS_FIREBASE_FUNCTIONS_BACKEND),
+  appleReady: Boolean(APPLE_PRODUCT_PREFIX),
+  googleReady: Boolean(GOOGLE_PRODUCT_PREFIX)
+});
+
+export const buildDefaultWorkspaceSubscription = (input?: {
+  userId?: string;
+  userEmail?: string;
+  plan?: CompanySubscriptionPlan;
+  status?: CompanySubscriptionStatus;
+  billingCycle?: SubscriptionBillingCycle;
+  provider?: SubscriptionProvider;
+  extraCompanyCount?: number;
+  maxCompanies?: number;
+  startedAt?: string;
+  renewalDate?: string;
+  expiresAt?: string;
+  providerCustomerId?: string;
+  providerSubscriptionId?: string;
+  providerProductId?: string;
+  lastCheckoutSessionId?: string;
+}): WorkspaceSubscriptionAccount => {
+  const billingCycle = isValidCycle(input?.billingCycle) ? input.billingCycle : DEFAULT_CYCLE;
+  const pricing = PRICING[billingCycle];
+  const status = isValidStatus(input?.status) ? input.status : 'TRIAL';
+  const plan = isValidPlan(input?.plan)
+    ? input.plan
+    : (status === 'TRIAL' ? 'TRIAL' : DEFAULT_PLAN);
+  const provider = isValidProvider(input?.provider)
+    ? input.provider
+    : (status === 'TRIAL' ? 'TRIAL' : 'MANUAL');
+  const explicitMaxCompanies = clampCompanyCount(input?.maxCompanies);
+  const extraCompanyCount = Math.max(
+    clampExtraCompanyCount(input?.extraCompanyCount),
+    explicitMaxCompanies - INCLUDED_COMPANIES
+  );
+  const maxCompanies = clampCompanyCount(INCLUDED_COMPANIES + extraCompanyCount, explicitMaxCompanies);
+  const startedAt = normalizeOptionalIsoDate(input?.startedAt) || new Date().toISOString();
+
+  return {
+    userId: String(input?.userId || '').trim(),
+    userEmail: String(input?.userEmail || '').trim() || undefined,
+    status,
+    plan,
+    billingCycle,
+    provider,
+    includedCompanies: INCLUDED_COMPANIES,
+    extraCompanyCount,
+    maxCompanies,
+    currency: 'USD',
+    basePriceUsd: pricing.basePriceUsd,
+    extraCompanyPriceUsd: pricing.extraCompanyPriceUsd,
+    startedAt,
+    renewalDate: normalizeOptionalIsoDate(input?.renewalDate),
+    expiresAt: normalizeOptionalIsoDate(input?.expiresAt),
+    providerCustomerId: String(input?.providerCustomerId || '').trim() || undefined,
+    providerSubscriptionId: String(input?.providerSubscriptionId || '').trim() || undefined,
+    providerProductId: String(input?.providerProductId || '').trim() || undefined,
+    lastCheckoutSessionId: String(input?.lastCheckoutSessionId || '').trim() || undefined,
+    updatedAt: new Date().toISOString()
+  };
+};
+
+export const normalizeWorkspaceSubscription = (
+  value: unknown,
+  fallback?: Partial<WorkspaceSubscriptionAccount>
+): WorkspaceSubscriptionAccount => {
+  const candidate = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const billingCycle = isValidCycle(candidate.billingCycle) ? candidate.billingCycle : fallback?.billingCycle || DEFAULT_CYCLE;
+  const pricing = PRICING[billingCycle];
+  const status = isValidStatus(candidate.status) ? candidate.status : fallback?.status || 'TRIAL';
+  const plan = isValidPlan(candidate.plan)
+    ? candidate.plan
+    : fallback?.plan || (status === 'TRIAL' ? 'TRIAL' : DEFAULT_PLAN);
+  const provider = isValidProvider(candidate.provider)
+    ? candidate.provider
+    : fallback?.provider || (status === 'TRIAL' ? 'TRIAL' : 'MANUAL');
+  const includedCompanies = clampCompanyCount(candidate.includedCompanies, fallback?.includedCompanies || INCLUDED_COMPANIES);
+  const maxCompanies = clampCompanyCount(candidate.maxCompanies, fallback?.maxCompanies || includedCompanies);
+  const extraCompanyCount = Math.max(
+    clampExtraCompanyCount(candidate.extraCompanyCount),
+    maxCompanies - includedCompanies
+  );
+
+  return {
+    userId: String(candidate.userId || fallback?.userId || '').trim(),
+    userEmail: String(candidate.userEmail || fallback?.userEmail || '').trim() || undefined,
+    status,
+    plan,
+    billingCycle,
+    provider,
+    includedCompanies,
+    extraCompanyCount,
+    maxCompanies: Math.max(includedCompanies, maxCompanies),
+    currency: 'USD',
+    basePriceUsd: Math.max(0, Number(candidate.basePriceUsd) || fallback?.basePriceUsd || pricing.basePriceUsd),
+    extraCompanyPriceUsd: Math.max(0, Number(candidate.extraCompanyPriceUsd) || fallback?.extraCompanyPriceUsd || pricing.extraCompanyPriceUsd),
+    startedAt: normalizeOptionalIsoDate(candidate.startedAt) || fallback?.startedAt || new Date().toISOString(),
+    renewalDate: normalizeOptionalIsoDate(candidate.renewalDate) || fallback?.renewalDate,
+    expiresAt: normalizeOptionalIsoDate(candidate.expiresAt) || fallback?.expiresAt,
+    providerCustomerId: String(candidate.providerCustomerId || fallback?.providerCustomerId || '').trim() || undefined,
+    providerSubscriptionId: String(candidate.providerSubscriptionId || fallback?.providerSubscriptionId || '').trim() || undefined,
+    providerProductId: String(candidate.providerProductId || fallback?.providerProductId || '').trim() || undefined,
+    lastCheckoutSessionId: String(candidate.lastCheckoutSessionId || fallback?.lastCheckoutSessionId || '').trim() || undefined,
+    updatedAt: normalizeOptionalIsoDate(candidate.updatedAt) || new Date().toISOString()
+  };
+};
+
+export const getWorkspaceEffectiveMaxCompanies = (
+  subscription: WorkspaceSubscriptionAccount,
+  currentCompanyCount: number
+): number => Math.max(
+  INCLUDED_COMPANIES,
+  Math.max(0, Math.floor(Number(currentCompanyCount) || 0)),
+  clampCompanyCount(subscription.maxCompanies, subscription.includedCompanies + subscription.extraCompanyCount)
+);
+
+export const getWorkspaceRemainingCompanySlots = (
+  subscription: WorkspaceSubscriptionAccount,
+  currentCompanyCount: number
+): number => Math.max(0, getWorkspaceEffectiveMaxCompanies(subscription, currentCompanyCount) - Math.max(0, currentCompanyCount));
+
+export const buildWorkspaceSubscriptionQuote = (input: {
+  provider: SubscriptionCheckoutProvider;
+  billingCycle: SubscriptionBillingCycle;
+  desiredCompanyCount: number;
+}): WorkspaceSubscriptionQuote => {
+  const desiredCompanyCount = clampCompanyCount(input.desiredCompanyCount);
+  const extraCompanyCount = Math.max(0, desiredCompanyCount - INCLUDED_COMPANIES);
+  const pricing = PRICING[input.billingCycle];
+  const availability = getSubscriptionProviderAvailability();
+  const quote: WorkspaceSubscriptionQuote = {
+    plan: DEFAULT_PLAN,
+    billingCycle: input.billingCycle,
+    provider: input.provider,
+    desiredCompanyCount,
+    includedCompanies: INCLUDED_COMPANIES,
+    extraCompanyCount,
+    maxCompanies: desiredCompanyCount,
+    currency: 'USD',
+    basePriceUsd: pricing.basePriceUsd,
+    extraCompanyPriceUsd: pricing.extraCompanyPriceUsd,
+    totalPriceUsd: pricing.basePriceUsd + (extraCompanyCount * pricing.extraCompanyPriceUsd),
+    providerReady: false
+  };
+
+  if (input.provider === 'STRIPE') {
+    const baseUrl = STRIPE_CHECKOUT_URLS[input.billingCycle];
+    return {
+      ...quote,
+      providerReady: Boolean(baseUrl && availability.stripeReady),
+      checkoutMode: baseUrl ? 'EXTERNAL_URL' : undefined,
+      checkoutUrl: baseUrl ? buildCheckoutUrl(baseUrl, quote) : undefined
+    };
+  }
+
+  const productId = buildStoreProductId(input.provider, input.billingCycle, desiredCompanyCount);
+  return {
+    ...quote,
+    providerReady: Boolean(productId),
+    checkoutMode: productId ? 'STORE_PRODUCT' : undefined,
+    productId
+  };
+};
+
+export const prepareWorkspaceCheckout = (input: {
+  provider: SubscriptionCheckoutProvider;
+  billingCycle: SubscriptionBillingCycle;
+  desiredCompanyCount: number;
+}): SubscriptionCheckoutResult => {
+  const quote = buildWorkspaceSubscriptionQuote(input);
+  if (!quote.providerReady || !quote.checkoutMode) {
+    return {
+      ok: false,
+      code: 'NOT_CONFIGURED',
+      message: `${input.provider} checkout is not configured yet. Add the provider credentials and product mapping first.`
+    };
+  }
+
+  if (quote.checkoutMode === 'EXTERNAL_URL') {
+    return {
+      ok: true,
+      provider: input.provider,
+      mode: quote.checkoutMode,
+      message: `Checkout is ready for ${quote.desiredCompanyCount} company slot(s).`,
+      url: quote.checkoutUrl
+    };
+  }
+
+  return {
+    ok: true,
+    provider: input.provider,
+    mode: quote.checkoutMode,
+    message: `Store product prepared for ${quote.desiredCompanyCount} company slot(s).`,
+    productId: quote.productId
+  };
+};
