@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
-import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
+import { onRequest } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2';
 
 initializeApp();
@@ -9,7 +9,6 @@ initializeApp();
 const db = getFirestore();
 
 const FUNCTIONS_REGION = process.env.FUNCTIONS_REGION || 'us-central1';
-const APP_BASE_URL = String(process.env.APP_BASE_URL || 'https://smart-account-cc181.web.app').trim();
 const GOOGLE_PLAY_PACKAGE_NAME = String(process.env.GOOGLE_PLAY_PACKAGE_NAME || '').trim();
 const APPLE_ALLOW_UNVERIFIED_NOTIFICATIONS = String(process.env.APPLE_ALLOW_UNVERIFIED_NOTIFICATIONS || '').trim().toLowerCase() === 'true';
 
@@ -35,8 +34,8 @@ const nowIso = () => new Date().toISOString();
 const pricingForCycle = (billingCycle) => (
   billingCycle === 'YEARLY'
     ? {
-      basePriceUsd: 100,
-      extraCompanyPriceUsd: 20,
+      basePriceUsd: 20,
+      extraCompanyPriceUsd: 5,
       interval: 'year'
     }
     : {
@@ -45,25 +44,6 @@ const pricingForCycle = (billingCycle) => (
       interval: 'month'
     }
 );
-
-const mapStripeStatus = (status) => {
-  switch (String(status || '').trim()) {
-    case 'trialing':
-      return 'TRIAL';
-    case 'active':
-      return 'ACTIVE';
-    case 'past_due':
-    case 'incomplete':
-    case 'unpaid':
-    case 'paused':
-      return 'SUSPENDED';
-    case 'canceled':
-    case 'incomplete_expired':
-      return 'EXPIRED';
-    default:
-      return 'ACTIVE';
-  }
-};
 
 const mapGoogleStatus = (status) => {
   switch (String(status || '').trim()) {
@@ -164,19 +144,7 @@ const parseOfferFromProductId = (productId) => {
   };
 };
 
-let stripeClientPromise = null;
 let googleApisPromise = null;
-
-const getStripeClient = async () => {
-  const secretKey = String(process.env.STRIPE_SECRET_KEY || '').trim();
-  if (!secretKey) {
-    throw new HttpsError('failed-precondition', 'Stripe secret key is not configured.');
-  }
-  if (!stripeClientPromise) {
-    stripeClientPromise = import('stripe').then(({ default: Stripe }) => new Stripe(secretKey));
-  }
-  return stripeClientPromise;
-};
 
 const writeBillingEventOnce = async ({ provider, eventId, type, summary, raw }) => {
   const docId = `${provider}_${String(eventId || Date.now())}`;
@@ -300,126 +268,6 @@ const applyWorkspaceSubscriptionState = async ({
   return nextPayload;
 };
 
-const storeCheckoutSession = async ({ sessionId, userId, userEmail, billingCycle, desiredCompanyCount, url }) => {
-  await db.collection(COLLECTIONS.billingCheckoutRequests).doc(sessionId).set({
-    sessionId,
-    userId,
-    userEmail,
-    billingCycle,
-    desiredCompanyCount,
-    status: 'CREATED',
-    url,
-    createdAt: nowIso()
-  }, { merge: true });
-};
-
-const resolveUserIdFromStripeObject = async (stripeObject) => {
-  const metadata = stripeObject?.metadata || {};
-  const directUserId = String(metadata.userId || metadata.uid || '').trim();
-  if (directUserId) {
-    return {
-      userId: directUserId,
-      userEmail: String(metadata.userEmail || '').trim() || undefined
-    };
-  }
-
-  const workspaceDoc = await findWorkspaceSubscription({
-    providerSubscriptionId: String(stripeObject?.id || stripeObject?.subscription || '').trim(),
-    providerCustomerId: String(stripeObject?.customer || '').trim()
-  });
-  if (workspaceDoc?.exists) {
-    const data = workspaceDoc.data() || {};
-    return {
-      userId: String(data.userId || workspaceDoc.id).trim(),
-      userEmail: String(data.userEmail || '').trim() || undefined
-    };
-  }
-
-  return {
-    userId: '',
-    userEmail: undefined
-  };
-};
-
-const syncStripeSubscription = async (subscription, overrides = {}) => {
-  const { userId, userEmail } = await resolveUserIdFromStripeObject(subscription);
-  if (!userId) {
-    throw new Error('Could not resolve the Stripe subscription owner.');
-  }
-
-  const metadata = subscription.metadata || {};
-  const billingCycle = normalizeBillingCycle(
-    metadata.billingCycle
-    || (subscription.items?.data?.[0]?.price?.recurring?.interval === 'year' ? 'YEARLY' : 'MONTHLY')
-  );
-  const desiredCompanyCount = clampCompanyCount(metadata.desiredCompanyCount);
-  const productId = subscription.items?.data?.[0]?.price?.id || undefined;
-
-  return applyWorkspaceSubscriptionState({
-    userId,
-    userEmail,
-    status: overrides.status || mapStripeStatus(subscription.status),
-    provider: 'STRIPE',
-    billingCycle,
-    desiredCompanyCount,
-    startedAt: unixSecondsToIso(subscription.current_period_start || subscription.created),
-    renewalDate: unixSecondsToIso(subscription.current_period_end),
-    expiresAt: unixSecondsToIso(subscription.current_period_end || subscription.cancel_at || subscription.canceled_at),
-    providerCustomerId: String(subscription.customer || '').trim() || undefined,
-    providerSubscriptionId: String(subscription.id || '').trim() || undefined,
-    providerProductId: productId,
-    lastCheckoutSessionId: overrides.lastCheckoutSessionId
-  });
-};
-
-const processStripeEvent = async (event, stripe) => {
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object;
-      const subscriptionId = String(session.subscription || '').trim();
-      if (!subscriptionId) return;
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      await syncStripeSubscription(subscription, {
-        lastCheckoutSessionId: String(session.id || '').trim() || undefined
-      });
-      await db.collection(COLLECTIONS.billingCheckoutRequests).doc(String(session.id)).set({
-        status: 'COMPLETED',
-        completedAt: nowIso(),
-        providerSubscriptionId: subscriptionId
-      }, { merge: true });
-      return;
-    }
-    case 'customer.subscription.created':
-    case 'customer.subscription.updated':
-    case 'customer.subscription.resumed': {
-      await syncStripeSubscription(event.data.object);
-      return;
-    }
-    case 'customer.subscription.deleted': {
-      await syncStripeSubscription(event.data.object, { status: 'EXPIRED' });
-      return;
-    }
-    case 'invoice.paid': {
-      const invoice = event.data.object;
-      const subscriptionId = String(invoice.subscription || '').trim();
-      if (!subscriptionId) return;
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      await syncStripeSubscription(subscription);
-      return;
-    }
-    case 'invoice.payment_failed': {
-      const invoice = event.data.object;
-      const subscriptionId = String(invoice.subscription || '').trim();
-      if (!subscriptionId) return;
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      await syncStripeSubscription(subscription, { status: 'SUSPENDED' });
-      return;
-    }
-    default:
-      return;
-  }
-};
-
 const getAndroidPublisherClient = async () => {
   if (!googleApisPromise) {
     googleApisPromise = import('googleapis');
@@ -430,141 +278,6 @@ const getAndroidPublisherClient = async () => {
   });
   return google.androidpublisher({ version: 'v3', auth });
 };
-
-export const createStripeWorkspaceCheckout = onCall(async (request) => {
-  if (!request.auth?.uid) {
-    throw new HttpsError('unauthenticated', 'You must sign in before creating a checkout session.');
-  }
-
-  const billingCycle = normalizeBillingCycle(request.data?.billingCycle);
-  const desiredCompanyCount = clampCompanyCount(request.data?.desiredCompanyCount);
-  const userId = request.auth.uid;
-  const userEmail = String(request.auth.token?.email || '').trim() || undefined;
-  const successUrl = sanitizeRedirectUrl(
-    request.data?.successUrl,
-    `${APP_BASE_URL}/?openSubscription=1&billing=success`
-  );
-  const cancelUrl = sanitizeRedirectUrl(
-    request.data?.cancelUrl,
-    `${APP_BASE_URL}/?openSubscription=1&billing=cancelled`
-  );
-
-  const pricing = pricingForCycle(billingCycle);
-  const extraCompanyCount = Math.max(0, desiredCompanyCount - 1);
-  const stripe = await getStripeClient();
-
-  const metadata = {
-    userId,
-    userEmail: userEmail || '',
-    billingCycle,
-    desiredCompanyCount: String(desiredCompanyCount)
-  };
-
-  const lineItems = [
-    {
-      quantity: 1,
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'AIFLEX ERP - Base subscription',
-          description: 'Includes 1 company'
-        },
-        unit_amount: pricing.basePriceUsd * 100,
-        recurring: {
-          interval: pricing.interval
-        }
-      }
-    }
-  ];
-
-  if (extraCompanyCount > 0) {
-    lineItems.push({
-      quantity: extraCompanyCount,
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: 'AIFLEX ERP - Extra company slot',
-          description: 'Recurring extra company slot'
-        },
-        unit_amount: pricing.extraCompanyPriceUsd * 100,
-        recurring: {
-          interval: pricing.interval
-        }
-      }
-    });
-  }
-
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    allow_promotion_codes: true,
-    client_reference_id: userId,
-    customer_email: userEmail,
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-    line_items: lineItems,
-    metadata,
-    subscription_data: {
-      metadata
-    }
-  });
-
-  await storeCheckoutSession({
-    sessionId: String(session.id),
-    userId,
-    userEmail,
-    billingCycle,
-    desiredCompanyCount,
-    url: session.url || undefined
-  });
-
-  return {
-    sessionId: session.id,
-    url: session.url
-  };
-});
-
-export const stripeWebhook = onRequest(async (req, res) => {
-  if (req.method !== 'POST') {
-    res.status(405).send('Method Not Allowed');
-    return;
-  }
-
-  const signatureHeader = req.headers['stripe-signature'];
-  const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
-  const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
-  if (!signature || !webhookSecret) {
-    res.status(500).send('Stripe webhook is not configured.');
-    return;
-  }
-
-  try {
-    const stripe = await getStripeClient();
-    const event = stripe.webhooks.constructEvent(req.rawBody, signature, webhookSecret);
-    const eventRecord = await writeBillingEventOnce({
-      provider: 'STRIPE',
-      eventId: event.id,
-      type: event.type,
-      summary: {
-        objectId: String(event.data?.object?.id || '').trim() || undefined
-      }
-    });
-
-    if (!eventRecord.isNew) {
-      res.json({ received: true, duplicate: true });
-      return;
-    }
-
-    await processStripeEvent(event, stripe);
-    await eventRecord.ref.set({
-      status: 'PROCESSED',
-      processedAt: nowIso()
-    }, { merge: true });
-    res.json({ received: true });
-  } catch (error) {
-    logger.error('Stripe webhook failed', error);
-    res.status(400).send(String(error?.message || error || 'Webhook error'));
-  }
-});
 
 export const appleSubscriptionNotifications = onRequest(async (req, res) => {
   if (req.method !== 'POST') {

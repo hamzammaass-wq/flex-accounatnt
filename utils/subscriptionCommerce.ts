@@ -13,21 +13,16 @@ import {
 const INCLUDED_COMPANIES = 1;
 const MAX_COMPANIES_CAP = 50;
 const DEFAULT_PLAN: CompanySubscriptionPlan = 'BASIC';
-const DEFAULT_CYCLE: SubscriptionBillingCycle = 'MONTHLY';
+const DEFAULT_CYCLE: SubscriptionBillingCycle = 'YEARLY';
 
 const PRICING: Record<SubscriptionBillingCycle, { basePriceUsd: number; extraCompanyPriceUsd: number }> = {
   MONTHLY: { basePriceUsd: 10, extraCompanyPriceUsd: 3 },
-  YEARLY: { basePriceUsd: 100, extraCompanyPriceUsd: 20 }
+  YEARLY: { basePriceUsd: 20, extraCompanyPriceUsd: 5 }
 };
 
-const STRIPE_CHECKOUT_URLS: Record<SubscriptionBillingCycle, string> = {
-  MONTHLY: String(import.meta.env.VITE_STRIPE_CHECKOUT_MONTHLY_URL || '').trim(),
-  YEARLY: String(import.meta.env.VITE_STRIPE_CHECKOUT_YEARLY_URL || '').trim()
-};
-
+const PALPAY_CHECKOUT_URL = String(import.meta.env.VITE_PALPAY_CHECKOUT_URL || '').trim();
 const APPLE_PRODUCT_PREFIX = String(import.meta.env.VITE_APPLE_SUBSCRIPTION_PRODUCT_PREFIX || '').trim();
 const GOOGLE_PRODUCT_PREFIX = String(import.meta.env.VITE_GOOGLE_SUBSCRIPTION_PRODUCT_PREFIX || '').trim();
-const HAS_FIREBASE_FUNCTIONS_BACKEND = Boolean(String(import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim());
 
 const isValidStatus = (value: unknown): value is CompanySubscriptionStatus => (
   value === 'TRIAL' || value === 'ACTIVE' || value === 'EXPIRED' || value === 'SUSPENDED'
@@ -45,7 +40,7 @@ const isValidProvider = (value: unknown): value is SubscriptionProvider => (
   value === 'NONE'
   || value === 'TRIAL'
   || value === 'MANUAL'
-  || value === 'STRIPE'
+  || value === 'PALPAY'
   || value === 'APPLE'
   || value === 'GOOGLE'
 );
@@ -93,7 +88,7 @@ const buildCheckoutUrl = (baseUrl: string, quote: WorkspaceSubscriptionQuote): s
 };
 
 export const getSubscriptionProviderAvailability = (): SubscriptionProviderAvailability => ({
-  stripeReady: Boolean((STRIPE_CHECKOUT_URLS.MONTHLY && STRIPE_CHECKOUT_URLS.YEARLY) || HAS_FIREBASE_FUNCTIONS_BACKEND),
+  palpayReady: Boolean(PALPAY_CHECKOUT_URL),
   appleReady: Boolean(APPLE_PRODUCT_PREFIX),
   googleReady: Boolean(GOOGLE_PRODUCT_PREFIX)
 });
@@ -239,20 +234,20 @@ export const buildWorkspaceSubscriptionQuote = (input: {
     providerReady: false
   };
 
-  if (input.provider === 'STRIPE') {
-    const baseUrl = STRIPE_CHECKOUT_URLS[input.billingCycle];
+  if (input.provider === 'PALPAY') {
+    const checkoutUrl = PALPAY_CHECKOUT_URL ? buildCheckoutUrl(PALPAY_CHECKOUT_URL, quote) : undefined;
     return {
       ...quote,
-      providerReady: Boolean(baseUrl && availability.stripeReady),
-      checkoutMode: baseUrl ? 'EXTERNAL_URL' : undefined,
-      checkoutUrl: baseUrl ? buildCheckoutUrl(baseUrl, quote) : undefined
+      providerReady: availability.palpayReady,
+      checkoutMode: checkoutUrl ? 'EXTERNAL_URL' : undefined,
+      checkoutUrl
     };
   }
 
   const productId = buildStoreProductId(input.provider, input.billingCycle, desiredCompanyCount);
   return {
     ...quote,
-    providerReady: Boolean(productId),
+    providerReady: input.provider === 'APPLE' ? availability.appleReady : availability.googleReady,
     checkoutMode: productId ? 'STORE_PRODUCT' : undefined,
     productId
   };
