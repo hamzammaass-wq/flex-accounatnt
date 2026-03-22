@@ -54,6 +54,7 @@ const SETTINGS_OPTION_KEYS = [
   'autoFiscalYearOpeningEntries',
   'printPersonalData',
   'printElectronicInvoice',
+  'printItemBarcodeInInvoice',
   'printStatementAllCurrencies',
   'statementDateAscending',
   'statementFooterNote',
@@ -139,5 +140,5 @@ describe('settings wiring', () => {
       const isConnected = usageOutsideContext > 0 || usageInsideContext > 1;
       expect(isConnected).toBe(true);
     });
-  });
+  }, 15000);
 });

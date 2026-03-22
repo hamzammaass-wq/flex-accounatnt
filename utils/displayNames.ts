@@ -15,6 +15,7 @@ const accountNameEn: Record<string, string> = {
   acc_cheques_under_collection: 'Checks Under Collection',
   acc_inventory_group: 'Inventory',
   acc_inventory: 'Merchandise Inventory',
+  acc_employee_advances: 'Employee Advances',
   acc_fixed_assets_root: 'Fixed Assets',
   acc_furniture: 'Furniture and Fixtures',
   acc_equipment: 'Electronic Equipment',
@@ -25,13 +26,17 @@ const accountNameEn: Record<string, string> = {
   acc_liabilities: 'Liabilities',
   acc_current_liabilities: 'Current Liabilities',
   acc_long_term_liabilities: 'Long-term Liabilities',
+  acc_payable_group: 'Accounts Payable (Suppliers)',
   acc_payable: 'Trade Payables',
   acc_notes_payable: 'Notes Payable (Issued Checks)',
   acc_accrued_salaries: 'Employees Payable',
+  acc_payroll_deductions_payable: 'Payroll Deductions Payable',
   acc_vat_payable: 'VAT Payable',
   acc_equity_root: 'Equity',
   acc_capital: 'Paid-in Capital',
   acc_retained_earnings: 'Retained Earnings',
+  acc_opening_balances_group: 'Opening Balance Accounts',
+  acc_opening_inventory: 'Opening Inventory',
   acc_revenue_root: 'Revenue',
   acc_sales: 'Sales Revenue',
   acc_sales_returns: 'Sales Returns',
@@ -51,6 +56,9 @@ const accountNameEn: Record<string, string> = {
   acc_depreciation_exp: 'Depreciation Expense',
   acc_exchange_diff: 'Currency Exchange Differences',
   acc_loss_asset_disposal: 'Loss on Asset Disposal',
+  acc_inventory_adjustments: 'Inventory Adjustments',
+  acc_inventory_variance: 'Inventory Variance',
+  acc_damaged_goods: 'Damaged Goods Expense',
   acc_direct_labor: 'Direct Labor (Manufacturing)',
   acc_manufacturing_overhead: 'Manufacturing Overhead'
 };
@@ -70,6 +78,7 @@ const accountNameEnByCode: Record<string, string> = {
   '11402': 'Checks Under Collection',
   '115': 'Inventory',
   '11501': 'Merchandise Inventory',
+  '117': 'Employee Advances',
   '12': 'Fixed Assets',
   '121': 'Furniture and Fixtures',
   '122': 'Electronic Equipment',
@@ -80,13 +89,17 @@ const accountNameEnByCode: Record<string, string> = {
   '2': 'Liabilities',
   '21': 'Current Liabilities',
   '22': 'Long-term Liabilities',
-  '211': 'Trade Payables',
+  '211': 'Accounts Payable (Suppliers)',
+  '21101': 'Trade Payables',
   '212': 'Notes Payable (Issued Checks)',
   '213': 'Employees Payable',
+  '214': 'Payroll Deductions Payable',
   '221': 'VAT Payable',
   '3': 'Equity',
   '31': 'Paid-in Capital',
   '32': 'Retained Earnings',
+  '34': 'Opening Balance Accounts',
+  '3401': 'Opening Inventory',
   '4': 'Revenue',
   '41': 'Sales Revenue',
   '42': 'Service Revenue',
@@ -106,6 +119,9 @@ const accountNameEnByCode: Record<string, string> = {
   '54': 'Depreciation Expense',
   '55': 'Currency Exchange Differences',
   '56': 'Loss on Asset Disposal',
+  '57': 'Inventory Adjustments',
+  '571': 'Inventory Variance',
+  '572': 'Damaged Goods Expense',
   '513': 'Direct Labor (Manufacturing)',
   '514': 'Manufacturing Overhead'
 };
@@ -121,6 +137,7 @@ const accountNameEnByArabic: Record<string, string> = {
   'الذمم المدينة (العملاء)': 'Accounts Receivable (Customers)',
   'ذمم العملاء التجارية': 'Trade Receivables',
   'أوراق القبض (شيكات واردة)': 'Notes Receivable (Incoming Checks)',
+  'شيكات بالصندوق': 'Checks on Hand',
   'شيكات برسم التحصيل': 'Checks on Hand',
   'المخزون': 'Inventory',
   'مخزون البضائع': 'Merchandise Inventory',
@@ -172,6 +189,7 @@ Object.assign(accountNameEnByArabic, {
   'الذمم المدينة (العملاء)': 'Accounts Receivable (Customers)',
   'ذمم العملاء التجارية': 'Trade Receivables',
   'أوراق القبض (شيكات واردة)': 'Notes Receivable (Incoming Checks)',
+  'شيكات بالصندوق': 'Checks on Hand',
   'شيكات برسم التحصيل': 'Checks on Hand',
   'المخزون': 'Inventory',
   'مخزون البضائع': 'Merchandise Inventory',
@@ -586,7 +604,17 @@ export const getDisplayAccountName = (
   isEnglish: boolean
 ): string => {
   if (!account) return '';
-  if (!isEnglish) return account.name;
+  if (!isEnglish) {
+    const normalizedName = normalizeLabel(account.name || '');
+    const normalizedCode = normalizeCode(String(account.code || ''));
+    if (
+      (account.id === 'acc_cheques_hand' || normalizedCode === '11401') &&
+      (!normalizedName || normalizedName === 'شيكات برسم التحصيل' || normalizedName === 'شيكات تحت التحصيل' || normalizedName === 'شيكات بالصندوق')
+    ) {
+      return 'شيكات بالصندوق';
+    }
+    return account.name;
+  }
 
   const rawName = normalizeLabel(account.name || '');
   const { name: noCurrencyName, suffix } = splitCurrencySuffix(rawName);

@@ -1,9 +1,19 @@
-import { CloudCompanySubscription, CloudSubscriptionCode, CompanyProfile, CompanySubscriptionPlan, CompanySubscriptionStatus, SubscriptionDeviceBinding, User } from '../types';
+import { CloudCompanySubscription, CloudSubscriptionCode, CompanyProfile, CompanySubscriptionPlan, CompanySubscriptionStatus, SubscriptionDeviceBinding, User, WorkspaceOfferCode, WorkspaceOfferCodeKind } from '../types';
 
 const SUBSCRIPTION_DEVICE_ID_KEY = 'al_mohaseb_subscription_device_id';
 const RAW_SUBSCRIPTION_ADMIN_EMAILS = String(import.meta.env.VITE_SUBSCRIPTION_ADMIN_EMAILS || '').trim();
+const RAW_PROGRAM_OWNER_EMAILS = String(import.meta.env.VITE_PROGRAM_OWNER_EMAILS || import.meta.env.VITE_PROGRAM_OWNER_EMAIL || '').trim();
+const LOCAL_SUBSCRIPTION_ADMIN_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(import.meta.env.VITE_ENABLE_LOCAL_SUBSCRIPTION_ADMIN || '').trim().toLowerCase()
+);
 const SUBSCRIPTION_ADMIN_EMAILS = new Set(
   RAW_SUBSCRIPTION_ADMIN_EMAILS
+    .split(/[,\n;]/)
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean)
+);
+const PROGRAM_OWNER_EMAILS = new Set(
+  (RAW_PROGRAM_OWNER_EMAILS || RAW_SUBSCRIPTION_ADMIN_EMAILS)
     .split(/[,\n;]/)
     .map(value => value.trim().toLowerCase())
     .filter(Boolean)
@@ -85,8 +95,17 @@ export const getCurrentSubscriptionDeviceBinding = (
   };
 };
 
-export const isSubscriptionAdminEmail = (email?: string | null): boolean =>
-  Boolean(email && SUBSCRIPTION_ADMIN_EMAILS.has(String(email).trim().toLowerCase()));
+export const isSubscriptionAdminEmail = (email?: string | null): boolean => {
+  if (SUBSCRIPTION_ADMIN_EMAILS.has('*')) return true;
+  return Boolean(email && SUBSCRIPTION_ADMIN_EMAILS.has(String(email).trim().toLowerCase()));
+};
+
+export const isProgramOwnerEmail = (email?: string | null): boolean => {
+  if (PROGRAM_OWNER_EMAILS.has('*')) return true;
+  return Boolean(email && PROGRAM_OWNER_EMAILS.has(String(email).trim().toLowerCase()));
+};
+
+export const isLocalSubscriptionAdminEnabled = (): boolean => LOCAL_SUBSCRIPTION_ADMIN_ENABLED;
 
 export const normalizeCloudCompanySubscription = (
   companyId: string,
@@ -158,6 +177,45 @@ export const normalizeCloudSubscriptionCode = (value: unknown): CloudSubscriptio
     usedByCompanyId: String(candidate.usedByCompanyId || '').trim() || undefined,
     usedByCompanyName: String(candidate.usedByCompanyName || '').trim() || undefined,
     usedByDeviceId: String(candidate.usedByDeviceId || '').trim() || undefined,
+    usedByUserId: String(candidate.usedByUserId || '').trim() || undefined,
+    usedByEmail: String(candidate.usedByEmail || '').trim() || undefined
+  };
+};
+
+export const normalizeWorkspaceOfferCode = (value: unknown): WorkspaceOfferCode | null => {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Record<string, unknown>;
+  const code = String(candidate.code || '').trim().toUpperCase();
+  if (!code) return null;
+  const rawCompanyCount = Math.floor(Number(candidate.companyCount) || 0);
+  const rawStatus = String(candidate.status || '').trim().toUpperCase();
+  const status = rawStatus === 'USED' || rawStatus === 'CANCELLED' || rawStatus === 'EXPIRED'
+    ? rawStatus
+    : 'AVAILABLE';
+  const rawKind = String(candidate.kind || '').trim().toUpperCase();
+  const kind: WorkspaceOfferCodeKind = rawKind === 'DISCOUNT_PERCENT' || rawKind === 'LIFETIME'
+    ? rawKind
+    : 'FREE_DAYS';
+
+  return {
+    code,
+    status,
+    kind,
+    discountPercent: kind === 'DISCOUNT_PERCENT'
+      ? Math.max(1, Math.min(100, Math.floor(Number(candidate.discountPercent) || 0)))
+      : undefined,
+    freeDays: kind === 'FREE_DAYS'
+      ? Math.max(1, Math.min(3650, Math.floor(Number(candidate.freeDays) || 30)))
+      : undefined,
+    companyCount: rawCompanyCount > 0
+      ? Math.max(1, Math.min(50, rawCompanyCount))
+      : undefined,
+    createdAt: normalizeOptionalIsoDate(candidate.createdAt) || new Date().toISOString(),
+    createdByUserId: String(candidate.createdByUserId || '').trim() || undefined,
+    createdByEmail: String(candidate.createdByEmail || '').trim() || undefined,
+    expiresAt: normalizeOptionalIsoDate(candidate.expiresAt),
+    notes: String(candidate.notes || '').trim() || undefined,
+    usedAt: normalizeOptionalIsoDate(candidate.usedAt),
     usedByUserId: String(candidate.usedByUserId || '').trim() || undefined,
     usedByEmail: String(candidate.usedByEmail || '').trim() || undefined
   };

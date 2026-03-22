@@ -18,6 +18,7 @@ import { Invoice, TransactionType } from '../types';
 import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import EnglishDateInput from './EnglishDateInput';
 import { getDisplayContactName } from '../utils/displayNames';
+import { openDrilldown } from '../utils/drilldown';
 
 type NoticeKind = 'CREDIT_NOTE' | 'DEBIT_NOTE';
 type NoticeViewKind = 'ALL' | NoticeKind;
@@ -37,6 +38,10 @@ const AdjustmentNoticesManager: React.FC = () => {
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
   const displayContactName = (contact?: { id: string; name: string } | null) =>
     getDisplayContactName(contact || undefined, isEnglish);
+  const openContactStatement = (contactId?: string) => {
+    if (!contactId) return;
+    openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+  };
 
   const [activeKind, setActiveKind] = useState<NoticeKind>('CREDIT_NOTE');
   const [viewKind, setViewKind] = useState<NoticeViewKind>('ALL');
@@ -487,7 +492,6 @@ const AdjustmentNoticesManager: React.FC = () => {
             const linked = inv.linkedInvoiceId ? invoices.find(i => i.id === inv.linkedInvoiceId) : undefined;
             const contact = contacts.find(c => c.id === inv.customerId);
             const remainingAfter = linked ? getInvoiceRemainingBase(linked, invoiceSettlements) : undefined;
-            const isDraft = inv.postingStatus === 'DRAFT';
             return (
               <div key={inv.id} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -496,14 +500,21 @@ const AdjustmentNoticesManager: React.FC = () => {
                       <span className={`px-2 py-1 rounded-lg text-[10px] font-black border ${inv.category === 'customer_credit_note' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
                         {getNoticeTypeLabel(inv)}
                       </span>
-                      <span className={`px-2 py-1 rounded-lg text-[10px] font-black border ${isDraft ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                        {isDraft ? tr('مسودة', 'Draft') : tr('مرحّل', 'Posted')}
+                      <span className="px-2 py-1 rounded-lg text-[10px] font-black border bg-blue-50 text-blue-700 border-blue-200">
+                        {tr('مرحّل', 'Posted')}
                       </span>
                     </div>
                     <h3 className="text-sm font-black text-slate-800">{inv.invoiceNumber}</h3>
                     <div className="text-[11px] text-gray-500 font-bold mt-1 flex items-center gap-3 flex-wrap">
                       <span className="inline-flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{inv.date}</span>
-                      <span className="inline-flex items-center gap-1"><User className="w-3.5 h-3.5" />{contact ? displayContactName(contact) : tr('غير محدد', 'N/A')}</span>
+                      <span
+                        className={`inline-flex items-center gap-1 ${contact ? 'cursor-pointer hover:text-indigo-600' : ''}`}
+                        onDoubleClick={() => openContactStatement(inv.customerId)}
+                        title={contact ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined}
+                      >
+                        <User className="w-3.5 h-3.5" />
+                        {contact ? displayContactName(contact) : tr('غير محدد', 'N/A')}
+                      </span>
                       {linked && <span className="inline-flex items-center gap-1"><Link2 className="w-3.5 h-3.5" />{tr('فاتورة', 'Invoice')}: {linked.invoiceNumber}</span>}
                     </div>
                     {inv.notes && <p className="text-xs text-slate-600 font-bold mt-2">{inv.notes}</p>}

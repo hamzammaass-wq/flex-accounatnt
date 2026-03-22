@@ -25,6 +25,15 @@ const FixedAssetsManager: React.FC = () => {
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayAssetGroupName = (group?: { id: string; name: string } | null) => getDisplayAssetGroupName(group || undefined, isEnglish);
     const displayContactName = (contact?: { id: string; name: string } | null) => getDisplayContactName(contact || undefined, isEnglish);
+    const getSupplierAccountId = (contactId?: string) => {
+        if (!contactId) return 'acc_payable';
+        const contact = contacts.find(entry => entry.id === contactId);
+        if (!contact) return 'acc_payable';
+        if (contact.type === 'PARTNER') return contact.currentAccountId || contact.linkedAccountId || 'acc_partner_current';
+        if (contact.type === 'SUPPLIER') return contact.currentAccountId || contact.linkedAccountId || 'acc_payable';
+        if (contact.type === 'CUSTOMER') return 'acc_receivable';
+        return 'acc_payable';
+    };
 
     // Selected Asset for Edit/View
     const [selectedAsset, setSelectedAsset] = useState<FixedAsset | null>(null);
@@ -156,6 +165,7 @@ const FixedAssetsManager: React.FC = () => {
         });
 
         const supplierName = displayContactName(contacts.find(c => c.id === supplierId));
+        const supplierAccountId = getSupplierAccountId(supplierId);
 
         addTransaction({
             amount: basePrice,
@@ -164,7 +174,7 @@ const FixedAssetsManager: React.FC = () => {
             type: TransactionType.EXPENSE,
             date: purchaseDate,
             debitAccountId: assetPostingAccountId,
-            creditAccountId: 'acc_payable',
+            creditAccountId: supplierAccountId,
             contactId: supplierId,
             currency: baseCurrency,
             exchangeRate: 1,
@@ -173,7 +183,7 @@ const FixedAssetsManager: React.FC = () => {
 
         if (extraExp > 0) {
             const isCredit = clearancePaymentType === 'CREDIT';
-            const creditAccount = isCredit ? 'acc_payable' : expensePaymentAccountId;
+            const creditAccount = isCredit ? getSupplierAccountId(clearanceSupplierId) : expensePaymentAccountId;
             const clearanceContact = isCredit ? clearanceSupplierId : undefined;
             const clearanceContactName = displayContactName(contacts.find(c => c.id === clearanceContact)) || '';
 

@@ -7,6 +7,7 @@ import { getDisplayProductName, getDisplayUnitName } from '../utils/displayNames
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
 import { printProductBarcodeLabel } from '../utils/barcodeLabelPrint';
 import { resolveProductPricing } from '../utils/productPricing';
+import { isServiceProduct } from '../utils/productKind';
 
 interface ProductCardProps {
     productId: string;
@@ -24,14 +25,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
         getDisplayUnitName(value || undefined, isEnglish);
 
     const product = products.find(p => p.id === productId);
+    const serviceItem = isServiceProduct(product);
     const unit = units.find(u => u.id === product?.unitId);
     const globalLowStockThreshold = Number.isFinite(Number(companySettings.lowStockAlertQtyDefault))
         ? Math.max(0, Number(companySettings.lowStockAlertQtyDefault))
         : 5;
-    const lowStockThreshold = product && Number.isFinite(Number(product.lowStockAlertQty))
+    const lowStockThreshold = !serviceItem && product && Number.isFinite(Number(product.lowStockAlertQty))
         ? Math.max(0, Number(product.lowStockAlertQty))
-        : globalLowStockThreshold;
-    const isLowStock = !!product && product.stock <= lowStockThreshold;
+        : (serviceItem ? null : globalLowStockThreshold);
+    const isLowStock = !!product && !serviceItem && lowStockThreshold !== null && product.stock <= lowStockThreshold;
     const barcodePrintSettings = useMemo(() => loadBarcodeReaderSettings(currentCompanyId), [currentCompanyId]);
 
     const formatDate = (dateString: string | undefined) => {
@@ -142,19 +144,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                                     <span className="tracking-widest font-mono">{product.barcode}</span>
                                 </div>
                             )}
-                            {product.expiryPeriodDays && (
+                            <div className={`flex items-center gap-1.5 text-[9px] font-black w-fit px-2.5 py-1 rounded-lg border ${serviceItem ? 'text-amber-100 bg-amber-500/20 border-amber-300/30' : 'text-emerald-100 bg-emerald-500/20 border-emerald-300/30'}`}>
+                                <Package size={12} />
+                                <span>{serviceItem ? tr('صنف خدمة', 'Service item') : tr('صنف مخزني', 'Stock item')}</span>
+                            </div>
+                            {!serviceItem && product.expiryPeriodDays && (
                                 <div className="flex items-center gap-1.5 text-white/70 text-[9px] font-black bg-white/10 w-fit px-2.5 py-1 rounded-lg border border-white/10">
                                     <Calendar size={12} />
                                     <span>{product.expiryPeriodDays}{tr(' يوم صلاحية', 'd shelf life')}</span>
                                 </div>
                             )}
-                            {product.expiryDate && (
+                            {!serviceItem && product.expiryDate && (
                                 <div className="flex items-center gap-1.5 text-white/70 text-[9px] font-black bg-white/10 w-fit px-2.5 py-1 rounded-lg border border-white/10">
                                     <Calendar size={12} />
                                     <span className="tracking-widest font-mono">{formatDate(product.expiryDate)}</span>
                                 </div>
                             )}
-                            {product.expiryAlertLeadDays && (
+                            {!serviceItem && product.expiryAlertLeadDays && (
                                 <div className="flex items-center gap-1.5 text-rose-100 text-[9px] font-black bg-rose-500/15 w-fit px-2.5 py-1 rounded-lg border border-rose-300/20">
                                     <Calendar size={12} />
                                     <span>{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays}{tr(' يوم', 'd')}</span>
@@ -170,14 +176,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
 
                         <div className="flex gap-3 mt-2">
                             <div className="flex-1 bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[9px] font-black text-blue-300 uppercase block mb-0.5">{tr('الرصيد', 'Stock')}</span>
+                                <span className="text-[9px] font-black text-blue-300 uppercase block mb-0.5">{serviceItem ? tr('النوع', 'Type') : tr('الرصيد', 'Stock')}</span>
                                 <span className={`text-lg font-black ${isLowStock ? 'text-amber-300' : ''}`}>
-                                    {product.stock} <span className="text-[10px] text-white/50">{unitLabel}</span>
+                                    {serviceItem ? tr('خدمة', 'Service') : (
+                                        <>
+                                            {product.stock} <span className="text-[10px] text-white/50">{unitLabel}</span>
+                                        </>
+                                    )}
                                 </span>
                             </div>
                             <div className="flex-1 bg-white/10 px-3 py-2 rounded-xl border border-white/5">
-                                <span className="text-[9px] font-black text-emerald-300 uppercase block mb-0.5">{tr('القيمة', 'Value')}</span>
-                                <span className="text-lg font-black">{(product.stock * pricing.cost).toLocaleString()}</span>
+                                <span className="text-[9px] font-black text-emerald-300 uppercase block mb-0.5">{serviceItem ? tr('الوحدة', 'Unit') : tr('القيمة', 'Value')}</span>
+                                <span className="text-lg font-black">{serviceItem ? (unitLabel || tr('غير محددة', 'Not set')) : (product.stock * pricing.cost).toLocaleString()}</span>
                             </div>
                         </div>
                     </div>

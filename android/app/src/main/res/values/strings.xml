@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">AIFLEX ERP</string>
-    <string name="title_activity_main">AIFLEX ERP</string>
+    <string name="app_name">المحاسب الذكي (AIFLEX Smart Accountant)</string>
+    <string name="title_activity_main">المحاسب الذكي (AIFLEX Smart Accountant)</string>
     <string name="package_name">com.smartaccountant.erp</string>
     <string name="custom_url_scheme">com.smartaccountant.erp</string>
 </resources>

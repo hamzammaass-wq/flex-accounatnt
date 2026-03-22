@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
 import { TransactionType, Product, InvoiceItem, ContactType, CheckStatus, Contact, Invoice, InvoiceTaxMode, Account, FixedAsset, Check as CheckTypeData, Transaction, InvoiceSettlement } from '../types';
 import ProductCard from './ProductCard';
@@ -7,6 +8,7 @@ import ContactEditorDialog from './ContactEditorDialog';
 import EnglishDateInput from './EnglishDateInput';
 import QuickAddProductModal from './QuickAddProductModal';
 import ResponsiveDialog from './layout/ResponsiveDialog';
+import ResponsiveOverlay from './layout/ResponsiveOverlay';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
 import {
     Wallet, ArrowLeft, ArrowRight, Check, X, ChevronDown,
@@ -27,6 +29,7 @@ import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import { resolveInvoiceProductUnitPrice } from '../utils/invoicePricing';
 import { buildLastInvoicePriceMap } from '../utils/invoiceLastPrice';
 import { getInvoiceTaxVisibility } from '../utils/companySettings';
+import { isServiceProduct } from '../utils/productKind';
 import {
     calculateInvoiceTaxSummary,
     getDefaultInvoiceTaxMode,
@@ -35,8 +38,26 @@ import {
     isInvoiceTaxApplied,
     resolveInvoiceTaxMode
 } from '../utils/invoiceTax';
+import { downloadWorkbookFile, sanitizeDownloadName } from '../utils/documentExport';
 
 export type TransactionTabType = 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'EXPENSES' | 'VOUCHERS' | 'JOURNAL' | 'IMPORT_EXPENSES' | 'MANUAL_PURCHASE';
+
+export interface InvoiceFormDraftState {
+    contactId?: string;
+    linkedInvoiceId?: string;
+    warehouseId?: string;
+    items?: Omit<InvoiceItem, 'id'>[];
+    autoFocusContact?: boolean;
+    paymentType?: 'CASH' | 'CREDIT';
+    paymentAccountId?: string;
+    expenseAccountId?: string;
+    discount?: string;
+    notes?: string;
+    invoiceNumber?: string;
+    dueDate?: string;
+    taxMode?: InvoiceTaxMode;
+    taxRateOverride?: string;
+}
 
 interface TransactionFormProps {
     initialMode: TransactionTabType;
@@ -45,6 +66,7 @@ interface TransactionFormProps {
     initialLinkedInvoiceId?: string;
     initialInvoiceId?: string;
     initialVoucherId?: string;
+    initialDraft?: InvoiceFormDraftState;
     onBack: () => void;
 }
 
@@ -92,7 +114,46 @@ const getTodayDateString = (): string => {
     return `${yyyy}-${mm}-${dd}`;
 };
 
-const readFileAsDataUrl = (file: File): Promise<string> =>
+interface MobileSubmitDockProps {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    icon?: React.ReactNode;
+    buttonClassName?: string;
+    summary?: React.ReactNode;
+    panelClassName?: string;
+}
+
+const MobileSubmitDock: React.FC<MobileSubmitDockProps> = ({
+    label,
+    onClick,
+    disabled = false,
+    icon = <CheckCircle2 size={18} />,
+    buttonClassName = 'bg-blue-600 text-white hover:bg-blue-500',
+    summary,
+    panelClassName
+}) => {
+    const dockPanelToneClassName = panelClassName || 'border-slate-200/80 bg-white/96 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.55)]';
+
+    return (
+        <div className="transaction-mobile-dock md:hidden">
+            <div className={`rounded-[1.25rem] border p-2 backdrop-blur ${dockPanelToneClassName}`}>
+                {summary ? <div className="mb-2">{summary}</div> : null}
+                <button
+                    type="button"
+                    onClick={onClick}
+                    disabled={disabled}
+                    className={`flex w-full min-h-[54px] items-center justify-center gap-2 rounded-[1rem] px-4 py-3 text-[15px] font-black transition-all active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 ${buttonClassName}`}
+                >
+                    {icon}
+                    {label}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const readFileAsDataUrl = (file: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -102,6 +163,141 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
         reader.onerror = () => reject(reader.error || new Error('File read failed'));
         reader.readAsDataURL(file);
     });
+
+const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob | null> =>
+    new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), type, quality);
+    });
+
+const loadImageFromObjectUrl = (objectUrl: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Image load failed'));
+        image.src = objectUrl;
+    });
+
+const compressImageForInlineStorage = async (
+    file: File,
+    options?: {
+        maxDimension?: number;
+        targetBytes?: number;
+    }
+): Promise<string> => {
+    const mimeType = String(file.type || '').toLowerCase();
+    if (!mimeType.startsWith('image/')) {
+        throw new Error('Only image files are supported.');
+    }
+    if (mimeType === 'image/svg+xml' || typeof document === 'undefined') {
+        return readFileAsDataUrl(file);
+    }
+
+    const maxDimension = Math.max(960, Math.floor(options?.maxDimension || 1600));
+    const targetBytes = Math.max(180 * 1024, Math.floor(options?.targetBytes || 420 * 1024));
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+        const image = await loadImageFromObjectUrl(objectUrl);
+        const sourceWidth = image.naturalWidth || image.width;
+        const sourceHeight = image.naturalHeight || image.height;
+        if (!sourceWidth || !sourceHeight) {
+            return readFileAsDataUrl(file);
+        }
+
+        const longestSide = Math.max(sourceWidth, sourceHeight);
+        const initialScale = longestSide > maxDimension ? maxDimension / longestSide : 1;
+        let width = Math.max(1, Math.round(sourceWidth * initialScale));
+        let height = Math.max(1, Math.round(sourceHeight * initialScale));
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context) {
+            return readFileAsDataUrl(file);
+        }
+
+        let bestBlob: Blob | null = null;
+        const qualitySteps = [0.88, 0.8, 0.72, 0.64, 0.56, 0.48];
+
+        for (let sizeAttempt = 0; sizeAttempt < 4; sizeAttempt += 1) {
+            canvas.width = width;
+            canvas.height = height;
+            context.clearRect(0, 0, width, height);
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, width, height);
+            context.drawImage(image, 0, 0, width, height);
+
+            for (const quality of qualitySteps) {
+                const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+                if (!blob) continue;
+                bestBlob = blob;
+                if (blob.size <= targetBytes) {
+                    return readFileAsDataUrl(blob);
+                }
+            }
+
+            if (Math.max(width, height) <= 900) {
+                break;
+            }
+            width = Math.max(1, Math.round(width * 0.82));
+            height = Math.max(1, Math.round(height * 0.82));
+        }
+
+        return readFileAsDataUrl(bestBlob || file);
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+};
+
+interface ExpenseLinePreset {
+    id: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    accountId?: string;
+    updatedAt: string;
+}
+
+interface StockShortageTransferOption {
+    warehouseId: string;
+    warehouseName: string;
+    availableQty: number;
+}
+
+interface StockShortageIssue {
+    itemIndex: number;
+    product: Product;
+    productName: string;
+    requestedQty: number;
+    availableQty: number;
+    shortageQty: number;
+    currentWarehouseId: string;
+    currentWarehouseName: string;
+    alternateWarehouses: StockShortageTransferOption[];
+}
+
+const EXPENSE_LINE_PRESETS_STORAGE_PREFIX = 'smart_account_expense_line_presets_v1';
+
+const getExpenseLinePresetsStorageKey = (companyId?: string | null) =>
+    `${EXPENSE_LINE_PRESETS_STORAGE_PREFIX}:${companyId || 'default'}`;
+
+const sanitizeExpenseLinePreset = (value: any): ExpenseLinePreset | null => {
+    const description = String(value?.description || '').trim();
+    if (!description) return null;
+    const quantity = Number(value?.quantity);
+    const unitPrice = Number(value?.unitPrice);
+    const updatedAtRaw = String(value?.updatedAt || '').trim();
+    const updatedAt = Number.isNaN(new Date(updatedAtRaw).getTime())
+        ? new Date().toISOString()
+        : new Date(updatedAtRaw).toISOString();
+
+    return {
+        id: String(value?.id || `exp_line_${Math.random().toString(36).slice(2, 10)}`),
+        description,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+        unitPrice: Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : 0,
+        accountId: String(value?.accountId || '').trim() || undefined,
+        updatedAt
+    };
+};
 
 interface SearchableContactSelectProps {
     contacts: Contact[];
@@ -118,6 +314,7 @@ interface SearchableContactSelectProps {
     emptyLabel: string;
     createNewLabel?: string;
     isEnglish: boolean;
+    autoFocus?: boolean;
     className?: string;
     inputClassName?: string;
 }
@@ -137,12 +334,15 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
     emptyLabel,
     createNewLabel,
     isEnglish,
+    autoFocus = false,
     className = '',
     inputClassName = ''
 }) => {
     const [query, setQuery] = useState(selectedLabel);
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const hasAutoFocusedRef = useRef(false);
     const inputPaddingClass = getSearchableInputPaddingClass(isEnglish);
     const actionButtonPositionClass = getSearchableActionButtonPositionClass(isEnglish);
     const searchIconPositionClass = getSearchableIconPositionClass(isEnglish);
@@ -162,6 +362,17 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
         window.addEventListener('pointerdown', handlePointerDown);
         return () => window.removeEventListener('pointerdown', handlePointerDown);
     }, [isOpen, selectedLabel]);
+
+    useEffect(() => {
+        if (!autoFocus || hasAutoFocusedRef.current) return;
+        hasAutoFocusedRef.current = true;
+        const frameId = window.requestAnimationFrame(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+            setIsOpen(true);
+        });
+        return () => window.cancelAnimationFrame(frameId);
+    }, [autoFocus]);
 
     const filteredContacts = useMemo(() => {
         const effectiveQuery = isOpen && query === selectedLabel ? '' : query;
@@ -185,9 +396,10 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
     };
 
     return (
-        <div ref={containerRef} className={`relative ${className}`}>
+        <div ref={containerRef} className={`searchable-contact-shell relative ${className}`}>
             <Search className={`absolute ${searchIconPositionClass} top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none z-10`} size={16} />
             <input
+                ref={inputRef}
                 value={query}
                 onChange={(e) => {
                     const nextValue = e.target.value;
@@ -231,7 +443,7 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                 placeholder={placeholder}
                 autoComplete="off"
                 data-enter-skip="true"
-                className={`${inputClassName} ${inputPaddingClass}`}
+                className={`searchable-contact-trigger ${inputClassName} ${inputPaddingClass}`}
             />
             <button
                 type="button"
@@ -243,7 +455,7 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                     setIsOpen(prev => !prev);
                     if (!isOpen) setQuery(selectedLabel);
                 }}
-                className={`absolute ${actionButtonPositionClass} top-1/2 -translate-y-1/2 z-10 flex h-8 items-center ${actionButtonClassName || 'text-gray-400 hover:text-slate-700'}`}
+                className={`searchable-contact-action absolute ${actionButtonPositionClass} top-1/2 -translate-y-1/2 z-10 flex h-8 items-center ${actionButtonClassName || 'text-gray-400 hover:text-slate-700'}`}
                 tabIndex={onActionClick ? 0 : -1}
                 title={actionLabel}
             >
@@ -796,13 +1008,17 @@ const InvoiceScreen: React.FC<{
     onDateChange: (value: string) => void;
     onCurrencyChange: (code: string) => void;
     onRateChange: (value: number) => void;
-    onModeChange?: (nextMode: 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'MANUAL_PURCHASE') => void;
+    onModeChange?: (
+        nextMode: 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'MANUAL_PURCHASE',
+        draft?: InvoiceFormDraftState
+    ) => void;
     onSuccess: () => void;
     onBack: () => void;
     linkedInvoiceId?: string;
     initialInvoiceId?: string;
-}> = ({ mode, sharedState, onDateChange, onCurrencyChange, onRateChange, onModeChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId }) => {
-    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, currentCompanyId, currencies, baseCurrency } = useAccounting();
+    initialDraft?: InvoiceFormDraftState;
+}> = ({ mode, sharedState, onDateChange, onCurrencyChange, onRateChange, onModeChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId, initialDraft }) => {
+    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency } = useAccounting();
 
     const isSales = mode === 'SALES';
     const isReturn = mode === 'SALES_RETURN';
@@ -889,6 +1105,8 @@ const InvoiceScreen: React.FC<{
     const hasWarehouses = warehouses.length > 0;
     // Default to main warehouse if available.
     const [warehouseId, setWarehouseId] = useState(resolvePreferredWarehouseId);
+    const [stockShortageIssue, setStockShortageIssue] = useState<StockShortageIssue | null>(null);
+    const [nestedPurchaseOverlay, setNestedPurchaseOverlay] = useState<{ key: string; draft: InvoiceFormDraftState; } | null>(null);
 
     const [items, setItems] = useState<Omit<InvoiceItem, 'id'>[]>([]);
     const [editingItemNumericCell, setEditingItemNumericCell] = useState<{ index: number; field: 'quantity' | 'unitPrice' } | null>(null);
@@ -922,6 +1140,8 @@ const InvoiceScreen: React.FC<{
     const [quickContactInitialName, setQuickContactInitialName] = useState('');
     const [showQuickProduct, setShowQuickProduct] = useState(false);
     const [quickProductInitialName, setQuickProductInitialName] = useState('');
+    const [isExchangeRateEditorOpen, setIsExchangeRateEditorOpen] = useState(false);
+    const exchangeRateEditorRef = useRef<HTMLDivElement | null>(null);
 
     // Manual Item State
     const [isManualItem, setIsManualItem] = useState(false);
@@ -931,6 +1151,7 @@ const InvoiceScreen: React.FC<{
 
     // New: Link Original Invoice
     const [linkedInvoiceId, setLinkedInvoiceId] = useState(initialLinkedId || '');
+    const hasAppliedInitialDraftRef = useRef(false);
     const barcodeSettings = useMemo(
         () => loadBarcodeReaderSettings(currentCompanyId),
         [currentCompanyId]
@@ -939,11 +1160,6 @@ const InvoiceScreen: React.FC<{
         () => initialInvoiceId ? invoices.find(inv => inv.id === initialInvoiceId) || null : null,
         [initialInvoiceId, invoices]
     );
-    const restrictWarehouseSelectionToMain = !editingInvoice && !linkedInvoiceId;
-    const visibleWarehouses = useMemo(() => {
-        if (!restrictWarehouseSelectionToMain) return warehouses;
-        return mainWarehouse ? [mainWarehouse] : warehouses.slice(0, 1);
-    }, [restrictWarehouseSelectionToMain, warehouses, mainWarehouse]);
     const editBlockedReason = useMemo(() => {
         if (!editingInvoice) return '';
         if (editingInvoice.isReversal || editingInvoice.reversedById) {
@@ -963,6 +1179,10 @@ const InvoiceScreen: React.FC<{
     }, [mode, isSales, isPurchaseReturn, isReturn, isPurchase, isExpenseStyle, isQuotation, isEnglish]);
     const showSalesModeTabs = !editingInvoice && (isSales || isReturn || isQuotation);
     const showPurchaseModeTabs = !editingInvoice && (mode === 'PURCHASES' || mode === 'PURCHASE_RETURN' || mode === 'MANUAL_PURCHASE');
+    const exchangeRateLabel = Number(sharedState.rate || 1).toLocaleString('en-US', {
+        minimumFractionDigits: sharedState.currency === baseCurrency ? 0 : 2,
+        maximumFractionDigits: 4
+    });
 
     // EFFECT: Handle auto-linking on mount if ID is provided
     useEffect(() => {
@@ -977,6 +1197,23 @@ const InvoiceScreen: React.FC<{
         setIsSearchFocused(false);
         setSearch('');
     }, [isExpenseVoucherManualOnly]);
+
+    useEffect(() => {
+        if (!isExchangeRateEditorOpen) return;
+        const handlePointerDown = (event: PointerEvent) => {
+            if (!exchangeRateEditorRef.current?.contains(event.target as Node)) {
+                setIsExchangeRateEditorOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', handlePointerDown);
+        return () => window.removeEventListener('pointerdown', handlePointerDown);
+    }, [isExchangeRateEditorOpen]);
+
+    useEffect(() => {
+        if (sharedState.currency === baseCurrency) {
+            setIsExchangeRateEditorOpen(false);
+        }
+    }, [sharedState.currency, baseCurrency]);
 
     useEffect(() => {
         if (!editingInvoice) return;
@@ -1012,6 +1249,54 @@ const InvoiceScreen: React.FC<{
         isEnglish,
         isExpenseVoucherManualOnly
     ]);
+
+    useEffect(() => {
+        if (editingInvoice || hasAppliedInitialDraftRef.current || !initialDraft) return;
+
+        if (initialDraft.contactId !== undefined) {
+            setContactId(initialDraft.contactId);
+        }
+        if (initialDraft.linkedInvoiceId !== undefined) {
+            setLinkedInvoiceId(initialDraft.linkedInvoiceId);
+        }
+        if (initialDraft.warehouseId !== undefined) {
+            setWarehouseId(initialDraft.warehouseId);
+        }
+        if (Array.isArray(initialDraft.items)) {
+            setItems(initialDraft.items.map(item => ({ ...item })));
+        }
+        if (initialDraft.paymentType !== undefined) {
+            setPaymentType(initialDraft.paymentType);
+        }
+        if (initialDraft.paymentAccountId !== undefined) {
+            setPaymentAccountId(initialDraft.paymentAccountId);
+        }
+        if (initialDraft.expenseAccountId !== undefined) {
+            setExpenseAccountId(initialDraft.expenseAccountId);
+        }
+        if (initialDraft.discount !== undefined) {
+            setDiscount(initialDraft.discount);
+        }
+        if (initialDraft.notes !== undefined) {
+            setNotes(initialDraft.notes);
+        }
+        if (initialDraft.dueDate !== undefined) {
+            setDueDate(initialDraft.dueDate);
+        }
+        if (initialDraft.taxMode !== undefined) {
+            setTaxMode(initialDraft.taxMode);
+        }
+        if (initialDraft.taxRateOverride !== undefined) {
+            setTaxRateOverride(initialDraft.taxRateOverride);
+        }
+        if (initialDraft.invoiceNumber !== undefined) {
+            setInvoiceNumber(initialDraft.invoiceNumber);
+        }
+
+        setSearch('');
+        setIsSearchFocused(false);
+        hasAppliedInitialDraftRef.current = true;
+    }, [editingInvoice, initialDraft]);
 
     useEffect(() => {
         if (editingInvoice) return;
@@ -1109,15 +1394,12 @@ const InvoiceScreen: React.FC<{
 
     useEffect(() => {
         if (isExpenseStyle || isQuotation) return;
-        const preferredWarehouseId = restrictWarehouseSelectionToMain
-            ? (mainWarehouse?.id || warehouses[0]?.id || '')
-            : resolvePreferredWarehouseId();
+        const preferredWarehouseId = resolvePreferredWarehouseId();
         const warehouseExists = warehouseId && warehouses.some(w => w.id === warehouseId);
-        const needsMainWarehouseLock = restrictWarehouseSelectionToMain && preferredWarehouseId && warehouseId !== preferredWarehouseId;
-        if (!warehouseExists || needsMainWarehouseLock) {
+        if (!warehouseExists) {
             setWarehouseId(preferredWarehouseId);
         }
-    }, [warehouses, warehouseId, isExpenseStyle, isQuotation, restrictWarehouseSelectionToMain, mainWarehouse]);
+    }, [warehouses, warehouseId, isExpenseStyle, isQuotation, mainWarehouse]);
 
     useEffect(() => {
         if (isQuotation || paymentType !== 'CASH') return;
@@ -1134,6 +1416,105 @@ const InvoiceScreen: React.FC<{
         () => expenseAccounts.find(account => account.id === expenseAccountId) || null,
         [expenseAccounts, expenseAccountId]
     );
+    const expenseLinePresetsStorageKey = useMemo(
+        () => getExpenseLinePresetsStorageKey(currentCompanyId),
+        [currentCompanyId]
+    );
+    const [savedExpenseLinePresets, setSavedExpenseLinePresets] = useState<ExpenseLinePreset[]>([]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const raw = localStorage.getItem(expenseLinePresetsStorageKey);
+            if (!raw) {
+                setSavedExpenseLinePresets([]);
+                return;
+            }
+            const parsed = JSON.parse(raw);
+            const next = Array.isArray(parsed)
+                ? parsed
+                    .map(sanitizeExpenseLinePreset)
+                    .filter((preset): preset is ExpenseLinePreset => Boolean(preset))
+                    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+                    .slice(0, 30)
+                : [];
+            setSavedExpenseLinePresets(next);
+        } catch {
+            setSavedExpenseLinePresets([]);
+        }
+    }, [expenseLinePresetsStorageKey]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            localStorage.setItem(expenseLinePresetsStorageKey, JSON.stringify(savedExpenseLinePresets));
+        } catch {
+            // Ignore local persistence failures and keep invoice entry working.
+        }
+    }, [expenseLinePresetsStorageKey, savedExpenseLinePresets]);
+
+    const saveExpenseLinePreset = (payload: {
+        description: string;
+        quantity: number;
+        unitPrice: number;
+        accountId?: string;
+    }) => {
+        if (!isExpenseVoucherManualOnly) return;
+
+        const description = payload.description.trim();
+        if (!description) return;
+
+        const quantity = Number(payload.quantity);
+        const unitPrice = Number(payload.unitPrice);
+        const accountId = String(payload.accountId || '').trim() || undefined;
+        const normalizedDescription = description.toLowerCase();
+        const updatedAt = new Date().toISOString();
+
+        setSavedExpenseLinePresets(prev => {
+            const existing = prev.find(preset =>
+                preset.description.trim().toLowerCase() === normalizedDescription
+                && (preset.accountId || '') === (accountId || '')
+            );
+            const nextPreset: ExpenseLinePreset = {
+                id: existing?.id || `exp_line_${Math.random().toString(36).slice(2, 10)}`,
+                description,
+                quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+                unitPrice: Number.isFinite(unitPrice) && unitPrice >= 0 ? unitPrice : 0,
+                accountId,
+                updatedAt
+            };
+            const rest = prev.filter(preset => preset.id !== nextPreset.id);
+            return [nextPreset, ...rest]
+                .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+                .slice(0, 30);
+        });
+    };
+
+    const removeExpenseLinePreset = (presetId: string) => {
+        setSavedExpenseLinePresets(prev => prev.filter(preset => preset.id !== presetId));
+    };
+
+    const applyExpenseLinePreset = (preset: ExpenseLinePreset) => {
+        setManualItemDesc(preset.description);
+        setManualItemQty(String(preset.quantity || 1));
+        setManualItemPrice(String(preset.unitPrice || 0));
+        if (!expenseAccountId && preset.accountId && expenseAccounts.some(account => account.id === preset.accountId)) {
+            setExpenseAccountId(preset.accountId);
+        }
+    };
+
+    const filteredExpenseLinePresets = useMemo(() => {
+        const keyword = manualItemDesc.trim().toLowerCase();
+        return [...savedExpenseLinePresets]
+            .filter(preset => !keyword || preset.description.toLowerCase().includes(keyword))
+            .sort((a, b) => {
+                const accountBoostA = a.accountId && a.accountId === expenseAccountId ? 1 : 0;
+                const accountBoostB = b.accountId && b.accountId === expenseAccountId ? 1 : 0;
+                if (accountBoostA !== accountBoostB) return accountBoostB - accountBoostA;
+                return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+            })
+            .slice(0, 6);
+    }, [savedExpenseLinePresets, manualItemDesc, expenseAccountId]);
 
     const searchResults = useMemo(() => {
         if (!isSearchFocused && !search.trim()) return [];
@@ -1189,61 +1570,8 @@ const InvoiceScreen: React.FC<{
         }
     };
 
-    const addItem = (product: Product) => {
-        const price = autoAddItemPriceInInvoice ? resolveInvoiceEntryPrice(product) : 0;
-        const existing = items.find(i => i.productId === product.id);
-        if (existing) {
-            setItems(prev => prev.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1, total: (i.quantity + 1) * i.unitPrice } : i));
-        } else {
-            setItems(prev => [...prev, { productId: product.id, description: product.name, quantity: 1, unitPrice: price, total: price }]);
-        }
-        setSearch('');
-        setIsSearchFocused(false);
-    };
-
-    const addManualItem = () => {
-        if (!manualItemDesc || !manualItemPrice) return;
-        if (isExpenseVoucherManualOnly && !expenseAccountId) {
-            alert(tr('يرجى تحديد الطرف المدين (حساب المصروف) أولاً', 'Please select the debit expense account first'));
-            return;
-        }
-        const qty = parseFloat(manualItemQty) || 1;
-        const price = parseFloat(manualItemPrice) || 0;
-
-        setItems(prev => [...prev, {
-            description: manualItemDesc,
-            quantity: qty,
-            unitPrice: price,
-            total: qty * price,
-            productId: undefined,
-            accountId: isExpenseVoucherManualOnly ? expenseAccountId : undefined
-        }]);
-        setManualItemDesc('');
-        setManualItemQty('1');
-        setManualItemPrice('');
-        setIsManualItem(false);
-    };
-
-    const addExpenseItem = () => {
-        if (!newItemDesc || !newItemPrice || !expenseAccountId) return alert(tr('يرجى تعبئة بيانات البند واختيار حساب المصروف', 'Please complete item data and select an expense account'));
-        const qty = parseFloat(newItemQty) || 1;
-        const price = parseFloat(newItemPrice) || 0;
-
-        setItems(prev => [...prev, {
-            description: newItemDesc,
-            quantity: qty,
-            unitPrice: price,
-            total: qty * price,
-            accountId: expenseAccountId
-        }]);
-        setNewItemDesc('');
-        setNewItemQty('1');
-        setNewItemPrice('');
-    };
-
-    const updateItem = (index: number, field: keyof InvoiceItem, value: number) => {
-        const safeValue = Number.isFinite(value) ? value : 0;
-        setItems(prev => prev.map((item, i) => {
+    const buildUpdatedItems = (sourceItems: Omit<InvoiceItem, 'id'>[], index: number, field: keyof InvoiceItem, safeValue: number) => (
+        sourceItems.map((item, i) => {
             if (i !== index) return item;
             const updates = { [field]: safeValue } as any;
 
@@ -1269,7 +1597,120 @@ const InvoiceScreen: React.FC<{
             }
 
             return { ...item, ...updates };
-        }));
+        })
+    );
+
+    const refreshStockShortageDialog = (
+        sourceItems: Omit<InvoiceItem, 'id'>[],
+        options: {
+            openDialogOnShortage?: boolean;
+            clearResolvedDialog?: boolean;
+            warehouseIdOverride?: string;
+        } = {}
+    ) => {
+        const { openDialogOnShortage = true, clearResolvedDialog = true, warehouseIdOverride } = options;
+        const effectiveWarehouseId = warehouseIdOverride ?? warehouseId;
+        const shouldCheckStock = isSales && !isQuotation && !(companySettings.allowNegativeStock ?? false) && Boolean(effectiveWarehouseId);
+
+        if (!shouldCheckStock) {
+            if (clearResolvedDialog) {
+                setStockShortageIssue(null);
+            }
+            return null;
+        }
+
+        const shortageIssue = buildSalesStockShortageIssue(sourceItems, effectiveWarehouseId);
+        if (shortageIssue && openDialogOnShortage) {
+            setStockShortageIssue(shortageIssue);
+        } else if (!shortageIssue && clearResolvedDialog) {
+            setStockShortageIssue(null);
+        }
+        return shortageIssue;
+    };
+
+    const openNestedPurchaseOverlay = (draft: InvoiceFormDraftState) => {
+        setNestedPurchaseOverlay({
+            key: `purchase-overlay-${Date.now()}`,
+            draft
+        });
+    };
+
+    const closeNestedPurchaseOverlay = () => {
+        setNestedPurchaseOverlay(null);
+    };
+
+    const addItem = (product: Product) => {
+        const price = autoAddItemPriceInInvoice ? resolveInvoiceEntryPrice(product) : 0;
+        const existing = items.find(i => i.productId === product.id);
+        const nextItems = existing
+            ? items.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1, total: (i.quantity + 1) * i.unitPrice } : i)
+            : [...items, { productId: product.id, description: product.name, quantity: 1, unitPrice: price, total: price }];
+
+        setItems(nextItems);
+        refreshStockShortageDialog(nextItems);
+
+        setSearch('');
+        setIsSearchFocused(false);
+    };
+
+    const addManualItem = () => {
+        if (!manualItemDesc || !manualItemPrice) return;
+        const qty = parseFloat(manualItemQty) || 1;
+        const price = parseFloat(manualItemPrice) || 0;
+
+        setItems(prev => [...prev, {
+            description: manualItemDesc,
+            quantity: qty,
+            unitPrice: price,
+            total: qty * price,
+            productId: undefined,
+            accountId: isExpenseVoucherManualOnly ? expenseAccountId : undefined
+        }]);
+        if (isExpenseVoucherManualOnly) {
+            saveExpenseLinePreset({
+                description: manualItemDesc,
+                quantity: qty,
+                unitPrice: price,
+                accountId: expenseAccountId || undefined
+            });
+        }
+        setManualItemDesc('');
+        setManualItemQty('1');
+        setManualItemPrice('');
+        setIsManualItem(false);
+    };
+
+    const handleInlineManualItemAdd = () => {
+        if (!manualItemDesc.trim() || !manualItemPrice.trim()) return;
+        addManualItem();
+    };
+
+    const addExpenseItem = () => {
+        if (!newItemDesc || !newItemPrice || !expenseAccountId) return alert(tr('يرجى تعبئة بيانات البند واختيار حساب المصروف', 'Please complete item data and select an expense account'));
+        const qty = parseFloat(newItemQty) || 1;
+        const price = parseFloat(newItemPrice) || 0;
+
+        setItems(prev => [...prev, {
+            description: newItemDesc,
+            quantity: qty,
+            unitPrice: price,
+            total: qty * price,
+            accountId: expenseAccountId
+        }]);
+        saveExpenseLinePreset({
+            description: newItemDesc,
+            quantity: qty,
+            unitPrice: price,
+            accountId: expenseAccountId || undefined
+        });
+        setNewItemDesc('');
+        setNewItemQty('1');
+        setNewItemPrice('');
+    };
+
+    const updateItem = (index: number, field: keyof InvoiceItem, value: number) => {
+        const safeValue = Number.isFinite(value) ? value : 0;
+        setItems(buildUpdatedItems(items, index, field, safeValue));
     };
     const beginItemNumericCellEdit = (index: number, field: 'quantity' | 'unitPrice', value: number) => {
         setEditingItemNumericCell({ index, field });
@@ -1284,7 +1725,12 @@ const InvoiceScreen: React.FC<{
     const finishItemNumericCellEdit = (index: number, field: 'quantity' | 'unitPrice', rawValue?: string) => {
         const normalized = normalizeEditableNumberInput(rawValue ?? editingItemNumericDraft);
         const parsed = parseFloat(normalized);
-        updateItem(index, field, Number.isFinite(parsed) ? parsed : 0);
+        const safeValue = Number.isFinite(parsed) ? parsed : 0;
+        const nextItems = buildUpdatedItems(items, index, field, safeValue);
+        setItems(nextItems);
+        if (field === 'quantity') {
+            refreshStockShortageDialog(nextItems);
+        }
         setEditingItemNumericCell(null);
         setEditingItemNumericDraft('');
     };
@@ -1351,6 +1797,148 @@ const InvoiceScreen: React.FC<{
     const getItemNumericCellDisplayValue = (index: number, field: 'quantity' | 'unitPrice', value: number) =>
         isEditingItemNumericCell(index, field) ? editingItemNumericDraft : formatAmount(value);
     const getEffectiveInvoiceNumber = () => invoiceNumber.trim() || editingInvoice?.invoiceNumber || generateInvoiceNumber();
+    const getWarehouseStockQuantity = (product?: Product | null, targetWarehouseId?: string) => {
+        if (!product || isServiceProduct(product)) return 0;
+        if (targetWarehouseId) {
+            return product.warehouseStock?.find(entry => entry.warehouseId === targetWarehouseId)?.quantity ?? 0;
+        }
+        return product.stock ?? 0;
+    };
+    const getRequestedStockQuantity = (
+        productId?: string,
+        fallbackQty: number = 0,
+        options?: {
+            sourceItems?: Omit<InvoiceItem, 'id'>[];
+            itemIndex?: number;
+        }
+    ) => {
+        if (!productId) return fallbackQty;
+        if (!(isSales && !isQuotation)) return fallbackQty;
+        const sourceItems = options?.sourceItems || items;
+        const scopedItems = typeof options?.itemIndex === 'number'
+            ? sourceItems.slice(0, options.itemIndex + 1)
+            : sourceItems;
+        const totalRequestedQty = scopedItems.reduce((sum, entry) => {
+            if (entry.productId !== productId) return sum;
+            const quantity = Number(entry.quantity) || 0;
+            return quantity > 0 ? sum + quantity : sum;
+        }, 0);
+        return totalRequestedQty > 0 ? totalRequestedQty : fallbackQty;
+    };
+    const buildSalesStockShortageIssue = (sourceItems: Omit<InvoiceItem, 'id'>[], warehouseIdOverride?: string) => {
+        const effectiveWarehouseId = warehouseIdOverride ?? warehouseId;
+        const effectiveWarehouse = effectiveWarehouseId
+            ? warehouses.find(warehouse => warehouse.id === effectiveWarehouseId) || null
+            : null;
+        if (!effectiveWarehouseId) return null;
+        for (let index = 0; index < sourceItems.length; index += 1) {
+            const item = sourceItems[index];
+            if (!item.productId) continue;
+            const product = products.find(prod => prod.id === item.productId);
+            if (!product || isServiceProduct(product)) continue;
+            const lineQty = Number(item.quantity) || 0;
+            if (lineQty <= 0) continue;
+            const requestedQty = getRequestedStockQuantity(item.productId, lineQty, { sourceItems, itemIndex: index });
+            const availableQty = getWarehouseStockQuantity(product, effectiveWarehouseId);
+            if (availableQty >= requestedQty) continue;
+            const alternateWarehouses = warehouses
+                .filter(warehouse => warehouse.id !== effectiveWarehouseId)
+                .map(warehouse => ({
+                    warehouseId: warehouse.id,
+                    warehouseName: displayWarehouseName(warehouse),
+                    availableQty: getWarehouseStockQuantity(product, warehouse.id)
+                }))
+                .filter(option => option.availableQty > 0)
+                .sort((a, b) => b.availableQty - a.availableQty);
+            return {
+                itemIndex: index,
+                product,
+                productName: displayProductName(product) || product.name || tr('هذا الصنف', 'this item'),
+                requestedQty,
+                availableQty,
+                shortageQty: Math.max(requestedQty - availableQty, 0),
+                currentWarehouseId: effectiveWarehouseId,
+                currentWarehouseName: displayWarehouseName(effectiveWarehouse) || tr('المستودع الحالي', 'Current warehouse'),
+                alternateWarehouses
+            } satisfies StockShortageIssue;
+        }
+        return null;
+    };
+    const openPurchaseForStockShortage = (issue: StockShortageIssue) => {
+        const purchaseQty = Math.max(1, Number(issue.shortageQty) || 1);
+        const unitPrice = Number(issue.product.buyPrice) || 0;
+        setWarehouseId(issue.currentWarehouseId);
+        setStockShortageIssue(null);
+        openNestedPurchaseOverlay({
+            contactId: '',
+            linkedInvoiceId: '',
+            warehouseId: issue.currentWarehouseId,
+            items: [{
+                productId: issue.product.id,
+                description: issue.productName,
+                quantity: purchaseQty,
+                unitPrice,
+                total: purchaseQty * unitPrice
+            }],
+            autoFocusContact: true,
+            paymentType: 'CREDIT',
+            paymentAccountId: '',
+            expenseAccountId: '',
+            discount: '',
+            notes: `${tr('طلب شراء بسبب نقص المخزون في', 'Purchase request due to low stock in')} ${issue.currentWarehouseName}`,
+            invoiceNumber: ''
+        });
+    };
+    const handleImmediateWarehouseTransfer = (sourceWarehouseId: string) => {
+        if (!stockShortageIssue) return;
+        const sourceOption = stockShortageIssue.alternateWarehouses.find(option => option.warehouseId === sourceWarehouseId);
+        const transferQty = Math.min(stockShortageIssue.shortageQty, Number(sourceOption?.availableQty || 0));
+        if (!sourceOption || transferQty <= 0) {
+            alert(tr('الكمية غير متاحة في هذا المخزن الآن.', 'The quantity is not available in this warehouse right now.'));
+            return;
+        }
+
+        addStockTransfer({
+            transferNumber: `TRF-${Date.now().toString().slice(-6)}`,
+            date: sharedState.date || getTodayDateString(),
+            fromWarehouseId: sourceWarehouseId,
+            toWarehouseId: stockShortageIssue.currentWarehouseId,
+            items: [{
+                productId: stockShortageIssue.product.id,
+                quantity: transferQty,
+                description: stockShortageIssue.product.name
+            }],
+            notes: `${tr('تحويل فوري من شاشة البيع للصنف', 'Immediate transfer from sales invoice for item')} ${stockShortageIssue.productName}`,
+            status: 'POSTED'
+        });
+
+        const remainingShortage = Math.max(stockShortageIssue.shortageQty - transferQty, 0);
+        const nextAlternateWarehouses = stockShortageIssue.alternateWarehouses
+            .map(option => option.warehouseId === sourceWarehouseId
+                ? { ...option, availableQty: Math.max(0, option.availableQty - transferQty) }
+                : option)
+            .filter(option => option.availableQty > 0);
+
+        if (remainingShortage <= 0) {
+            setStockShortageIssue(null);
+            alert(tr(
+                `تم تحويل ${formatAmount(transferQty)} من ${sourceOption.warehouseName} إلى ${stockShortageIssue.currentWarehouseName}. يمكنك متابعة الترحيل الآن.`,
+                `Transferred ${formatAmount(transferQty)} from ${sourceOption.warehouseName} to ${stockShortageIssue.currentWarehouseName}. You can post now.`
+            ));
+            return;
+        }
+
+        setStockShortageIssue(prev => prev ? {
+            ...prev,
+            availableQty: prev.availableQty + transferQty,
+            shortageQty: remainingShortage,
+            alternateWarehouses: nextAlternateWarehouses
+        } : prev);
+        alert(tr(
+            `تم تحويل ${formatAmount(transferQty)} من ${sourceOption.warehouseName}. ما زال هناك نقص بمقدار ${formatAmount(remainingShortage)}.`,
+            `Transferred ${formatAmount(transferQty)} from ${sourceOption.warehouseName}. ${formatAmount(remainingShortage)} is still missing.`
+        ));
+    };
 
     const buildDraftInvoice = (): Invoice => ({
         id: editingInvoice?.id || `draft-${Date.now()}`,
@@ -1381,6 +1969,97 @@ const InvoiceScreen: React.FC<{
         warehouseId: (!isExpenseStyle && hasWarehouses) ? (warehouseId || undefined) : undefined
     });
 
+    const buildModeSwitchDraft = (): InvoiceFormDraftState => {
+        const trimmedInvoiceNumber = invoiceNumber.trim();
+        const autoGeneratedNumberPattern = new RegExp(`^${invoiceNumberPrefix}-\\d{6}$`);
+        const preservedInvoiceNumber = trimmedInvoiceNumber && !autoGeneratedNumberPattern.test(trimmedInvoiceNumber)
+            ? trimmedInvoiceNumber
+            : undefined;
+
+        return {
+            contactId,
+            linkedInvoiceId,
+            warehouseId,
+            items: items.map(item => ({ ...item })),
+            paymentType,
+            paymentAccountId,
+            expenseAccountId,
+            discount,
+            notes,
+            invoiceNumber: preservedInvoiceNumber,
+            dueDate,
+            taxMode,
+            taxRateOverride
+        };
+    };
+
+    const openExternalWindow = (url: string, blockedMessage: string) => {
+        const popup = window.open(url, '_blank', 'noopener,noreferrer');
+        if (popup) {
+            return popup;
+        }
+        try {
+            window.location.href = url;
+            return window;
+        } catch {
+            alert(blockedMessage);
+            return null;
+        }
+    };
+
+    const normalizePhoneForDirectMessage = (value?: string) => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        if (raw.startsWith('+')) {
+            return raw.replace(/[^\d]/g, '');
+        }
+        const digitsOnly = raw.replace(/[^\d]/g, '');
+        if (digitsOnly.startsWith('00')) {
+            return digitsOnly.slice(2);
+        }
+        return /^\d{8,15}$/.test(digitsOnly) && !digitsOnly.startsWith('0') ? digitsOnly : '';
+    };
+
+    const buildWhatsAppLink = (message: string, phone?: string) => {
+        const directPhone = normalizePhoneForDirectMessage(phone);
+        return directPhone
+            ? `https://wa.me/${directPhone}?text=${encodeURIComponent(message)}`
+            : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    };
+
+    const buildSmsLink = (message: string, phone?: string) => {
+        const targetPhone = String(phone || '').trim().replace(/\s+/g, '');
+        return `sms:${targetPhone}?&body=${encodeURIComponent(message)}`;
+    };
+
+    const exportWorkbookFile = (
+        rows: Array<Array<string | number>>,
+        options: {
+            sheetName: string;
+            fileName: string;
+            columnWidths: number[];
+            autoFilterRowIndex?: number;
+        }
+    ) => {
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        worksheet['!cols'] = options.columnWidths.map(width => ({ wch: width }));
+        if (typeof options.autoFilterRowIndex === 'number') {
+            worksheet['!autofilter'] = {
+                ref: XLSX.utils.encode_range({
+                    s: { r: options.autoFilterRowIndex, c: 0 },
+                    e: { r: options.autoFilterRowIndex, c: options.columnWidths.length - 1 }
+                })
+            };
+        }
+
+        const workbook = XLSX.utils.book_new();
+        workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
+        XLSX.utils.book_append_sheet(workbook, worksheet, options.sheetName);
+        downloadWorkbookFile(workbook, {
+            fileName: sanitizeDownloadName(options.fileName)
+        });
+    };
+
     const buildInvoiceShareText = () => {
         const draft = buildDraftInvoice();
         const draftTaxMode = resolveInvoiceTaxMode(draft);
@@ -1408,6 +2087,22 @@ const InvoiceScreen: React.FC<{
         ].filter(Boolean).join('\n');
     };
 
+    const buildInvoiceNotificationText = () => {
+        const draft = buildDraftInvoice();
+        return [
+            tr(
+                `نفيدكم بتسجيل ${invoiceScreenTitle} رقم ${draft.invoiceNumber} على حسابكم.`,
+                `A ${invoiceScreenTitle} document ${draft.invoiceNumber} was posted to your account.`
+            ),
+            `${isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier')}: ${selectedCounterpartyLabel}`,
+            `${tr('التاريخ', 'Date')}: ${draft.date}`,
+            `${tr('القيمة', 'Amount')}: ${formatAmount(draft.totalAmount)} ${draft.currency}`,
+            paymentType === 'CREDIT'
+                ? `${tr('نوع الدفع', 'Payment')}: ${tr('آجل', 'Credit')}`
+                : `${tr('نوع الدفع', 'Payment')}: ${tr('نقدي', 'Cash')}`
+        ].join('\n');
+    };
+
     const handlePrintPreview = () => {
         const draft = buildDraftInvoice();
         const printWindow = window.open('', '_blank');
@@ -1415,150 +2110,189 @@ const InvoiceScreen: React.FC<{
             alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
             return;
         }
-        const printDir = isEnglish ? 'ltr' : 'rtl';
-        const printLang = isEnglish ? 'en' : 'ar';
-        const draftTaxMode = resolveInvoiceTaxMode(draft);
-        const rowsHtml = draft.items.map((item, index) => {
-            const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
-            const itemLabel = escapeHtml(product ? displayProductName(product) : item.description);
-            const itemCode = escapeHtml(product?.itemCode || product?.barcode || '');
-            return `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td style="text-align:${isEnglish ? 'left' : 'right'};">${itemLabel}</td>
-                    <td dir="ltr">${itemCode || '-'}</td>
-                    <td dir="ltr">${formatAmount(item.quantity)}</td>
-                    <td dir="ltr">${formatAmount(item.unitPrice)}</td>
-                    <td dir="ltr">${formatAmount(item.total)}</td>
-                </tr>
-            `;
-        }).join('');
-        const notesBlock = notes.trim()
-            ? `<div class="notes"><strong>${escapeHtml(tr('التفاصيل', 'Details'))}:</strong> ${escapeHtml(notes.trim()).replace(/\n/g, '<br />')}</div>`
-            : '';
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html dir="${printDir}" lang="${printLang}">
-                <head>
-                    <meta charset="utf-8" />
-                    <title>${escapeHtml(invoiceScreenTitle)} - ${escapeHtml(draft.invoiceNumber)}</title>
-                    <style>
-                        body { font-family: ${isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif"}; margin: 0; padding: 32px; color: #0f172a; background: #f8fafc; }
-                        .sheet { max-width: 920px; margin: 0 auto; background: #fff; border-radius: 24px; padding: 28px; box-shadow: 0 16px 50px rgba(15, 23, 42, 0.08); }
-                        .header { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 2px solid #e2e8f0; }
-                        .title { font-size: 28px; font-weight: 900; margin: 0 0 8px; color: #1d4ed8; }
-                        .muted { margin: 0; color: #64748b; font-size: 13px; }
-                        .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 22px 0; }
-                        .meta-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px 16px; }
-                        .meta-card strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 6px; }
-                        .meta-card span { font-size: 16px; font-weight: 800; }
-                        .notes { margin: 18px 0 0; padding: 14px 16px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 24px; overflow: hidden; border-radius: 18px; }
-                        th { background: #0f172a; color: #fff; font-size: 12px; padding: 12px 10px; }
-                        td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center; }
-                        .totals { margin-top: 22px; display: flex; justify-content: flex-end; }
-                        .totals-box { min-width: 280px; background: #0f172a; color: #fff; border-radius: 20px; padding: 18px 20px; }
-                        .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
-                        .totals-row.total { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.18); font-size: 18px; font-weight: 900; }
-                    </style>
-                </head>
-                <body>
-                    <div class="sheet">
-                        <div class="header">
-                            <div>
-                                <h1 class="title">${escapeHtml(invoiceScreenTitle)}</h1>
-                                <p class="muted">${escapeHtml(companySettings.name || '')}</p>
+        try {
+            const printDir = isEnglish ? 'ltr' : 'rtl';
+            const printLang = isEnglish ? 'en' : 'ar';
+            const draftTaxMode = resolveInvoiceTaxMode(draft);
+            const rowsHtml = draft.items.map((item, index) => {
+                const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
+                const itemLabel = escapeHtml(product ? displayProductName(product) : item.description);
+                const itemCode = escapeHtml(product?.itemCode || product?.barcode || '');
+                return `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td style="text-align:${isEnglish ? 'left' : 'right'};">${itemLabel}</td>
+                        <td dir="ltr">${itemCode || '-'}</td>
+                        <td dir="ltr">${formatAmount(item.quantity)}</td>
+                        <td dir="ltr">${formatAmount(item.unitPrice)}</td>
+                        <td dir="ltr">${formatAmount(item.total)}</td>
+                    </tr>
+                `;
+            }).join('');
+            const notesBlock = notes.trim()
+                ? `<div class="notes"><strong>${escapeHtml(tr('التفاصيل', 'Details'))}:</strong> ${escapeHtml(notes.trim()).replace(/\n/g, '<br />')}</div>`
+                : '';
+            printWindow.document.open();
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html dir="${printDir}" lang="${printLang}">
+                    <head>
+                        <meta charset="utf-8" />
+                        <title>${escapeHtml(invoiceScreenTitle)} - ${escapeHtml(draft.invoiceNumber)}</title>
+                        <style>
+                            body { font-family: ${isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif"}; margin: 0; padding: 32px; color: #0f172a; background: #f8fafc; }
+                            .sheet { max-width: 920px; margin: 0 auto; background: #fff; border-radius: 24px; padding: 28px; box-shadow: 0 16px 50px rgba(15, 23, 42, 0.08); }
+                            .header { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 2px solid #e2e8f0; }
+                            .title { font-size: 28px; font-weight: 900; margin: 0 0 8px; color: #1d4ed8; }
+                            .muted { margin: 0; color: #64748b; font-size: 13px; }
+                            .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 22px 0; }
+                            .meta-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px 16px; }
+                            .meta-card strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 6px; }
+                            .meta-card span { font-size: 16px; font-weight: 800; }
+                            .notes { margin: 18px 0 0; padding: 14px 16px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; }
+                            table { width: 100%; border-collapse: collapse; margin-top: 24px; overflow: hidden; border-radius: 18px; }
+                            th { background: #0f172a; color: #fff; font-size: 12px; padding: 12px 10px; }
+                            td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center; }
+                            .totals { margin-top: 22px; display: flex; justify-content: flex-end; }
+                            .totals-box { min-width: 280px; background: #0f172a; color: #fff; border-radius: 20px; padding: 18px 20px; }
+                            .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+                            .totals-row.total { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.18); font-size: 18px; font-weight: 900; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="sheet">
+                            <div class="header">
+                                <div>
+                                    <h1 class="title">${escapeHtml(invoiceScreenTitle)}</h1>
+                                    <p class="muted">${escapeHtml(companySettings.name || '')}</p>
+                                </div>
+                                <div style="text-align:${isEnglish ? 'left' : 'right'};">
+                                    <p class="muted">${escapeHtml(tr('رقم الفاتورة', 'Invoice No.'))}: <strong>${escapeHtml(draft.invoiceNumber)}</strong></p>
+                                    <p class="muted">${escapeHtml(tr('التاريخ', 'Date'))}: <strong>${escapeHtml(draft.date)}</strong></p>
+                                    <p class="muted">${escapeHtml(tr('العملة', 'Currency'))}: <strong>${escapeHtml(draft.currency)}</strong></p>
+                                </div>
                             </div>
-                            <div style="text-align:${isEnglish ? 'left' : 'right'};">
-                                <p class="muted">${escapeHtml(tr('رقم الفاتورة', 'Invoice No.'))}: <strong>${escapeHtml(draft.invoiceNumber)}</strong></p>
-                                <p class="muted">${escapeHtml(tr('التاريخ', 'Date'))}: <strong>${escapeHtml(draft.date)}</strong></p>
-                                <p class="muted">${escapeHtml(tr('العملة', 'Currency'))}: <strong>${escapeHtml(draft.currency)}</strong></p>
+                            <div class="meta">
+                                <div class="meta-card">
+                                    <strong>${escapeHtml(isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier'))}</strong>
+                                    <span>${escapeHtml(selectedCounterpartyLabel)}</span>
+                                </div>
+                                <div class="meta-card">
+                                    <strong>${escapeHtml(tr('نوع الدفع', 'Payment'))}</strong>
+                                    <span>${escapeHtml(paymentType === 'CASH' ? tr('نقدي', 'Cash') : tr('آجل', 'Credit'))}</span>
+                                </div>
+                                <div class="meta-card">
+                                    <strong>${escapeHtml(tr('المخزن', 'Warehouse'))}</strong>
+                                    <span>${escapeHtml(selectedWarehouse ? displayWarehouseName(selectedWarehouse) : '-')}</span>
+                                </div>
+                                <div class="meta-card">
+                                    <strong>${escapeHtml(tr('الحساب', 'Account'))}</strong>
+                                    <span>${escapeHtml(selectedPaymentAccount ? displayAccountName(selectedPaymentAccount) : '-')}</span>
+                                </div>
+                            </div>
+                            ${notesBlock}
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>${escapeHtml(tr('الصنف / الوصف', 'Item / Description'))}</th>
+                                        <th>${escapeHtml(tr('الرمز', 'Code'))}</th>
+                                        <th>${escapeHtml(tr('الكمية', 'Qty'))}</th>
+                                        <th>${escapeHtml(tr('السعر', 'Price'))}</th>
+                                        <th>${escapeHtml(tr('الإجمالي', 'Total'))}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rowsHtml || `<tr><td colspan="6">${escapeHtml(tr('لا توجد بنود بعد', 'No line items yet'))}</td></tr>`}</tbody>
+                            </table>
+                            <div class="totals">
+                                <div class="totals-box">
+                                    <div class="totals-row"><span>${escapeHtml(tr('الإجمالي قبل الضريبة', 'Subtotal'))}</span><strong>${formatAmount(draft.subTotal)} ${escapeHtml(draft.currency)}</strong></div>
+                                    <div class="totals-row"><span>${escapeHtml(tr('الخصم', 'Discount'))}</span><strong>${formatAmount(draft.discountAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                                    ${taxVisibleInInvoices ? `<div class="totals-row"><span>${escapeHtml(tr('طريقة الضريبة', 'Tax mode'))}</span><strong>${escapeHtml(getInvoiceTaxModeDescription(draftTaxMode, tr))}</strong></div>` : ''}
+                                    ${(taxVisibleInInvoices && draft.taxAmount > 0) ? `<div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><strong>${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</strong></div>` : ''}
+                                    <div class="totals-row total"><span>${escapeHtml(tr('الصافي', 'Net'))}</span><strong>${formatAmount(draft.totalAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                                </div>
                             </div>
                         </div>
-                        <div class="meta">
-                            <div class="meta-card">
-                                <strong>${escapeHtml(isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier'))}</strong>
-                                <span>${escapeHtml(selectedCounterpartyLabel)}</span>
-                            </div>
-                            <div class="meta-card">
-                                <strong>${escapeHtml(tr('نوع الدفع', 'Payment'))}</strong>
-                                <span>${escapeHtml(paymentType === 'CASH' ? tr('نقدي', 'Cash') : tr('آجل', 'Credit'))}</span>
-                            </div>
-                            <div class="meta-card">
-                                <strong>${escapeHtml(tr('المخزن', 'Warehouse'))}</strong>
-                                <span>${escapeHtml(selectedWarehouse ? displayWarehouseName(selectedWarehouse) : '-')}</span>
-                            </div>
-                            <div class="meta-card">
-                                <strong>${escapeHtml(tr('الحساب', 'Account'))}</strong>
-                                <span>${escapeHtml(selectedPaymentAccount ? displayAccountName(selectedPaymentAccount) : '-')}</span>
-                            </div>
-                        </div>
-                        ${notesBlock}
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>${escapeHtml(tr('الصنف / الوصف', 'Item / Description'))}</th>
-                                    <th>${escapeHtml(tr('الرمز', 'Code'))}</th>
-                                    <th>${escapeHtml(tr('الكمية', 'Qty'))}</th>
-                                    <th>${escapeHtml(tr('السعر', 'Price'))}</th>
-                                    <th>${escapeHtml(tr('الإجمالي', 'Total'))}</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rowsHtml || `<tr><td colspan="6">${escapeHtml(tr('لا توجد بنود بعد', 'No line items yet'))}</td></tr>`}</tbody>
-                        </table>
-                        <div class="totals">
-                            <div class="totals-box">
-                                <div class="totals-row"><span>${escapeHtml(tr('الإجمالي قبل الضريبة', 'Subtotal'))}</span><strong>${formatAmount(draft.subTotal)} ${escapeHtml(draft.currency)}</strong></div>
-                                <div class="totals-row"><span>${escapeHtml(tr('الخصم', 'Discount'))}</span><strong>${formatAmount(draft.discountAmount)} ${escapeHtml(draft.currency)}</strong></div>
-                                ${taxVisibleInInvoices ? `<div class="totals-row"><span>${escapeHtml(tr('طريقة الضريبة', 'Tax mode'))}</span><strong>${escapeHtml(getInvoiceTaxModeDescription(draftTaxMode, tr))}</strong></div>` : ''}
-                                ${(taxVisibleInInvoices && draft.taxAmount > 0) ? `<div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><strong>${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</strong></div>` : ''}
-                                <div class="totals-row total"><span>${escapeHtml(tr('الصافي', 'Net'))}</span><strong>${formatAmount(draft.totalAmount)} ${escapeHtml(draft.currency)}</strong></div>
-                            </div>
-                        </div>
-                    </div>
-                    <script>window.onload = function () { window.print(); };</script>
-                </body>
-            </html>
-        `);
-        printWindow.document.close();
+                        <script>window.onload = function () { window.print(); };</script>
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
+        } catch {
+            if (!printWindow.closed) {
+                printWindow.close();
+            }
+            alert(tr('تعذر تجهيز معاينة الفاتورة للطباعة الآن.', 'Could not prepare the invoice preview for printing right now.'));
+        }
     };
 
     const handleDownloadExcel = () => {
-        const draft = buildDraftInvoice();
-        const csvEscape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-        const header = [
-            tr('رقم الفاتورة', 'Invoice No.'),
-            tr('التاريخ', 'Date'),
-            tr('الطرف', 'Counterparty'),
-            tr('الصنف', 'Item'),
-            tr('الرمز', 'Code'),
-            tr('الكمية', 'Qty'),
-            tr('السعر', 'Price'),
-            tr('الإجمالي', 'Total'),
-            tr('العملة', 'Currency')
-        ];
-        const rows = draft.items.map((item) => {
-            const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
-            return [
-                draft.invoiceNumber,
-                draft.date,
-                selectedCounterpartyLabel,
-                product ? displayProductName(product) : item.description,
-                product?.itemCode || product?.barcode || '',
-                item.quantity,
-                item.unitPrice,
-                item.total,
-                draft.currency
+        try {
+            const draft = buildDraftInvoice();
+            const draftTaxMode = resolveInvoiceTaxMode(draft);
+            const itemHeader = [
+                '#',
+                tr('الصنف / الوصف', 'Item / Description'),
+                tr('الرمز', 'Code'),
+                tr('الكمية', 'Qty'),
+                tr('السعر', 'Price'),
+                tr('الإجمالي', 'Total')
             ];
-        });
-        const csv = '\uFEFF' + [header, ...rows].map(cols => cols.map(csvEscape).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `${draft.invoiceNumber || 'invoice'}.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+            const rows: Array<Array<string | number>> = [
+                [invoiceScreenTitle],
+                [],
+                [tr('رقم الفاتورة', 'Invoice No.'), draft.invoiceNumber, tr('التاريخ', 'Date'), draft.date],
+                [isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier'), selectedCounterpartyLabel, tr('نوع الدفع', 'Payment'), paymentType === 'CASH' ? tr('نقدي', 'Cash') : tr('آجل', 'Credit')],
+                [tr('المخزن', 'Warehouse'), selectedWarehouse ? displayWarehouseName(selectedWarehouse) : '-', tr('الحساب', 'Account'), selectedPaymentAccount ? displayAccountName(selectedPaymentAccount) : '-'],
+                [tr('العملة', 'Currency'), draft.currency, tr('سعر الصرف', 'Exchange Rate'), Number((draft.exchangeRate || 1).toFixed(6))]
+            ];
+
+            if (notes.trim()) {
+                rows.push([tr('التفاصيل', 'Details'), notes.trim()]);
+            }
+
+            if (taxVisibleInInvoices) {
+                rows.push([tr('طريقة الضريبة', 'Tax mode'), getInvoiceTaxModeDescription(draftTaxMode, tr)]);
+            }
+
+            rows.push([]);
+            const headerRowIndex = rows.length;
+            rows.push(itemHeader);
+
+            if (draft.items.length > 0) {
+                draft.items.forEach((item, index) => {
+                    const product = item.productId ? products.find(productEntry => productEntry.id === item.productId) : undefined;
+                    rows.push([
+                        index + 1,
+                        product ? displayProductName(product) : item.description,
+                        product?.itemCode || product?.barcode || '',
+                        Number((item.quantity || 0).toFixed(3)),
+                        Number((item.unitPrice || 0).toFixed(2)),
+                        Number((item.total || 0).toFixed(2))
+                    ]);
+                });
+            } else {
+                rows.push([1, tr('لا توجد بنود بعد', 'No line items yet'), '', 0, 0, 0]);
+            }
+
+            rows.push([]);
+            rows.push([tr('الإجمالي قبل الضريبة', 'Subtotal'), Number((draft.subTotal || 0).toFixed(2)), '', '', tr('العملة', 'Currency'), draft.currency]);
+            rows.push([tr('الخصم', 'Discount'), Number((draft.discountAmount || 0).toFixed(2))]);
+            if (taxVisibleInInvoices) {
+                rows.push([tr('الضريبة', 'Tax'), Number((draft.taxAmount || 0).toFixed(2))]);
+            }
+            rows.push([tr('الصافي', 'Net'), Number((draft.totalAmount || 0).toFixed(2))]);
+
+            exportWorkbookFile(rows, {
+                sheetName: isSalesFlow ? 'Invoice' : 'PurchaseInvoice',
+                fileName: `${draft.invoiceNumber || 'invoice'}-${draft.date || 'draft'}.xlsx`,
+                columnWidths: [6, 34, 18, 12, 14, 16],
+                autoFilterRowIndex: headerRowIndex
+            });
+        } catch {
+            alert(tr('تعذر تصدير الفاتورة إلى Excel.', 'Could not export the invoice to Excel.'));
+        }
     };
 
     const handleShareInvoice = async () => {
@@ -1586,12 +2320,18 @@ const InvoiceScreen: React.FC<{
 
     const handleShareWhatsApp = () => {
         setShowInvoiceActions(false);
-        window.open(`https://wa.me/?text=${encodeURIComponent(buildInvoiceShareText())}`, '_blank');
+        openExternalWindow(
+            buildWhatsAppLink(buildInvoiceNotificationText(), selectedContact?.phone),
+            tr('تعذر فتح واتساب. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open WhatsApp. Please allow pop-ups.')
+        );
     };
 
     const handleShareSms = () => {
         setShowInvoiceActions(false);
-        window.open(`sms:?&body=${encodeURIComponent(buildInvoiceShareText())}`, '_blank');
+        openExternalWindow(
+            buildSmsLink(buildInvoiceNotificationText(), selectedContact?.phone),
+            tr('تعذر فتح تطبيق الرسائل من المتصفح الحالي.', 'Unable to open the SMS app from the current browser.')
+        );
     };
 
     const handleDeleteCurrentInvoice = () => {
@@ -1638,10 +2378,18 @@ const InvoiceScreen: React.FC<{
             return alert(tr('Negative quantity is disabled for sales invoices in settings.', 'Negative quantity is disabled for sales invoices in settings.'));
         }
         if (!(companySettings.allowNegativeStock ?? false) && (isSales || isPurchaseReturn)) {
-            const invalidStockItem = preparedItems.find(item => !checkStock(item.productId, Number(item.quantity) || 0));
-            if (invalidStockItem) {
-                const productName = displayProductName(products.find(product => product.id === invalidStockItem.productId) || null) || tr('هذا الصنف', 'this item');
-                return alert(tr(`المخزون غير كافٍ للصنف ${productName}. فعّل السماح بالمخزون السالب إذا كنت تريد المتابعة.`, `Stock is not sufficient for ${productName}. Enable negative stock if you want to continue.`));
+            if (isSales) {
+                const shortageIssue = buildSalesStockShortageIssue(preparedItems);
+                if (shortageIssue) {
+                    setStockShortageIssue(shortageIssue);
+                    return;
+                }
+            } else {
+                const invalidStockItem = preparedItems.find((item, index) => !checkStock(item.productId, Number(item.quantity) || 0, { sourceItems: preparedItems, itemIndex: index }));
+                if (invalidStockItem) {
+                    const productName = displayProductName(products.find(product => product.id === invalidStockItem.productId) || null) || tr('هذا الصنف', 'this item');
+                    return alert(tr(`المخزون غير كافٍ للصنف ${productName}. فعّل السماح بالمخزون السالب إذا كنت تريد المتابعة.`, `Stock is not sufficient for ${productName}. Enable negative stock if you want to continue.`));
+                }
             }
         }
         if ((companySettings.updateSalesPriceOnInvoiceEntry ?? false) && isSales) {
@@ -1750,28 +2498,26 @@ const InvoiceScreen: React.FC<{
         setIsSearchFocused(true);
     };
 
-    const checkStock = (productId?: string, qty: number = 0) => {
+    const checkStock = (
+        productId?: string,
+        qty: number = 0,
+        options?: {
+            sourceItems?: Omit<InvoiceItem, 'id'>[];
+            itemIndex?: number;
+        }
+    ) => {
         if (!productId) return true; // Checks for manual items always pass
         if (companySettings.allowNegativeStock ?? false) return true;
+        const product = products.find(prod => prod.id === productId);
+        if (isServiceProduct(product)) return true;
         // Sales: check if we have enough stock to sell (in selected warehouse)
         if (isSales && !isQuotation) {
-            const p = products.find(prod => prod.id === productId);
-            if (!p) return true;
-            if (warehouseId) {
-                const whStock = p.warehouseStock?.find(w => w.warehouseId === warehouseId)?.quantity || 0;
-                return whStock >= qty;
-            }
-            return p.stock >= qty; // Fallback to global stock if no warehouse selected (should not happen if enforced)
+            const requestedQty = getRequestedStockQuantity(productId, qty, options);
+            return getWarehouseStockQuantity(product, warehouseId) >= requestedQty;
         }
         // Purchase Return: check if we have enough stock to return (in selected warehouse)
         if (isPurchaseReturn) {
-            const p = products.find(prod => prod.id === productId);
-            if (!p) return true;
-            if (warehouseId) {
-                const whStock = p.warehouseStock?.find(w => w.warehouseId === warehouseId)?.quantity || 0;
-                return whStock >= qty;
-            }
-            return p.stock >= qty;
+            return getWarehouseStockQuantity(product, warehouseId) >= qty;
         }
         return true;
     };
@@ -1779,24 +2525,20 @@ const InvoiceScreen: React.FC<{
     const getAvailableStock = (productId?: string) => {
         if (!productId) return null;
         const product = products.find(prod => prod.id === productId);
-        if (!product) return null;
-        if (warehouseId) {
-            const warehouseQty = product.warehouseStock?.find(entry => entry.warehouseId === warehouseId)?.quantity;
-            if (warehouseQty !== undefined) return warehouseQty;
-        }
-        return product.stock ?? 0;
+        if (!product || isServiceProduct(product)) return null;
+        return getWarehouseStockQuantity(product, warehouseId);
     };
 
     return (
         <div
-            className="transaction-mobile-form app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
+            className="transaction-mobile-form transaction-screen-with-submit-dock invoice-mobile-page app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
             dir={isEnglish ? 'ltr' : 'rtl'}
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
-            <div className="sticky top-2 z-30 space-y-3 rounded-2xl bg-gray-50/95 pb-1 backdrop-blur">
+            <div className="invoice-mobile-top-shell sticky top-2 z-30 space-y-3 rounded-2xl bg-gray-50/95 pb-1 backdrop-blur">
             {/* 1. Header Navigation Bar */}
-            <div className="flex items-center justify-between bg-white px-3 py-2 border border-gray-200 rounded-xl shadow-sm">
+            <div className="invoice-mobile-toolbar flex items-center justify-between bg-white px-3 py-2 border border-gray-200 rounded-xl shadow-sm">
                 <button
                     onClick={onBack}
                     className="flex items-center gap-1 text-sm font-black text-gray-700 hover:bg-gray-100 px-3 py-1.5 rounded-full transition-colors"
@@ -1837,11 +2579,11 @@ const InvoiceScreen: React.FC<{
                         <>
                             <button
                                 type="button"
-                                className="fixed inset-0 z-[180] cursor-default bg-transparent"
+                                className="fixed inset-0 z-[440] cursor-default bg-transparent"
                                 onClick={() => setShowInvoiceActions(false)}
                                 aria-label={tr('إغلاق القائمة', 'Close menu')}
                             />
-                            <div className={`absolute top-full z-[190] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'right-0' : 'left-0'}`}>
+                            <div className={`absolute top-full z-[450] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'right-0' : 'left-0'}`}>
                                 {editingInvoice && (
                                     <button type="button" onClick={handleDeleteCurrentInvoice} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-rose-600 transition-colors hover:bg-rose-50">
                                         <Trash2 size={16} />
@@ -1871,24 +2613,24 @@ const InvoiceScreen: React.FC<{
             </div>
 
             {showSalesModeTabs && onModeChange && (
-                <div className="grid grid-cols-3 gap-2 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                <div className="invoice-mode-tabs grid grid-cols-3 gap-2 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
                     <button
                         type="button"
-                        onClick={() => onModeChange('SALES')}
+                        onClick={() => onModeChange('SALES', buildModeSwitchDraft())}
                         className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${isSales ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         {tr('فاتورة بيع', 'Sales')}
                     </button>
                     <button
                         type="button"
-                        onClick={() => onModeChange('QUOTATION')}
+                        onClick={() => onModeChange('QUOTATION', buildModeSwitchDraft())}
                         className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${isQuotation ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         {tr('عرض سعر', 'Quotation')}
                     </button>
                     <button
                         type="button"
-                        onClick={() => onModeChange('SALES_RETURN')}
+                        onClick={() => onModeChange('SALES_RETURN', buildModeSwitchDraft())}
                         className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${isReturn ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         {tr('مرتجع', 'Return')}
@@ -1897,33 +2639,26 @@ const InvoiceScreen: React.FC<{
             )}
 
             {showPurchaseModeTabs && onModeChange && (
-                <div className="grid grid-cols-3 gap-2 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                <div className="invoice-mode-tabs grid grid-cols-2 gap-2 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
                     <button
                         type="button"
-                        onClick={() => onModeChange('PURCHASES')}
-                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${mode === 'PURCHASES' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                        onClick={() => onModeChange('PURCHASES', buildModeSwitchDraft())}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${(mode === 'PURCHASES' || mode === 'MANUAL_PURCHASE') ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         {tr('فاتورة شراء', 'Purchase')}
                     </button>
                     <button
                         type="button"
-                        onClick={() => onModeChange('PURCHASE_RETURN')}
+                        onClick={() => onModeChange('PURCHASE_RETURN', buildModeSwitchDraft())}
                         className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${mode === 'PURCHASE_RETURN' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         {tr('مرتجع شراء', 'Return')}
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => onModeChange('MANUAL_PURCHASE')}
-                        className={`rounded-lg px-3 py-2 text-xs font-black transition-colors ${mode === 'MANUAL_PURCHASE' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-                    >
-                        {tr('يدوي', 'Manual')}
-                    </button>
                 </div>
             )}
 
-            <div className="bg-white px-3 py-3 border border-gray-200 rounded-xl shadow-sm">
-                <div className="header-fields-grid grid grid-cols-2 gap-2.5 items-start">
+            <div className="invoice-meta-card bg-white px-3 py-3 border border-gray-200 rounded-xl shadow-sm">
+                <div className="header-fields-grid header-fields-grid--compact-rate grid grid-cols-2 gap-2.5 items-start">
                     <div className="min-w-0">
                         <label className="block truncate text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-wider px-1 mb-1.5 leading-tight">
                             {tr('تاريخ العملية', 'Operation Date')}
@@ -1939,50 +2674,93 @@ const InvoiceScreen: React.FC<{
                         <label className="block truncate text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-wider px-1 mb-1.5 leading-tight">
                             {tr('العملة', 'Currency')}
                         </label>
-                        <div className="relative">
-                            <select
-                                value={sharedState.currency}
-                                onChange={e => onCurrencyChange(e.target.value)}
-                                className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
-                            >
-                                {currencyOptions.map(currency => (
-                                    <option key={currency.code} value={currency.code}>
-                                        {currency.code} - {currency.symbol}
-                                    </option>
-                                ))}
-                            </select>
-                            <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
+                        <div ref={exchangeRateEditorRef} className="relative">
+                            <div className="flex items-center gap-2">
+                                <div className="relative flex-1 min-w-0">
+                                    <select
+                                        value={sharedState.currency}
+                                        onChange={e => onCurrencyChange(e.target.value)}
+                                        className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
+                                    >
+                                        {currencyOptions.map(currency => (
+                                            <option key={currency.code} value={currency.code}>
+                                                {currency.code} - {currency.symbol}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (sharedState.currency === baseCurrency) return;
+                                        setIsExchangeRateEditorOpen(prev => !prev);
+                                    }}
+                                    disabled={sharedState.currency === baseCurrency}
+                                    className={`relative inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl border transition-all ${
+                                        sharedState.currency === baseCurrency
+                                            ? 'border-gray-200 bg-gray-50 text-gray-300'
+                                            : isExchangeRateEditorOpen
+                                                ? 'border-blue-200 bg-blue-50 text-blue-600 shadow-sm'
+                                                : 'border-gray-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600'
+                                    }`}
+                                    aria-label={`${tr('سعر الصرف', 'Exchange rate')}: ${exchangeRateLabel} (${tr('مقابل', 'vs')} ${baseCurrency})`}
+                                    aria-expanded={isExchangeRateEditorOpen}
+                                    title={`${tr('سعر الصرف', 'Exchange rate')}: ${exchangeRateLabel}`}
+                                >
+                                    <ArrowRightLeft size={15} />
+                                    {sharedState.currency !== baseCurrency && (
+                                        <span className="absolute -top-1.5 -right-1.5 min-w-[1.4rem] rounded-full bg-slate-900 px-1.5 py-0.5 text-[8px] font-black leading-none text-white dir-ltr">
+                                            {exchangeRateLabel}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+                            {isExchangeRateEditorOpen && sharedState.currency !== baseCurrency && (
+                                <div className="absolute top-full left-0 right-0 z-20 mt-2 rounded-2xl border border-blue-100 bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.14)]">
+                                    <label className="mb-2 flex items-center justify-between gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                        <span>{tr('سعر الصرف', 'Exchange Rate')}</span>
+                                        <span className="dir-ltr text-blue-600">{baseCurrency}</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            inputMode="decimal"
+                                            min="0.0001"
+                                            step="0.0001"
+                                            value={sharedState.rate}
+                                            onChange={e => {
+                                                const parsed = parseFloat(e.target.value);
+                                                onRateChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
+                                            }}
+                                            onKeyDown={event => {
+                                                if (event.key === 'Enter' || event.key === 'Escape') {
+                                                    setIsExchangeRateEditorOpen(false);
+                                                }
+                                            }}
+                                            autoFocus
+                                            className="w-full py-2.5 pl-9 pr-3 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 dir-ltr"
+                                            aria-label={tr('سعر الصرف', 'Exchange rate')}
+                                        />
+                                        <ArrowRightLeft className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={14} />
+                                    </div>
+                                    <p className="mt-2 px-1 text-[10px] font-bold text-slate-400">
+                                        {tr('تعديل سريع لسعر تحويل العملة المختارة.', 'Quick edit for the selected currency conversion rate.')}
+                                    </p>
+                                </div>
+                            )}
                         </div>
-                    </div>
-                    <div className="min-w-0 col-span-2">
-                        <label className="block truncate text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-wider px-1 mb-1.5 leading-tight">
-                            {tr('سعر الصرف', 'Exchange Rate')} ({tr('مقابل', 'vs')} {baseCurrency})
-                        </label>
-                        <input
-                            type="number"
-                            inputMode="decimal"
-                            min="0.0001"
-                            step="0.0001"
-                            value={sharedState.rate}
-                            onChange={e => {
-                                const parsed = parseFloat(e.target.value);
-                                onRateChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
-                            }}
-                            disabled={sharedState.currency === baseCurrency}
-                            className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-[11px] font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 disabled:bg-gray-50 disabled:text-gray-400 dir-ltr"
-                            aria-label={tr('سعر الصرف', 'Exchange rate')}
-                        />
                     </div>
                 </div>
             </div>
             </div>
 
             {/* 2. Top Header Inputs (Fixed Height, compact) */}
-            <div className="bg-white px-3 py-3 space-y-2.5 border border-gray-200 rounded-xl relative z-10 shadow-sm">
+            <div className="invoice-entry-card bg-white px-3 py-3 space-y-2.5 border border-gray-200 rounded-xl relative z-10 shadow-sm">
 
                 {/* Type & Cash/Credit */}
-                <div className="flex gap-2">
-                    <div className="flex-1 flex gap-1 bg-gray-100 p-1 rounded-xl">
+                <div className="invoice-payment-toggle-row flex gap-2">
+                    <div className="invoice-payment-toggle flex-1 flex gap-1 bg-gray-100 p-1 rounded-xl">
                         {!isQuotation && (
                             <>
                                 <button type="button" onClick={() => setPaymentType('CASH')} className={`flex-1 py-1.5 text-[12px] font-black rounded-lg transition-all ${paymentType === 'CASH' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
@@ -1997,17 +2775,22 @@ const InvoiceScreen: React.FC<{
                 </div>
 
                 {/* Warehouse & Account (Row 2) */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="invoice-context-grid grid grid-cols-2 gap-2">
                     {!isExpenseStyle && hasWarehouses && (
                         <div className={`relative min-w-0 ${(!isQuotation && paymentType === 'CASH') ? '' : 'col-span-2'}`}>
                             <select
                                 value={warehouseId}
-                                onChange={e => setWarehouseId(e.target.value)}
-                                disabled={restrictWarehouseSelectionToMain}
-                                className="w-full appearance-none rounded-xl border border-gray-100 bg-gray-50 py-2 px-3 pl-8 pr-8 text-[12px] font-black focus:border-indigo-300 focus:outline-none disabled:cursor-default disabled:bg-blue-50/40 disabled:text-slate-900 disabled:opacity-100"
+                                onChange={e => {
+                                    const nextWarehouseId = e.target.value;
+                                    setWarehouseId(nextWarehouseId);
+                                    if (items.length > 0) {
+                                        refreshStockShortageDialog(items, { warehouseIdOverride: nextWarehouseId });
+                                    }
+                                }}
+                                className="w-full appearance-none rounded-xl border border-gray-100 bg-gray-50 py-2 px-3 pl-8 pr-8 text-[12px] font-black focus:border-indigo-300 focus:outline-none"
                             >
                                 <option value="">{tr('المستودع', 'Warehouse')}</option>
-                                {visibleWarehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
+                                {warehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
                             </select>
                             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={13} />
                         </div>
@@ -2046,7 +2829,7 @@ const InvoiceScreen: React.FC<{
                 )}
 
                 {/* Customer / Supplier */}
-                <div className="flex gap-2 items-center">
+                <div className="invoice-contact-row flex gap-2 items-center">
                     <div className="flex-1 min-w-0 relative flex items-center">
                         <SearchableContactSelect
                             contacts={filteredContacts}
@@ -2067,10 +2850,11 @@ const InvoiceScreen: React.FC<{
                                 ? tr('إضافة عميل جديد', 'Add New Customer')
                                 : tr('إضافة مورد جديد', 'Add New Supplier')}
                             isEnglish={isEnglish}
+                            autoFocus={Boolean(initialDraft?.autoFocusContact)}
                             className="w-full"
                             inputClassName={`w-full bg-gray-50 border border-gray-100 rounded-xl py-2 px-3 text-[12px] font-black text-gray-700 outline-none focus:ring-1 focus:ring-indigo-300 ${isEnglish ? 'pl-9 pr-9' : 'pr-9 pl-9'}`}
                         />
-                        <button type="button" onClick={() => { setQuickContactInitialName(''); setShowQuickContact(true); }} className="h-10 w-10 border border-slate-200 bg-white text-gray-600 rounded-xl active:bg-gray-100 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0">
+                        <button type="button" onClick={() => { setQuickContactInitialName(''); setShowQuickContact(true); }} className="invoice-contact-add-btn h-10 w-10 border border-slate-200 bg-white text-gray-600 rounded-xl active:bg-gray-100 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0">
                             <UserPlus size={14} />
                         </button>
                     </div>
@@ -2082,7 +2866,7 @@ const InvoiceScreen: React.FC<{
                         {tr('\u062a\u0633\u0639\u064a\u0631 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0647\u0630\u0627 \u0627\u0644\u0637\u0631\u0641', 'Invoice pricing for this contact')}: {selectedContactPriceTierLabel}
                     </div>
                 )}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.25fr)_180px]">
+                <div className="invoice-meta-inline-grid grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.25fr)_180px]">
                     <div className="relative min-w-0">
                         <TextQuote className={`absolute top-1/2 -translate-y-1/2 text-slate-300 ${isEnglish ? 'left-3' : 'right-3'}`} size={14} />
                         <input
@@ -2107,11 +2891,15 @@ const InvoiceScreen: React.FC<{
             </div>
 
             {/* 3. Inline Add Item Bar (Fixed) */}
-            <div className="px-3 py-2 bg-white border border-gray-200 rounded-xl z-10 shadow-sm">
+            <div className="invoice-search-card px-3 py-2 bg-white border border-gray-200 rounded-xl z-10 shadow-sm">
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
-                        if (isExpenseVoucherManualOnly || isManualItem) {
+                        if (isExpenseVoucherManualOnly) {
+                            handleInlineManualItemAdd();
+                            return;
+                        }
+                        if (isManualItem) {
                             setIsManualItem(true);
                             setShowQuickProduct(true);
                             return;
@@ -2121,22 +2909,12 @@ const InvoiceScreen: React.FC<{
                         setQuickProductInitialName(rawQuery);
                         setShowQuickProduct(true);
                     }}
-                    className={`grid gap-2 items-center relative rounded-2xl border border-slate-200 bg-slate-50/70 p-2 ${isExpenseVoucherManualOnly
-                        ? 'grid-cols-[auto,minmax(0,1fr)]'
-                        : 'grid-cols-[auto,minmax(0,1fr),auto]'
+                    className={`invoice-search-form grid gap-2 items-center relative rounded-2xl border border-slate-200 bg-slate-50/70 p-2 ${isExpenseVoucherManualOnly
+                        ? 'grid-cols-1'
+                        : 'grid-cols-[minmax(0,1fr),auto]'
                         }`}
                 >
-                    <button
-                        type="submit"
-                        className="flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
-                    >
-                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 text-white shadow active:-translate-y-0.5 active:scale-95 transition-all">
-                            <Plus size={18} />
-                        </span>
-                        <span className="text-[9px] font-black text-slate-500">
-                            {isExpenseVoucherManualOnly ? tr('إضافة بند', 'Add line') : tr('إضافة صنف', 'Add item')}
-                        </span>
-                    </button>
+                    <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 
                     <div className="flex-1 min-w-0 relative">
                         <input
@@ -2161,13 +2939,58 @@ const InvoiceScreen: React.FC<{
                                 setIsManualItem(true);
                                 setShowQuickProduct(true);
                             }}
-                            className="flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
+                            className="invoice-manual-item-button flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
                         >
                             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shadow-sm active:-translate-y-0.5 active:scale-95 transition-all hover:bg-amber-100">
                                 <Package size={16} />
                             </span>
                             <span className="text-[9px] font-black text-slate-500">{tr('إضافة بند يدوي', 'Manual line')}</span>
                         </button>
+                    )}
+
+                    {isExpenseVoucherManualOnly && (
+                        <div className="space-y-2">
+                            <div className="grid grid-cols-[minmax(0,0.7fr),minmax(0,0.7fr),auto] gap-2">
+                                <div className="min-w-0">
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={manualItemQty}
+                                        onChange={e => setManualItemQty(e.target.value)}
+                                        placeholder={tr('الكمية', 'Qty')}
+                                        className="h-10 w-full rounded-xl border border-transparent bg-white px-3 text-center text-sm font-black outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dir-ltr"
+                                    />
+                                </div>
+                                <div className="min-w-0">
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={manualItemPrice}
+                                        onChange={e => setManualItemPrice(e.target.value)}
+                                        placeholder={tr('السعر', 'Price')}
+                                        className="h-10 w-full rounded-xl border border-transparent bg-white px-3 text-center text-sm font-black outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dir-ltr"
+                                        min="0"
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleInlineManualItemAdd}
+                                    disabled={!manualItemDesc.trim() || !manualItemPrice.trim()}
+                                    className={`h-10 rounded-xl px-4 text-[11px] font-black text-white transition-all ${
+                                        !manualItemDesc.trim() || !manualItemPrice.trim()
+                                            ? 'bg-slate-300 cursor-not-allowed'
+                                            : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'
+                                    }`}
+                                >
+                                    {tr('إضافة', 'Add')}
+                                </button>
+                            </div>
+                            {!expenseAccountId && (
+                                <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-1.5 text-[10px] font-black text-amber-700">
+                                    {tr('يمكنك إضافة البنود الآن، ثم اختيار حساب المصروف من الحقل الأخضر قبل ترحيل السند.', 'You can add lines now, then choose the expense account from the green field before posting.')}
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     {/* Autocomplete Dropdown */}
@@ -2181,7 +3004,11 @@ const InvoiceScreen: React.FC<{
                                             <div className="text-start">
                                                 <p className="text-[11px] font-black text-slate-800">{displayProductName(p)}</p>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className={`text-[9px] font-bold ${p.stock <= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{p.stock} {tr('متوفر', 'avail')}</span>
+                                                    {isServiceProduct(p) ? (
+                                                        <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700">{tr('خدمة', 'Service')}</span>
+                                                    ) : (
+                                                        <span className={`text-[9px] font-bold ${p.stock <= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{p.stock} {tr('متوفر', 'avail')}</span>
+                                                    )}
                                                     {p.barcode && <span className="text-[9px] font-mono text-gray-400">{p.barcode}</span>}
                                                 </div>
                                             </div>
@@ -2248,7 +3075,8 @@ const InvoiceScreen: React.FC<{
                             )}
                             {items.map((item, idx) => {
                                 const linkedProduct = item.productId ? products.find(p => p.id === item.productId) : null;
-                                const stockOk = checkStock(item.productId, Number(item.quantity) || 0);
+                                const serviceLine = isServiceProduct(linkedProduct);
+                                const stockOk = checkStock(item.productId, Number(item.quantity) || 0, { itemIndex: idx });
                                 const availableStock = getAvailableStock(item.productId);
                                 const lastInvoicePrice = resolveLastInvoicePrice(item.productId);
                                 return (
@@ -2262,7 +3090,9 @@ const InvoiceScreen: React.FC<{
                                                 className="invoice-item-name-field w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[10.5px] font-bold leading-4 outline-none focus:border-indigo-300"
                                             />
                                             <div className="invoice-item-meta mt-0.5 text-[9px] font-bold text-slate-400 break-all">
-                                                {linkedProduct ? `${linkedProduct.itemCode || linkedProduct.barcode || linkedProduct.id}` : tr('بند يدوي', 'Manual line')}
+                                                {linkedProduct
+                                                    ? `${linkedProduct.itemCode || linkedProduct.barcode || linkedProduct.id}${serviceLine ? ` • ${tr('خدمة', 'Service')}` : ''}`
+                                                    : tr('بند يدوي', 'Manual line')}
                                             </div>
                                         </td>
                                         <td className="border-b border-slate-100 px-1.5 py-1">
@@ -2300,10 +3130,12 @@ const InvoiceScreen: React.FC<{
                                             </span>
                                         </td>
                                         <td
-                                            className={`invoice-stock-cell border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black ${item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
-                                            data-stock={item.productId ? (availableStock?.toLocaleString() ?? '0') : '—'}
+                                            className={`invoice-stock-cell border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black ${serviceLine ? 'text-amber-600' : item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
+                                            data-stock={serviceLine ? tr('خدمة', 'Service') : item.productId ? (availableStock?.toLocaleString() ?? '0') : '—'}
                                         >
-                                            {item.productId
+                                            {serviceLine
+                                                ? <span className="text-amber-600">{tr('خدمة', 'Service')}</span>
+                                                : item.productId
                                                 ? <span className={stockOk ? 'text-emerald-600' : 'text-rose-600'}>{stockOk ? tr('متاح', 'OK') : tr('غير كافٍ', 'Low')}</span>
                                                 : <span className="text-slate-400">{tr('—', '—')}</span>}
                                         </td>
@@ -2320,54 +3152,55 @@ const InvoiceScreen: React.FC<{
                 </div>
             </div>
             {/* 5. Fixed Totals Footer */}
-            <div className="invoice-submit-panel layout-footer z-20 rounded-[1.15rem] border border-slate-700/70 bg-[linear-gradient(135deg,#0f172a_0%,#172554_100%)] p-3 text-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.9)]">
-
-                {/* Expandable Discount / Tax summary row */}
-                <div className="flex justify-between items-center mb-2 px-1">
-                    <div className="flex gap-4">
-                        <div className="flex flex-col">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">{tr('خصم إضافي', 'Extra Disc')}</span>
-                            <div className="relative w-20">
-                                <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className="w-full bg-slate-800 text-white text-[11px] font-black rounded-lg py-1 px-1.5 border border-slate-700 focus:border-indigo-500 text-center" />
-                            </div>
-                        </div>
-                        {taxVisibleInInvoices && (
+            <div className="invoice-submit-panel layout-footer z-20 hidden rounded-[1.15rem] border border-slate-700/70 bg-[linear-gradient(135deg,#0f172a_0%,#172554_100%)] p-3 text-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.9)] md:block">
+                <div className="transaction-submit-panel-details">
+                    {/* Expandable Discount / Tax summary row */}
+                    <div className="flex justify-between items-center mb-2 px-1">
+                        <div className="flex gap-4">
                             <div className="flex flex-col">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
-                                    {tr('الضريبة', 'Tax')} {isInvoiceTaxApplied(effectiveTaxMode, totals.rate, totals.tax) ? `+${formatAmount(totals.tax)}` : '0'}
-                                </span>
-                                <div className="relative mt-0.5 w-[108px]">
-                                    <select
-                                        value={effectiveTaxMode}
-                                        onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
-                                        className={`w-full appearance-none rounded-lg border border-slate-700 bg-slate-800/95 py-1 text-[9px] font-black text-white outline-none transition-colors focus:border-indigo-400 ${isEnglish ? 'pl-2 pr-6 text-left' : 'pr-2 pl-6 text-right'}`}
-                                    >
-                                        {(['INCLUSIVE', 'EXCLUSIVE', 'NONE'] as InvoiceTaxMode[]).map((modeOption) => (
-                                            <option key={modeOption} value={modeOption}>
-                                                {getInvoiceTaxModeLabel(modeOption, tr)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ${isEnglish ? 'right-2' : 'left-2'}`} size={11} />
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">{tr('خصم إضافي', 'Extra Disc')}</span>
+                                <div className="relative w-20">
+                                    <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className="w-full bg-slate-800 text-white text-[11px] font-black rounded-lg py-1 px-1.5 border border-slate-700 focus:border-indigo-500 text-center" />
                                 </div>
-                                <span className="mt-1 max-w-[108px] text-[8px] font-bold leading-tight text-slate-400">
-                                    {taxModeDescription}
-                                </span>
                             </div>
-                        )}
+                            {taxVisibleInInvoices && (
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
+                                        {tr('الضريبة', 'Tax')} {isInvoiceTaxApplied(effectiveTaxMode, totals.rate, totals.tax) ? `+${formatAmount(totals.tax)}` : '0'}
+                                    </span>
+                                    <div className="relative mt-0.5 w-[108px]">
+                                        <select
+                                            value={effectiveTaxMode}
+                                            onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
+                                            className={`w-full appearance-none rounded-lg border border-slate-700 bg-slate-800/95 py-1 text-[9px] font-black text-white outline-none transition-colors focus:border-indigo-400 ${isEnglish ? 'pl-2 pr-6 text-left' : 'pr-2 pl-6 text-right'}`}
+                                        >
+                                            {(['INCLUSIVE', 'EXCLUSIVE', 'NONE'] as InvoiceTaxMode[]).map((modeOption) => (
+                                                <option key={modeOption} value={modeOption}>
+                                                    {getInvoiceTaxModeLabel(modeOption, tr)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <ChevronDown className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ${isEnglish ? 'right-2' : 'left-2'}`} size={11} />
+                                    </div>
+                                    <span className="mt-1 max-w-[108px] text-[8px] font-bold leading-tight text-slate-400">
+                                        {taxModeDescription}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
 
-                {/* Final Total row */}
-                <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                    <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
-                    <span className="min-w-0 text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white">{totals.total.toLocaleString()}</span>
+                    {/* Final Total row */}
+                    <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                        <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
+                        <span className="min-w-0 text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white">{totals.total.toLocaleString()}</span>
+                    </div>
                 </div>
 
                 {/* Action Buttons */}
                 <button
                     onClick={handleSubmit}
-                    className={`w-full py-2.5 rounded-xl font-black text-[13px] shadow-[0_4px_20px_rgba(0,0,0,0.3)] flex items-center justify-center gap-2 active:scale-95 transition-transform ${isQuotation ? 'bg-amber-600' : (isReturn || isPurchaseReturn) ? 'bg-rose-600' : 'bg-indigo-600'} text-white`}
+                    className={`hidden w-full py-2.5 rounded-xl font-black text-[13px] shadow-[0_4px_20px_rgba(0,0,0,0.3)] md:flex items-center justify-center gap-2 active:scale-95 transition-transform ${isQuotation ? 'bg-amber-600' : (isReturn || isPurchaseReturn) ? 'bg-rose-600' : 'bg-indigo-600'} text-white`}
                 >
                     <CheckCircle2 size={16} />
                     {isQuotation
@@ -2377,6 +3210,58 @@ const InvoiceScreen: React.FC<{
                             : tr('ترحيل واعتماد الفاتورة', 'Post & Approve')}
                 </button>
             </div>
+            <MobileSubmitDock
+                label={isQuotation
+                    ? tr('حفظ المعاملة', 'Save Transaction')
+                    : editingInvoice
+                        ? tr('تحديث وترحيل الفاتورة', 'Update & Post Invoice')
+                        : tr('ترحيل واعتماد الفاتورة', 'Post & Approve')}
+                onClick={() => void handleSubmit()}
+                summary={
+                    <div className="transaction-submit-panel-details text-white">
+                        <div className="mb-2 flex items-center justify-between px-1">
+                            <div className="flex gap-4">
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold uppercase tracking-widest leading-tight text-slate-400">{tr('خصم إضافي', 'Extra Disc')}</span>
+                                    <div className="relative w-20">
+                                        <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className="w-full rounded-lg border border-slate-700 bg-slate-800 px-1.5 py-1 text-center text-[11px] font-black text-white focus:border-indigo-500" />
+                                    </div>
+                                </div>
+                                {taxVisibleInInvoices && (
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] font-bold uppercase tracking-widest leading-tight text-slate-400">
+                                            {tr('الضريبة', 'Tax')} {isInvoiceTaxApplied(effectiveTaxMode, totals.rate, totals.tax) ? `+${formatAmount(totals.tax)}` : '0'}
+                                        </span>
+                                        <div className="relative mt-0.5 w-[108px]">
+                                            <select
+                                                value={effectiveTaxMode}
+                                                onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
+                                                className={`w-full appearance-none rounded-lg border border-slate-700 bg-slate-800/95 py-1 text-[9px] font-black text-white outline-none transition-colors focus:border-indigo-400 ${isEnglish ? 'pl-2 pr-6 text-left' : 'pr-2 pl-6 text-right'}`}
+                                            >
+                                                {(['INCLUSIVE', 'EXCLUSIVE', 'NONE'] as InvoiceTaxMode[]).map((modeOption) => (
+                                                    <option key={modeOption} value={modeOption}>
+                                                        {getInvoiceTaxModeLabel(modeOption, tr)}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <ChevronDown className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400 ${isEnglish ? 'right-2' : 'left-2'}`} size={11} />
+                                        </div>
+                                        <span className="mt-1 max-w-[108px] text-[8px] font-bold leading-tight text-slate-400">
+                                            {taxModeDescription}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                            <span className="text-[12px] font-black text-blue-300 sm:text-[13px]">{tr('الصافي النهائي', 'Final Net')}</span>
+                            <span className="min-w-0 text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem]">{totals.total.toLocaleString()}</span>
+                        </div>
+                    </div>
+                }
+                panelClassName="border-slate-700/70 bg-[linear-gradient(135deg,#0f172a_0%,#172554_100%)] text-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.9)]"
+                buttonClassName={`${isQuotation ? 'bg-amber-600 text-white hover:bg-amber-500' : (isReturn || isPurchaseReturn) ? 'bg-rose-600 text-white hover:bg-rose-500' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
+            />
 
             {/* Overlays / Modals */}
             {showBarcodeScanner && (
@@ -2394,6 +3279,136 @@ const InvoiceScreen: React.FC<{
                         </button>
                     </div>
                 </div>
+            )}
+
+            {stockShortageIssue && (
+                <ResponsiveDialog
+                    open
+                    onClose={() => setStockShortageIssue(null)}
+                    size="md"
+                    zIndexClassName="z-[320]"
+                    backdropClassName="bg-black/65 backdrop-blur-md"
+                    panelClassName="bg-white rounded-[2rem] p-5 shadow-2xl"
+                >
+                    <div dir={isEnglish ? 'ltr' : 'rtl'} className="space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+                                    <AlertTriangle size={20} />
+                                </div>
+                                <h3 className="mt-3 text-base font-black text-slate-900">
+                                    {tr('الصنف غير متوفر في هذا المخزن', 'This item is not available in this warehouse')}
+                                </h3>
+                                <p className="mt-1 text-[11px] font-bold leading-5 text-slate-500">
+                                    {tr('يمكنك تحويل الكمية من مخزن آخر فورًا أو فتح شراء لهذا الصنف مباشرة.', 'You can transfer the quantity from another warehouse now or open a purchase for this item.')}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setStockShortageIssue(null)}
+                                className="rounded-full bg-slate-100 p-2 text-slate-500 transition-colors hover:bg-slate-200"
+                                aria-label={tr('إغلاق', 'Close')}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+                            <div className="text-sm font-black text-slate-800">{stockShortageIssue.productName}</div>
+                            <div className="mt-1 text-[10px] font-bold text-slate-500">
+                                {tr('السطر', 'Line')} #{stockShortageIssue.itemIndex + 1}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="text-[10px] font-black text-slate-400">{tr('المخزن الحالي', 'Current warehouse')}</div>
+                                <div className="mt-1 text-[12px] font-black text-slate-800">{stockShortageIssue.currentWarehouseName}</div>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="text-[10px] font-black text-slate-400">{tr('المتوفر الآن', 'Available now')}</div>
+                                <div className="mt-1 text-[12px] font-black text-slate-800 dir-ltr">{formatAmount(stockShortageIssue.availableQty)}</div>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="text-[10px] font-black text-slate-400">{tr('الكمية المطلوبة', 'Requested quantity')}</div>
+                                <div className="mt-1 text-[12px] font-black text-slate-800 dir-ltr">{formatAmount(stockShortageIssue.requestedQty)}</div>
+                            </div>
+                            <div className="rounded-2xl border border-rose-100 bg-rose-50 p-3">
+                                <div className="text-[10px] font-black text-rose-500">{tr('الكمية الناقصة', 'Missing quantity')}</div>
+                                <div className="mt-1 text-[12px] font-black text-rose-600 dir-ltr">{formatAmount(stockShortageIssue.shortageQty)}</div>
+                            </div>
+                        </div>
+
+                        {stockShortageIssue.alternateWarehouses.length > 0 ? (
+                            <div className="space-y-2">
+                                <div className="text-[11px] font-black text-slate-700">{tr('مخازن يمكن التحويل منها الآن', 'Warehouses available for immediate transfer')}</div>
+                                {stockShortageIssue.alternateWarehouses.map(option => (
+                                    <div key={option.warehouseId} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-[12px] font-black text-slate-800">{option.warehouseName}</div>
+                                            <div className="mt-1 text-[10px] font-bold text-slate-500 dir-ltr">
+                                                {tr('المتوفر', 'Available')}: {formatAmount(option.availableQty)}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleImmediateWarehouseTransfer(option.warehouseId)}
+                                            className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-black text-white transition-colors hover:bg-indigo-700"
+                                        >
+                                            <ArrowRightLeft size={13} />
+                                            {tr('تحويل الآن', 'Transfer now')}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3 text-[11px] font-bold text-slate-500">
+                                {tr('لا توجد كمية متاحة لهذا الصنف في المخازن الأخرى حاليًا، ويمكنك فتح شراء مباشر له.', 'This item is not available in other warehouses right now, and you can open a direct purchase for it.')}
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <button
+                                type="button"
+                                onClick={() => openPurchaseForStockShortage(stockShortageIssue)}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-[12px] font-black text-white transition-colors hover:bg-emerald-700"
+                            >
+                                <ShoppingBag size={15} />
+                                {tr('فتح شراء الصنف', 'Open purchase')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setStockShortageIssue(null)}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-[12px] font-black text-slate-700 transition-colors hover:bg-slate-200"
+                            >
+                                <X size={15} />
+                                {tr('إغلاق', 'Close')}
+                            </button>
+                        </div>
+
+                        <div className="rounded-2xl bg-slate-50 px-3 py-2 text-[10px] font-bold leading-5 text-slate-500">
+                            {tr('إذا أردت المتابعة بدون شراء أو تحويل، فعّل خيار بيع المخزون السالب من إعدادات الشركة.', 'If you want to continue without purchase or transfer, enable negative stock selling from company settings.')}
+                        </div>
+                    </div>
+                </ResponsiveDialog>
+            )}
+
+            {nestedPurchaseOverlay && (
+                <ResponsiveOverlay
+                    isOpen
+                    onClose={closeNestedPurchaseOverlay}
+                    variant="fullscreen"
+                    zIndexClassName="z-[340]"
+                    panelClassName="w-full rounded-none pb-10"
+                    keyboardAware
+                >
+                    <TransactionForm
+                        key={nestedPurchaseOverlay.key}
+                        initialMode="PURCHASES"
+                        initialDraft={nestedPurchaseOverlay.draft}
+                        onBack={closeNestedPurchaseOverlay}
+                    />
+                </ResponsiveOverlay>
             )}
 
             {showQuickContact && (
@@ -2445,10 +3460,60 @@ const InvoiceScreen: React.FC<{
                             <button onClick={() => { setShowQuickProduct(false); setIsManualItem(false); }} className="text-gray-400 hover:text-slate-700 bg-gray-100 p-1.5 rounded-full"><X size={14} /></button>
                         </div>
                         {isExpenseVoucherManualOnly && (
-                            <div className={`rounded-lg px-3 py-1.5 text-[10px] font-black ${selectedExpenseAccount ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'}`}>
+                            <div className={`rounded-lg px-3 py-1.5 text-[10px] font-black ${selectedExpenseAccount ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
                                 {selectedExpenseAccount
                                     ? `${tr('الحساب المدين', 'Debit account')}: ${displayAccountName(selectedExpenseAccount)}`
-                                    : tr('حدد الحساب المدين من أعلى الشاشة قبل إضافة البند', 'Select debit account from top of screen before adding line')}
+                                    : tr('يمكنك إضافة البند الآن، ثم اختيار الحساب المدين من أعلى الشاشة قبل ترحيل السند', 'You can add the line now, then choose the debit account from the top before posting')}
+                            </div>
+                        )}
+
+                        {isExpenseVoucherManualOnly && savedExpenseLinePresets.length > 0 && (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+                                <div className="mb-2 px-1">
+                                    <div className="text-[10px] font-black text-slate-700">{tr('بنود محفوظة', 'Saved lines')}</div>
+                                    <div className="text-[9px] font-bold text-slate-400">
+                                        {tr('اختر بندًا محفوظًا لتعبئة البيانات بسرعة.', 'Choose a saved line to fill the fields quickly.')}
+                                    </div>
+                                </div>
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {filteredExpenseLinePresets.length > 0 ? filteredExpenseLinePresets.map(preset => {
+                                        const presetAccount = preset.accountId
+                                            ? expenseAccounts.find(account => account.id === preset.accountId) || null
+                                            : null;
+                                        return (
+                                            <div key={preset.id} className="flex items-stretch gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => applyExpenseLinePreset(preset)}
+                                                    className="flex-1 rounded-xl border border-white bg-white px-3 py-2 text-start shadow-sm transition-colors hover:bg-blue-50"
+                                                >
+                                                    <div className="truncate text-[11px] font-black text-slate-800">{preset.description}</div>
+                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] font-bold text-slate-500">
+                                                        <span className="dir-ltr">{tr('الكمية', 'Qty')}: {formatAmount(preset.quantity)}</span>
+                                                        <span className="dir-ltr">{tr('السعر', 'Price')}: {formatAmount(preset.unitPrice)}</span>
+                                                        {presetAccount && (
+                                                            <span className={`rounded-md px-1.5 py-0.5 ${preset.accountId === expenseAccountId ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                                {displayAccountName(presetAccount)}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeExpenseLinePreset(preset.id)}
+                                                    className="rounded-xl border border-rose-100 bg-rose-50 px-2 text-rose-600 transition-colors hover:bg-rose-100"
+                                                    title={tr('حذف من المحفوظات', 'Remove saved line')}
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        );
+                                    }) : (
+                                        <div className="rounded-xl bg-white px-3 py-2 text-[10px] font-bold text-slate-400">
+                                            {tr('لا يوجد بند محفوظ مطابق للنص الحالي.', 'No saved line matches the current text.')}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 
@@ -2491,8 +3556,7 @@ const InvoiceScreen: React.FC<{
                                     addManualItem();
                                     setShowQuickProduct(false);
                                 }}
-                                disabled={isExpenseVoucherManualOnly && !expenseAccountId}
-                                className={`w-full py-2.5 text-white text-[13px] font-black rounded-xl shadow-lg active:scale-95 transition-all ${(isExpenseVoucherManualOnly && !expenseAccountId) ? 'bg-slate-300 cursor-not-allowed shadow-none active:scale-100' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                className="w-full py-2.5 text-white text-[13px] font-black rounded-xl shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-700"
                             >
                                 {tr('إضافة والتالي', 'Add')}
                             </button>
@@ -2646,7 +3710,7 @@ const VoucherScreen: React.FC<{
     const selectedCounterAccountId = useMemo(() => {
         if (!selectedContact) return voucherType === 'RECEIPT' ? 'acc_receivable' : 'acc_payable';
         if (selectedContact.type === 'EMPLOYEE') return 'acc_accrued_salaries';
-        if (selectedContact.type === 'SUPPLIER') return 'acc_payable';
+        if (selectedContact.type === 'SUPPLIER') return selectedContact.currentAccountId || selectedContact.linkedAccountId || 'acc_payable';
         if (selectedContact.type === 'PARTNER') {
             return selectedContact.currentAccountId || selectedContact.linkedAccountId || '';
         }
@@ -2867,15 +3931,11 @@ const VoucherScreen: React.FC<{
             return;
         }
 
-        // Keep size small because checks are stored in local app state/local storage.
-        const maxSizeBytes = 2 * 1024 * 1024;
-        if (file.size > maxSizeBytes) {
-            alert(tr('حجم الصورة كبير. الحد الأقصى 2MB.', 'Image is too large. Maximum allowed is 2MB.'));
-            return;
-        }
-
         try {
-            const dataUrl = await readFileAsDataUrl(file);
+            const dataUrl = await compressImageForInlineStorage(file, {
+                maxDimension: 1600,
+                targetBytes: 420 * 1024
+            });
             setCheckLines(prev => prev.map(l => {
                 if (l.id !== lineId) return l;
                 const nextImages = Array.isArray(l.imageUrls) ? [...l.imageUrls] : [];
@@ -2883,7 +3943,7 @@ const VoucherScreen: React.FC<{
                 return { ...l, imageUrls: nextImages.slice(0, 2) };
             }));
         } catch {
-            alert(tr('تعذر قراءة الصورة. حاول مرة أخرى.', 'Could not read image. Please try again.'));
+            alert(tr('تعذر تجهيز الصورة. حاول بصورة أخرى.', 'Could not process the image. Please try another one.'));
         }
     };
 
@@ -2930,6 +3990,45 @@ const VoucherScreen: React.FC<{
         return [...cashRows, ...checkRowsExport];
     };
 
+    const normalizePhoneForDirectMessage = (value?: string) => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        if (raw.startsWith('+')) {
+            return raw.replace(/[^\d]/g, '');
+        }
+        const digitsOnly = raw.replace(/[^\d]/g, '');
+        if (digitsOnly.startsWith('00')) {
+            return digitsOnly.slice(2);
+        }
+        return /^\d{8,15}$/.test(digitsOnly) && !digitsOnly.startsWith('0') ? digitsOnly : '';
+    };
+
+    const buildVoucherWhatsAppLink = (message: string, phone?: string) => {
+        const directPhone = normalizePhoneForDirectMessage(phone);
+        return directPhone
+            ? `https://wa.me/${directPhone}?text=${encodeURIComponent(message)}`
+            : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    };
+
+    const buildVoucherSmsLink = (message: string, phone?: string) => {
+        const targetPhone = String(phone || '').trim().replace(/\s+/g, '');
+        return `sms:${targetPhone}?&body=${encodeURIComponent(message)}`;
+    };
+
+    const openVoucherExternalWindow = (url: string, blockedMessage: string) => {
+        const popup = window.open(url, '_blank', 'noopener,noreferrer');
+        if (popup) {
+            return popup;
+        }
+        try {
+            window.location.href = url;
+            return window;
+        } catch {
+            alert(blockedMessage);
+            return null;
+        }
+    };
+
     const escapeVoucherHtml = (value: unknown) => String(value ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -2944,7 +4043,13 @@ const VoucherScreen: React.FC<{
                 : tr('مورد عام', 'Generic Supplier'));
         const rows = buildVoucherExportRows();
         const lineItems = rows.length > 0
-            ? rows.map((row, index) => `${index + 1}. ${row.lineType} - ${row.accountOrBank} - ${row.amount.toLocaleString()} ${voucherCurrency}`)
+            ? rows.map((row, index) => [
+                `${index + 1}. ${row.lineType}`,
+                row.accountOrBank,
+                row.reference ? `${tr('المرجع', 'Reference')}: ${row.reference}` : '',
+                row.dueDate ? `${tr('الاستحقاق', 'Due')}: ${row.dueDate}` : '',
+                `${tr('المبلغ', 'Amount')}: ${row.amount.toLocaleString()} ${voucherCurrency}`
+            ].filter(Boolean).join(' - '))
             : [tr('لا توجد بنود بعد.', 'No lines yet.')];
 
         return [
@@ -2952,6 +4057,8 @@ const VoucherScreen: React.FC<{
             `${tr('المرجع', 'Reference')}: ${voucherReference}`,
             `${tr('التاريخ', 'Date')}: ${sharedState.date}`,
             `${tr('الطرف', 'Counterparty')}: ${counterpartyLabel}`,
+            `${tr('العملة', 'Currency')}: ${voucherCurrency}`,
+            `${tr('سعر الصرف', 'Exchange Rate')}: ${voucherRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`,
             description.trim() ? `${tr('البيان', 'Description')}: ${description.trim()}` : '',
             '',
             ...lineItems,
@@ -2959,6 +4066,17 @@ const VoucherScreen: React.FC<{
             `${tr('إجمالي السند', 'Voucher Total')}: ${totalAmount.toLocaleString()} ${voucherCurrency}`
         ].filter(Boolean).join('\n');
     };
+
+    const buildVoucherNotificationText = () => [
+        tr(
+            `${voucherType === 'RECEIPT' ? 'تم تسجيل سند قبض' : 'تم تسجيل سند صرف'} على حسابكم.`,
+            `${voucherType === 'RECEIPT' ? 'A receipt voucher' : 'A payment voucher'} was posted to your account.`
+        ),
+        `${tr('الطرف', 'Counterparty')}: ${selectedContactLabel || (voucherType === 'RECEIPT' ? tr('عميل نقدي', 'Walk-in Customer') : tr('مورد عام', 'Generic Supplier'))}`,
+        `${tr('رقم السند', 'Voucher No.')}: ${voucherReference}`,
+        `${tr('التاريخ', 'Date')}: ${sharedState.date}`,
+        `${tr('القيمة', 'Amount')}: ${totalAmount.toLocaleString()} ${voucherCurrency}`
+    ].join('\n');
 
     const handlePrintVoucher = () => {
         const counterpartyLabel = selectedContactLabel
@@ -2971,122 +4089,156 @@ const VoucherScreen: React.FC<{
             alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
             return;
         }
+        try {
+            const printDir = isEnglish ? 'ltr' : 'rtl';
+            const printLang = isEnglish ? 'en' : 'ar';
+            const printFont = isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif";
+            const rowsHtml = rows.length > 0
+                ? rows.map((row, index) => `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${escapeVoucherHtml(row.lineType)}</td>
+                        <td>${escapeVoucherHtml(row.accountOrBank)}</td>
+                        <td>${escapeVoucherHtml(row.reference || '-')}</td>
+                        <td>${escapeVoucherHtml(row.dueDate || '-')}</td>
+                        <td class="num">${escapeVoucherHtml(Number(row.amount || 0).toLocaleString())}</td>
+                    </tr>
+                `).join('')
+                : `<tr><td colspan="6">${escapeVoucherHtml(tr('لا توجد بنود بعد.', 'No lines yet.'))}</td></tr>`;
 
-        const printDir = isEnglish ? 'ltr' : 'rtl';
-        const printLang = isEnglish ? 'en' : 'ar';
-        const printFont = isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif";
-        const rowsHtml = rows.length > 0
-            ? rows.map((row, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td>${escapeVoucherHtml(row.lineType)}</td>
-                    <td>${escapeVoucherHtml(row.accountOrBank)}</td>
-                    <td>${escapeVoucherHtml(row.reference || '-')}</td>
-                    <td>${escapeVoucherHtml(row.dueDate || '-')}</td>
-                    <td class="num">${escapeVoucherHtml(Number(row.amount || 0).toLocaleString())}</td>
-                </tr>
-            `).join('')
-            : `<tr><td colspan="6">${escapeVoucherHtml(tr('لا توجد بنود بعد.', 'No lines yet.'))}</td></tr>`;
-
-        printWindow.document.write(`
-            <!doctype html>
-            <html dir="${printDir}" lang="${printLang}">
-            <head>
-                <meta charset="utf-8" />
-                <title>${escapeVoucherHtml(voucherTitle)} - ${escapeVoucherHtml(voucherReference)}</title>
-                <style>
-                    body { font-family: ${printFont}; margin: 24px; color: #0f172a; }
-                    .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
-                    .title { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
-                    .meta { font-size: 13px; color: #475569; line-height: 1.8; }
-                    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-                    .card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; }
-                    .lbl { font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 6px; }
-                    .val { font-size: 16px; font-weight: 800; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-                    th, td { border: 1px solid #e2e8f0; padding: 10px; font-size: 12px; text-align: ${isEnglish ? 'left' : 'right'}; }
-                    th { background: #f8fafc; }
-                    .num { direction: ltr; text-align: center; font-weight: 800; }
-                    .notes { margin-top: 18px; padding: 12px; border-radius: 14px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12px; }
-                    @media print { body { margin: 12px; } }
-                </style>
-            </head>
-            <body>
-                <div class="head">
-                    <div>
-                        <div class="title">${escapeVoucherHtml(voucherTitle)}</div>
-                        <div class="meta">${escapeVoucherHtml(tr('المرجع', 'Reference'))}: <strong>${escapeVoucherHtml(voucherReference)}</strong></div>
-                        <div class="meta">${escapeVoucherHtml(tr('التاريخ', 'Date'))}: <strong>${escapeVoucherHtml(sharedState.date)}</strong></div>
-                        <div class="meta">${escapeVoucherHtml(tr('الطرف', 'Counterparty'))}: <strong>${escapeVoucherHtml(counterpartyLabel)}</strong></div>
-                    </div>
-                    <div class="cards">
-                        <div class="card">
-                            <div class="lbl">${escapeVoucherHtml(tr('الإجمالي', 'Total'))}</div>
-                            <div class="val">${escapeVoucherHtml(totalAmount.toLocaleString())} ${escapeVoucherHtml(voucherCurrency)}</div>
+            printWindow.document.open();
+            printWindow.document.write(`
+                <!doctype html>
+                <html dir="${printDir}" lang="${printLang}">
+                <head>
+                    <meta charset="utf-8" />
+                    <title>${escapeVoucherHtml(voucherTitle)} - ${escapeVoucherHtml(voucherReference)}</title>
+                    <style>
+                        body { font-family: ${printFont}; margin: 24px; color: #0f172a; }
+                        .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+                        .title { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+                        .meta { font-size: 13px; color: #475569; line-height: 1.8; }
+                        .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+                        .card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; }
+                        .lbl { font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 6px; }
+                        .val { font-size: 16px; font-weight: 800; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+                        th, td { border: 1px solid #e2e8f0; padding: 10px; font-size: 12px; text-align: ${isEnglish ? 'left' : 'right'}; }
+                        th { background: #f8fafc; }
+                        .num { direction: ltr; text-align: center; font-weight: 800; }
+                        .notes { margin-top: 18px; padding: 12px; border-radius: 14px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12px; }
+                        @media print { body { margin: 12px; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="head">
+                        <div>
+                            <div class="title">${escapeVoucherHtml(voucherTitle)}</div>
+                            <div class="meta">${escapeVoucherHtml(tr('المرجع', 'Reference'))}: <strong>${escapeVoucherHtml(voucherReference)}</strong></div>
+                            <div class="meta">${escapeVoucherHtml(tr('التاريخ', 'Date'))}: <strong>${escapeVoucherHtml(sharedState.date)}</strong></div>
+                            <div class="meta">${escapeVoucherHtml(tr('الطرف', 'Counterparty'))}: <strong>${escapeVoucherHtml(counterpartyLabel)}</strong></div>
+                        </div>
+                        <div class="cards">
+                            <div class="card">
+                                <div class="lbl">${escapeVoucherHtml(tr('الإجمالي', 'Total'))}</div>
+                                <div class="val">${escapeVoucherHtml(totalAmount.toLocaleString())} ${escapeVoucherHtml(voucherCurrency)}</div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>${escapeVoucherHtml(tr('نوع البند', 'Line Type'))}</th>
-                            <th>${escapeVoucherHtml(tr('الحساب/البنك', 'Account/Bank'))}</th>
-                            <th>${escapeVoucherHtml(tr('المرجع', 'Reference'))}</th>
-                            <th>${escapeVoucherHtml(tr('تاريخ الاستحقاق', 'Due Date'))}</th>
-                            <th>${escapeVoucherHtml(tr('المبلغ', 'Amount'))}</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rowsHtml}</tbody>
-                </table>
-                ${description.trim() ? `<div class="notes"><strong>${escapeVoucherHtml(tr('البيان', 'Description'))}:</strong> ${escapeVoucherHtml(description.trim())}</div>` : ''}
-                <script>window.onload = function () { window.print(); };</script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>${escapeVoucherHtml(tr('نوع البند', 'Line Type'))}</th>
+                                <th>${escapeVoucherHtml(tr('الحساب/البنك', 'Account/Bank'))}</th>
+                                <th>${escapeVoucherHtml(tr('المرجع', 'Reference'))}</th>
+                                <th>${escapeVoucherHtml(tr('تاريخ الاستحقاق', 'Due Date'))}</th>
+                                <th>${escapeVoucherHtml(tr('المبلغ', 'Amount'))}</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                    ${description.trim() ? `<div class="notes"><strong>${escapeVoucherHtml(tr('البيان', 'Description'))}:</strong> ${escapeVoucherHtml(description.trim())}</div>` : ''}
+                    <script>window.onload = function () { window.print(); };</script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        } catch {
+            if (!printWindow.closed) {
+                printWindow.close();
+            }
+            alert(tr('تعذر تجهيز السند للطباعة الآن.', 'Could not prepare the voucher for printing right now.'));
+        }
     };
 
     const handleDownloadVoucherExcel = () => {
-        const rows = buildVoucherExportRows();
-        const counterpartyLabel = selectedContactLabel
-            || (voucherType === 'RECEIPT'
-                ? tr('عميل نقدي', 'Walk-in Customer')
-                : tr('مورد عام', 'Generic Supplier'));
-        const csvEscape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-        const header = [
-            tr('نوع السند', 'Voucher Type'),
-            tr('التاريخ', 'Date'),
-            tr('الطرف', 'Counterparty'),
-            tr('البيان', 'Description'),
-            tr('نوع البند', 'Line Type'),
-            tr('الحساب/البنك', 'Account/Bank'),
-            tr('المرجع', 'Reference'),
-            tr('تاريخ الاستحقاق', 'Due Date'),
-            tr('المبلغ', 'Amount'),
-            tr('العملة', 'Currency')
-        ];
-        const csvRows = rows.length > 0
-            ? rows.map(row => [
-                voucherTitle,
-                sharedState.date,
-                counterpartyLabel,
-                description,
-                row.lineType,
-                row.accountOrBank,
-                row.reference,
-                row.dueDate,
-                row.amount,
-                voucherCurrency
-            ])
-            : [[voucherTitle, sharedState.date, counterpartyLabel, description, '', '', '', '', totalAmount, voucherCurrency]];
-        const csv = '\uFEFF' + [header, ...csvRows].map(cols => cols.map(csvEscape).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `${voucherReference}-${sharedState.date || Date.now()}.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+        try {
+            const rows = buildVoucherExportRows();
+            const counterpartyLabel = selectedContactLabel
+                || (voucherType === 'RECEIPT'
+                    ? tr('عميل نقدي', 'Walk-in Customer')
+                    : tr('مورد عام', 'Generic Supplier'));
+            const itemHeader = [
+                '#',
+                tr('نوع البند', 'Line Type'),
+                tr('الحساب/البنك', 'Account/Bank'),
+                tr('المرجع', 'Reference'),
+                tr('تاريخ الاستحقاق', 'Due Date'),
+                tr('المبلغ', 'Amount')
+            ];
+            const workbookRows: Array<Array<string | number>> = [
+                [voucherTitle],
+                [],
+                [tr('المرجع', 'Reference'), voucherReference, tr('التاريخ', 'Date'), sharedState.date],
+                [tr('الطرف', 'Counterparty'), counterpartyLabel, tr('العملة', 'Currency'), voucherCurrency]
+            ];
+
+            if (description.trim()) {
+                workbookRows.push([tr('البيان', 'Description'), description.trim()]);
+            }
+
+            workbookRows.push([]);
+            const headerRowIndex = workbookRows.length;
+            workbookRows.push(itemHeader);
+
+            if (rows.length > 0) {
+                rows.forEach((row, index) => {
+                    workbookRows.push([
+                        index + 1,
+                        row.lineType,
+                        row.accountOrBank,
+                        row.reference || '',
+                        row.dueDate || '',
+                        Number((row.amount || 0).toFixed(2))
+                    ]);
+                });
+            } else {
+                workbookRows.push([1, tr('لا توجد بنود بعد.', 'No lines yet.'), '', '', '', Number((totalAmount || 0).toFixed(2))]);
+            }
+
+            workbookRows.push([]);
+            workbookRows.push([tr('إجمالي السند', 'Voucher Total'), Number((totalAmount || 0).toFixed(2))]);
+
+            const worksheet = XLSX.utils.aoa_to_sheet(workbookRows);
+            const columnWidths = [6, 24, 32, 18, 16, 16];
+            worksheet['!cols'] = columnWidths.map(width => ({ wch: width }));
+            worksheet['!autofilter'] = {
+                ref: XLSX.utils.encode_range({
+                    s: { r: headerRowIndex, c: 0 },
+                    e: { r: headerRowIndex, c: columnWidths.length - 1 }
+                })
+            };
+
+            const workbook = XLSX.utils.book_new();
+            workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
+            XLSX.utils.book_append_sheet(workbook, worksheet, voucherType === 'RECEIPT' ? 'ReceiptVoucher' : 'PaymentVoucher');
+            downloadWorkbookFile(workbook, {
+                fileName: sanitizeDownloadName(`${voucherReference || 'voucher'}-${sharedState.date || 'draft'}.xlsx`)
+            });
+        } catch {
+            alert(tr('تعذر تصدير السند إلى Excel.', 'Could not export the voucher to Excel.'));
+        }
     };
 
     const handleShareVoucher = async () => {
@@ -3117,12 +4269,18 @@ const VoucherScreen: React.FC<{
 
     const handleShareVoucherWhatsApp = () => {
         setShowVoucherActions(false);
-        window.open(`https://wa.me/?text=${encodeURIComponent(buildVoucherShareText())}`, '_blank');
+        openVoucherExternalWindow(
+            buildVoucherWhatsAppLink(buildVoucherNotificationText(), selectedContact?.phone),
+            tr('تعذر فتح واتساب. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open WhatsApp. Please allow pop-ups.')
+        );
     };
 
     const handleShareVoucherSms = () => {
         setShowVoucherActions(false);
-        window.open(`sms:?&body=${encodeURIComponent(buildVoucherShareText())}`, '_blank');
+        openVoucherExternalWindow(
+            buildVoucherSmsLink(buildVoucherNotificationText(), selectedContact?.phone),
+            tr('تعذر فتح تطبيق الرسائل من المتصفح الحالي.', 'Unable to open the SMS app from the current browser.')
+        );
     };
 
     const handleSubmit = () => {
@@ -3167,7 +4325,7 @@ const VoucherScreen: React.FC<{
         if (contact?.type === 'EMPLOYEE') {
             targetAccountId = 'acc_accrued_salaries'; // Use Employee Liability Account
         } else if (contact?.type === 'SUPPLIER') {
-            targetAccountId = 'acc_payable';
+            targetAccountId = contact.currentAccountId || contact.linkedAccountId || 'acc_payable';
         } else if (contact?.type === 'PARTNER') {
             targetAccountId = contact.currentAccountId || contact.linkedAccountId || 'acc_partner_current';
         } else if (contact?.type === 'CUSTOMER') {
@@ -3333,7 +4491,7 @@ const VoucherScreen: React.FC<{
     const checkFieldWrapClass = "min-w-0 flex flex-col gap-1.5";
     const checkFieldLabelClass = "px-1 text-[11px] font-black leading-tight text-slate-400";
     const checkFieldControlClass = "min-w-0 w-full";
-    const voucherSectionClass = "rounded-[1.45rem] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_18px_38px_-32px_rgba(15,23,42,0.35)]";
+    const voucherSectionClass = "voucher-mobile-section rounded-[1.45rem] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_18px_38px_-32px_rgba(15,23,42,0.35)]";
     const voucherSectionTitleClass = "text-[0.95rem] font-black text-slate-700";
     const cashSectionActionClass = "inline-flex items-center justify-center rounded-[0.9rem] border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-700 transition hover:bg-emerald-100";
     const checkSectionActionClass = "inline-flex items-center justify-center rounded-[0.9rem] border border-indigo-100 bg-indigo-50 px-3 py-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100";
@@ -3368,11 +4526,11 @@ const VoucherScreen: React.FC<{
                 <>
                     <button
                         type="button"
-                        className="fixed inset-0 z-[180] cursor-default bg-transparent"
+                        className="fixed inset-0 z-[440] cursor-default bg-transparent"
                         onClick={() => setShowVoucherActions(false)}
                         aria-label={tr('إغلاق القائمة', 'Close menu')}
                     />
-                    <div className={`absolute top-full z-[190] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'left-0' : 'right-0'}`}>
+                    <div className={`absolute top-full z-[450] mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${isEnglish ? 'left-0' : 'right-0'}`}>
                         <button type="button" onClick={() => { setShowVoucherActions(false); handleDownloadVoucherExcel(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-black text-slate-700 transition-colors hover:bg-slate-50">
                             <FileSpreadsheet size={16} />
                             {tr('إكسل', 'Excel')}
@@ -3397,7 +4555,7 @@ const VoucherScreen: React.FC<{
 
     return (
         <div
-            className="transaction-mobile-form app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
+            className="transaction-mobile-form transaction-screen-with-submit-dock app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
@@ -3407,13 +4565,13 @@ const VoucherScreen: React.FC<{
                     {amountNotice}
                 </div>
             )}
-            <div className="rounded-[1.55rem] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-3 shadow-[0_20px_44px_-34px_rgba(15,23,42,0.42)]">
-                <div className="relative mb-4 min-h-[2.25rem] px-2">
-                    <div className={`absolute top-0 text-[11px] font-black text-slate-300 dir-ltr ${isEnglish ? 'right-0' : 'left-0'}`}>
-                        {voucherReference}
+            <div className="voucher-mobile-hero rounded-[1.55rem] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-3 shadow-[0_20px_44px_-34px_rgba(15,23,42,0.42)]">
+                <div className="mb-4 flex items-center justify-between gap-2 px-2">
+                    <div className="text-[10px] font-black text-slate-400">
+                        {tr('مرجع السند', 'Voucher Ref')}
                     </div>
-                    <div className="text-center">
-                        <div className="truncate text-[1.05rem] font-black tracking-tight text-[#1f3272]">{voucherTitle}</div>
+                    <div className={`text-[11px] font-black text-slate-300 dir-ltr ${isEnglish ? 'text-right' : 'text-left'}`}>
+                        {voucherReference}
                     </div>
                 </div>
 
@@ -3426,7 +4584,7 @@ const VoucherScreen: React.FC<{
                             : 'text-slate-400'
                             }`}
                     >
-                        {tr('سند قبض (وارد)', 'Receipt Voucher (Incoming)')}
+                        {tr('قبض', 'Receipt')}
                     </button>
                     <button
                         type="button"
@@ -3436,7 +4594,7 @@ const VoucherScreen: React.FC<{
                             : 'text-slate-400'
                             }`}
                     >
-                        {tr('سند صرف (صادر)', 'Payment Voucher (Outgoing)')}
+                        {tr('صرف', 'Payment')}
                     </button>
                 </div>
 
@@ -3604,20 +4762,12 @@ const VoucherScreen: React.FC<{
                 {cashLines.length > 0 ? (
                     <div className="mt-3 space-y-2.5">
                         {cashLines.map((line, idx) => (
-                            <div key={line.id} className="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-2.5 shadow-[0_14px_28px_-28px_rgba(15,23,42,0.35)] animate-in slide-in-from-right-2">
+                            <div key={line.id} className="voucher-mobile-line-card cash-line-card rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-2.5 shadow-[0_14px_28px_-28px_rgba(15,23,42,0.35)] animate-in slide-in-from-right-2">
                                 <div className="mb-2 flex items-center justify-between gap-2">
                                     <span className={sheetIndexClass}>{tr(`بند ${idx + 1}`, `Line ${idx + 1}`)}</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => removeLine('CASH', line.id)}
-                                        className="inline-flex h-9 w-9 items-center justify-center rounded-[0.95rem] border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100"
-                                        aria-label={tr('حذف السطر', 'Delete line')}
-                                    >
-                                        <Trash2 size={15} />
-                                    </button>
                                 </div>
 
-                                <div className="grid gap-2 min-[430px]:grid-cols-[minmax(0,1.3fr)_minmax(0,0.85fr)]">
+                                <div className="cash-line-grid grid gap-2 min-[430px]:grid-cols-[minmax(0,1.3fr)_minmax(0,0.85fr)]">
                                     <div className="min-w-0">
                                         <div className={checkFieldLabelClass}>{tr('الحساب المالي', 'Cash / Bank')}</div>
                                         <select
@@ -3632,15 +4782,26 @@ const VoucherScreen: React.FC<{
 
                                     <div className="min-w-0">
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
-                                        <input
-                                            type="number"
-                                            inputMode="decimal"
-                                            placeholder={tr('المبلغ', 'Amount')}
-                                            value={line.amount}
-                                            onChange={e => updateCashLine(line.id, 'amount', e.target.value)}
-                                            onBlur={e => notifyAmountAdded(e.target.value)}
-                                            className={`${sheetInputClass} text-center dir-ltr`}
-                                        />
+                                        <div className="flex items-stretch gap-2">
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                placeholder={tr('المبلغ', 'Amount')}
+                                                value={line.amount}
+                                                onChange={e => updateCashLine(line.id, 'amount', e.target.value)}
+                                                onBlur={e => notifyAmountAdded(e.target.value)}
+                                                className={`${sheetInputClass} min-w-0 flex-1 text-center dir-ltr`}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => removeLine('CASH', line.id)}
+                                                className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[1rem] border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100"
+                                                aria-label={tr('حذف السطر', 'Delete line')}
+                                                title={tr('حذف السطر', 'Delete line')}
+                                            >
+                                                <Trash2 size={15} />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -3693,14 +4854,14 @@ const VoucherScreen: React.FC<{
                 {checkLines.length > 0 ? (
                     <div className="mt-3 space-y-3">
                         {checkLines.map((line, idx) => (
-                            <div key={line.id} className={`rounded-[1.35rem] border p-3 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.35)] animate-in slide-in-from-right-2 ${line.isEndorsed ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-slate-50/80'}`}>
+                            <div key={line.id} className={`voucher-mobile-line-card check-line-card rounded-[1.35rem] border p-3 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.35)] animate-in slide-in-from-right-2 ${line.isEndorsed ? 'border-violet-200 bg-violet-50/40' : 'border-slate-200 bg-slate-50/80'}`}>
                                 <div className="mb-3 flex items-center justify-between gap-2">
                                     <span className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black ${line.isEndorsed ? 'bg-violet-100 text-violet-700' : 'bg-white text-slate-400 shadow-sm'}`}>
                                         {line.isEndorsed ? tr('شيك مجيّر', 'Endorsed Check') : tr(`شيك ${idx + 1}`, `Check ${idx + 1}`)}
                                     </span>
                                 </div>
 
-                                <div className="grid gap-2 min-[430px]:grid-cols-3">
+                                <div className="check-line-grid-primary grid gap-2 min-[430px]:grid-cols-3">
                                     <div className={checkFieldWrapClass}>
                                         <div className={checkFieldLabelClass}>{tr('رقم الشيك', 'Check Number')}</div>
                                         <div className={checkFieldControlClass}>
@@ -3732,7 +4893,7 @@ const VoucherScreen: React.FC<{
                                     </div>
                                 </div>
 
-                                <div className="mt-2 grid gap-2 min-[430px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_4.5rem]">
+                                <div className="check-line-grid-secondary mt-2 grid gap-2 min-[430px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_4.5rem]">
                                     <div className={checkFieldWrapClass}>
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('الاستحقاق', 'Due')}</div>
                                         <div className={checkFieldControlClass}>
@@ -3765,8 +4926,8 @@ const VoucherScreen: React.FC<{
                                 </div>
 
                                 <div className="mt-3 space-y-2">
-                                    <div className="text-[11px] font-black text-slate-500">{tr('إرفاق صور الشيك (حتى صورتين)', 'Attach check images (up to 2)')}</div>
-                                    <div className="grid gap-2 min-[430px]:grid-cols-2">
+                                    <div className="text-[11px] font-black text-slate-500">{tr('إرفاق صور الشيك (حتى صورتين - تُضغط تلقائيًا)', 'Attach check images (up to 2 - auto-compressed)')}</div>
+                                    <div className="check-image-grid grid gap-2 min-[430px]:grid-cols-2">
                                         {[0, 1].map((slotIndex) => {
                                             const imageValue = line.imageUrls?.[slotIndex] || '';
                                             return (
@@ -3831,18 +4992,36 @@ const VoucherScreen: React.FC<{
                     <div className="mt-3 h-px bg-slate-200/80" />
                 )}
             </div>
-            <div className="invoice-submit-panel layout-footer z-20 rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-[0_22px_48px_-34px_rgba(15,23,42,0.42)]">
-                <div className="mb-3 flex items-end justify-between gap-3 rounded-[1.15rem] border border-slate-100 bg-slate-50/70 px-3 py-3">
-                    <div>
-                        <div className="text-[11px] font-black text-slate-400">{tr('إجمالي السند', 'Voucher Total')}</div>
-                        <div className="mt-1 text-[10px] font-bold text-slate-300 dir-ltr">{voucherCurrency}</div>
+            <div className="invoice-submit-panel voucher-mobile-submit layout-footer z-20 hidden rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-[0_22px_48px_-34px_rgba(15,23,42,0.42)] md:block">
+                <div className="transaction-submit-panel-details">
+                    <div className="mb-3 flex items-end justify-between gap-3 rounded-[1.15rem] border border-slate-100 bg-slate-50/70 px-3 py-3">
+                        <div>
+                            <div className="text-[11px] font-black text-slate-400">{tr('إجمالي السند', 'Voucher Total')}</div>
+                            <div className="mt-1 text-[10px] font-bold text-slate-300 dir-ltr">{voucherCurrency}</div>
+                        </div>
+                        <span className="text-[2rem] font-black leading-none text-slate-800 dir-ltr">{totalAmountDisplay}</span>
                     </div>
-                    <span className="text-[2rem] font-black leading-none text-slate-800 dir-ltr">{totalAmountDisplay}</span>
                 </div>
-                <button type="button" onClick={handleSubmit} className="w-full rounded-[1.2rem] bg-[#2f63f2] py-4 font-black text-white shadow-[0_18px_32px_-18px_rgba(47,99,242,0.88)] transition-all hover:bg-[#2557ea] active:scale-[0.99]">
+                <button type="button" onClick={handleSubmit} className="hidden w-full rounded-[1.2rem] bg-[#2f63f2] py-4 font-black text-white shadow-[0_18px_32px_-18px_rgba(47,99,242,0.88)] transition-all hover:bg-[#2557ea] active:scale-[0.99] md:block">
                     {initialVoucherId ? tr('تحديث وترحيل السند', 'Update & Post Voucher') : tr('ترحيل السند', 'Post Voucher')}
                 </button>
             </div>
+            <MobileSubmitDock
+                label={initialVoucherId ? tr('تحديث وترحيل السند', 'Update & Post Voucher') : tr('ترحيل السند', 'Post Voucher')}
+                onClick={() => void handleSubmit()}
+                summary={
+                    <div className="transaction-submit-panel-details">
+                        <div className="flex items-end justify-between gap-3 rounded-[1.15rem] border border-slate-100 bg-slate-50/70 px-3 py-3">
+                            <div>
+                                <div className="text-[11px] font-black text-slate-400">{tr('إجمالي السند', 'Voucher Total')}</div>
+                                <div className="mt-1 text-[10px] font-bold text-slate-300 dir-ltr">{voucherCurrency}</div>
+                            </div>
+                            <span className="text-[2rem] font-black leading-none text-slate-800 dir-ltr">{totalAmountDisplay}</span>
+                        </div>
+                    </div>
+                }
+                buttonClassName="bg-[#2f63f2] text-white hover:bg-[#2557ea]"
+            />
             {showQuickContact && (
                 <ContactEditorDialog
                     mode="INVOICE"
@@ -3959,6 +5138,7 @@ const JournalScreen: React.FC<{
         if (relatedContact.type === 'PARTNER' && (relatedContact.currentAccountId || relatedContact.linkedAccountId)) {
             return relatedContact.currentAccountId || relatedContact.linkedAccountId || 'acc_partner_current';
         }
+        if (relatedContact.type === 'SUPPLIER') return relatedContact.currentAccountId || relatedContact.linkedAccountId || 'acc_payable';
         if (relatedContact.type === 'EMPLOYEE') return 'acc_accrued_salaries';
         if (relatedContact.type === 'CUSTOMER') return 'acc_receivable';
         return 'acc_payable';
@@ -3968,12 +5148,29 @@ const JournalScreen: React.FC<{
         if (!accountId) return 'NONE';
         if (isAccountOrDescendantOf(accountId, 'acc_accrued_salaries')) return 'EMPLOYEE';
         if (isAccountOrDescendantOf(accountId, 'acc_receivable_group') || isAccountOrDescendantOf(accountId, 'acc_receivable')) return 'CUSTOMER';
-        if (isAccountOrDescendantOf(accountId, 'acc_payable')) return 'SUPPLIER';
+        if (isAccountOrDescendantOf(accountId, 'acc_payable_group') || isAccountOrDescendantOf(accountId, 'acc_payable')) return 'SUPPLIER';
         if (isAccountOrDescendantOf(accountId, 'acc_cheques_hand')) return 'CHECK_COLLECTION';
         if (isAccountOrDescendantOf(accountId, 'acc_notes_payable')) return 'OUTGOING_CHECK';
         if (accountId === 'acc_depreciation_exp' || accountId === 'acc_accumulated_depreciation') return 'FIXED_ASSET';
         if (isAccountOrDescendantOf(accountId, 'acc_fixed_assets_root')) return 'FIXED_ASSET';
         return 'NONE';
+    };
+
+    const isPurchaseTaxExpenseAccount = (accountId?: string) => {
+        if (!accountId || accountId === 'acc_vat_input') return false;
+        return accountMap.get(accountId)?.type === 'EXPENSE';
+    };
+
+    const getLinePurchaseTaxState = (line: JournalLine) => {
+        const hasDebit = (parseFloat(line.debit) || 0) > 0;
+        const hasCredit = (parseFloat(line.credit) || 0) > 0;
+        const isExpenseAccount = isPurchaseTaxExpenseAccount(line.accountId);
+        return {
+            hasDebit,
+            hasCredit,
+            isExpenseAccount,
+            canSplitTax: isExpenseAccount && hasDebit && !hasCredit
+        };
     };
 
     const totals = useMemo(() => {
@@ -4116,9 +5313,8 @@ const JournalScreen: React.FC<{
                 }
             }
 
-            const hasDebit = (parseFloat(updated.debit) || 0) > 0;
-            const hasCredit = (parseFloat(updated.credit) || 0) > 0;
-            const taxSplitBlocked = !hasDebit || hasCredit || !updated.accountId || updated.accountId === 'acc_vat_input';
+            const { canSplitTax } = getLinePurchaseTaxState(updated);
+            const taxSplitBlocked = !canSplitTax;
             if (taxSplitBlocked) {
                 updated.splitPurchaseTax = false;
             } else if (updated.splitPurchaseTax && !updated.purchaseTaxRate) {
@@ -4132,9 +5328,7 @@ const JournalScreen: React.FC<{
     const toggleLinePurchaseTax = (id: string) => {
         setLines(prev => prev.map(line => {
             if (line.id !== id) return line;
-            const hasDebit = (parseFloat(line.debit) || 0) > 0;
-            const hasCredit = (parseFloat(line.credit) || 0) > 0;
-            const canEnable = hasDebit && !hasCredit && !!line.accountId && line.accountId !== 'acc_vat_input';
+            const { canSplitTax: canEnable } = getLinePurchaseTaxState(line);
             if (!canEnable) return { ...line, splitPurchaseTax: false };
             const nextEnabled = !line.splitPurchaseTax;
             return {
@@ -4192,12 +5386,12 @@ const JournalScreen: React.FC<{
                     )
                 };
             }
-            if (!targetLine.accountId || targetLine.accountId === 'acc_vat_input') {
+            if (!isPurchaseTaxExpenseAccount(targetLine.accountId)) {
                 return {
                     ok: false,
                     message: tr(
-                        `يرجى اختيار حساب مصروف/أصل صالح في السطر ${lineNo} قبل فصل الضريبة.`,
-                        `Please select a valid expense/asset account in line ${lineNo} before tax split.`
+                        `يرجى اختيار حساب مصروف صالح في السطر ${lineNo} قبل فصل الضريبة.`,
+                        `Please select a valid expense account in line ${lineNo} before tax split.`
                     )
                 };
             }
@@ -4529,7 +5723,7 @@ const JournalScreen: React.FC<{
 
     return (
         <div
-            className="transaction-mobile-form w-full max-w-full space-y-2.5 pb-[calc(var(--app-safe-bottom)+4rem)] overflow-x-hidden"
+            className="transaction-mobile-form transaction-screen-with-submit-dock w-full max-w-full space-y-2.5 pb-[calc(var(--app-safe-bottom)+4rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
@@ -4582,14 +5776,6 @@ const JournalScreen: React.FC<{
                         )}
                     </div>
                 </div>
-                <div className="mb-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-2">
-                    <p className="text-[9px] font-bold text-indigo-700/80">
-                        {tr(
-                            'فصل ضريبة الشراء أصبح لكل سطر: فعّل الخيار داخل السطر المدين المطلوب وحدد نسبة الضريبة لذلك السطر.',
-                            'Purchase tax split is now per-line: enable it on the target debit line and set that line tax rate.'
-                        )}
-                    </p>
-                </div>
                 <div className="space-y-3">
                     {lines.map((line, idx) => (
                         <div key={line.id} className="transaction-line-card p-2.5 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-2">
@@ -4607,17 +5793,24 @@ const JournalScreen: React.FC<{
                                 />
                                 <button onClick={() => handleRemoveLine(line.id)} className="text-rose-400 p-2 rounded-xl"><Trash2 size={16} /></button>
                             </div>
-                            <div className="journal-line-grid grid grid-cols-2 lg:grid-cols-4 gap-2 min-w-0">
-                                <input placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr lg:col-span-1" disabled={!!line.credit} />
-                                <input placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr lg:col-span-1" disabled={!!line.debit} />
-                                <input placeholder={tr('شرح مبسط', 'Description')} value={line.description} onChange={e => handleUpdateLine(line.id, 'description', e.target.value)} className="col-span-2 w-full h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none lg:col-span-2" />
+                            <div className="journal-line-grid journal-line-grid--compact grid gap-2 min-w-0">
+                                <label className="min-w-0">
+                                    <span className="mb-1 block px-1 text-[10px] font-black text-emerald-600">{tr('مدين', 'Debit')}</span>
+                                    <input placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
+                                </label>
+                                <label className="min-w-0">
+                                    <span className="mb-1 block px-1 text-[10px] font-black text-rose-600">{tr('دائن', 'Credit')}</span>
+                                    <input placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
+                                </label>
+                                <label className="min-w-0 journal-line-description-field">
+                                    <span className="mb-1 block px-1 text-[10px] font-black text-slate-400">{tr('شرح مبسط', 'Description')}</span>
+                                    <input placeholder={tr('شرح مبسط', 'Description')} value={line.description} onChange={e => handleUpdateLine(line.id, 'description', e.target.value)} className="w-full h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none" />
+                                </label>
                             </div>
 
                             {(() => {
-                                const hasDebit = (parseFloat(line.debit) || 0) > 0;
-                                const hasCredit = (parseFloat(line.credit) || 0) > 0;
-                                const canSplitTax = hasDebit && !hasCredit && !!line.accountId && line.accountId !== 'acc_vat_input';
-                                if (!canSplitTax && !line.splitPurchaseTax) return null;
+                                const { isExpenseAccount, canSplitTax } = getLinePurchaseTaxState(line);
+                                if (!isExpenseAccount && !line.splitPurchaseTax) return null;
                                 return (
                                     <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-2 space-y-2">
                                         <div className="flex items-center justify-between gap-2">
@@ -4792,24 +5985,26 @@ const JournalScreen: React.FC<{
                 </div>
             </div>
 
-            <div className="bg-slate-900/98 backdrop-blur p-4 sm:p-5 rounded-[1.8rem] sm:rounded-[2.2rem] text-white shadow-2xl sticky keyboard-aware-sticky mx-auto z-30 border border-white/5 space-y-3">
-                <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded-xl bg-white/5 p-2">
-                        <div className="text-[10px] font-black text-emerald-300">{tr('إجمالي مدين', 'Total Debit')}</div>
-                        <div className="text-sm font-black dir-ltr text-emerald-200">{totals.totalDebit.toLocaleString()}</div>
-                    </div>
-                    <div className="rounded-xl bg-white/5 p-2">
-                        <div className="text-[10px] font-black text-rose-300">{tr('إجمالي دائن', 'Total Credit')}</div>
-                        <div className="text-sm font-black dir-ltr text-rose-200">{totals.totalCredit.toLocaleString()}</div>
-                    </div>
-                    <div className={`rounded-xl p-2 ${isBalanced ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
-                        <div className={`text-[10px] font-black ${isBalanced ? 'text-emerald-200' : 'text-amber-200'}`}>{tr('الفرق', 'Difference')}</div>
-                        <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString()}</div>
+            <div className="journal-submit-panel mx-auto hidden space-y-3 rounded-[1.8rem] border border-white/5 bg-slate-900/98 p-4 text-white shadow-2xl backdrop-blur md:sticky md:block sm:rounded-[2.2rem] sm:p-5 keyboard-aware-sticky z-30">
+                <div className="transaction-submit-panel-details">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-xl bg-white/5 p-2">
+                            <div className="text-[10px] font-black text-emerald-300">{tr('إجمالي مدين', 'Total Debit')}</div>
+                            <div className="text-sm font-black dir-ltr text-emerald-200">{totals.totalDebit.toLocaleString()}</div>
+                        </div>
+                        <div className="rounded-xl bg-white/5 p-2">
+                            <div className="text-[10px] font-black text-rose-300">{tr('إجمالي دائن', 'Total Credit')}</div>
+                            <div className="text-sm font-black dir-ltr text-rose-200">{totals.totalCredit.toLocaleString()}</div>
+                        </div>
+                        <div className={`rounded-xl p-2 ${isBalanced ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
+                            <div className={`text-[10px] font-black ${isBalanced ? 'text-emerald-200' : 'text-amber-200'}`}>{tr('الفرق', 'Difference')}</div>
+                            <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString()}</div>
+                        </div>
                     </div>
                 </div>
                 <button
                     onClick={handleSubmit}
-                    className={`w-full min-h-[54px] sm:min-h-[58px] py-3 rounded-2xl font-black text-base shadow-lg active:scale-[0.99] transition-all ${isBalanced && totals.totalDebit > 0
+                    className={`hidden w-full min-h-[54px] sm:min-h-[58px] py-3 rounded-2xl font-black text-base shadow-lg active:scale-[0.99] transition-all md:block ${isBalanced && totals.totalDebit > 0
                         ? 'bg-blue-600 hover:bg-blue-500 text-white'
                         : 'bg-slate-700 text-slate-300'
                         }`}
@@ -4820,13 +6015,44 @@ const JournalScreen: React.FC<{
                     )}
                 </button>
             </div>
+            <MobileSubmitDock
+                label={tr(
+                    isEditingJournal ? 'تحديث وترحيل القيد' : 'ترحيل القيد',
+                    isEditingJournal ? 'Update & Post Journal Entry' : 'Post Journal Entry'
+                )}
+                onClick={() => void handleSubmit()}
+                disabled={!(isBalanced && totals.totalDebit > 0)}
+                summary={
+                    <div className="transaction-submit-panel-details">
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="rounded-xl bg-white/5 p-2">
+                                <div className="text-[10px] font-black text-emerald-300">{tr('إجمالي مدين', 'Total Debit')}</div>
+                                <div className="text-sm font-black text-emerald-200 dir-ltr">{totals.totalDebit.toLocaleString()}</div>
+                            </div>
+                            <div className="rounded-xl bg-white/5 p-2">
+                                <div className="text-[10px] font-black text-rose-300">{tr('إجمالي دائن', 'Total Credit')}</div>
+                                <div className="text-sm font-black text-rose-200 dir-ltr">{totals.totalCredit.toLocaleString()}</div>
+                            </div>
+                            <div className={`rounded-xl p-2 ${isBalanced ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
+                                <div className={`text-[10px] font-black ${isBalanced ? 'text-emerald-200' : 'text-amber-200'}`}>{tr('الفرق', 'Difference')}</div>
+                                <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString()}</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                panelClassName="border-white/5 bg-slate-900/98 text-white shadow-2xl"
+                buttonClassName={isBalanced && totals.totalDebit > 0
+                    ? 'bg-blue-600 text-white hover:bg-blue-500'
+                    : 'bg-slate-700 text-slate-300'}
+            />
         </div>
     );
 };
 
-const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialVoucherType, initialCategory, initialLinkedInvoiceId, initialInvoiceId, initialVoucherId, onBack }) => {
+const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialVoucherType, initialCategory, initialLinkedInvoiceId, initialInvoiceId, initialVoucherId, initialDraft, onBack }) => {
     const { companySettings, currencies, baseCurrency, invoices, transactions } = useAccounting();
     const [mode, setMode] = useState<TransactionTabType>(initialMode);
+    const [activeInvoiceDraft, setActiveInvoiceDraft] = useState<InvoiceFormDraftState | undefined>(initialDraft);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const allowEditEntryDate = companySettings.allowEditEntryDate ?? true;
@@ -4858,6 +6084,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         date: getTodayDateString()
     }));
     const [outerHeaderActionsContainer, setOuterHeaderActionsContainer] = useState<HTMLDivElement | null>(null);
+    const [isOuterExchangeRateEditorOpen, setIsOuterExchangeRateEditorOpen] = useState(false);
+    const outerExchangeRateEditorRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         if (!currencyOptions.some(c => c.code === sharedState.currency)) {
@@ -4868,6 +6096,31 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
     const handleCurrencyChange = (code: string) => {
         setSharedState(prev => ({ ...prev, currency: code, rate: getRateForCurrency(code) }));
     };
+
+    const journalExchangeRateLabel = useMemo(
+        () => Number(sharedState.rate || 1).toLocaleString('en-US', {
+            minimumFractionDigits: sharedState.currency === baseCurrency ? 0 : 2,
+            maximumFractionDigits: 6
+        }),
+        [sharedState.rate, sharedState.currency, baseCurrency]
+    );
+
+    useEffect(() => {
+        if (!isOuterExchangeRateEditorOpen) return;
+        const handlePointerDown = (event: PointerEvent) => {
+            if (!outerExchangeRateEditorRef.current?.contains(event.target as Node)) {
+                setIsOuterExchangeRateEditorOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', handlePointerDown);
+        return () => window.removeEventListener('pointerdown', handlePointerDown);
+    }, [isOuterExchangeRateEditorOpen]);
+
+    useEffect(() => {
+        if (sharedState.currency === baseCurrency) {
+            setIsOuterExchangeRateEditorOpen(false);
+        }
+    }, [sharedState.currency, baseCurrency]);
 
     useEffect(() => {
         if (editingInvoice) {
@@ -4896,6 +6149,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
         setCurrentVoucherType(initialVoucherType || 'RECEIPT');
     }, [editingVoucherLead, initialVoucherType]);
 
+    useEffect(() => {
+        setActiveInvoiceDraft(initialDraft);
+    }, [initialDraft]);
+
     const screenTitle = useMemo(() => {
         const baseTitle = (() => {
         switch (mode) {
@@ -4919,6 +6176,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
     }, [mode, currentVoucherType, isEnglish, isEditing]);
 
     const handleFlowSuccess = () => {
+        setActiveInvoiceDraft(undefined);
         setMode(initialMode);
         onBack();
     };
@@ -4958,7 +6216,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     )}
                 </div>
                 <div className="mt-2">
-                    <div className="header-fields-grid grid grid-cols-3 gap-2 items-start">
+                    <div className="header-fields-grid header-fields-grid--journal-inline-rate grid grid-cols-2 gap-2 items-start">
                         <div className="min-w-0">
                             <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
                                 {tr('تاريخ العملية', 'Operation Date')}
@@ -4985,41 +6243,82 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                             <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
                                 {tr('العملة', 'Currency')}
                             </label>
-                            <div className="relative">
-                                <select
-                                    value={sharedState.currency}
-                                    onChange={e => handleCurrencyChange(e.target.value)}
-                                    className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
-                                >
-                                    {currencyOptions.map(currency => (
-                                        <option key={currency.code} value={currency.code}>
-                                            {currency.code} - {currency.symbol}
-                                        </option>
-                                    ))}
-                                </select>
-                                <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
+                            <div ref={outerExchangeRateEditorRef} className="relative">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <div className="relative min-w-0 flex-1">
+                                        <select
+                                            value={sharedState.currency}
+                                            onChange={e => handleCurrencyChange(e.target.value)}
+                                            className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 appearance-none"
+                                        >
+                                            {currencyOptions.map(currency => (
+                                                <option key={currency.code} value={currency.code}>
+                                                    {currency.code} - {currency.symbol}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <Coins className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (sharedState.currency === baseCurrency) return;
+                                            setIsOuterExchangeRateEditorOpen(prev => !prev);
+                                        }}
+                                        disabled={sharedState.currency === baseCurrency}
+                                        className={`relative inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl border transition-all ${
+                                            sharedState.currency === baseCurrency
+                                                ? 'border-gray-200 bg-gray-50 text-gray-300'
+                                                : isOuterExchangeRateEditorOpen
+                                                    ? 'border-blue-200 bg-blue-50 text-blue-600 shadow-sm'
+                                                    : 'border-gray-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600'
+                                        }`}
+                                        aria-label={`${tr('سعر الصرف', 'Exchange rate')}: ${journalExchangeRateLabel} (${tr('مقابل', 'vs')} ${baseCurrency})`}
+                                        aria-expanded={isOuterExchangeRateEditorOpen}
+                                        title={`${tr('سعر الصرف', 'Exchange rate')}: ${journalExchangeRateLabel}`}
+                                    >
+                                        <ArrowRightLeft size={15} />
+                                        {sharedState.currency !== baseCurrency && (
+                                            <span className="absolute -top-1.5 -right-1.5 min-w-[1.4rem] rounded-full bg-slate-900 px-1.5 py-0.5 text-[8px] font-black leading-none text-white dir-ltr">
+                                                {journalExchangeRateLabel}
+                                            </span>
+                                        )}
+                                    </button>
+                                </div>
+                                {isOuterExchangeRateEditorOpen && sharedState.currency !== baseCurrency && (
+                                    <div className="absolute top-full left-0 right-0 z-20 mt-2 rounded-2xl border border-blue-100 bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.14)]">
+                                        <label className="mb-2 flex items-center justify-between gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                            <span>{tr('سعر الصرف', 'Exchange Rate')}</span>
+                                            <span className="dir-ltr text-blue-600">{baseCurrency}</span>
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                min="0.0001"
+                                                step="0.0001"
+                                                value={sharedState.rate}
+                                                onChange={e => {
+                                                    const parsed = parseFloat(e.target.value);
+                                                    setSharedState(prev => ({
+                                                        ...prev,
+                                                        rate: Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+                                                    }));
+                                                }}
+                                                onKeyDown={event => {
+                                                    if (event.key === 'Enter' || event.key === 'Escape') {
+                                                        setIsOuterExchangeRateEditorOpen(false);
+                                                    }
+                                                }}
+                                                autoFocus
+                                                className="w-full py-2.5 pl-9 pr-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 dir-ltr"
+                                                aria-label={`${tr('سعر الصرف', 'Exchange rate')} (${tr('مقابل', 'vs')} ${baseCurrency})`}
+                                            />
+                                            <ArrowRightLeft className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={14} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        </div>
-                        <div className="min-w-0">
-                            <label className="block truncate text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-1.5 leading-tight">
-                                {tr('سعر الصرف', 'Exchange Rate')} ({tr('مقابل', 'vs')} {baseCurrency})
-                            </label>
-                            <input
-                                type="number" inputMode="decimal"
-                                min="0.0001"
-                                step="0.0001"
-                                value={sharedState.rate}
-                                onChange={e => {
-                                    const parsed = parseFloat(e.target.value);
-                                    setSharedState(prev => ({
-                                        ...prev,
-                                        rate: Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-                                    }));
-                                }}
-                                disabled={sharedState.currency === baseCurrency}
-                                className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-xs font-black text-slate-700 outline-none focus:ring-4 ring-blue-50 disabled:bg-gray-50 disabled:text-gray-400 dir-ltr"
-                                aria-label={tr('سعر الصرف', 'Exchange rate')}
-                            />
                         </div>
                     </div>
                 </div>
@@ -5050,11 +6349,15 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
                     onDateChange={value => setSharedState(prev => ({ ...prev, date: value }))}
                     onCurrencyChange={handleCurrencyChange}
                     onRateChange={value => setSharedState(prev => ({ ...prev, rate: value }))}
-                    onModeChange={nextMode => setMode(nextMode)}
+                    onModeChange={(nextMode, draft) => {
+                        setActiveInvoiceDraft(draft);
+                        setMode(nextMode);
+                    }}
                     onSuccess={handleFlowSuccess}
                     onBack={onBack}
                     linkedInvoiceId={initialLinkedInvoiceId}
                     initialInvoiceId={initialInvoiceId}
+                    initialDraft={activeInvoiceDraft}
                 />
             )}
         </div>

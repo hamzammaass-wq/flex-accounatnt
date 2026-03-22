@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { AccountType, Account } from '../types';
 import { getDisplayAccountName } from '../utils/displayNames';
+import { openDrilldown } from '../utils/drilldown';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import {
     Plus, Trash2, Folder, FileText, ChevronDown, ChevronRight,
@@ -11,10 +12,19 @@ import {
 
 const HIDDEN_ACCOUNT_ROOT_IDS = new Set(['acc_partner_drawings']);
 
+const isHiddenCustomerReceivableDetail = (account: Pick<Account, 'id' | 'parentId'>) => (
+    account.id !== 'acc_receivable'
+    && (
+        account.parentId === 'acc_receivable_group'
+        || String(account.id || '').startsWith('acc_receivable_')
+    )
+);
+
 const isVisibleInAccountsTree = (account: Pick<Account, 'id' | 'parentId'>): boolean => (
     !HIDDEN_ACCOUNT_ROOT_IDS.has(account.id)
     && !HIDDEN_ACCOUNT_ROOT_IDS.has(account.parentId || '')
     && !String(account.id || '').startsWith('acc_partner_drawings_')
+    && !isHiddenCustomerReceivableDetail(account)
 );
 
 const AccountsTree: React.FC = () => {
@@ -194,7 +204,12 @@ const AccountsTree: React.FC = () => {
         return (
             <div key={account.id} className="animate-in fade-in slide-in-from-right-2">
                 <div
-                    className={`flex items-center justify-between p-3 mb-1 rounded-2xl border transition-all ${account.isGroup ? 'bg-white font-black border-slate-100 shadow-sm' : 'bg-slate-50/40 border-transparent font-medium'
+                    onDoubleClick={() => {
+                        if (!account.isGroup) {
+                            openDrilldown({ kind: 'ACCOUNT_LEDGER', accountId: account.id });
+                        }
+                    }}
+                    className={`flex items-center justify-between p-3 mb-1 rounded-2xl border transition-all ${!account.isGroup ? 'cursor-pointer' : ''} ${account.isGroup ? 'bg-white font-black border-slate-100 shadow-sm' : 'bg-slate-50/40 border-transparent font-medium'
                         }`}
                     style={{ marginRight: isFlatView ? '0' : `${depth * 16}px` }}
                 >

@@ -6,6 +6,7 @@ import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNa
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { executeDeviceHubCommand } from '../utils/deviceHub';
 import { getSelectedThermalTemplate, getThermalTemplateCustomization } from '../utils/thermalPrintTemplates';
+import { openDrilldown } from '../utils/drilldown';
 import {
     Plus, Search, ArrowDownLeft, ArrowUpRight,
     Calendar, User, Receipt,
@@ -24,7 +25,7 @@ interface VoucherManagerProps {
 const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditVoucher }) => {
     const { transactions, accounts, baseCurrency, postVoucher, deleteVoucher, reverseTransaction, contacts, checks, companySettings, currentCompanyId } = useAccounting();
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED' | 'DRAFT'>('ALL');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED'>('ALL');
     const [contactFilterId, setContactFilterId] = useState('ALL');
     const [fromDateFilter, setFromDateFilter] = useState('');
     const [toDateFilter, setToDateFilter] = useState('');
@@ -40,6 +41,14 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayContactName = (contact?: { id: string; name: string } | null) => getDisplayContactName(contact || undefined, isEnglish);
+    const openContactStatement = (contactId?: string) => {
+        if (!contactId) return;
+        openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+    };
+    const openAccountLedger = (accountId?: string) => {
+        if (!accountId) return;
+        openDrilldown({ kind: 'ACCOUNT_LEDGER', accountId });
+    };
     const theme = isReceipt
         ? { primary: 'text-emerald-600', gradient: 'from-emerald-600 to-teal-700', button: 'bg-emerald-600', shadow: 'shadow-emerald-100' }
         : { primary: 'text-rose-600', gradient: 'from-rose-600 to-pink-700', button: 'bg-rose-600', shadow: 'shadow-rose-100' };
@@ -98,7 +107,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                 const contact = contacts.find(c => c.id === first.contactId) || null;
                 const contactName = displayContactName(contact);
                 const totalAmount = parts.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-                const voucherStatus: 'DRAFT' | 'POSTED' = parts.some(item => item.status === 'DRAFT') ? 'DRAFT' : 'POSTED';
+                const voucherStatus: 'POSTED' = 'POSTED';
 
                 if (statusFilter !== 'ALL' && voucherStatus !== statusFilter) return false;
                 if (contactFilterId !== 'ALL' && first.contactId !== contactFilterId) return false;
@@ -266,11 +275,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
         const printFont = isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', sans-serif";
         const contact = contacts.find(c => c.id === first.contactId);
         const contactName = getContactName(first.contactId);
-        const voucherStatus = parts.every(part => part.status === 'POSTED')
-            ? tr('مرحل', 'Posted')
-            : parts.some(part => part.status === 'DRAFT')
-                ? tr('مسودة', 'Draft')
-                : '-';
+        const voucherStatus = tr('مرحل', 'Posted');
         const currency = first.currency || baseCurrency;
         const exchangeRate = Number(first.exchangeRate || 1);
         const totalAmount = parts.reduce((sum, part) => sum + (part.amount || 0), 0);
@@ -659,12 +664,11 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                             <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('الحالة', 'Status')}</label>
                             <select
                                 value={statusFilter}
-                                onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'POSTED' | 'DRAFT')}
+                                onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'POSTED')}
                                 className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
                             >
                                 <option value="ALL">{tr('كل الحالات', 'All statuses')}</option>
                                 <option value="POSTED">{tr('مرحل فقط', 'Posted only')}</option>
-                                <option value="DRAFT">{tr('مسودات فقط', 'Draft only')}</option>
                             </select>
                         </div>
 
@@ -798,8 +802,8 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                     <div className={`grid items-start gap-2 sm:gap-3 ${isEnglish ? 'grid-cols-[5.1rem_minmax(0,1fr)_3.2rem] sm:grid-cols-[6.4rem_minmax(0,1fr)_4.4rem]' : 'grid-cols-[3.2rem_minmax(0,1fr)_5.1rem] sm:grid-cols-[4.4rem_minmax(0,1fr)_6.4rem]'}`}>
                                         <div className={`flex flex-col gap-1 ${isEnglish ? 'order-3 items-end' : 'order-1 items-start'}`}>
                                             <div className={`flex flex-wrap gap-1 ${isEnglish ? 'justify-end' : 'justify-start'} sm:gap-1.5`}>
-                                                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black sm:px-3 sm:py-1 sm:text-[11px] ${isDraft ? 'border border-amber-200 bg-amber-50 text-amber-700' : isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
-                                                    {isDraft ? tr('مسودة', 'Draft') : tr('مرحل', 'Posted')}
+                                                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black sm:px-3 sm:py-1 sm:text-[11px] ${isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
+                                                    {tr('مرحل', 'Posted')}
                                                 </span>
                                                 <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-black text-slate-500 sm:px-3 sm:py-1 sm:text-[11px]">
                                                     {id}
@@ -818,7 +822,15 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                         <User size={13} />
                                                         <span>{tr('الطرف', 'Contact')}</span>
                                                     </div>
-                                                    <div className="mt-0.5 text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base">
+                                                    <div
+                                                        className="mt-0.5 text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base cursor-pointer hover:text-indigo-600"
+                                                        onClick={(event) => event.stopPropagation()}
+                                                        onDoubleClick={(event) => {
+                                                            event.stopPropagation();
+                                                            openContactStatement(firstPart?.contactId);
+                                                        }}
+                                                        title={firstPart?.contactId ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined}
+                                                    >
                                                         {getContactName(firstPart?.contactId)}
                                                     </div>
                                                     <div className="mt-0.5 truncate text-[11px] font-bold leading-4 text-slate-500 sm:mt-1 sm:text-xs">
@@ -839,11 +851,11 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                             </div>
                                         </div>
 
-                                        <div className={`rounded-[1rem] border px-2 py-2 text-center sm:rounded-[1.2rem] sm:px-3 sm:py-3 ${isDraft ? 'border-slate-200 bg-slate-50' : isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'} ${isEnglish ? 'order-1' : 'order-3'}`}>
+                                        <div className={`rounded-[1rem] border px-2 py-2 text-center sm:rounded-[1.2rem] sm:px-3 sm:py-3 ${isReceipt ? 'border-emerald-100 bg-emerald-50' : 'border-rose-100 bg-rose-50'} ${isEnglish ? 'order-1' : 'order-3'}`}>
                                             <div className="text-[9px] font-black tracking-[0.08em] text-slate-400 sm:text-[11px]">
                                                 {tr('قيمة السند', 'Voucher amount')}
                                             </div>
-                                            <div className={`mt-1.5 text-[0.95rem] font-black leading-none dir-ltr sm:mt-2 sm:text-[1.65rem] ${isDraft ? 'text-slate-600' : isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            <div className={`mt-1.5 text-[0.95rem] font-black leading-none dir-ltr sm:mt-2 sm:text-[1.65rem] ${isReceipt ? 'text-emerald-700' : 'text-rose-700'}`}>
                                                 {formatAmount(totalAmount)}
                                             </div>
                                             <div className="mt-1 text-[10px] font-black text-slate-500 sm:text-xs">
@@ -878,7 +890,11 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                                     <div className="min-w-0">
                                                                         <div className="text-[11px] font-black text-slate-900 sm:text-xs">{p.description}</div>
                                                                         {paymentAccount && !relatedCheck && (
-                                                                            <div className="mt-0.5 text-[10px] font-bold text-slate-500 sm:text-[11px]">
+                                                                            <div
+                                                                                className="mt-0.5 text-[10px] font-bold text-slate-500 sm:text-[11px] cursor-pointer hover:text-indigo-600"
+                                                                                onDoubleClick={() => openAccountLedger(paymentAccount.id)}
+                                                                                title={tr('اضغط مرتين لفتح حركة الحساب', 'Double-click to open account ledger')}
+                                                                            >
                                                                                 {isReceipt ? tr('تم التحصيل في', 'Received in') : tr('تم الصرف من', 'Paid from')}: {displayAccountName(paymentAccount)}
                                                                             </div>
                                                                         )}
@@ -918,24 +934,13 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                 </button>
                                             )}
 
-                                            {isDraft ? (
-                                                <button
-                                                    onClick={(e) => handlePostGroup(id, e)}
-                                                    disabled={processing}
-                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] bg-emerald-600 px-3 py-2 text-[11px] font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
-                                                >
-                                                    {processing ? <Clock size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                                                    {processing ? tr('جاري الترحيل...', 'Posting...') : tr('اعتماد وترحيل', 'Post voucher')}
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    onClick={(e) => handleReverseGroup(parts, e)}
-                                                    className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
-                                                >
-                                                    <RotateCcw size={16} />
-                                                    {tr('عكس القيد', 'Reverse')}
-                                                </button>
-                                            )}
+                                            <button
+                                                onClick={(e) => handleReverseGroup(parts, e)}
+                                                className="inline-flex items-center justify-center gap-2 rounded-[0.85rem] border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100 sm:rounded-[0.95rem] sm:py-2.5 sm:text-xs"
+                                            >
+                                                <RotateCcw size={16} />
+                                                {tr('عكس القيد', 'Reverse')}
+                                            </button>
 
                                             <button
                                                 onClick={(e) => handlePrintVoucher(id, parts, e)}

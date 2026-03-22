@@ -4,6 +4,7 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { Landmark, Wallet, Plus, Trash2, ArrowDownLeft, ArrowUpRight, Briefcase, Edit2, Check, X, Coins, TrendingUp, TrendingDown, Sparkles, Globe, Hash } from 'lucide-react';
 import { TransactionType } from '../types';
 import { getDisplayAccountName, getDisplayCurrencyName } from '../utils/displayNames';
+import { openDrilldown } from '../utils/drilldown';
 
 const TreasuryManager: React.FC = () => {
     const { accounts, addAccount, updateAccount, deleteAccount, transactions, baseCurrency, currencies, companySettings } = useAccounting();
@@ -20,6 +21,10 @@ const TreasuryManager: React.FC = () => {
     const [editValue, setEditValue] = useState('');
     const displayAccountName = (account: { id: string; name: string }) => getDisplayAccountName(account, isEnglish);
     const displayCurrencyName = (currency: { code: string; name: string }) => getDisplayCurrencyName(currency, isEnglish);
+    const openAccountLedger = (accountId?: string) => {
+        if (!accountId) return;
+        openDrilldown({ kind: 'ACCOUNT_LEDGER', accountId });
+    };
 
     // Filtering logic based on Chart of Accounts Hierarchy
     const boxes = useMemo(() => accounts.filter(a =>
@@ -170,7 +175,12 @@ const TreasuryManager: React.FC = () => {
                     const isEditing = editingId === account.id;
                     const isForeign = account.currency && account.currency !== baseCurrency;
                     return (
-                        <div key={account.id} className="bg-white p-5 rounded-[2.5rem] border border-gray-50 shadow-sm flex flex-col items-stretch group animate-in slide-in-from-bottom-5 transition-all hover:shadow-lg hover:border-gray-100">
+                        <div
+                            key={account.id}
+                            onDoubleClick={() => !isEditing && openAccountLedger(account.id)}
+                            className="bg-white p-5 rounded-[2.5rem] border border-gray-50 shadow-sm flex flex-col items-stretch group animate-in slide-in-from-bottom-5 transition-all hover:shadow-lg hover:border-gray-100"
+                            title={isEditing ? undefined : tr('اضغط مرتين لفتح حركة الحساب', 'Double-click to open account ledger')}
+                        >
                             <div className="flex items-start justify-between gap-3 mb-4">
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
                                     <div className={`p-4 rounded-2xl transition-all duration-500 shadow-sm ${activeTab === 'BOX' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'}`}>

@@ -11,6 +11,7 @@ import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
+import { openDrilldown } from '../utils/drilldown';
 
 interface PurchasesExpensesProps {
     onNavigate: (tab: TabView, formTab?: TransactionTabType, voucherType?: 'RECEIPT' | 'PAYMENT') => void;
@@ -20,7 +21,7 @@ interface PurchasesExpensesProps {
 const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEditInvoice }) => {
   const { invoices, contacts, products, baseCurrency, companySettings, deleteInvoice } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED' | 'DRAFT'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'POSTED'>('ALL');
   const [contactFilterId, setContactFilterId] = useState('ALL');
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
@@ -34,6 +35,14 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
     getDisplayContactName(contact || undefined, isEnglish);
   const displayProductName = (product?: { id: string; name: string } | null) =>
     getDisplayProductName(product || undefined, isEnglish);
+  const openContactStatement = (contactId?: string) => {
+    if (!contactId) return;
+    openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+  };
+  const openProductMovement = (productId?: string) => {
+    if (!productId) return;
+    openDrilldown({ kind: 'PRODUCT_MOVEMENT', productId });
+  };
   const asText = (value: unknown) => String(value ?? '');
   const getInvoiceItems = (inv: { items?: unknown }) => Array.isArray(inv.items) ? inv.items : [];
   const getInvoiceTotal = (inv: { totalAmount?: unknown }) => Number(inv.totalAmount || 0);
@@ -237,12 +246,11 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
               <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('الحالة', 'Status')}</label>
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'POSTED' | 'DRAFT')}
+                onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'POSTED')}
                 className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
               >
                 <option value="ALL">{tr('كل الحالات', 'All statuses')}</option>
                 <option value="POSTED">{tr('مرحل فقط', 'Posted only')}</option>
-                <option value="DRAFT">{tr('مسودات فقط', 'Draft only')}</option>
               </select>
             </div>
 
@@ -358,7 +366,15 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                                     {invoiceItems.length > 1 && ` + ${invoiceItems.length - 1} ${tr('بنود', 'items')}`}
                                 </h4>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[9px] font-black text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-100">
+                                    <span
+                                        className="text-[9px] font-black text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-100 cursor-pointer hover:text-rose-600"
+                                        onClick={(event) => event.stopPropagation()}
+                                        onDoubleClick={(event) => {
+                                            event.stopPropagation();
+                                            openContactStatement(inv.customerId);
+                                        }}
+                                        title={tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement')}
+                                    >
                                         {getContactName(inv.customerId)}
                                     </span>
                                     <span className="text-[9px] font-bold text-gray-300">{formatDate(inv.date)}</span>
@@ -381,7 +397,15 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                             <div className="space-y-3 mb-4">
                                 {invoiceItems.map((item, idx) => (
                                     <div key={idx} className="flex justify-between items-center text-xs bg-gray-50 p-3 rounded-xl border border-gray-100">
-                                        <span className="font-bold text-gray-700">
+                                        <span
+                                            className={`font-bold text-gray-700 ${item.productId ? 'cursor-pointer hover:text-rose-600' : ''}`}
+                                            onClick={(event) => event.stopPropagation()}
+                                            onDoubleClick={(event) => {
+                                                event.stopPropagation();
+                                                if (item.productId) openProductMovement(item.productId);
+                                            }}
+                                            title={item.productId ? tr('اضغط مرتين لفتح حركة الصنف', 'Double-click to open item movement') : undefined}
+                                        >
                                             {item.productId ? displayProductName(products.find(p => p.id === item.productId) || null) : item.description}
                                         </span>
                                         <div className="flex items-center gap-3">

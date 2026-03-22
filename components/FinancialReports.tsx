@@ -4,9 +4,11 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { Account, AccountType, TransactionType, Product, Invoice, Check, Transaction, ImportExpenseDistribution } from '../types';
 import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
-import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { downloadElementAsPdf, exportElementAsCsv, printElementContent, settleElementBeforeSnapshot } from '../utils/documentExport';
-import { getFiscalYear, getFiscalYearStart, isProfitLossAccount, isReportYearClosed } from '../utils/fiscalYear';
+import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
+import { buildElementPdfFile, downloadBlobFile, downloadElementAsHtml, exportElementAsCsv, extractElementReadableText, printElementContent, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
+import { getCurrentFiscalYearRange, getFiscalYear, getFiscalYearStart, isProfitLossAccount, isReportYearClosed } from '../utils/fiscalYear';
+import { isStockProduct } from '../utils/productKind';
 import {
     FileText, TrendingUp, Landmark, ChevronDown,
     ArrowLeft, Scale, Package, BarChart3, PieChart, Coins,
@@ -25,9 +27,9 @@ type ReportType =
     | 'DAILY_OPS' | 'DAILY_JOURNALS' | 'CASH_FLOW' | 'ACCOUNT_ACTIVITY'
     | 'CAT_TOTALS' | 'CUSTOMER_PROFIT' | 'CUSTOMER_AGING' | 'CUSTOMER_STATEMENT' | 'SUPPLIER_AGING' | 'SUPPLIER_STATEMENT' | 'SALES_BY_ITEM' | 'PURCHASES_BY_ITEM'
     | 'ITEM_MOVEMENT' | 'AVERAGE_COST_AUDIT' | 'CHECKS_IN' | 'CHECKS_OUT' | 'CHECKS_VAULT' | 'CHECKS_UNDER_COLLECTION_BANK' | 'CHECKS_MATURITY' | 'PURCHASES_LIST' | 'SALES_LIST'
-    | 'PURCHASES_COST_SUMMARY' | 'PURCHASE_COST_BY_ITEM' | 'PURCHASE_PRICE_VARIANCE' | 'SUPPLIER_ANALYSIS' | 'IMPORT_EXPENSES_DETAIL'
+    | 'PURCHASES_COST_SUMMARY' | 'PURCHASE_COST_BY_ITEM' | 'PURCHASE_PRICE_VARIANCE' | 'SUPPLIER_ANALYSIS' | 'IMPORT_EXPENSES_DETAIL' | 'MANUAL_EXPENSE_LINES'
     | 'RECEIPTS_LIST' | 'PAYMENTS_LIST' | 'MANUFACTURING_COST' | 'LIABILITIES_REPORT'
-    | 'ACCOUNTING_ANALYTICS' | 'FINANCIAL_RATIOS' | 'EQUITY_CHANGES' | 'FIXED_ASSETS_CHANGES' | 'INVENTORY_COUNT_LIST'
+    | 'ACCOUNTING_ANALYTICS' | 'FINANCIAL_RATIOS' | 'EQUITY_CHANGES' | 'FIXED_ASSETS_CHANGES' | 'INVENTORY_COUNT_LIST' | 'MANUAL_UNDEFINED_ITEMS'
     | 'MENU';
 
 interface AccountNode extends Account {
@@ -44,15 +46,20 @@ const AccountRow: React.FC<{
     colorClass: string;
     formatValue: (val: number) => string;
     displayAccountName: (account: Pick<Account, 'id' | 'name'>) => string;
-}> = ({ node, level = 0, colorClass, formatValue, displayAccountName }) => {
+    onDoubleClickAccount?: (accountId: string) => void;
+    collapsedNodeIds?: ReadonlySet<string>;
+}> = ({ node, level = 0, colorClass, formatValue, displayAccountName, onDoubleClickAccount, collapsedNodeIds }) => {
     // Skip if 0 balance and no children activity
     if (Math.abs(node.nodeValue) < 0.01 && node.children.every(c => Math.abs(c.nodeValue) < 0.01)) return null;
+    const showChildren = node.children.length > 0 && !collapsedNodeIds?.has(node.id);
 
     return (
         <div className="flex flex-col">
             <div
-                className={`flex justify-between items-center py-2 px-2 hover:bg-gray-50 rounded-lg transition-colors ${level === 0 ? 'font-black text-gray-800 bg-gray-50/50 mb-1' : 'text-xs text-gray-600'} ${level > 0 ? 'border-r-2 border-gray-100 pr-3' : ''}`}
+                className={`flex justify-between items-center py-2 px-2 hover:bg-gray-50 rounded-lg transition-colors ${onDoubleClickAccount ? 'cursor-pointer' : ''} ${level === 0 ? 'font-black text-gray-800 bg-gray-50/50 mb-1' : 'text-xs text-gray-600'} ${level > 0 ? 'border-r-2 border-gray-100 pr-3' : ''}`}
                 style={{ paddingRight: `${level * 1.5 + 0.5}rem` }}
+                onDoubleClick={() => onDoubleClickAccount?.(node.id)}
+                title={onDoubleClickAccount ? 'Double click to open account activity' : undefined}
             >
                 <div className="flex items-center gap-2">
                     {level > 0 && <div className="w-1.5 h-1.5 rounded-full bg-gray-200"></div>}
@@ -62,9 +69,9 @@ const AccountRow: React.FC<{
                     {formatValue(Math.abs(node.nodeValue))}
                 </span>
             </div>
-            {node.children.length > 0 && (
+            {showChildren && (
                 <div className="border-r border-dashed border-gray-100 mr-4">
-                    {node.children.map(child => <AccountRow key={child.id} node={child} level={level + 1} colorClass={colorClass} formatValue={formatValue} displayAccountName={displayAccountName} />)}
+                    {node.children.map(child => <AccountRow key={child.id} node={child} level={level + 1} colorClass={colorClass} formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={onDoubleClickAccount} collapsedNodeIds={collapsedNodeIds} />)}
                 </div>
             )}
         </div>
@@ -77,7 +84,9 @@ const BalanceSheetSection: React.FC<{
     color: string;
     formatValue: (val: number) => string;
     displayAccountName: (account: Pick<Account, 'id' | 'name'>) => string;
-}> = ({ title, rootNode, color, formatValue, displayAccountName }) => {
+    onDoubleClickAccount?: (accountId: string) => void;
+    collapsedNodeIds?: ReadonlySet<string>;
+}> = ({ title, rootNode, color, formatValue, displayAccountName, onDoubleClickAccount, collapsedNodeIds }) => {
     if (!rootNode) return null;
     return (
         <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm mb-4">
@@ -86,34 +95,53 @@ const BalanceSheetSection: React.FC<{
                 <span className={`font-black text-lg dir-ltr ${color}`}>{formatValue(rootNode.nodeValue)}</span>
             </div>
             <div className="space-y-1">
-                {rootNode.children.map(child => <AccountRow key={child.id} node={child} colorClass="text-gray-600" formatValue={formatValue} displayAccountName={displayAccountName} />)}
+                {rootNode.children.map(child => <AccountRow key={child.id} node={child} colorClass="text-gray-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={onDoubleClickAccount} collapsedNodeIds={collapsedNodeIds} />)}
             </div>
         </div>
     );
 };
 
 const FinancialReports: React.FC = () => {
-    const { transactions, accounts, baseCurrency, products, invoices, contacts, fixedAssets, currencies, checks, boms, companySettings, importExpenseDistributions } = useAccounting();
+    const { transactions, accounts, baseCurrency, products, invoices, contacts, fixedAssets, currencies, checks, boms, warehouses, companySettings, importExpenseDistributions } = useAccounting();
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayContactName = (contact?: { id: string; name: string } | null) => getDisplayContactName(contact || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) => getDisplayProductName(product || undefined, isEnglish);
+    const displayWarehouseName = (warehouse?: { id: string; name: string } | null) => getDisplayWarehouseName(warehouse || undefined, isEnglish);
+    const currentFiscalYearRange = useMemo(() => getCurrentFiscalYearRange(), []);
+    const todayIso = new Date().toISOString().split('T')[0];
 
     const [activeReport, setActiveReport] = useState<ReportType>('MENU');
     const [activeCategory, setActiveCategory] = useState<ReportCategory>('MENU');
     const [reportCurrency, setReportCurrency] = useState(baseCurrency);
     const [dupontBasis, setDupontBasis] = useState<'NET_SALES' | 'TOTAL_REVENUE'>('NET_SALES');
 
-    const [startDate, setStartDate] = useState(() => {
-        const d = new Date();
-        return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
-    });
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(currentFiscalYearRange.startDate);
+    const [endDate, setEndDate] = useState(todayIso);
     const [selectedLedgerAccount, setSelectedLedgerAccount] = useState<string>('');
     const [selectedProductId, setSelectedProductId] = useState<string>('');
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
+    const [manualExpenseSourceFilter, setManualExpenseSourceFilter] = useState<'ALL' | 'GENERAL' | 'IMPORT'>('ALL');
+    const [manualExpenseBeneficiaryFilter, setManualExpenseBeneficiaryFilter] = useState('ALL');
+    const [manualExpenseAccountFilter, setManualExpenseAccountFilter] = useState('ALL');
+    const resetReportDateRange = () => {
+        setStartDate(currentFiscalYearRange.startDate);
+        setEndDate(todayIso);
+    };
+    const openStatementReport = (report: Extract<ReportType, 'ACCOUNT_LEDGER' | 'CUSTOMER_STATEMENT' | 'SUPPLIER_STATEMENT'>) => {
+        resetReportDateRange();
+        setActiveReport(report);
+    };
+    const handleReportSelection = (report: ReportType) => {
+        if (report === 'ACCOUNT_LEDGER' || report === 'CUSTOMER_STATEMENT' || report === 'SUPPLIER_STATEMENT') {
+            openStatementReport(report);
+            return;
+        }
+        resetReportDateRange();
+        setActiveReport(report);
+    };
 
     useEffect(() => {
         if (accounts.length > 0 && !selectedLedgerAccount) {
@@ -132,6 +160,65 @@ const FinancialReports: React.FC = () => {
             if (firstSupplier) setSelectedSupplierId(firstSupplier.id);
         }
     }, [accounts, products, contacts, selectedCustomerId, selectedSupplierId]);
+
+    const openAccountLedger = (accountId: string) => {
+        if (!accountId) return;
+        setSelectedLedgerAccount(accountId);
+        openStatementReport('ACCOUNT_LEDGER');
+    };
+
+    const openProductMovement = (productId: string) => {
+        if (!productId) return;
+        setSelectedProductId(productId);
+        resetReportDateRange();
+        setActiveReport('ITEM_MOVEMENT');
+    };
+
+    const openCustomerStatement = (contactId: string) => {
+        if (!contactId) return;
+        setSelectedCustomerId(contactId);
+        openStatementReport('CUSTOMER_STATEMENT');
+    };
+
+    const openSupplierStatement = (contactId: string) => {
+        if (!contactId) return;
+        setSelectedSupplierId(contactId);
+        openStatementReport('SUPPLIER_STATEMENT');
+    };
+
+    useEffect(() => {
+        const applyDrilldownTarget = (target: DrilldownTarget | null) => {
+            if (!target) return;
+            if (target.kind === 'ACCOUNT_LEDGER') {
+                openAccountLedger(target.accountId);
+                return;
+            }
+            if (target.kind === 'PRODUCT_MOVEMENT') {
+                openProductMovement(target.productId);
+                return;
+            }
+            if (target.kind === 'CONTACT_STATEMENT') {
+                const targetContact = contacts.find(contact => contact.id === target.contactId);
+                if (!targetContact) return;
+                if (targetContact.type === 'SUPPLIER') {
+                    openSupplierStatement(target.contactId);
+                    return;
+                }
+                if (targetContact.type === 'CUSTOMER') {
+                    openCustomerStatement(target.contactId);
+                }
+            }
+        };
+
+        applyDrilldownTarget(consumePendingDrilldown());
+
+        const handleDrilldown = (event: Event) => {
+            clearPendingDrilldown();
+            applyDrilldownTarget((event as CustomEvent<DrilldownTarget>).detail);
+        };
+        window.addEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);
+        return () => window.removeEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);
+    }, [contacts]);
 
     const formatValue = (amountInBase: number) => {
         const targetCurrencyObj = currencies.find(c => c.code === reportCurrency);
@@ -383,7 +470,6 @@ const FinancialReports: React.FC = () => {
     const reportYearCloseEnabled = companySettings.reportYearCloseEnabled !== false;
     const showFiscalCloseBadge = companySettings.showFiscalCloseBadgeInReports !== false;
     const fiscalStartDate = getFiscalYearStart(getFiscalYear(startDate));
-    const todayIso = new Date().toISOString().split('T')[0];
     const reportYearClosed = isReportYearClosed(startDate, endDate, todayIso);
 
     const financialData = useMemo(() => {
@@ -658,7 +744,7 @@ const FinancialReports: React.FC = () => {
         const receivables = nodeValue('acc_receivable_group');
         const inventoryValue = nodeValue('acc_inventory_group');
         const notesReceivable = nodeValue('acc_notes_receivable');
-        const payables = Math.max(0, nodeValue('acc_payable'));
+        const payables = Math.max(0, nodeValue('acc_payable_group'));
         const totalAssets = Math.max(0, nodeValue('acc_assets'));
         const totalLiabilities = Math.max(0, nodeValue('acc_liabilities'));
         const totalEquity = Math.max(0, nodeValue('acc_equity_root') + financialData.priorProfit);
@@ -667,7 +753,7 @@ const FinancialReports: React.FC = () => {
 
         const openingInventoryValue = Math.max(0, getSubtreeTotals('acc_inventory_group').opening);
         const openingReceivables = Math.max(0, getSubtreeTotals('acc_receivable_group').opening);
-        const openingPayables = Math.max(0, getSubtreeTotals('acc_payable').opening);
+        const openingPayables = Math.max(0, getSubtreeTotals('acc_payable_group').opening);
         const openingTotalAssets = Math.max(0, getSubtreeTotals('acc_assets').opening);
         const openingTotalEquity = Math.max(0, getSubtreeTotals('acc_equity_root').opening + financialData.priorProfit);
 
@@ -846,25 +932,239 @@ const FinancialReports: React.FC = () => {
         `${tr('������', 'Currency')}: ${reportCurrency}`
     ].join('\n');
 
-    const handleSaveReportPdf = async (title: string) => {
+    const buildFullReportShareText = (title: string) => {
+        const fullText = extractElementReadableText(activeReportRef.current);
+        const summary = [
+            title,
+            `${tr('الفترة', 'Period')}: ${startDate} - ${endDate}`,
+            `${tr('العملة', 'Currency')}: ${reportCurrency}`
+        ].join('\n');
+        return [summary, fullText].filter(Boolean).join('\n\n');
+    };
+
+    const buildReportTitleWithPeriod = (title: string) => `${title} - ${startDate} - ${endDate}`;
+    const buildReportFileStem = (title: string) => `${title}-${startDate}-${endDate}`;
+    const buildPrintableReportElement = (title: string) => {
+        if (typeof document === 'undefined' || !activeReportRef.current) return null;
+
+        const isStatementPrint =
+            activeReport === 'CUSTOMER_STATEMENT'
+            || activeReport === 'SUPPLIER_STATEMENT'
+            || activeReport === 'ACCOUNT_LEDGER';
+        const tableOnlyPrintReports = new Set<ReportType>([
+            'INCOME_STATEMENT',
+            'BALANCE_SHEET',
+            'LIABILITIES_REPORT',
+            'EQUITY_CHANGES',
+            'FIXED_ASSETS_CHANGES'
+        ]);
+
+        const wrapper = document.createElement('div');
+        wrapper.className = [
+            'report-print-document',
+            activeReport === 'INCOME_STATEMENT' ? 'report-print-income' : '',
+            isStatementPrint ? 'report-print-statement' : ''
+        ].filter(Boolean).join(' ');
+        wrapper.dir = isEnglish ? 'ltr' : 'rtl';
+        wrapper.lang = isEnglish ? 'en' : 'ar';
+
+        const header = document.createElement('header');
+        header.className = 'report-print-header';
+
+        const titleEl = document.createElement('h1');
+        titleEl.textContent = title;
+        header.appendChild(titleEl);
+
+        const meta = document.createElement('div');
+        meta.className = 'report-print-meta';
+        [
+            `${tr('الفترة', 'Period')}: ${startDate} - ${endDate}`,
+            `${tr('العملة', 'Currency')}: ${reportCurrency}`,
+            `${tr('تاريخ الطباعة', 'Printed on')}: ${new Date().toLocaleDateString(isEnglish ? 'en-GB' : 'ar-EG-u-nu-latn')}`
+        ].forEach(text => {
+            const chip = document.createElement('span');
+            chip.className = 'report-print-chip';
+            chip.textContent = text;
+            meta.appendChild(chip);
+        });
+        header.appendChild(meta);
+
+        const content = document.createElement('div');
+        content.className = [
+            'report-print-content',
+            activeReport === 'INCOME_STATEMENT' ? 'report-print-income' : '',
+            isStatementPrint ? 'report-print-statement' : ''
+        ].filter(Boolean).join(' ');
+
+        Array.from(activeReportRef.current.children).forEach(child => {
+            content.appendChild(child.cloneNode(true));
+        });
+
+        content.querySelectorAll('.report-header').forEach(node => node.remove());
+        content.querySelectorAll<HTMLElement>('[class*="bg-gradient"]').forEach(node => {
+            node.classList.add('report-print-highlight');
+        });
+        Array.from(content.children).forEach(node => {
+            if (!(node instanceof HTMLElement)) return;
+            node.classList.add('report-print-section');
+            if (node.tagName === 'TABLE' || node.querySelector('table')) {
+                node.classList.add('report-print-table-section');
+            }
+        });
+        content.querySelectorAll('table').forEach(node => {
+            if (node instanceof HTMLElement) {
+                node.classList.add('report-print-table');
+            }
+        });
+
+        if (tableOnlyPrintReports.has(activeReport)) {
+            const reportRoot = content.firstElementChild instanceof HTMLElement
+                ? content.firstElementChild
+                : null;
+
+            const sectionContainer = reportRoot
+                && reportRoot.children.length === 1
+                && reportRoot.firstElementChild instanceof HTMLElement
+                && reportRoot.firstElementChild.childElementCount > 1
+                    ? reportRoot.firstElementChild
+                    : reportRoot;
+
+            if (sectionContainer) {
+                const sectionElements = Array.from(sectionContainer.children).filter(
+                    (node): node is HTMLElement => node instanceof HTMLElement
+                );
+                const hasTableSections = sectionElements.some(node => node.tagName === 'TABLE' || Boolean(node.querySelector('table')));
+
+                if (hasTableSections) {
+                    sectionElements.forEach(node => {
+                        const isTableSection = node.tagName === 'TABLE' || Boolean(node.querySelector('table'));
+                        if (!isTableSection) {
+                            node.remove();
+                        }
+                    });
+                }
+            }
+        }
+
+        wrapper.append(header, content);
+        return wrapper;
+    };
+
+    const buildActiveReportPdfFile = async (title: string) => {
         await settleActiveReportSnapshot();
-        const success = await downloadElementAsPdf(activeReportRef.current, {
-            title: `${title} - ${startDate} - ${endDate}`,
-            fileName: `${title}-${startDate}-${endDate}`,
+        const printableReport = buildPrintableReportElement(title);
+        return buildElementPdfFile(printableReport, {
+            title: buildReportTitleWithPeriod(title),
+            fileName: buildReportFileStem(title),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar',
-            backgroundColor: '#f9fafb',
-            padding: 18
+            backgroundColor: '#ffffff',
+            padding: 18,
+            canvasScale: 1
         });
-        if (!success) {
-            alert(tr('تعذر حفظ التقرير بصيغة PDF حاليًا.', 'Could not save this report as PDF right now.'));
+    };
+
+    const handleSaveReportPdf = async (title: string) => {
+        try {
+            const pdfFile = await buildActiveReportPdfFile(title);
+            if (pdfFile) {
+                downloadBlobFile(pdfFile, pdfFile.name);
+                return;
+            }
+        } catch {
+            // Fall back to HTML below.
         }
+
+        const printableReport = buildPrintableReportElement(title);
+        const fallbackSaved = downloadElementAsHtml(printableReport, {
+            title: buildReportTitleWithPeriod(title),
+            fileName: `${buildReportFileStem(title)}.html`,
+            dir: isEnglish ? 'ltr' : 'rtl',
+            lang: isEnglish ? 'en' : 'ar'
+        });
+        if (fallbackSaved) {
+            alert(tr('تعذر تجهيز PDF، فتم تنزيل نسخة HTML من التقرير بدلًا منه.', 'Could not prepare a PDF, so an HTML copy of the report was downloaded instead.'));
+            return;
+        }
+        alert(tr('تعذر حفظ التقرير بصيغة PDF حاليًا.', 'Could not save this report as PDF right now.'));
+    };
+
+    const handleShareActiveReport = async (title: string) => {
+        const shareTitle = buildReportTitleWithPeriod(title);
+        const shareText = buildFullReportShareText(title);
+        let pdfFile: File | null = null;
+
+        try {
+            pdfFile = await buildActiveReportPdfFile(title);
+        } catch {
+            pdfFile = null;
+        }
+
+        let canShareFiles = Boolean(pdfFile && navigator.share);
+        if (pdfFile && canShareFiles && typeof navigator.canShare === 'function') {
+            try {
+                canShareFiles = navigator.canShare({ files: [pdfFile] });
+            } catch {
+                canShareFiles = false;
+            }
+        }
+
+        if (canShareFiles && pdfFile) {
+            try {
+                await navigator.share({
+                    title: shareTitle,
+                    text: shareText,
+                    files: [pdfFile]
+                });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') {
+                    return;
+                }
+            }
+        }
+
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: shareTitle,
+                    text: shareText
+                });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') {
+                    return;
+                }
+            }
+        }
+
+        let copied = false;
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(shareText);
+                copied = true;
+            } catch {
+                copied = false;
+            }
+        }
+
+        if (pdfFile) {
+            downloadBlobFile(pdfFile, pdfFile.name);
+        }
+
+        if (copied) {
+            alert(tr('تم نسخ ملخص التقرير إلى الحافظة، وتم تنزيل الملف إذا كان متاحًا.', 'The report summary was copied to the clipboard, and the file was downloaded when available.'));
+            return;
+        }
+
+        window.prompt(tr('انسخ محتوى التقرير التالي', 'Copy the report content below'), shareText);
     };
 
     const handlePrintActiveReport = async (title: string) => {
         await settleActiveReportSnapshot();
-        const success = printElementContent(activeReportRef.current, {
-            title: `${title} - ${startDate} - ${endDate}`,
+        const printableReport = buildPrintableReportElement(title);
+        const success = printElementContent(printableReport, {
+            title: buildReportTitleWithPeriod(title),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar'
         });
@@ -875,7 +1175,7 @@ const FinancialReports: React.FC = () => {
 
     const handleExportReportExcel = async (title: string) => {
         await settleActiveReportSnapshot();
-        const success = exportElementAsCsv(activeReportRef.current, `${title}-${startDate}-${endDate}`);
+        const success = exportElementAsCsv(activeReportRef.current, buildReportFileStem(title));
         if (!success) {
             alert(tr('���� ����� ��� ������� ������.', 'Could not export this report right now.'));
         }
@@ -913,7 +1213,7 @@ const FinancialReports: React.FC = () => {
 
 
     const ReportHeader = ({ title }: { title: string }) => (
-        <div className="report-header sticky top-[calc(var(--app-safe-top)+0.25rem)] z-40 mb-2 flex flex-col gap-1.5 bg-gray-50/95 pb-1.5 pt-1 backdrop-blur-md">
+        <div className="report-header mb-3 flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-start gap-2 min-w-0">
                     <button
@@ -924,15 +1224,18 @@ const FinancialReports: React.FC = () => {
                     </button>
                     <div className="min-w-0">
                         <h2 className="break-words text-[13px] font-black text-gray-800 sm:text-base">{title}</h2>
-                        <p className="dir-ltr text-[9px] font-bold uppercase tracking-widest text-gray-400">{startDate} - {endDate}</p>
+                        <p className="dir-ltr overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                            {startDate} - {endDate}
+                        </p>
                     </div>
                 </div>
                 <DocumentActions
                     title={title}
-                    shareText={buildReportShareText(title)}
+                    shareText={buildFullReportShareText(title)}
                     isEnglish={isEnglish}
                     tr={tr}
                     onPrint={() => handlePrintActiveReport(title)}
+                    onShare={() => handleShareActiveReport(title)}
                     onSave={() => handleSaveReportPdf(title)}
                     onExcel={() => handleExportReportExcel(title)}
                     saveTitle={tr('حفظ PDF', 'Save PDF')}
@@ -960,18 +1263,20 @@ const FinancialReports: React.FC = () => {
                 </div>
             )}
 
-            <div className="report-header-controls rounded-xl border border-gray-100 bg-white p-2 shadow-sm">
+            <div className="report-header-controls sticky top-[calc(var(--app-safe-top)+0.25rem)] z-40 rounded-[1.5rem] border border-gray-100 bg-white/95 p-2 shadow-sm backdrop-blur-md">
                 <div className="grid grid-cols-2 gap-1.5">
                     <EnglishDateInput
                         value={startDate}
                         onChange={setStartDate}
-                        className="h-9 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[10px] font-bold outline-none"
+                        displayFormat="YMD"
+                        className="h-10 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-xs font-bold outline-none"
                         aria-label={tr('من تاريخ', 'From date')}
                     />
                     <EnglishDateInput
                         value={endDate}
                         onChange={setEndDate}
-                        className="h-9 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[10px] font-bold outline-none"
+                        displayFormat="YMD"
+                        className="h-10 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-xs font-bold outline-none"
                         aria-label={tr('إلى تاريخ', 'To date')}
                     />
                 </div>
@@ -1336,6 +1641,7 @@ const FinancialReports: React.FC = () => {
     // --- 1E. Inventory Count List ---
     const renderInventoryCountListReport = () => {
         const rows = products
+            .filter(product => isStockProduct(product))
             .map(product => {
                 const quantity = Number(product.stock) || 0;
                 const unitCost = Number(product.buyPrice) || 0;
@@ -1415,10 +1721,330 @@ const FinancialReports: React.FC = () => {
         );
     };
 
+    // --- 1F. Undefined Manual Inventory Items ---
+    const renderManualUndefinedItemsReport = () => {
+        const stockInvoiceCategories = new Set(['sales_invoice', 'sales_return', 'purchase_invoice', 'purchase_return']);
+        const normalizeManualDescription = (value?: string) => String(value || '').replace(/\s+/g, ' ').trim();
+
+        type DetailRow = {
+            id: string;
+            date: string;
+            invoiceNumber: string;
+            category: string;
+            description: string;
+            quantity: number;
+            lineTotalBase: number;
+            warehouseName: string;
+            contactName: string;
+            direction: 'IN' | 'OUT';
+        };
+
+        const detailRows: DetailRow[] = invoices
+            .filter(inv =>
+                inv.postingStatus === 'POSTED' &&
+                inv.date >= startDate &&
+                inv.date <= endDate &&
+                stockInvoiceCategories.has(String(inv.category || ''))
+            )
+            .flatMap(inv => {
+                const warehouse = inv.warehouseId ? (warehouses.find(entry => entry.id === inv.warehouseId) || null) : null;
+                const contact = inv.customerId ? (contacts.find(entry => entry.id === inv.customerId) || null) : null;
+                const direction: 'IN' | 'OUT' = inv.category === 'purchase_invoice' || inv.category === 'sales_return' ? 'IN' : 'OUT';
+
+                return inv.items
+                    .filter(item => !item.productId)
+                    .map((item, index) => ({
+                        id: `${inv.id}_${index}`,
+                        date: inv.date,
+                        invoiceNumber: inv.invoiceNumber || inv.id,
+                        category: String(inv.category || ''),
+                        description: normalizeManualDescription(item.description) || tr('بند يدوي غير مسمى', 'Unnamed manual line'),
+                        quantity: Number(item.quantity) || 0,
+                        lineTotalBase: (Number(item.total) || 0) * (inv.exchangeRate || 1),
+                        warehouseName: warehouse ? displayWarehouseName(warehouse) : tr('غير محدد', 'Unspecified'),
+                        contactName: contact ? displayContactName(contact) : tr('غير محدد', 'Unspecified'),
+                        direction
+                    }));
+            })
+            .sort((a, b) => (
+                b.date.localeCompare(a.date)
+                || b.invoiceNumber.localeCompare(a.invoiceNumber, isEnglish ? 'en' : 'ar')
+                || a.description.localeCompare(b.description, isEnglish ? 'en' : 'ar')
+            ));
+
+        const summary = detailRows.reduce((acc, row) => {
+            acc.lines += 1;
+            acc.uniqueDescriptions.add(row.description.toLocaleLowerCase());
+            acc.documents.add(`${row.category}:${row.invoiceNumber}:${row.date}`);
+            acc.totalValueBase += row.lineTotalBase;
+            if (row.direction === 'IN') {
+                acc.inboundQty += row.quantity;
+            } else {
+                acc.outboundQty += row.quantity;
+            }
+            return acc;
+        }, {
+            lines: 0,
+            inboundQty: 0,
+            outboundQty: 0,
+            totalValueBase: 0,
+            uniqueDescriptions: new Set<string>(),
+            documents: new Set<string>()
+        });
+
+        const groupedRowsMap = new Map<string, {
+            description: string;
+            linesCount: number;
+            documents: Set<string>;
+            inboundQty: number;
+            outboundQty: number;
+            totalValueBase: number;
+            lastDate: string;
+        }>();
+
+        detailRows.forEach(row => {
+            const key = row.description.toLocaleLowerCase();
+            if (!groupedRowsMap.has(key)) {
+                groupedRowsMap.set(key, {
+                    description: row.description,
+                    linesCount: 0,
+                    documents: new Set<string>(),
+                    inboundQty: 0,
+                    outboundQty: 0,
+                    totalValueBase: 0,
+                    lastDate: row.date
+                });
+            }
+
+            const bucket = groupedRowsMap.get(key)!;
+            bucket.linesCount += 1;
+            bucket.documents.add(`${row.category}:${row.invoiceNumber}:${row.date}`);
+            bucket.totalValueBase += row.lineTotalBase;
+            bucket.lastDate = bucket.lastDate > row.date ? bucket.lastDate : row.date;
+            if (row.direction === 'IN') {
+                bucket.inboundQty += row.quantity;
+            } else {
+                bucket.outboundQty += row.quantity;
+            }
+        });
+
+        const groupedRows = Array.from(groupedRowsMap.values())
+            .map(row => ({
+                ...row,
+                documentCount: row.documents.size,
+                netQty: row.inboundQty - row.outboundQty
+            }))
+            .sort((a, b) => (
+                b.linesCount - a.linesCount
+                || b.totalValueBase - a.totalValueBase
+                || a.description.localeCompare(b.description, isEnglish ? 'en' : 'ar')
+            ));
+
+        if (false) return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('الميزانية العمومية', 'Balance Sheet')} />
+
+                <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
+                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-50">
+                            <h4 className="font-black text-gray-800">{tr('تفاصيل حسابات الميزانية العمومية', 'Balance sheet account details')}</h4>
+                            <span className="text-[10px] font-black text-gray-400">{tr('الحسابات التفصيلية فقط', 'Detailed accounts only')}</span>
+                        </div>
+
+                        <div className="space-y-4">
+                            {balanceSheetDetailSections.map(section => {
+                                const styles = accentStyles[section.accent];
+                                return (
+                                    <div key={section.key} className={`overflow-x-auto rounded-2xl border ${styles.border}`}>
+                                        <div className={`flex items-center justify-between px-4 py-3 ${styles.header}`}>
+                                            <h5 className="font-black">{section.title}</h5>
+                                            <span className={`dir-ltr text-sm font-black ${styles.total}`}>{formatValue(section.total)}</span>
+                                        </div>
+                                        <table className="w-full text-start min-w-[700px]">
+                                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
+                                                <tr>
+                                                    <th className="p-3">{tr('الحساب', 'Account')}</th>
+                                                    <th className="p-3 text-center">{tr('مدين', 'Debit')}</th>
+                                                    <th className="p-3 text-center">{tr('دائن', 'Credit')}</th>
+                                                    <th className="p-3 text-center">{tr('الرصيد', 'Balance')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-50">
+                                                {section.rows.map(acc => {
+                                                    const canOpenLedger = !acc.synthetic && accountById.has(acc.id);
+                                                    return (
+                                                        <tr
+                                                            key={acc.id}
+                                                            onDoubleClick={() => canOpenLedger && openAccountLedger(acc.id)}
+                                                            className={`text-xs transition-colors hover:bg-gray-50 ${canOpenLedger ? 'cursor-pointer' : ''}`}
+                                                        >
+                                                            <td className="p-3 font-bold text-gray-700">
+                                                                {displayAccountName(acc)} <span className="text-[9px] text-gray-400 font-normal">({acc.code})</span>
+                                                            </td>
+                                                            <td className="p-3 dir-ltr text-center font-bold text-gray-600">{formatValue(acc.debit)}</td>
+                                                            <td className="p-3 dir-ltr text-center font-bold text-gray-600">{formatValue(acc.credit)}</td>
+                                                            <td className={`p-3 dir-ltr text-center font-black ${styles.balance}`}>
+                                                                {formatValue(Math.abs(acc.net))} {getBalanceNature(acc.type, acc.net)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                                {section.rows.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan={4} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد حسابات تفصيلية في هذا القسم خلال الفترة المحددة', 'No detailed accounts in this section for the selected period')}</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                );
+                            })}
+
+                            {balanceSheetDetailSections.length === 0 && (
+                                <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-xs font-bold text-gray-400">
+                                    {tr('لا توجد حركة حسابات خلال الفترة المحددة', 'No account movements in selected period')}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('الأصناف غير المعرفة - بند يدوي', 'Undefined Manual Items')} />
+
+                <div className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-xs font-bold text-amber-900">
+                    {tr(
+                        'يعرض هذا التقرير سطور الفواتير المخزنية المُدخلة كبند يدوي بدون ربطها بصنف معرف في الدليل، حتى تتمكن من متابعتها وتحويل المتكرر منها إلى أصناف معرفة.',
+                        'This report shows inventory invoice lines entered manually without linking them to a defined product, so you can review them and convert recurring ones into defined items.'
+                    )}
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('عدد البنود اليدوية', 'Manual Lines')}</p>
+                        <p className="text-sm font-black dir-ltr text-gray-800">{formatPlainNumber(summary.lines)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('أصناف غير معرفة فريدة', 'Unique Undefined Items')}</p>
+                        <p className="text-sm font-black dir-ltr text-indigo-700">{formatPlainNumber(summary.uniqueDescriptions.size)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('الحركة الداخلة', 'Inbound Qty')}</p>
+                        <p className="text-sm font-black dir-ltr text-emerald-700">{formatPlainNumber(summary.inboundQty)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('الحركة الخارجة', 'Outbound Qty')}</p>
+                        <p className="text-sm font-black dir-ltr text-rose-700">{formatPlainNumber(summary.outboundQty)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('إجمالي القيمة', 'Total Value')}</p>
+                        <p className="text-sm font-black dir-ltr text-blue-700">{formatValue(summary.totalValueBase)}</p>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto mb-4">
+                    <div className="px-4 py-3 border-b border-gray-50">
+                        <h4 className="font-black text-sm text-gray-800">{tr('تجميع حسب اسم البند اليدوي', 'Grouped by Manual Item Name')}</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-start min-w-[980px]">
+                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
+                                <tr>
+                                    <th className="p-3">{tr('البند اليدوي', 'Manual Item')}</th>
+                                    <th className="p-3 text-center">{tr('التكرار', 'Occurrences')}</th>
+                                    <th className="p-3 text-center">{tr('عدد المستندات', 'Documents')}</th>
+                                    <th className="p-3 text-center">{tr('داخل', 'Inbound')}</th>
+                                    <th className="p-3 text-center">{tr('خارج', 'Outbound')}</th>
+                                    <th className="p-3 text-center">{tr('الصافي', 'Net')}</th>
+                                    <th className="p-3 text-center">{tr('القيمة', 'Value')}</th>
+                                    <th className="p-3 text-center">{tr('آخر حركة', 'Latest')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50 text-xs">
+                                {groupedRows.map(row => (
+                                    <tr key={row.description} className="hover:bg-gray-50">
+                                        <td className="p-3 font-black text-gray-800">{row.description}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-gray-700">{formatPlainNumber(row.linesCount)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-slate-600">{formatPlainNumber(row.documentCount)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-emerald-700">{formatPlainNumber(row.inboundQty)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-rose-700">{formatPlainNumber(row.outboundQty)}</td>
+                                        <td className={`p-3 text-center dir-ltr font-black ${row.netQty >= 0 ? 'text-blue-700' : 'text-rose-700'}`}>{formatPlainNumber(row.netQty)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-indigo-700">{formatValue(row.totalValueBase)}</td>
+                                        <td className="p-3 text-center font-bold text-gray-600">{row.lastDate}</td>
+                                    </tr>
+                                ))}
+                                {groupedRows.length === 0 && (
+                                    <tr>
+                                        <td colSpan={8} className="p-5 text-center text-xs font-bold text-gray-400">
+                                            {tr('لا توجد بنود يدوية غير معرفة ضمن الفواتير المخزنية خلال الفترة المحددة', 'No undefined manual lines were found in inventory invoices for the selected period')}
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
+                    <div className="px-4 py-3 border-b border-gray-50">
+                        <h4 className="font-black text-sm text-gray-800">{tr('التفاصيل حسب المستند', 'Document-Level Details')}</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-start min-w-[1180px]">
+                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
+                                <tr>
+                                    <th className="p-3">{tr('التاريخ', 'Date')}</th>
+                                    <th className="p-3">{tr('نوع الحركة', 'Movement Type')}</th>
+                                    <th className="p-3 text-center">{tr('الفاتورة', 'Invoice')}</th>
+                                    <th className="p-3">{tr('المخزن', 'Warehouse')}</th>
+                                    <th className="p-3">{tr('الطرف', 'Counterparty')}</th>
+                                    <th className="p-3">{tr('الوصف', 'Description')}</th>
+                                    <th className="p-3 text-center">{tr('الاتجاه', 'Direction')}</th>
+                                    <th className="p-3 text-center">{tr('الكمية', 'Quantity')}</th>
+                                    <th className="p-3 text-center">{tr('القيمة', 'Value')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50 text-xs">
+                                {detailRows.map(row => (
+                                    <tr key={row.id} className="hover:bg-gray-50">
+                                        <td className="p-3 font-bold text-gray-600">{row.date}</td>
+                                        <td className="p-3 font-black text-gray-800">{getOperationCategoryLabel(row.category)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-blue-700">#{row.invoiceNumber}</td>
+                                        <td className="p-3 font-bold text-gray-600">{row.warehouseName}</td>
+                                        <td className="p-3 font-bold text-gray-600">{row.contactName}</td>
+                                        <td className="p-3 font-black text-gray-800">{row.description}</td>
+                                        <td className="p-3 text-center">
+                                            <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-black ${row.direction === 'IN' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                                                {row.direction === 'IN' ? tr('داخل', 'In') : tr('خارج', 'Out')}
+                                            </span>
+                                        </td>
+                                        <td className={`p-3 text-center dir-ltr font-black ${row.direction === 'IN' ? 'text-emerald-700' : 'text-rose-700'}`}>{formatPlainNumber(row.quantity)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-indigo-700">{formatValue(row.lineTotalBase)}</td>
+                                    </tr>
+                                ))}
+                                {detailRows.length === 0 && (
+                                    <tr>
+                                        <td colSpan={9} className="p-5 text-center text-xs font-bold text-gray-400">
+                                            {tr('لا توجد تفاصيل لعرضها في هذه الفترة', 'No details available for this period')}
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     // --- 1B. Low Stock Alerts Report ---
     const renderLowStockAlertsReport = () => {
         const globalThreshold = Math.max(0, Number(companySettings.lowStockAlertQtyDefault ?? 5) || 5);
         const rows = products
+            .filter(product => isStockProduct(product))
             .map(p => {
                 const stock = Number(p.stock ?? 0) || 0;
                 const threshold = Math.max(0, Number((p as any).lowStockAlertQty ?? globalThreshold) || 0);
@@ -1965,10 +2591,12 @@ const FinancialReports: React.FC = () => {
                 { id: 'IMPORT_EXPENSES_DETAIL', label: tr('مصاريف الاستيراد التفصيلية', 'Import Expenses Detail'), icon: <Receipt size={16} /> },
                 { id: 'SUPPLIER_AGING', label: tr('تعمير ذمم الموردين', 'Supplier Aging'), icon: <Clock size={16} /> },
                 { id: 'SUPPLIER_STATEMENT', label: tr('كشف حساب الموردين', 'Supplier Statement'), icon: <BookOpen size={16} /> },
+                { id: 'MANUAL_EXPENSE_LINES', label: tr('المصاريف المدخلة - بند يدوي', 'Manual Expense Lines'), icon: <ListFilter size={16} /> },
             ],
             INVENTORY: [
                 { id: 'STOCK_REMAINING', label: tr('المخزون المتبقي', 'Remaining Stock'), icon: <Box size={16} /> },
                 { id: 'INVENTORY_COUNT_LIST', label: tr('قائمة جرد المخزون', 'Inventory Count List'), icon: <ClipboardList size={16} /> },
+                { id: 'MANUAL_UNDEFINED_ITEMS', label: tr('الأصناف غير المعرفة - بند يدوي', 'Undefined Manual Items'), icon: <ListFilter size={16} /> },
                 { id: 'LOW_STOCK_ALERTS', label: tr('نواقص المخزون', 'Low Stock Alerts'), icon: <AlertCircle size={16} /> },
                 { id: 'AVERAGE_COST_AUDIT', label: tr('تدقيق متوسط التكلفة', 'Average Cost Audit'), icon: <Calculator size={16} /> },
                 { id: 'ITEM_PROFIT', label: tr('أرباح الأصناف', 'Item Profit'), icon: <TrendingUp size={16} /> },
@@ -2002,7 +2630,7 @@ const FinancialReports: React.FC = () => {
                 <button onClick={() => setActiveCategory('MENU')} className="mb-2 flex items-center gap-2 text-blue-600 font-black text-[10px] bg-blue-50 px-3 py-1.5 rounded-full w-fit"><ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={12} /> {tr('العودة للتصنيفات', 'Back to Categories')}</button>
                 <div className="grid grid-cols-2 gap-2">
                     {reportList[activeCategory].map(report => (
-                        <button key={report.id} onClick={() => setActiveReport(report.id)} className="w-full bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between gap-2 group active:scale-95 transition-all text-start min-h-[74px]">
+                        <button key={report.id} onClick={() => handleReportSelection(report.id)} className="w-full bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between gap-2 group active:scale-95 transition-all text-start min-h-[74px]">
                             <div className="flex items-center gap-2 min-w-0">
                                 <div className="p-2 bg-gray-50 text-gray-400 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">{report.icon}</div>
                                 <span className="font-black text-[11px] text-gray-800 break-words leading-4 min-w-0">{report.label}</span>
@@ -2085,53 +2713,9 @@ const FinancialReports: React.FC = () => {
                         <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
                         <h3 className="text-lg font-bold mb-2 opacity-90">{netProfit >= 0 ? tr('صافي الربح', 'Net Profit') : tr('صافي الخسارة', 'Net Loss')}</h3>
                         <h1 className="text-5xl font-black dir-ltr tracking-tighter">{formatValue(Math.abs(netProfit))}</h1>
-                        <p className="text-[10px] mt-4 opacity-75 font-bold uppercase tracking-widest">{tr('عن الفترة من', 'For period from')} {startDate} {tr('إلى', 'to')} {endDate}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 md:gap-6">
-                        <div className="bg-white p-6 rounded-[2rem] border border-gray-50 shadow-sm content-start">
-                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-50">
-                                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><TrendingUp size={20} /></div>
-                                <div className="flex-1">
-                                    <h3 className="font-black text-gray-800">{tr('الإيرادات', 'Revenue')}</h3>
-                                    <p className="text-[10px] text-gray-400">{tr('تحليل مصادر الدخل', 'Income sources analysis')}</p>
-                                </div>
-                                <h4 className="text-xl font-black text-emerald-600 dir-ltr">{formatValue(Math.abs(totalRevenue))}</h4>
-                            </div>
-                            <div className="space-y-1">
-                                {revenueDetails.map(acc => (
-                                    <div key={acc.id} className="flex justify-between items-center py-2 px-2 hover:bg-gray-50 rounded-lg text-xs">
-                                        <span className="font-bold text-gray-700">{displayAccountName(acc)} <span className="text-[9px] text-gray-400">({acc.code})</span></span>
-                                        <span className="font-black text-emerald-600 dir-ltr">{formatValue(Math.abs(acc.net))}</span>
-                                    </div>
-                                ))}
-                                {revenueDetails.length === 0 && (
-                                    <p className="text-center text-gray-400 py-4">{tr('لا توجد إيرادات ضمن الفترة المحددة', 'No revenue in selected period')}</p>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-6 rounded-[2rem] border border-gray-50 shadow-sm content-start">
-                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-50">
-                                <div className="p-2 bg-rose-50 text-rose-600 rounded-xl"><TrendingDown size={20} /></div>
-                                <div className="flex-1">
-                                    <h3 className="font-black text-gray-800">{tr('المصروفات', 'Expenses')}</h3>
-                                    <p className="text-[10px] text-gray-400">{tr('تحليل النفقات والتكاليف', 'Expense and cost analysis')}</p>
-                                </div>
-                                <h4 className="text-xl font-black text-rose-600 dir-ltr">{formatValue(Math.abs(totalExpense))}</h4>
-                            </div>
-                            <div className="space-y-1">
-                                {expenseDetails.map(acc => (
-                                    <div key={acc.id} className="flex justify-between items-center py-2 px-2 hover:bg-gray-50 rounded-lg text-xs">
-                                        <span className="font-bold text-gray-700">{displayAccountName(acc)} <span className="text-[9px] text-gray-400">({acc.code})</span></span>
-                                        <span className="font-black text-rose-600 dir-ltr">{formatValue(Math.abs(acc.net))}</span>
-                                    </div>
-                                ))}
-                                {expenseDetails.length === 0 && (
-                                    <p className="text-center text-gray-400 py-4">{tr('لا توجد مصروفات ضمن الفترة المحددة', 'No expenses in selected period')}</p>
-                                )}
-                            </div>
-                        </div>
+                        <p className="mt-4 overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold uppercase tracking-widest opacity-75 sm:text-[10px]">
+                            {tr('عن الفترة من', 'For period from')} {startDate} {tr('إلى', 'to')} {endDate}
+                        </p>
                     </div>
 
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
@@ -2140,7 +2724,7 @@ const FinancialReports: React.FC = () => {
                             <span className="text-[10px] font-black text-gray-400">{tr('إيرادات ومصروفات', 'Revenue and expenses')}</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 md:gap-4">
+                        <div className="grid grid-cols-1 gap-3 md:gap-4">
                             <div className="overflow-x-auto rounded-2xl border border-emerald-100">
                                 <table className="w-full text-start min-w-[520px]">
                                     <thead className="bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase">
@@ -2153,7 +2737,7 @@ const FinancialReports: React.FC = () => {
                                     </thead>
                                     <tbody className="divide-y divide-emerald-50">
                                         {revenueDetails.map(acc => (
-                                            <tr key={acc.id} className="text-xs hover:bg-gray-50 transition-colors">
+                                            <tr key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="cursor-pointer text-xs hover:bg-gray-50 transition-colors">
                                                 <td className="p-3 font-bold text-gray-700">
                                                     {displayAccountName(acc)} <span className="text-[9px] text-gray-400 font-normal">({acc.code})</span>
                                                 </td>
@@ -2185,7 +2769,7 @@ const FinancialReports: React.FC = () => {
                                     </thead>
                                     <tbody className="divide-y divide-rose-50">
                                         {expenseDetails.map(acc => (
-                                            <tr key={acc.id} className="text-xs hover:bg-gray-50 transition-colors">
+                                            <tr key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="cursor-pointer text-xs hover:bg-gray-50 transition-colors">
                                                 <td className="p-3 font-bold text-gray-700">
                                                     {displayAccountName(acc)} <span className="text-[9px] text-gray-400 font-normal">({acc.code})</span>
                                                 </td>
@@ -2555,9 +3139,44 @@ const FinancialReports: React.FC = () => {
 
         // Equity
         const equityRoot = financialData.accountMap.get('acc_equity_root');
-        const positionDetails = getDetailedAccounts(['ASSET', 'LIABILITY', 'EQUITY']);
+        const payableGroupNode = financialData.accountMap.get('acc_payable_group');
+        const collapsedBalanceSheetNodeIds = new Set<string>(['acc_payable_group']);
+        const payableDescendantIds = new Set<string>();
+        if (payableGroupNode) {
+            const collectDescendants = (node: AccountNode) => {
+                node.children.forEach(child => {
+                    payableDescendantIds.add(child.id);
+                    collectDescendants(child);
+                });
+            };
+            collectDescendants(payableGroupNode);
+        }
+        const positionDetails = (() => {
+            const baseDetails = getDetailedAccounts(['ASSET', 'LIABILITY', 'EQUITY'])
+                .filter(acc => !payableDescendantIds.has(acc.id));
 
-        const totalAssets = assetsRoot ? assetsRoot.nodeValue : 0;
+            if (!payableGroupNode || Math.abs(payableGroupNode.nodeValue) <= 0.01) {
+                return baseDetails;
+            }
+
+            const payableGroupAccount = accounts.find(acc => acc.id === 'acc_payable_group');
+            if (!payableGroupAccount) {
+                return baseDetails;
+            }
+
+            return [
+                ...baseDetails,
+                {
+                    ...payableGroupAccount,
+                    debit: payableGroupNode.totalDebit || 0,
+                    credit: payableGroupNode.totalCredit || 0,
+                    net: payableGroupNode.nodeValue || 0
+                }
+            ].sort((a, b) => a.code.localeCompare(b.code, 'ar'));
+        })();
+
+        type BalanceSheetDetailRow = ReturnType<typeof getDetailedAccounts>[number] & { synthetic?: boolean };
+        type BalanceSheetAccent = 'emerald' | 'indigo' | 'blue' | 'rose' | 'amber';
 
         // Equity needs special handling for Prior Profit
         const totalEquityRaw = equityRoot ? equityRoot.nodeValue : 0;
@@ -2568,11 +3187,220 @@ const FinancialReports: React.FC = () => {
         const totalRevenue = revenueRoot ? revenueRoot.nodeValue : 0;
         const totalExpense = expenseRoot ? expenseRoot.nodeValue : 0;
         const periodNetProfit = totalRevenue - totalExpense;
-
-        const totalEquityFinal = totalEquityRaw + periodNetProfit + financialData.priorProfit;
+        const totalAssets = assetsRoot ? assetsRoot.nodeValue : 0;
         const totalLiabilities = liabilitiesRoot ? liabilitiesRoot.nodeValue : 0;
-
+        const totalEquityFinal = totalEquityRaw + periodNetProfit + financialData.priorProfit;
         const totalLiabAndEquity = totalLiabilities + totalEquityFinal;
+
+        const accountById = new Map(accounts.map(acc => [acc.id, acc]));
+        const isUnderParent = (accountId: string, targetParentId: string) => {
+            let current = accountById.get(accountId);
+            while (current) {
+                if (current.id === targetParentId) return true;
+                if (!current.parentId) return false;
+                current = accountById.get(current.parentId);
+            }
+            return false;
+        };
+
+        const equityExtraRows: BalanceSheetDetailRow[] = [
+            ...(Math.abs(financialData.priorProfit) > 0.01 ? [{
+                id: 'equity_prior_profit_summary',
+                code: 'ZZ-PRIOR',
+                name: tr('الأرباح المرحلة (السابقة)', 'Retained Earnings (Previous)'),
+                type: 'EQUITY' as AccountType,
+                debit: 0,
+                credit: 0,
+                net: financialData.priorProfit,
+                synthetic: true
+            }] : []),
+            ...(Math.abs(periodNetProfit) > 0.01 ? [{
+                id: 'equity_current_period_profit_summary',
+                code: 'ZZ-CURRENT',
+                name: tr('أرباح الفترة الحالية', 'Current Period Profit'),
+                type: 'EQUITY' as AccountType,
+                debit: 0,
+                credit: 0,
+                net: periodNetProfit,
+                synthetic: true
+            }] : [])
+        ];
+
+        const buildDetailSectionRows = (rootId: string, allowedType: AccountType, extraRows: BalanceSheetDetailRow[] = []) => {
+            const rows = positionDetails.filter(acc => acc.type === allowedType && isUnderParent(acc.id, rootId));
+            return [...rows, ...extraRows];
+        };
+
+        const balanceSheetDetailSections: Array<{
+            key: string;
+            title: string;
+            accent: BalanceSheetAccent;
+            total: number;
+            rows: BalanceSheetDetailRow[];
+        }> = [
+            {
+                key: 'current-assets',
+                title: tr('الأصول المتداولة', 'Current Assets'),
+                accent: 'emerald',
+                total: currentAssets?.nodeValue || 0,
+                rows: buildDetailSectionRows('acc_current_assets', 'ASSET')
+            },
+            {
+                key: 'fixed-assets',
+                title: tr('الأصول الثابتة', 'Fixed Assets'),
+                accent: 'indigo',
+                total: fixedAssetsAcc?.nodeValue || 0,
+                rows: buildDetailSectionRows('acc_fixed_assets_root', 'ASSET')
+            },
+            ...((assetsRoot?.children || [])
+                .filter(c => c.id !== 'acc_current_assets' && c.id !== 'acc_fixed_assets_root')
+                .map(section => ({
+                    key: section.id,
+                    title: displayAccountName(section),
+                    accent: 'blue' as BalanceSheetAccent,
+                    total: section.nodeValue,
+                    rows: buildDetailSectionRows(section.id, 'ASSET')
+                }))),
+            {
+                key: 'current-liabilities',
+                title: tr('الخصوم المتداولة', 'Current Liabilities'),
+                accent: 'rose',
+                total: currentLiabilities?.nodeValue || 0,
+                rows: buildDetailSectionRows('acc_current_liabilities', 'LIABILITY')
+            },
+            ...(longTermLiabilities ? [{
+                key: 'long-term-liabilities',
+                title: tr('الخصوم طويلة الأجل', 'Long-term Liabilities'),
+                accent: 'rose' as BalanceSheetAccent,
+                total: longTermLiabilities.nodeValue,
+                rows: buildDetailSectionRows('acc_long_term_liabilities', 'LIABILITY')
+            }] : []),
+            ...((liabilitiesRoot?.children || [])
+                .filter(c => c.id !== 'acc_current_liabilities' && c.id !== 'acc_long_term_liabilities')
+                .map(section => ({
+                    key: section.id,
+                    title: displayAccountName(section),
+                    accent: 'rose' as BalanceSheetAccent,
+                    total: section.nodeValue,
+                    rows: buildDetailSectionRows(section.id, 'LIABILITY')
+                }))),
+            {
+                key: 'equity',
+                title: tr('حقوق الملكية', 'Equity'),
+                accent: 'amber',
+                total: totalEquityFinal,
+                rows: buildDetailSectionRows('acc_equity_root', 'EQUITY', equityExtraRows)
+            }
+        ].filter(section => Math.abs(section.total) > 0.01 || section.rows.length > 0);
+
+        const accentStyles: Record<BalanceSheetAccent, {
+            border: string;
+            header: string;
+            total: string;
+            balance: string;
+        }> = {
+            emerald: {
+                border: 'border-emerald-100',
+                header: 'bg-emerald-50 text-emerald-700',
+                total: 'text-emerald-600',
+                balance: 'text-emerald-600'
+            },
+            indigo: {
+                border: 'border-indigo-100',
+                header: 'bg-indigo-50 text-indigo-700',
+                total: 'text-indigo-600',
+                balance: 'text-indigo-600'
+            },
+            blue: {
+                border: 'border-blue-100',
+                header: 'bg-blue-50 text-blue-700',
+                total: 'text-blue-600',
+                balance: 'text-blue-600'
+            },
+            rose: {
+                border: 'border-rose-100',
+                header: 'bg-rose-50 text-rose-700',
+                total: 'text-rose-600',
+                balance: 'text-rose-600'
+            },
+            amber: {
+                border: 'border-amber-100',
+                header: 'bg-amber-50 text-amber-700',
+                total: 'text-amber-600',
+                balance: 'text-amber-600'
+            }
+        };
+
+        return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('الميزانية العمومية', 'Balance Sheet')} />
+
+                <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
+                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-50">
+                            <h4 className="font-black text-gray-800">{tr('تفاصيل حسابات الميزانية العمومية', 'Balance sheet account details')}</h4>
+                            <span className="text-[10px] font-black text-gray-400">{tr('الحسابات التفصيلية فقط', 'Detailed accounts only')}</span>
+                        </div>
+
+                        <div className="space-y-4">
+                            {balanceSheetDetailSections.map(section => {
+                                const styles = accentStyles[section.accent];
+                                return (
+                                    <div key={section.key} className={`overflow-x-auto rounded-2xl border ${styles.border}`}>
+                                        <div className={`flex items-center justify-between px-4 py-3 ${styles.header}`}>
+                                            <h5 className="font-black">{section.title}</h5>
+                                            <span className={`dir-ltr text-sm font-black ${styles.total}`}>{formatValue(section.total)}</span>
+                                        </div>
+                                        <table className="w-full text-start min-w-[700px]">
+                                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
+                                                <tr>
+                                                    <th className="p-3">{tr('الحساب', 'Account')}</th>
+                                                    <th className="p-3 text-center">{tr('مدين', 'Debit')}</th>
+                                                    <th className="p-3 text-center">{tr('دائن', 'Credit')}</th>
+                                                    <th className="p-3 text-center">{tr('الرصيد', 'Balance')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-50">
+                                                {section.rows.map(acc => {
+                                                    const canOpenLedger = !acc.synthetic && accountById.has(acc.id);
+                                                    return (
+                                                        <tr
+                                                            key={acc.id}
+                                                            onDoubleClick={() => canOpenLedger && openAccountLedger(acc.id)}
+                                                            className={`text-xs transition-colors hover:bg-gray-50 ${canOpenLedger ? 'cursor-pointer' : ''}`}
+                                                        >
+                                                            <td className="p-3 font-bold text-gray-700">
+                                                                {displayAccountName(acc)} <span className="text-[9px] text-gray-400 font-normal">({acc.code})</span>
+                                                            </td>
+                                                            <td className="p-3 dir-ltr text-center font-bold text-gray-600">{formatValue(acc.debit)}</td>
+                                                            <td className="p-3 dir-ltr text-center font-bold text-gray-600">{formatValue(acc.credit)}</td>
+                                                            <td className={`p-3 dir-ltr text-center font-black ${styles.balance}`}>
+                                                                {formatValue(Math.abs(acc.net))} {getBalanceNature(acc.type, acc.net)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                                {section.rows.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan={4} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد حسابات تفصيلية في هذا القسم خلال الفترة المحددة', 'No detailed accounts in this section for the selected period')}</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                );
+                            })}
+
+                            {balanceSheetDetailSections.length === 0 && (
+                                <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-xs font-bold text-gray-400">
+                                    {tr('لا توجد حركة حسابات خلال الفترة المحددة', 'No account movements in selected period')}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
 
         return (
             <div className="animate-in slide-in-from-bottom-4">
@@ -2583,13 +3411,13 @@ const FinancialReports: React.FC = () => {
                         {/* Assets Side */}
                         <div>
                             <h3 className="text-center font-black text-blue-800 bg-blue-100 py-2 rounded-xl mb-4">{tr('الأصول', 'Assets')}</h3>
-                            <BalanceSheetSection title={tr('الأصول المتداولة', 'Current Assets')} rootNode={currentAssets} color="text-emerald-600" formatValue={formatValue} displayAccountName={displayAccountName} />
-                            <BalanceSheetSection title={tr('الأصول الثابتة', 'Fixed Assets')} rootNode={fixedAssetsAcc} color="text-indigo-600" formatValue={formatValue} displayAccountName={displayAccountName} />
+                            <BalanceSheetSection title={tr('الأصول المتداولة', 'Current Assets')} rootNode={currentAssets} color="text-emerald-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={openAccountLedger} collapsedNodeIds={collapsedBalanceSheetNodeIds} />
+                            <BalanceSheetSection title={tr('الأصول الثابتة', 'Fixed Assets')} rootNode={fixedAssetsAcc} color="text-indigo-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={openAccountLedger} collapsedNodeIds={collapsedBalanceSheetNodeIds} />
 
                             {/* Any other assets that are not current or fixed? */}
                             {assetsRoot && assetsRoot.children
                                 .filter(c => c.id !== 'acc_current_assets' && c.id !== 'acc_fixed_assets_root')
-                                .map(c => <BalanceSheetSection key={c.id} title={displayAccountName(c)} rootNode={c} color="text-blue-600" formatValue={formatValue} displayAccountName={displayAccountName} />)
+                                .map(c => <BalanceSheetSection key={c.id} title={displayAccountName(c)} rootNode={c} color="text-blue-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={openAccountLedger} collapsedNodeIds={collapsedBalanceSheetNodeIds} />)
                             }
 
                             <div className="mt-4 bg-blue-600 text-white p-6 rounded-[2rem] flex justify-between items-center font-black shadow-lg shadow-blue-200">
@@ -2602,13 +3430,13 @@ const FinancialReports: React.FC = () => {
                         <div>
                             <h3 className="text-center font-black text-rose-800 bg-rose-100 py-2 rounded-xl mb-4">{tr('الخصوم وحقوق الملكية', 'Liabilities and Equity')}</h3>
 
-                            <BalanceSheetSection title={tr('الخصوم المتداولة', 'Current Liabilities')} rootNode={currentLiabilities} color="text-rose-600" formatValue={formatValue} displayAccountName={displayAccountName} />
-                            {longTermLiabilities && <BalanceSheetSection title={tr('الخصوم طويلة الأجل', 'Long-term Liabilities')} rootNode={longTermLiabilities} color="text-rose-600" formatValue={formatValue} displayAccountName={displayAccountName} />}
+                            <BalanceSheetSection title={tr('الخصوم المتداولة', 'Current Liabilities')} rootNode={currentLiabilities} color="text-rose-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={openAccountLedger} collapsedNodeIds={collapsedBalanceSheetNodeIds} />
+                            {longTermLiabilities && <BalanceSheetSection title={tr('الخصوم طويلة الأجل', 'Long-term Liabilities')} rootNode={longTermLiabilities} color="text-rose-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={openAccountLedger} collapsedNodeIds={collapsedBalanceSheetNodeIds} />}
 
                             {/* Any other liabilities */}
                             {liabilitiesRoot && liabilitiesRoot.children
                                 .filter(c => c.id !== 'acc_current_liabilities' && c.id !== 'acc_long_term_liabilities')
-                                .map(c => <BalanceSheetSection key={c.id} title={displayAccountName(c)} rootNode={c} color="text-rose-600" formatValue={formatValue} displayAccountName={displayAccountName} />)
+                                .map(c => <BalanceSheetSection key={c.id} title={displayAccountName(c)} rootNode={c} color="text-rose-600" formatValue={formatValue} displayAccountName={displayAccountName} onDoubleClickAccount={openAccountLedger} collapsedNodeIds={collapsedBalanceSheetNodeIds} />)
                             }
 
                             <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm mb-4">
@@ -2654,7 +3482,7 @@ const FinancialReports: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {positionDetails.map(acc => (
-                                    <tr key={acc.id} className="text-xs hover:bg-gray-50 transition-colors">
+                                    <tr key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="cursor-pointer text-xs hover:bg-gray-50 transition-colors">
                                         <td className="p-3 font-bold text-gray-700">
                                             {displayAccountName(acc)} <span className="text-[9px] text-gray-400 font-normal">({acc.code})</span>
                                         </td>
@@ -3450,7 +4278,7 @@ const FinancialReports: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-gray-50 text-xs">
                                 {rows.map((row, idx) => (
-                                    <tr key={`${row.supplierId || row.supplierName}-${row.productId}-${idx}`} className="hover:bg-gray-50">
+                                    <tr key={`${row.supplierId || row.supplierName}-${row.productId}-${idx}`} onDoubleClick={() => openProductMovement(row.productId)} className="cursor-pointer hover:bg-gray-50">
                                         <td className="p-3 font-black text-gray-800">{row.supplierName}</td>
                                         <td className="p-3"><div className="font-black text-gray-800">{row.productName}</div><div className="text-[10px] text-gray-400 dir-ltr">{row.productId}</div></td>
                                         <td className="p-3 text-center"><div className="font-black text-gray-700 dir-ltr">#{row.latestInvoiceNumber}</div><div className="text-[10px] text-gray-400 dir-ltr">{row.latestDate}</div></td>
@@ -3636,7 +4464,7 @@ const FinancialReports: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-gray-50 text-xs">
                                 {rows.map((row, idx) => (
-                                    <tr key={`${row.supplierId || row.supplierName}-${idx}`} className="hover:bg-gray-50">
+                                    <tr key={`${row.supplierId || row.supplierName}-${idx}`} onDoubleClick={() => row.supplierId && openSupplierStatement(row.supplierId)} className="cursor-pointer hover:bg-gray-50">
                                         <td className="p-3"><div className="font-black text-gray-800">{row.supplierName}</div><div className="text-[10px] text-gray-400 dir-ltr">{row.supplierId || '-'}</div></td>
                                         <td className="p-3 text-center dir-ltr">{formatPlainNumber(row.purchaseCount)}</td>
                                         <td className="p-3 text-center dir-ltr">{formatValue(row.avgInvoice)}</td>
@@ -3931,6 +4759,386 @@ const FinancialReports: React.FC = () => {
         );
     };
 
+    // --- 11-E. Manual Expense Lines ---
+    const renderManualExpenseLinesReport = () => {
+        const expenseInvoiceCategories = new Set(['general_expense', 'import_expenses']);
+        const normalizeDescription = (value?: string) => String(value || '').replace(/\s+/g, ' ').trim();
+
+        type DetailRow = {
+            id: string;
+            date: string;
+            invoiceNumber: string;
+            source: 'GENERAL' | 'IMPORT';
+            sourceLabel: string;
+            description: string;
+            quantity: number;
+            unitPriceBase: number;
+            lineTotalBase: number;
+            accountId?: string;
+            accountKey: string;
+            accountName: string;
+            beneficiaryId?: string;
+            beneficiaryKey: string;
+            beneficiaryName: string;
+        };
+
+        const allDetailRows: DetailRow[] = invoices
+            .filter(inv =>
+                inv.postingStatus === 'POSTED' &&
+                expenseInvoiceCategories.has(String(inv.category || '')) &&
+                inv.date >= startDate &&
+                inv.date <= endDate
+            )
+            .flatMap(inv => {
+                const beneficiary = inv.customerId ? (contacts.find(entry => entry.id === inv.customerId) || null) : null;
+                const exchangeRate = inv.exchangeRate || 1;
+                const source: 'GENERAL' | 'IMPORT' = inv.category === 'import_expenses' ? 'IMPORT' : 'GENERAL';
+                const sourceLabel = source === 'IMPORT'
+                    ? tr('مصاريف استيراد', 'Import Expenses')
+                    : tr('مصاريف عامة', 'General Expenses');
+                const fallbackBeneficiaryName = source === 'IMPORT'
+                    ? tr('جهة استيراد غير محددة', 'Unspecified Import Party')
+                    : tr('مصروف عام', 'General Expense');
+
+                return inv.items
+                    .filter(item => !item.productId)
+                    .map((item, index) => {
+                        const account = item.accountId ? (accounts.find(entry => entry.id === item.accountId) || null) : null;
+                        const beneficiaryName = beneficiary ? displayContactName(beneficiary) : fallbackBeneficiaryName;
+                        const accountName = account
+                            ? displayAccountName(account)
+                            : (item.accountId || tr('غير محدد', 'Unspecified'));
+                        return {
+                            id: `${inv.id}_${index}`,
+                            date: inv.date,
+                            invoiceNumber: inv.invoiceNumber || inv.id,
+                            source,
+                            sourceLabel,
+                            description: normalizeDescription(item.description) || tr('بند مصروف يدوي غير مسمى', 'Unnamed manual expense line'),
+                            quantity: Number(item.quantity) || 0,
+                            unitPriceBase: (Number(item.unitPrice) || 0) * exchangeRate,
+                            lineTotalBase: (Number(item.total) || 0) * exchangeRate,
+                            accountId: item.accountId,
+                            accountKey: item.accountId || `NO_ACCOUNT:${accountName.toLocaleLowerCase()}`,
+                            accountName,
+                            beneficiaryId: beneficiary?.id,
+                            beneficiaryKey: beneficiary?.id || `NO_BENEFICIARY:${source}`,
+                            beneficiaryName
+                        };
+                    });
+            })
+            .sort((a, b) => (
+                b.date.localeCompare(a.date)
+                || b.invoiceNumber.localeCompare(a.invoiceNumber, isEnglish ? 'en' : 'ar')
+                || a.description.localeCompare(b.description, isEnglish ? 'en' : 'ar')
+            ));
+
+        const beneficiaryOptions = Array.from(
+            new Map(
+                allDetailRows.map(row => [
+                    row.beneficiaryKey,
+                    { value: row.beneficiaryKey, label: row.beneficiaryName }
+                ])
+            ).values()
+        ).sort((a, b) => a.label.localeCompare(b.label, isEnglish ? 'en' : 'ar'));
+
+        const accountOptions = Array.from(
+            new Map(
+                allDetailRows.map(row => [
+                    row.accountKey,
+                    { value: row.accountKey, label: row.accountName }
+                ])
+            ).values()
+        ).sort((a, b) => a.label.localeCompare(b.label, isEnglish ? 'en' : 'ar'));
+
+        const detailRows = allDetailRows.filter(row => {
+            if (manualExpenseSourceFilter !== 'ALL' && row.source !== manualExpenseSourceFilter) return false;
+            if (manualExpenseBeneficiaryFilter !== 'ALL' && row.beneficiaryKey !== manualExpenseBeneficiaryFilter) return false;
+            if (manualExpenseAccountFilter !== 'ALL' && row.accountKey !== manualExpenseAccountFilter) return false;
+            return true;
+        });
+
+        const summary = detailRows.reduce((acc, row) => {
+            acc.lines += 1;
+            acc.quantity += row.quantity;
+            acc.totalValueBase += row.lineTotalBase;
+            acc.documents.add(`${row.source}:${row.invoiceNumber}:${row.date}`);
+            acc.uniqueDescriptions.add(row.description.toLocaleLowerCase());
+            acc.accountsUsed.add(row.accountKey);
+            if (row.source === 'IMPORT') {
+                acc.importLines += 1;
+            } else {
+                acc.generalLines += 1;
+            }
+            return acc;
+        }, {
+            lines: 0,
+            quantity: 0,
+            totalValueBase: 0,
+            generalLines: 0,
+            importLines: 0,
+            documents: new Set<string>(),
+            uniqueDescriptions: new Set<string>(),
+            accountsUsed: new Set<string>()
+        });
+
+        const groupedRowsMap = new Map<string, {
+            source: 'GENERAL' | 'IMPORT';
+            sourceLabel: string;
+            description: string;
+            accountId?: string;
+            accountKey: string;
+            accountName: string;
+            linesCount: number;
+            quantity: number;
+            totalValueBase: number;
+            documents: Set<string>;
+            lastDate: string;
+        }>();
+
+        detailRows.forEach(row => {
+            const key = `${row.source}::${row.description.toLocaleLowerCase()}::${row.accountKey}`;
+            if (!groupedRowsMap.has(key)) {
+                groupedRowsMap.set(key, {
+                    source: row.source,
+                    sourceLabel: row.sourceLabel,
+                    description: row.description,
+                    accountId: row.accountId,
+                    accountKey: row.accountKey,
+                    accountName: row.accountName,
+                    linesCount: 0,
+                    quantity: 0,
+                    totalValueBase: 0,
+                    documents: new Set<string>(),
+                    lastDate: row.date
+                });
+            }
+
+            const bucket = groupedRowsMap.get(key)!;
+            bucket.linesCount += 1;
+            bucket.quantity += row.quantity;
+            bucket.totalValueBase += row.lineTotalBase;
+            bucket.documents.add(`${row.source}:${row.invoiceNumber}:${row.date}`);
+            bucket.lastDate = bucket.lastDate > row.date ? bucket.lastDate : row.date;
+        });
+
+        const groupedRows = Array.from(groupedRowsMap.values())
+            .map(row => ({
+                ...row,
+                documentCount: row.documents.size
+            }))
+            .sort((a, b) => (
+                b.totalValueBase - a.totalValueBase
+                || b.linesCount - a.linesCount
+                || a.description.localeCompare(b.description, isEnglish ? 'en' : 'ar')
+            ));
+
+        return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('المصاريف المدخلة - بند يدوي', 'Manual Expense Lines')} />
+
+                <div className="mb-4 rounded-2xl border border-rose-100 bg-rose-50 p-4 text-xs font-bold text-rose-900">
+                    {tr(
+                        'يعرض هذا التقرير سطور المصروفات المرحّلة المدخلة كبند يدوي، سواءً في المصروفات العامة أو مصاريف الاستيراد، مع إمكانية التصفية حسب النوع والمستفيد وحساب المصروف.',
+                        'This report shows posted manual expense lines from both general expenses and import expenses, with filters for source type, beneficiary, and expense account.'
+                    )}
+                </div>
+
+                <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-4 mb-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                        <h4 className="font-black text-sm text-gray-800">{tr('فلاتر التقرير', 'Report Filters')}</h4>
+                        {(manualExpenseSourceFilter !== 'ALL' || manualExpenseBeneficiaryFilter !== 'ALL' || manualExpenseAccountFilter !== 'ALL') && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setManualExpenseSourceFilter('ALL');
+                                    setManualExpenseBeneficiaryFilter('ALL');
+                                    setManualExpenseAccountFilter('ALL');
+                                }}
+                                className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-[11px] font-black text-gray-600 transition hover:bg-gray-100"
+                            >
+                                {tr('مسح الفلاتر', 'Clear Filters')}
+                            </button>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('نوع المصروف', 'Expense Type')}</label>
+                            <select
+                                value={manualExpenseSourceFilter}
+                                onChange={e => setManualExpenseSourceFilter(e.target.value as 'ALL' | 'GENERAL' | 'IMPORT')}
+                                className="w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
+                            >
+                                <option value="ALL">{tr('الكل', 'All')}</option>
+                                <option value="GENERAL">{tr('مصاريف عامة', 'General Expenses')}</option>
+                                <option value="IMPORT">{tr('مصاريف استيراد', 'Import Expenses')}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('المستفيد', 'Beneficiary')}</label>
+                            <select
+                                value={manualExpenseBeneficiaryFilter}
+                                onChange={e => setManualExpenseBeneficiaryFilter(e.target.value)}
+                                className="w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
+                            >
+                                <option value="ALL">{tr('كل المستفيدين', 'All Beneficiaries')}</option>
+                                {beneficiaryOptions.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('حساب المصروف', 'Expense Account')}</label>
+                            <select
+                                value={manualExpenseAccountFilter}
+                                onChange={e => setManualExpenseAccountFilter(e.target.value)}
+                                className="w-full rounded-[1rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
+                            >
+                                <option value="ALL">{tr('كل الحسابات', 'All Accounts')}</option>
+                                {accountOptions.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('عدد البنود اليدوية', 'Manual Lines')}</p>
+                        <p className="text-sm font-black dir-ltr text-gray-800">{formatPlainNumber(summary.lines)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('مصاريف عامة', 'General Expenses')}</p>
+                        <p className="text-sm font-black dir-ltr text-rose-700">{formatPlainNumber(summary.generalLines)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('مصاريف استيراد', 'Import Expenses')}</p>
+                        <p className="text-sm font-black dir-ltr text-cyan-700">{formatPlainNumber(summary.importLines)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('المستندات', 'Documents')}</p>
+                        <p className="text-sm font-black dir-ltr text-indigo-700">{formatPlainNumber(summary.documents.size)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('أوصاف فريدة', 'Unique Descriptions')}</p>
+                        <p className="text-sm font-black dir-ltr text-amber-700">{formatPlainNumber(summary.uniqueDescriptions.size)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('إجمالي القيمة', 'Total Value')}</p>
+                        <p className="text-sm font-black dir-ltr text-blue-700">{formatValue(summary.totalValueBase)}</p>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto mb-4">
+                    <div className="px-4 py-3 border-b border-gray-50">
+                        <h4 className="font-black text-sm text-gray-800">{tr('تجميع حسب الوصف وحساب المصروف', 'Grouped by Description and Expense Account')}</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-start min-w-[960px]">
+                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
+                                <tr>
+                                    <th className="p-3">{tr('النوع', 'Type')}</th>
+                                    <th className="p-3">{tr('الوصف', 'Description')}</th>
+                                    <th className="p-3">{tr('حساب المصروف', 'Expense Account')}</th>
+                                    <th className="p-3 text-center">{tr('التكرار', 'Occurrences')}</th>
+                                    <th className="p-3 text-center">{tr('المستندات', 'Documents')}</th>
+                                    <th className="p-3 text-center">{tr('الكمية', 'Quantity')}</th>
+                                    <th className="p-3 text-center">{tr('القيمة', 'Value')}</th>
+                                    <th className="p-3 text-center">{tr('آخر حركة', 'Latest')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50 text-xs">
+                                {groupedRows.map(row => (
+                                    <tr
+                                        key={`${row.source}-${row.description}-${row.accountKey}`}
+                                        onDoubleClick={() => row.accountId && openAccountLedger(row.accountId)}
+                                        className={`hover:bg-gray-50 ${row.accountId ? 'cursor-pointer' : ''}`}
+                                        title={row.accountId ? tr('انقر نقراً مزدوجاً لفتح دفتر الحساب', 'Double click to open account ledger') : undefined}
+                                    >
+                                        <td className="p-3">
+                                            <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-black ${row.source === 'IMPORT' ? 'bg-cyan-50 text-cyan-700' : 'bg-rose-50 text-rose-700'}`}>
+                                                {row.sourceLabel}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 font-black text-gray-800">{row.description}</td>
+                                        <td className="p-3 font-bold text-gray-600">{row.accountName}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-gray-700">{formatPlainNumber(row.linesCount)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-slate-600">{formatPlainNumber(row.documentCount)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-emerald-700">{formatPlainNumber(row.quantity)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-indigo-700">{formatValue(row.totalValueBase)}</td>
+                                        <td className="p-3 text-center font-bold text-gray-600">{row.lastDate}</td>
+                                    </tr>
+                                ))}
+                                {groupedRows.length === 0 && (
+                                    <tr>
+                                        <td colSpan={8} className="p-5 text-center text-xs font-bold text-gray-400">
+                                            {tr('لا توجد بنود مصروف يدوية مطابقة للفلاتر ضمن المصروفات المرحّلة خلال الفترة المحددة', 'No manual expense lines matching the selected filters were found in posted expenses for the selected period')}
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
+                    <div className="px-4 py-3 border-b border-gray-50">
+                        <h4 className="font-black text-sm text-gray-800">{tr('التفاصيل حسب المستند', 'Document-Level Details')}</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-start min-w-[1120px]">
+                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
+                                <tr>
+                                    <th className="p-3">{tr('التاريخ', 'Date')}</th>
+                                    <th className="p-3">{tr('النوع', 'Type')}</th>
+                                    <th className="p-3 text-center">{tr('السند', 'Voucher')}</th>
+                                    <th className="p-3">{tr('المستفيد', 'Beneficiary')}</th>
+                                    <th className="p-3">{tr('حساب المصروف', 'Expense Account')}</th>
+                                    <th className="p-3">{tr('الوصف', 'Description')}</th>
+                                    <th className="p-3 text-center">{tr('الكمية', 'Quantity')}</th>
+                                    <th className="p-3 text-center">{tr('سعر الوحدة', 'Unit Price')}</th>
+                                    <th className="p-3 text-center">{tr('الإجمالي', 'Total')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50 text-xs">
+                                {detailRows.map(row => (
+                                    <tr
+                                        key={row.id}
+                                        onDoubleClick={() => row.accountId && openAccountLedger(row.accountId)}
+                                        className={`hover:bg-gray-50 ${row.accountId ? 'cursor-pointer' : ''}`}
+                                        title={row.accountId ? tr('انقر نقراً مزدوجاً لفتح دفتر الحساب', 'Double click to open account ledger') : undefined}
+                                    >
+                                        <td className="p-3 font-bold text-gray-600">{row.date}</td>
+                                        <td className="p-3">
+                                            <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-black ${row.source === 'IMPORT' ? 'bg-cyan-50 text-cyan-700' : 'bg-rose-50 text-rose-700'}`}>
+                                                {row.sourceLabel}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center dir-ltr font-black text-blue-700">#{row.invoiceNumber}</td>
+                                        <td className="p-3 font-bold text-gray-600">{row.beneficiaryName}</td>
+                                        <td className="p-3 font-bold text-gray-600">{row.accountName}</td>
+                                        <td className="p-3 font-black text-gray-800">{row.description}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-emerald-700">{formatPlainNumber(row.quantity)}</td>
+                                        <td className="p-3 text-center dir-ltr font-bold text-slate-700">{formatValue(row.unitPriceBase)}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-indigo-700">{formatValue(row.lineTotalBase)}</td>
+                                    </tr>
+                                ))}
+                                {detailRows.length === 0 && (
+                                    <tr>
+                                        <td colSpan={9} className="p-5 text-center text-xs font-bold text-gray-400">
+                                            {tr('لا توجد تفاصيل مطابقة للفلاتر لعرضها في هذه الفترة', 'No details matching the selected filters are available for this period')}
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     // --- 12. Customer Profit ---
     const renderCustomerProfit = () => {
         const profitByCustomer = contacts.filter(c => c.type === 'CUSTOMER' || c.type === 'BOTH').map(c => {
@@ -4069,7 +5277,7 @@ const FinancialReports: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-xs">
                             {agingRows.map(row => (
-                                <tr key={row.customer.id} className="hover:bg-gray-50">
+                                <tr key={row.customer.id} onDoubleClick={() => openCustomerStatement(row.customer.id)} className="cursor-pointer hover:bg-gray-50">
                                     <td className="p-3 font-bold text-gray-700">{displayContactName(row.customer)}</td>
                                     <td className="p-3 text-center dir-ltr">{formatValue(row.d30)}</td>
                                     <td className="p-3 text-center dir-ltr">{formatValue(row.d60)}</td>
@@ -4221,7 +5429,7 @@ const FinancialReports: React.FC = () => {
 
         const visited = new Set<string>();
         const postingIds = new Set<string>();
-        const queue: string[] = ['acc_payable'];
+        const queue: string[] = ['acc_payable_group'];
 
         while (queue.length > 0) {
             const accountId = queue.shift() as string;
@@ -4339,7 +5547,7 @@ const FinancialReports: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-xs">
                             {agingRows.map(row => (
-                                <tr key={row.supplier.id} className="hover:bg-gray-50">
+                                <tr key={row.supplier.id} onDoubleClick={() => openSupplierStatement(row.supplier.id)} className="cursor-pointer hover:bg-gray-50">
                                     <td className="p-3 font-bold text-gray-700">{displayContactName(row.supplier)}</td>
                                     <td className="p-3 text-center dir-ltr">{formatValue(row.d30)}</td>
                                     <td className="p-3 text-center dir-ltr">{formatValue(row.d60)}</td>
@@ -4690,7 +5898,7 @@ const FinancialReports: React.FC = () => {
                 <ReportHeader title={tr('حركة الحسابات', 'Account Activity')} />
                 <div className="space-y-3">
                     {summary.map(item => (
-                        <div key={item!.acc.id} className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex justify-between items-center text-xs">
+                        <div key={item!.acc.id} onDoubleClick={() => openAccountLedger(item!.acc.id)} className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex justify-between items-center text-xs cursor-pointer">
                             <span className="font-bold text-gray-800">{displayAccountName(item!.acc)}</span>
                             <div className="text-left flex gap-4">
                                 <span className="text-emerald-600 dir-ltr">+{formatValue(item!.debit)}</span>
@@ -4967,7 +6175,7 @@ const FinancialReports: React.FC = () => {
                             {analyticsData.topActiveAccounts.map(acc => {
                                 const widthPct = Math.max(8, (acc.periodMovement / maxMovement) * 100);
                                 return (
-                                    <div key={acc.id} className="p-3 rounded-xl border border-gray-100 bg-gray-50">
+                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="p-3 rounded-xl border border-gray-100 bg-gray-50 cursor-pointer">
                                         <div className="flex items-center justify-between gap-2">
                                             <div className="min-w-0">
                                                 <p className="text-xs font-black text-gray-800 truncate">{displayAccountName(acc)}</p>
@@ -4995,7 +6203,7 @@ const FinancialReports: React.FC = () => {
                             <h3 className="font-black text-gray-800 mb-3">{tr('أعلى حسابات الإيراد', 'Top Revenue Accounts')}</h3>
                             <div className="space-y-2">
                                 {analyticsData.topRevenueAccounts.map(acc => (
-                                    <div key={acc.id} className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="flex cursor-pointer items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100">
                                         <div className="min-w-0">
                                             <p className="text-xs font-black text-emerald-800 truncate">{displayAccountName(acc)}</p>
                                             <p className="text-[10px] text-emerald-600/70 font-bold">({acc.code})</p>
@@ -5011,7 +6219,7 @@ const FinancialReports: React.FC = () => {
                             <h3 className="font-black text-gray-800 mb-3">{tr('أعلى حسابات المصروف', 'Top Expense Accounts')}</h3>
                             <div className="space-y-2">
                                 {analyticsData.topExpenseAccounts.map(acc => (
-                                    <div key={acc.id} className="flex items-center justify-between p-3 rounded-xl bg-rose-50 border border-rose-100">
+                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="flex cursor-pointer items-center justify-between p-3 rounded-xl bg-rose-50 border border-rose-100">
                                         <div className="min-w-0">
                                             <p className="text-xs font-black text-rose-800 truncate">{displayAccountName(acc)}</p>
                                             <p className="text-[10px] text-rose-600/70 font-bold">({acc.code})</p>
@@ -5254,6 +6462,7 @@ const FinancialReports: React.FC = () => {
             case 'MENU': return renderMenu();
             case 'STOCK_REMAINING': return renderStockReport();
             case 'INVENTORY_COUNT_LIST': return renderInventoryCountListReport();
+            case 'MANUAL_UNDEFINED_ITEMS': return renderManualUndefinedItemsReport();
             case 'LOW_STOCK_ALERTS': return renderLowStockAlertsReport();
             case 'AVERAGE_COST_AUDIT': return renderAverageCostAuditReport();
             case 'ITEM_PROFIT': return renderItemProfitReport();
@@ -5277,6 +6486,7 @@ const FinancialReports: React.FC = () => {
             case 'PURCHASE_PRICE_VARIANCE': return renderPurchasePriceVariance();
             case 'SUPPLIER_ANALYSIS': return renderSupplierAnalysis();
             case 'IMPORT_EXPENSES_DETAIL': return renderImportExpensesDetail();
+            case 'MANUAL_EXPENSE_LINES': return renderManualExpenseLinesReport();
             case 'RECEIPTS_LIST': return renderTransactionList('RECEIPTS');
             case 'PAYMENTS_LIST': return renderTransactionList('PAYMENTS');
             case 'SALES_BY_ITEM': return renderItemAnalysis('SALES');
@@ -5308,7 +6518,10 @@ const FinancialReports: React.FC = () => {
             className={`financial-reports-page px-3 sm:px-4 pt-[calc(var(--app-safe-top)+0.5rem)] pb-[calc(var(--app-safe-bottom)+5.5rem)] app-page max-w-7xl mx-auto ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
         >
-            <div ref={activeReportRef}>
+            <div
+                ref={activeReportRef}
+                className={`financial-reports-page ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
+            >
                 {renderContent()}
             </div>
         </div>

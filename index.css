@@ -57,6 +57,32 @@
     linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
+.invoice-mobile-toolbar,
+.invoice-mode-tabs,
+.invoice-meta-card,
+.invoice-entry-card,
+.invoice-search-card {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.05), transparent 32%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.invoice-payment-toggle {
+  background: linear-gradient(180deg, #eef2f7 0%, #f7f9fc 100%);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.invoice-search-form {
+  background:
+    radial-gradient(circle at top left, rgba(245, 158, 11, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.invoice-contact-add-btn,
+.invoice-manual-item-button span:first-child {
+  box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.45);
+}
+
 .invoice-items-table thead th {
   box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.18);
 }
@@ -405,6 +431,27 @@ html[data-orientation='portrait'] .app-back-btn {
   padding-bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.95rem) !important;
 }
 
+.transaction-mobile-dock {
+  position: static;
+  inset-inline: auto;
+  bottom: auto;
+  z-index: auto;
+  margin-top: 0.85rem;
+  padding-inline: 0.1rem;
+  padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.55rem);
+}
+
+.transaction-mobile-dock>div {
+  width: 100%;
+  max-width: min(100%, var(--app-content-max-width-tablet-browser));
+  margin-inline: auto;
+}
+
+html[data-keyboard-open='1'] .transaction-mobile-dock {
+  position: static;
+  bottom: auto;
+}
+
 html[data-keyboard-open='1'] .app-bottom-nav {
   transform: translateY(calc(100% + var(--app-safe-bottom)));
   transition: transform 0.2s ease;
@@ -573,6 +620,56 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     padding: 0.7rem !important;
   }
 
+  .transaction-mobile-form .voucher-mobile-hero {
+    border-radius: 1.15rem !important;
+    padding: 0.8rem !important;
+  }
+
+  .transaction-mobile-form .voucher-mobile-section {
+    border-radius: 1.1rem !important;
+    padding: 0.75rem !important;
+  }
+
+  .transaction-mobile-form .voucher-mobile-line-card {
+    border-radius: 1rem !important;
+    padding: 0.75rem !important;
+  }
+
+  .transaction-mobile-form .cash-line-card,
+  .transaction-mobile-form .check-line-card {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 0.94) 100%) !important;
+  }
+
+  .transaction-mobile-form .cash-line-grid,
+  .transaction-mobile-form .check-line-grid-primary,
+  .transaction-mobile-form .check-line-grid-secondary,
+  .transaction-mobile-form .check-image-grid {
+    gap: 0.5rem !important;
+    align-items: start !important;
+  }
+
+  .transaction-mobile-form .cash-line-grid {
+    grid-template-columns: minmax(0, 1.22fr) minmax(0, 0.82fr) !important;
+  }
+
+  .transaction-mobile-form .check-line-grid-primary,
+  .transaction-mobile-form .check-line-grid-secondary {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .transaction-mobile-form .check-image-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .transaction-mobile-form .voucher-mobile-submit {
+    border-radius: 1.15rem !important;
+    padding: 0.8rem !important;
+  }
+
+  .transaction-mobile-form .voucher-mobile-submit > div:first-child {
+    border-radius: 0.95rem !important;
+  }
+
   .transaction-mobile-form .transaction-entry-split {
     display: flex !important;
     flex-direction: column !important;
@@ -609,6 +706,10 @@ html[data-keyboard-open='1'] .app-bottom-nav {
 
   .transaction-mobile-form .header-fields-grid > :last-child {
     grid-column: 1 / -1 !important;
+  }
+
+  .transaction-mobile-form .header-fields-grid--compact-rate > :last-child {
+    grid-column: auto !important;
   }
 
   .transaction-mobile-form .invoice-items-shell {
@@ -695,12 +796,158 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     padding: 0.55rem !important;
   }
 
+  .transaction-mobile-form.invoice-mobile-page {
+    gap: 0.85rem !important;
+  }
+
+  .transaction-mobile-form .invoice-mobile-top-shell {
+    gap: 0.7rem !important;
+  }
+
+  .transaction-mobile-form .invoice-mobile-toolbar {
+    border-radius: 1.15rem !important;
+    padding: 0.75rem 0.85rem !important;
+  }
+
+  .transaction-mobile-form .invoice-mobile-toolbar button {
+    min-height: 2.7rem !important;
+  }
+
+  .transaction-mobile-form .invoice-mode-tabs {
+    border-radius: 1.1rem !important;
+    padding: 0.3rem !important;
+    gap: 0.35rem !important;
+  }
+
+  .transaction-mobile-form .invoice-mode-tabs button {
+    min-height: 3rem !important;
+    border-radius: 0.9rem !important;
+    font-size: 0.9rem !important;
+  }
+
+  .transaction-mobile-form .invoice-meta-card,
+  .transaction-mobile-form .invoice-entry-card,
+  .transaction-mobile-form .invoice-search-card,
+  .transaction-mobile-form .invoice-items-card {
+    border-radius: 1.15rem !important;
+    border-color: rgba(226, 232, 240, 0.95) !important;
+    box-shadow: 0 18px 34px -30px rgba(15, 23, 42, 0.3) !important;
+  }
+
+  .transaction-mobile-form .invoice-meta-card,
+  .transaction-mobile-form .invoice-entry-card {
+    padding: 0.8rem !important;
+  }
+
+  .transaction-mobile-form .invoice-payment-toggle-row,
+  .transaction-mobile-form .invoice-contact-row,
+  .transaction-mobile-form .invoice-context-grid,
+  .transaction-mobile-form .invoice-meta-inline-grid {
+    gap: 0.55rem !important;
+  }
+
+  .transaction-mobile-form .invoice-payment-toggle {
+    padding: 0.24rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .transaction-mobile-form .invoice-payment-toggle > button {
+    min-height: 2.9rem !important;
+    font-size: 0.95rem !important;
+  }
+
+  .transaction-mobile-form .invoice-context-grid select,
+  .transaction-mobile-form .invoice-meta-inline-grid input,
+  .transaction-mobile-form .invoice-entry-card .searchable-contact-trigger,
+  .transaction-mobile-form .invoice-search-form input {
+    min-height: 3.15rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .transaction-mobile-form .invoice-contact-add-btn {
+    height: 3.15rem !important;
+    width: 3.15rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .transaction-mobile-form .invoice-entry-card .searchable-contact-action span {
+    height: 2.45rem !important;
+    width: 2.45rem !important;
+    border-radius: 0.9rem !important;
+  }
+
+  .transaction-mobile-form .invoice-search-card {
+    padding: 0.75rem !important;
+  }
+
+  .transaction-mobile-form .invoice-search-form {
+    border-radius: 1.1rem !important;
+    padding: 0.65rem !important;
+    gap: 0.55rem !important;
+  }
+
+  .transaction-mobile-form .invoice-search-form input {
+    padding-inline: 0.9rem !important;
+    font-size: 0.95rem !important;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
+  }
+
+  .transaction-mobile-form .invoice-manual-item-button {
+    width: 4.4rem !important;
+    gap: 0.25rem !important;
+  }
+
+  .transaction-mobile-form .invoice-manual-item-button span:first-child {
+    height: 2.95rem !important;
+    width: 2.95rem !important;
+    border-radius: 1rem !important;
+  }
+
+  .transaction-mobile-form .invoice-manual-item-button span:last-child {
+    font-size: 0.62rem !important;
+    line-height: 1.2 !important;
+  }
+
+  .transaction-mobile-form .invoice-items-shell {
+    border-radius: 1rem !important;
+    border-color: rgba(226, 232, 240, 0.95) !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table thead th {
+    background: linear-gradient(180deg, #f8fbff 0%, #f1f5f9 100%) !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table tbody td {
+    padding-top: 0.55rem !important;
+    padding-bottom: 0.55rem !important;
+  }
+
+  .transaction-mobile-form .invoice-items-table .invoice-line-total {
+    min-width: 4.75rem !important;
+    border-radius: 1rem !important;
+    box-shadow: 0 10px 20px -18px rgba(59, 130, 246, 0.7) !important;
+  }
+
   .transaction-mobile-form .invoice-submit-panel {
-    position: sticky !important;
-    z-index: 35 !important;
-    bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 0.3rem) !important;
+    position: static !important;
+    z-index: auto !important;
+    bottom: auto !important;
     border-radius: 1rem !important;
     padding: 0.8rem !important;
+  }
+
+  .transaction-mobile-form .journal-submit-panel {
+    position: static !important;
+    z-index: auto !important;
+    bottom: auto !important;
+  }
+
+  .transaction-screen-with-submit-dock {
+    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 1.75rem) !important;
+  }
+
+  html[data-keyboard-open='1'] .transaction-screen-with-submit-dock {
+    padding-bottom: calc(var(--app-safe-bottom) + var(--app-keyboard-inset) + 1.75rem) !important;
   }
 
   .dashboard-page .dashboard-primary-card,
@@ -821,6 +1068,19 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     border-radius: 0.85rem !important;
     padding: 0.7rem !important;
   }
+}
+
+.transaction-mobile-form .journal-line-grid--compact {
+  grid-template-columns: minmax(0, 0.88fr) minmax(0, 0.88fr) minmax(0, 1.24fr) !important;
+  align-items: end !important;
+}
+
+.transaction-mobile-form .header-fields-grid--journal-inline-rate {
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr) !important;
+}
+
+.transaction-mobile-form .header-fields-grid--journal-inline-rate > :last-child {
+  grid-column: auto !important;
 }
 
 /* ===== DARK THEME ===== */

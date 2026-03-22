@@ -3,6 +3,7 @@ import { Download, Save, ScanBarcode, Trash2, Upload } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { isStockProduct } from '../utils/productKind';
 
 type CountMap = Record<string, number>;
 type UnknownBarcodeMap = Record<string, number>;
@@ -36,6 +37,7 @@ const BarcodeStockTakeManager: React.FC = () => {
     getDisplayProductName(product || undefined, isEnglish);
   const displayWarehouseName = (warehouse?: { id: string; name: string } | null) =>
     getDisplayWarehouseName(warehouse || undefined, isEnglish);
+  const stockProducts = useMemo(() => products.filter(product => isStockProduct(product)), [products]);
 
   const [warehouseId, setWarehouseId] = useState<string>('');
   const [offlineMode, setOfflineMode] = useState(true);
@@ -79,18 +81,18 @@ const BarcodeStockTakeManager: React.FC = () => {
 
   const productLookup = useMemo(() => {
     const byScan = new Map<string, string>();
-    products.forEach(product => {
+    stockProducts.forEach(product => {
       if (product.barcode) byScan.set(normalizeBarcode(product.barcode), product.id);
       if (product.itemCode) byScan.set(normalizeBarcode(product.itemCode), product.id);
     });
     return byScan;
-  }, [products]);
+  }, [stockProducts]);
 
   const countedRows = useMemo(() => {
     return Object.entries(counts)
       .map(([productId, qty]) => {
         const countedQty = Number(qty) || 0;
-        const product = products.find(item => item.id === productId);
+        const product = stockProducts.find(item => item.id === productId);
         const currentQty = Number(product?.warehouseStock?.find(line => line.warehouseId === warehouseId)?.quantity ?? product?.stock ?? 0);
         return {
           productId,
@@ -101,7 +103,7 @@ const BarcodeStockTakeManager: React.FC = () => {
         };
       })
       .sort((a, b) => Number(b.qty) - Number(a.qty));
-  }, [counts, products, warehouseId]);
+  }, [counts, stockProducts, warehouseId]);
 
   const totalCounted = countedRows.reduce((sum, row) => sum + row.qty, 0);
 
@@ -115,7 +117,7 @@ const BarcodeStockTakeManager: React.FC = () => {
       return;
     }
     setCounts(prev => ({ ...prev, [productId]: (prev[productId] || 0) + amount }));
-    const product = products.find(item => item.id === productId);
+    const product = stockProducts.find(item => item.id === productId);
     setStatusMsg(tr(`تم عد ${displayProductName(product || null)}`, `Counted ${displayProductName(product || null)}`));
   };
 
@@ -183,9 +185,20 @@ const BarcodeStockTakeManager: React.FC = () => {
       alert(tr('لا توجد نتائج جرد للتطبيق', 'No stocktake results to apply.'));
       return;
     }
-    countedRows.forEach(row => {
-      adjustWarehouseStock(row.productId, warehouseId, row.qty);
-    });
+    for (const row of countedRows) {
+      const result = adjustWarehouseStock(row.productId, warehouseId, row.qty, {
+        reason: 'VARIANCE',
+        source: 'BARCODE'
+      });
+      if (!result.ok) {
+        const productLabel = row.product ? displayProductName(row.product) : row.productId;
+        alert(tr(
+          `تعذر تطبيق الجرد على الصنف ${productLabel}: ${result.message}`,
+          `Could not apply stocktake to ${productLabel}: ${result.message}`
+        ));
+        return;
+      }
+    }
     setStatusMsg(tr(`تم تطبيق ${countedRows.length} صنف على المخزون`, `Applied ${countedRows.length} products to inventory`));
   };
 

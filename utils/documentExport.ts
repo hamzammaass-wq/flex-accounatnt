@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 
 interface HtmlSnapshotOptions {
   title: string;
@@ -19,6 +20,12 @@ interface PdfSnapshotOptions extends HtmlSnapshotOptions {
   padding?: number;
   backgroundColor?: string;
   canvasScale?: number;
+}
+
+interface WorkbookDownloadOptions {
+  fileName: string;
+  bookType?: XLSX.BookType;
+  mimeType?: string;
 }
 
 const INVALID_FILE_CHARS = /[\\/:*?"<>|]+/g;
@@ -44,6 +51,26 @@ const triggerDownload = (blob: Blob, fileName: string) => {
 
 export const downloadBlobFile = (blob: Blob, fileName: string) => {
   triggerDownload(blob, fileName);
+};
+
+export const downloadWorkbookFile = (
+  workbook: XLSX.WorkBook,
+  { fileName, bookType = 'xlsx', mimeType }: WorkbookDownloadOptions
+) => {
+  const finalFileName = sanitizeDownloadName(
+    fileName.endsWith(`.${bookType}`) ? fileName : `${fileName}.${bookType}`
+  );
+  const output = XLSX.write(workbook, {
+    bookType,
+    type: 'array',
+    compression: true
+  });
+  const resolvedMimeType = mimeType || (
+    bookType === 'xlsx'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'application/octet-stream'
+  );
+  downloadBlobFile(new Blob([output], { type: resolvedMimeType }), finalFileName);
 };
 
 export const downloadTextFile = (content: string, fileName: string, mimeType = 'text/plain;charset=utf-8') => {
@@ -110,44 +137,191 @@ const stripInteractiveElements = (element: HTMLElement) => {
   return clone;
 };
 
-const extractRowsFromTable = (table: HTMLTableElement): string[][] => {
-  const rows = Array.from(table.querySelectorAll('tr')).map(row =>
-    Array.from(row.querySelectorAll('th, td'))
-      .map(cell => normalizeText(cell.textContent))
-      .filter(Boolean)
-  );
-  return rows.filter(row => row.length > 0);
+const BLOCK_TEXT_TAGS = new Set([
+  'ADDRESS',
+  'ARTICLE',
+  'ASIDE',
+  'BLOCKQUOTE',
+  'DD',
+  'DIV',
+  'DL',
+  'DT',
+  'FIGCAPTION',
+  'FIGURE',
+  'FOOTER',
+  'FORM',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'HEADER',
+  'HR',
+  'LI',
+  'MAIN',
+  'NAV',
+  'OL',
+  'P',
+  'PRE',
+  'SECTION',
+  'TABLE',
+  'TBODY',
+  'TD',
+  'TH',
+  'THEAD',
+  'TR',
+  'UL'
+]);
+
+const extractReadableText = (node: Node | null | undefined): string => {
+  if (!node) return '';
+
+  const parts: string[] = [];
+  const appendBreak = () => {
+    const last = parts[parts.length - 1];
+    if (last !== '\n') {
+      parts.push('\n');
+    }
+  };
+
+  const walk = (current: Node) => {
+    if (current.nodeType === Node.TEXT_NODE) {
+      parts.push(current.textContent || '');
+      return;
+    }
+
+    if (!(current instanceof HTMLElement)) return;
+
+    if (current.tagName === 'BR') {
+      appendBreak();
+      return;
+    }
+
+    const isBlock = BLOCK_TEXT_TAGS.has(current.tagName);
+    if (isBlock && parts.length > 0) {
+      appendBreak();
+    }
+
+    current.childNodes.forEach(walk);
+
+    if (isBlock) {
+      appendBreak();
+    }
+  };
+
+  walk(node);
+
+  return parts
+    .join('')
+    .replace(/\u00A0/g, ' ')
+    .split(/\r?\n/)
+    .map(line => normalizeText(line))
+    .filter((line, index, lines) => line.length > 0 || (index === 0 && lines.length === 1))
+    .join('\n')
+    .trim();
 };
 
-const escapeCsvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
+const extractRowsFromTable = (table: HTMLTableElement): string[][] => {
+  const rows = Array.from(table.querySelectorAll('tr')).map(row =>
+    Array.from(row.querySelectorAll('th, td')).map(cell => extractReadableText(cell))
+  );
+  const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  return rows
+    .map(row => row.length < maxColumns ? [...row, ...Array(maxColumns - row.length).fill('')] : row)
+    .filter(row => row.some(cell => normalizeText(cell).length > 0));
+};
+
+const buildWorksheetColumns = (rows: string[][]) => {
+  const widths: number[] = [];
+  rows.forEach(row => {
+    row.forEach((cell, index) => {
+      const longestLine = String(cell || '')
+        .split('\n')
+        .reduce((max, line) => Math.max(max, line.length), 0);
+      widths[index] = Math.max(widths[index] || 10, Math.min(60, longestLine + 2));
+    });
+  });
+  return widths.map(width => ({ wch: width }));
+};
+
+const isBlankRow = (row: string[]) => row.every(cell => normalizeText(cell).length === 0);
+
+const compactSheetRows = (rows: string[][]) => {
+  const compacted: string[][] = [];
+  rows.forEach(row => {
+    if (isBlankRow(row)) {
+      if (compacted.length === 0 || isBlankRow(compacted[compacted.length - 1])) return;
+      compacted.push(['']);
+      return;
+    }
+    compacted.push(row);
+  });
+
+  while (compacted.length > 0 && isBlankRow(compacted[0])) {
+    compacted.shift();
+  }
+  while (compacted.length > 0 && isBlankRow(compacted[compacted.length - 1])) {
+    compacted.pop();
+  }
+  return compacted;
+};
+
+const extractOrderedRowsFromNode = (node: Node | null | undefined): string[][] => {
+  if (!node) return [];
+
+  if (node instanceof HTMLTableElement) {
+    return extractRowsFromTable(node);
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    const text = normalizeText(node.textContent || '');
+    return text ? [[text]] : [];
+  }
+
+  if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') {
+    return [];
+  }
+
+  if (!node.querySelector('table')) {
+    const text = extractReadableText(node);
+    return text
+      ? text.split('\n').map(line => [line])
+      : [];
+  }
+
+  const rows: string[][] = [];
+  node.childNodes.forEach(child => {
+    const childRows = extractOrderedRowsFromNode(child);
+    if (childRows.length === 0) return;
+    if (rows.length > 0 && !isBlankRow(rows[rows.length - 1])) {
+      rows.push(['']);
+    }
+    rows.push(...childRows);
+  });
+  return compactSheetRows(rows);
+};
 
 export const exportElementAsCsv = (element: HTMLElement | null, fileName: string) => {
   if (!element) return false;
   const clone = stripInteractiveElements(element);
-  const tables = Array.from(clone.querySelectorAll('table'));
-  let rows: string[][] = [];
-
-  if (tables.length > 0) {
-    tables.forEach((table, index) => {
-      const tableRows = extractRowsFromTable(table);
-      if (tableRows.length > 0) {
-        rows.push(...tableRows);
-        if (index < tables.length - 1) rows.push([]);
-      }
-    });
-  } else {
-    rows = clone.innerText
-      .split('\n')
-      .map(line => normalizeText(line))
-      .filter(Boolean)
-      .map(line => [line]);
-  }
+  const rows = compactSheetRows(extractOrderedRowsFromNode(clone));
 
   if (rows.length === 0) return false;
 
-  const csv = '\uFEFF' + rows.map(row => row.map(escapeCsvValue).join(',')).join('\n');
-  downloadTextFile(csv, fileName.endsWith('.csv') ? fileName : `${fileName}.csv`, 'text/csv;charset=utf-8');
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  worksheet['!cols'] = buildWorksheetColumns(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
+  workbook.Workbook = { Views: [{ RTL: element.dir === 'rtl' || element.closest('[dir="rtl"]') !== null }] };
+  downloadWorkbookFile(workbook, { fileName });
   return true;
+};
+
+export const extractElementReadableText = (element: HTMLElement | null) => {
+  if (!element) return '';
+  const clone = stripInteractiveElements(element);
+  return extractReadableText(clone);
 };
 
 export const downloadElementAsHtml = (element: HTMLElement | null, options: HtmlSnapshotOptions) => {
@@ -312,6 +486,170 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .statement-line-items .rounded-lg {
         break-inside: avoid !important;
       }
+      .report-print-document {
+        width: 100%;
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+      .report-print-header {
+        margin-bottom: 18px;
+        padding-bottom: 14px;
+        border-bottom: 2px solid #e2e8f0;
+      }
+      .report-print-header h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.35;
+        font-weight: 900;
+        color: #0f172a;
+      }
+      .report-print-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .report-print-chip {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #e2e8f0;
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: #f8fafc;
+        color: #334155;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .report-print-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .report-print-content .report-print-section {
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
+      }
+      .report-print-content .report-print-table-section,
+      .report-print-content .report-print-table-section .bg-white,
+      .report-print-content .report-print-table-section .report-print-highlight {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+      .report-print-content .overflow-auto,
+      .report-print-content .overflow-x-auto,
+      .report-print-content .overflow-y-auto,
+      .report-print-content .no-scrollbar {
+        overflow: visible !important;
+        max-width: none !important;
+        max-height: none !important;
+      }
+      .report-print-content table {
+        width: 100% !important;
+        min-width: 0 !important;
+        table-layout: auto !important;
+        border-collapse: collapse !important;
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+      .report-print-content thead {
+        display: table-header-group !important;
+      }
+      .report-print-content tfoot {
+        display: table-footer-group !important;
+      }
+      .report-print-content tbody {
+        display: table-row-group !important;
+      }
+      .report-print-content th,
+      .report-print-content td {
+        border: 1px solid #e5e7eb !important;
+        padding: 8px 10px !important;
+        text-align: ${dir === 'rtl' ? 'right' : 'left'} !important;
+        font-size: 12px !important;
+        line-height: 1.45 !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
+        vertical-align: top !important;
+      }
+      .report-print-content thead th {
+        background: #f8fafc !important;
+        color: #334155 !important;
+      }
+      .report-print-content [class*="shadow"] {
+        box-shadow: none !important;
+      }
+      .report-print-content [class*="rounded"] {
+        border-radius: 14px !important;
+      }
+      .report-print-content .bg-white {
+        background: #ffffff !important;
+      }
+      .report-print-content .report-print-highlight,
+      .report-print-content [class*="bg-gradient"] {
+        background: #f8fafc !important;
+        color: #0f172a !important;
+        border: 1px solid #e2e8f0 !important;
+      }
+      .report-print-content .report-print-highlight *,
+      .report-print-content [class*="bg-gradient"] * {
+        color: inherit !important;
+      }
+      .report-print-content .absolute {
+        display: none !important;
+      }
+      .report-print-content .sticky,
+      .report-print-content .fixed {
+        position: static !important;
+        inset: auto !important;
+      }
+      .report-print-content .grid {
+        gap: 12px !important;
+      }
+      .report-print-content .grid[class*="grid-cols-2"],
+      .report-print-content .grid[class*="grid-cols-3"],
+      .report-print-content .grid[class*="grid-cols-4"],
+      .report-print-content .grid[class*="grid-cols-5"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+      .report-print-content .flex {
+        flex-wrap: wrap !important;
+      }
+      .report-print-content > *,
+      .report-print-content tr,
+      .report-print-content .bg-white,
+      .report-print-content .report-print-highlight {
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
+      }
+      .report-print-content .report-print-table tr,
+      .report-print-content .report-print-table td,
+      .report-print-content .report-print-table th {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+      .report-print-income .grid[class*="grid-cols-2"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+      .report-print-statement .statement-report-table {
+        table-layout: fixed !important;
+      }
+      .report-print-statement .statement-report-table th:nth-child(1),
+      .report-print-statement .statement-report-table td:nth-child(1) {
+        width: 12% !important;
+      }
+      .report-print-statement .statement-report-table th:nth-child(2),
+      .report-print-statement .statement-report-table td:nth-child(2) {
+        width: 48% !important;
+      }
+      .report-print-statement .statement-report-table th:nth-child(3),
+      .report-print-statement .statement-report-table td:nth-child(3),
+      .report-print-statement .statement-report-table th:nth-child(4),
+      .report-print-statement .statement-report-table td:nth-child(4),
+      .report-print-statement .statement-report-table th:nth-child(5),
+      .report-print-statement .statement-report-table td:nth-child(5) {
+        width: 13.33% !important;
+      }
       .dir-ltr { direction: ltr; }
       @media print {
         @page {
@@ -320,6 +658,10 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         body {
           padding: 8px;
           background: #ffffff;
+        }
+        .report-print-content .report-print-table-section {
+          break-inside: auto !important;
+          page-break-inside: auto !important;
         }
       }
     </style>
@@ -373,6 +715,7 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   const clone = stripInteractiveElements(element);
   const sourceWidth = Math.max(element.scrollWidth, Math.ceil(element.getBoundingClientRect().width), 720);
   const host = document.createElement('div');
+  const viewport = document.createElement('div');
 
   host.lang = lang;
   host.dir = dir;
@@ -385,38 +728,34 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   host.style.padding = `${padding}px`;
   host.style.width = `${sourceWidth + (padding * 2)}px`;
   host.style.boxSizing = 'border-box';
+  host.style.overflow = 'hidden';
+
+  viewport.style.width = `${sourceWidth}px`;
+  viewport.style.boxSizing = 'border-box';
+  viewport.style.position = 'relative';
+  viewport.style.overflow = 'hidden';
 
   clone.style.width = `${sourceWidth}px`;
   clone.style.boxSizing = 'border-box';
+  clone.style.transformOrigin = 'top left';
   expandSnapshotLayout(clone);
 
-  host.appendChild(clone);
+  viewport.appendChild(clone);
+  host.appendChild(viewport);
   document.body.appendChild(host);
 
-  return { host, clone, backgroundColor, padding };
+  return { host, viewport, clone, backgroundColor, padding };
 };
 
 export const buildElementPdfFile = async (element: HTMLElement | null, options: PdfSnapshotOptions): Promise<File | null> => {
   if (!element || typeof window === 'undefined') return null;
 
-  const { host, backgroundColor, padding } = prepareSnapshotHost(element, options);
+  const { host, viewport, clone, backgroundColor, padding } = prepareSnapshotHost(element, options);
 
   try {
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
-
-    const canvas = await html2canvas(host, {
-      backgroundColor,
-      scale: options.canvasScale ?? Math.min(2, Math.max(window.devicePixelRatio || 1, 1.5)),
-      useCORS: true,
-      width: Math.ceil(host.scrollWidth),
-      height: Math.ceil(host.scrollHeight),
-      windowWidth: Math.ceil(host.scrollWidth),
-      windowHeight: Math.ceil(host.scrollHeight),
-      scrollX: 0,
-      scrollY: 0
-    });
 
     const pdf = new jsPDF({
       orientation: 'portrait',
@@ -429,19 +768,47 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     const margin = Math.max(18, padding);
     const printableWidth = pageWidth - (margin * 2);
     const printableHeight = pageHeight - (margin * 2);
-    const imageWidth = printableWidth;
-    const imageHeight = (canvas.height * imageWidth) / canvas.width;
-    const imageData = canvas.toDataURL('image/png');
+    const scale = options.canvasScale ?? Math.min(2, Math.max(window.devicePixelRatio || 1, 1.5));
+    const hostWidth = Math.ceil(host.scrollWidth);
+    const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1);
+    const naturalSliceHeight = Math.floor(((printableHeight * hostWidth) / printableWidth) - (padding * 2));
+    const maxSliceHeight = Math.max(960, Math.floor(1800 / Math.max(scale, 1)));
+    const pageSliceHeight = Math.max(1, Math.min(naturalSliceHeight, maxSliceHeight));
     let renderedHeight = 0;
+    let pageIndex = 0;
 
-    pdf.addImage(imageData, 'PNG', margin, margin, imageWidth, imageHeight, undefined, 'FAST');
-    renderedHeight += printableHeight;
+    while (renderedHeight < totalHeight) {
+      const sliceHeight = Math.min(pageSliceHeight, totalHeight - renderedHeight);
+      viewport.style.height = `${sliceHeight}px`;
+      clone.style.transform = `translateY(-${renderedHeight}px)`;
 
-    while (renderedHeight < imageHeight) {
-      pdf.addPage();
-      pdf.addImage(imageData, 'PNG', margin, margin - renderedHeight, imageWidth, imageHeight, undefined, 'FAST');
-      renderedHeight += printableHeight;
+      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+
+      const canvas = await html2canvas(host, {
+        backgroundColor,
+        scale,
+        useCORS: true,
+        width: hostWidth,
+        height: Math.ceil(host.scrollHeight),
+        windowWidth: hostWidth,
+        windowHeight: Math.ceil(host.scrollHeight),
+        scrollX: 0,
+        scrollY: 0
+      });
+
+      if (pageIndex > 0) {
+        pdf.addPage();
+      }
+
+      const imageWidth = printableWidth;
+      const imageHeight = (canvas.height * imageWidth) / canvas.width;
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imageWidth, imageHeight, undefined, 'FAST');
+
+      renderedHeight += sliceHeight;
+      pageIndex += 1;
     }
+
+    clone.style.transform = 'translateY(0)';
 
     const fileName = options.fileName.endsWith('.pdf') ? options.fileName : `${options.fileName}.pdf`;
     const blob = pdf.output('blob');

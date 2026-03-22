@@ -2,10 +2,13 @@
 
 ## What is included
 
-- `functions/createStripeWorkspaceCheckout`
-- `functions/stripeWebhook`
 - `functions/appleSubscriptionNotifications`
 - `functions/googlePlaySubscriptionNotifications`
+
+## PalPay
+
+- `PalPay` in this repo is currently wired as a frontend redirect checkout via `VITE_PALPAY_CHECKOUT_URL`.
+- No `Firebase Functions` webhook handler is included for `PalPay` yet.
 
 ## Firestore collections
 
@@ -19,26 +22,9 @@
 Create `functions/.env` from `functions/.env.example` and fill:
 
 - `FUNCTIONS_REGION`
-- `APP_BASE_URL`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
 - `GOOGLE_PLAY_PACKAGE_NAME`
 - `APPLE_BUNDLE_ID`
 - `APPLE_APP_ID`
-
-## Stripe
-
-1. Deploy functions.
-2. Copy the public URL for `stripeWebhook`.
-3. Add it in Stripe Webhooks.
-4. Subscribe at minimum to:
-   - `checkout.session.completed`
-   - `customer.subscription.created`
-   - `customer.subscription.updated`
-   - `customer.subscription.deleted`
-   - `invoice.paid`
-   - `invoice.payment_failed`
-5. Put the webhook signing secret in `STRIPE_WEBHOOK_SECRET`.
 
 ## Apple
 

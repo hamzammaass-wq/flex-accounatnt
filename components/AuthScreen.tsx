@@ -12,9 +12,10 @@ import {
 import { BadgeCheck, Building2, CheckCircle2, Clock3, KeyRound, Lock, Mail, ShieldCheck, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
-import { DEFAULT_BRAND_LOGO_URL } from '../utils/brandAssets';
 import { translate } from '../utils/i18n';
+import { clearWorkspaceSnapshotStorage, hasAnyWorkspaceSnapshotRecord } from '../utils/workspaceSnapshotStorage';
 import PolicyGuideScreen from './PolicyGuideScreen';
+import authScreenLogo from '../AI FLEX LOGO.png';
 
 type AuthMode = 'LOGIN' | 'REGISTER';
 type AuthInfoMode = 'NONE' | 'POLICY' | 'USAGE_GUIDE';
@@ -30,10 +31,48 @@ const SIGNUP_COMPANY_NAME_KEY = 'al_mohaseb_signup_company_name';
 const SIGNUP_INTENT_KEY = 'al_mohaseb_signup_intent';
 const INITIAL_SETUP_PENDING_KEY = 'al_mohaseb_initial_setup_pending';
 const SIGNUP_INTENT_REGISTER = 'REGISTER';
+const AUTH_SCREEN_LOGO_URL = authScreenLogo;
+
+const safeStorageGet = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeStorageSet = (key: string, value: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures and keep auth screen usable.
+  }
+};
+
+const safeStorageRemove = (key: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures and keep auth screen usable.
+  }
+};
+
+const safeStorageKeys = (storage: Storage): string[] => {
+  try {
+    return Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
+  } catch {
+    return [];
+  }
+};
 
 const shouldPreferRedirectAuth = (): boolean => {
   if (typeof window === 'undefined') return false;
-  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+  const standalone = (typeof window.matchMedia === 'function'
+    ? window.matchMedia('(display-mode: standalone)').matches
+    : false) || (navigator as any).standalone === true;
   const userAgent = window.navigator.userAgent.toLowerCase();
   return standalone || /android|iphone|ipad|ipod/.test(userAgent);
 };
@@ -45,6 +84,7 @@ const getFirebaseErrorMessage = (error: unknown, language: 'AR' | 'EN'): string 
   const fallback = typeof error === 'object' && error && 'message' in error
     ? String((error as { message?: string }).message || '')
     : '';
+  const currentHost = typeof window !== 'undefined' ? window.location.host : '';
 
   if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
     return language === 'AR' ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' : 'Incorrect email or password.';
@@ -66,6 +106,16 @@ const getFirebaseErrorMessage = (error: unknown, language: 'AR' | 'EN'): string 
   }
   if (code === 'auth/network-request-failed') {
     return language === 'AR' ? 'تعذر الوصول إلى Firebase. تحقق من الاتصال بالإنترنت.' : 'Could not reach Firebase. Check your network connection.';
+  }
+  if (code === 'auth/unauthorized-domain') {
+    return language === 'AR'
+      ? `هذا النطاق غير مصرح به في Firebase Authentication${currentHost ? ` (${currentHost})` : ''}. أضفه من Firebase Console > Authentication > Settings > Authorized domains ثم أعد المحاولة.`
+      : `This domain is not authorized in Firebase Authentication${currentHost ? ` (${currentHost})` : ''}. Add it in Firebase Console > Authentication > Settings > Authorized domains, then try again.`;
+  }
+  if (code === 'auth/operation-not-allowed') {
+    return language === 'AR'
+      ? 'طريقة تسجيل الدخول هذه غير مفعلة في Firebase. فعّل مزود Email/Password أو Google من Firebase Console.'
+      : 'This sign-in method is not enabled in Firebase. Enable the Email/Password or Google provider in Firebase Console.';
   }
 
   return fallback || (language === 'AR'
@@ -128,41 +178,46 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
   const markSignupFlowIntent = () => {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(SIGNUP_INTENT_KEY, SIGNUP_INTENT_REGISTER);
+    safeStorageSet(SIGNUP_INTENT_KEY, SIGNUP_INTENT_REGISTER);
   };
 
   const clearSignupFlowIntent = () => {
     if (typeof window === 'undefined') return;
-    localStorage.removeItem(SIGNUP_INTENT_KEY);
+    safeStorageRemove(SIGNUP_INTENT_KEY);
   };
 
   const markInitialSetupPending = () => {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(INITIAL_SETUP_PENDING_KEY, '1');
+    safeStorageSet(INITIAL_SETUP_PENDING_KEY, '1');
     clearSignupFlowIntent();
   };
 
-  const removeAppPrefixedStorage = () => {
+  const removeAppPrefixedStorage = async () => {
     if (typeof window === 'undefined') return;
     const removeMatching = (storage: Storage) => {
-      const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean) as string[];
+      const keys = safeStorageKeys(storage);
       keys.forEach((key) => {
         if (key.startsWith(APP_STORAGE_PREFIX)) {
-          storage.removeItem(key);
+          try {
+            storage.removeItem(key);
+          } catch {
+            // Ignore per-key cleanup failures.
+          }
         }
       });
     };
 
     removeMatching(window.localStorage);
     removeMatching(window.sessionStorage);
+    await clearWorkspaceSnapshotStorage();
   };
 
-  const applyGuestDataDecision = (decision: GuestDataPreference) => {
+  const applyGuestDataDecision = async (decision: GuestDataPreference) => {
     if (typeof window === 'undefined') return;
-    localStorage.removeItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);
+    safeStorageRemove(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);
     if (decision === 'DELETE') {
-      removeAppPrefixedStorage();
-      localStorage.setItem(FORCE_EMPTY_BOOTSTRAP_KEY, '1');
+      await removeAppPrefixedStorage();
+      safeStorageSet(FORCE_EMPTY_BOOTSTRAP_KEY, '1');
       setHasGuestWorkspaceData(false);
     }
   };
@@ -171,9 +226,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     if (typeof window === 'undefined') return;
     const normalized = name.trim();
     if (normalized) {
-      localStorage.setItem(SIGNUP_COMPANY_NAME_KEY, normalized);
+      safeStorageSet(SIGNUP_COMPANY_NAME_KEY, normalized);
     } else {
-      localStorage.removeItem(SIGNUP_COMPANY_NAME_KEY);
+      safeStorageRemove(SIGNUP_COMPANY_NAME_KEY);
     }
   };
 
@@ -186,7 +241,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
     const now = new Date();
     const fallbackStart = now.toISOString();
-    const storedStart = localStorage.getItem(GUEST_TRIAL_START_KEY) || fallbackStart;
+    const storedStart = safeStorageGet(GUEST_TRIAL_START_KEY) || fallbackStart;
     const startDate = new Date(storedStart);
     const validStart = Number.isFinite(startDate.getTime()) ? startDate : now;
     const endsAt = new Date(validStart.getTime() + GUEST_TRIAL_DAYS * 24 * 60 * 60 * 1000);
@@ -199,9 +254,23 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const hasWorkspace = Object.keys(localStorage).some((key) => key.startsWith('al_mohaseb_workspace_'));
-    const hasTrialMeta = Boolean(localStorage.getItem(GUEST_TRIAL_START_KEY));
-    setHasGuestWorkspaceData(hasWorkspace || hasTrialMeta);
+    let cancelled = false;
+
+    const detectGuestWorkspaceData = async () => {
+      const hasWorkspaceInLocalStorage = safeStorageKeys(window.localStorage)
+        .some((key) => key.startsWith('al_mohaseb_workspace_'));
+      const hasWorkspaceInIndexedDb = await hasAnyWorkspaceSnapshotRecord();
+      const hasTrialMeta = Boolean(safeStorageGet(GUEST_TRIAL_START_KEY));
+      if (!cancelled) {
+        setHasGuestWorkspaceData(hasWorkspaceInLocalStorage || hasWorkspaceInIndexedDb || hasTrialMeta);
+      }
+    };
+
+    void detectGuestWorkspaceData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -230,7 +299,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
           const pendingDelete = localStorage.getItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY) === '1';
           if (pendingDelete) {
             localStorage.removeItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);
-            applyGuestDataDecision('DELETE');
+            await applyGuestDataDecision('DELETE');
             window.location.replace(`${window.location.pathname}${window.location.hash}`);
             return;
           }
@@ -308,7 +377,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
       const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
       if (hasGuestWorkspaceData) {
-        applyGuestDataDecision(guestDataPreference);
+        await applyGuestDataDecision(guestDataPreference);
       }
       persistSignupCompanyName(regCompanyName);
       if (shouldDeleteGuestData && typeof window !== 'undefined') {
@@ -338,7 +407,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
       await signInWithEmailAndPassword(firebaseAuth, loginEmail.trim(), loginPassword);
       const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
       if (hasGuestWorkspaceData) {
-        applyGuestDataDecision(guestDataPreference);
+        await applyGuestDataDecision(guestDataPreference);
       }
       if (shouldDeleteGuestData && typeof window !== 'undefined') {
         window.location.replace(`${window.location.pathname}${window.location.hash}`);
@@ -392,7 +461,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
           }
         }
         if (hasGuestWorkspaceData) {
-          applyGuestDataDecision(guestDataPreference);
+          await applyGuestDataDecision(guestDataPreference);
         }
         if (shouldDeleteGuestData && typeof window !== 'undefined') {
           window.location.replace(`${window.location.pathname}${window.location.hash}`);
@@ -462,9 +531,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
   const registerHelper = appLanguage === 'AR'
     ? 'أدخل اسم الشركة ليتم تجهيز أول مساحة عمل لك تلقائيًا بعد التسجيل.'
     : 'Add the company name so your first workspace is prepared automatically after sign-up.';
-  const screenSubtitle = appLanguage === 'AR'
-    ? 'دخول سريع، تسجيل منظم، ومتابعة واضحة لحالة التجربة أو الاشتراك.'
-    : 'Fast sign-in, cleaner onboarding, and a clear view of trial or subscription access.';
   const accessStatusMeta = useMemo(() => {
     if (companyAccessStatus === 'ACTIVE') {
       return {
@@ -534,27 +600,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
       <div className="w-full max-w-lg relative z-10 pt-8 pb-10">
         <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-10 duration-700">
-          <div className="relative mx-auto max-w-[31rem] rounded-[2.25rem] border border-cyan-300/10 bg-slate-950/35 px-4 py-6 shadow-[0_28px_90px_rgba(2,6,23,0.58)] backdrop-blur-md">
-            <div className="absolute inset-x-10 top-4 h-16 rounded-full bg-cyan-400/10 blur-3xl"></div>
-            <div className="absolute inset-x-16 bottom-6 h-12 rounded-full bg-fuchsia-500/10 blur-3xl"></div>
-            <img
-              src={DEFAULT_BRAND_LOGO_URL}
-              alt={t('auth.appName')}
-              className="relative z-10 w-full object-contain drop-shadow-[0_0_54px_rgba(34,211,238,0.16)]"
-            />
-          </div>
-          <p className="mt-4 text-sm font-bold text-slate-300">{screenSubtitle}</p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            <span className="rounded-full border border-cyan-300/15 bg-cyan-400/10 px-3 py-1 text-[11px] font-black text-cyan-100">
-              {appLanguage === 'AR' ? 'تسجيل آمن عبر Firebase' : 'Secure Firebase access'}
-            </span>
-            <span className="rounded-full border border-blue-300/15 bg-blue-400/10 px-3 py-1 text-[11px] font-black text-blue-100">
-              {appLanguage === 'AR' ? 'تهيئة أول شركة تلقائيًا' : 'First company prepared automatically'}
-            </span>
-            <span className="rounded-full border border-fuchsia-300/15 bg-fuchsia-400/10 px-3 py-1 text-[11px] font-black text-fuchsia-100">
-              {appLanguage === 'AR' ? 'تجربة أو اشتراك' : 'Trial or subscription'}
-            </span>
-          </div>
+          <img
+            src={AUTH_SCREEN_LOGO_URL}
+            alt={t('auth.appName')}
+            className="mx-auto w-full max-w-[22rem] sm:max-w-[25rem] rounded-[2rem] border border-cyan-300/10 shadow-[0_28px_90px_rgba(2,6,23,0.58)] object-contain"
+          />
         </div>
 
         <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-2xl space-y-6 animate-in zoom-in-95 duration-500 delay-300">

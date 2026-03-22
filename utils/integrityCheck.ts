@@ -1,4 +1,5 @@
 import { Account, Check, Currency, ImportExpenseDistribution, Invoice, Product, Transaction } from '../types';
+import { isStockProduct } from './productKind';
 
 export type IntegritySeverity = 'ERROR' | 'WARNING' | 'INFO';
 export type IntegrityArea =
@@ -429,11 +430,14 @@ export const runIntegrityCheck = (input: IntegrityCheckInput): IntegrityReport =
     if (!sign) continue;
     for (const item of inv.items) {
       if (!item.productId || !productsById.has(item.productId)) continue;
+      const product = productsById.get(item.productId);
+      if (!isStockProduct(product)) continue;
       expectedQtyByProduct.set(item.productId, (expectedQtyByProduct.get(item.productId) || 0) + (sign * (Number(item.quantity) || 0)));
     }
   }
   let inventoryQtyDiffProducts = 0;
   for (const p of products) {
+    if (!isStockProduct(p)) continue;
     const expected = round2(expectedQtyByProduct.get(p.id) || 0);
     const actual = round2(Number(p.stock) || 0);
     if (!nearlyEqual(expected, actual, 0.001)) {
@@ -475,7 +479,10 @@ export const runIntegrityCheck = (input: IntegrityCheckInput): IntegrityReport =
     if (tx.creditAccountId === 'acc_inventory') delta -= Number(tx.amount) || 0;
     return sum + delta;
   }, 0));
-  const inventoryStockValueApprox = round2(products.reduce((sum, p) => sum + ((Number(p.stock) || 0) * (Number(p.buyPrice) || 0)), 0));
+  const inventoryStockValueApprox = round2(products.reduce((sum, p) => {
+    if (!isStockProduct(p)) return sum;
+    return sum + ((Number(p.stock) || 0) * (Number(p.buyPrice) || 0));
+  }, 0));
   const inventoryValueDiffApprox = round2(inventoryLedgerValueApprox - inventoryStockValueApprox);
   if (!nearlyEqual(inventoryLedgerValueApprox, inventoryStockValueApprox, 0.5)) {
     add({

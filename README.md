@@ -1,6 +1,6 @@
-# AIFLEX ERP
+# المحاسب الذكي (AIFLEX Smart Accountant)
 
-AIFLEX ERP is a Vite + React + Capacitor application with Firebase Authentication and Firebase Hosting deployment.
+المحاسب الذكي (AIFLEX Smart Accountant) is a Vite + React + Capacitor application with Firebase Authentication and Firebase Hosting deployment.
 
 ## Access From Anywhere
 

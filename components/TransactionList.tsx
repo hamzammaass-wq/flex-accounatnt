@@ -20,6 +20,7 @@ import {
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
 import { getDisplayContactName } from '../utils/displayNames';
+import { openDrilldown } from '../utils/drilldown';
 
 interface TransactionListProps {
   onNavigate?: (tab: TabView, fTab?: TransactionTabType, vType?: 'RECEIPT' | 'PAYMENT') => void;
@@ -50,6 +51,10 @@ const TransactionList: React.FC<TransactionListProps> = () => {
   const { transactions, deleteTransaction, reverseTransaction, updateTransaction, baseCurrency, contacts, companySettings } = useAccounting();
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
+  const openContactStatement = (contactId?: string) => {
+    if (!contactId) return;
+    openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+  };
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -400,11 +405,8 @@ const TransactionList: React.FC<TransactionListProps> = () => {
         {filteredTransactions.map((t) => {
           const category = getCategoryDetails(t.category, t.type);
           const contactName = getContactName(t.contactId);
-          const isDraft = t.status === 'DRAFT';
-          const canPostDraftJournal = isDraft && t.category === 'journal' && t.type === 'TRANSFER';
-
           return (
-            <div key={t.id} className={`bg-white p-5 rounded-[2.5rem] shadow-sm border transition-all animate-in slide-in-from-bottom-2 ${isDraft ? 'border-amber-100 bg-amber-50/10 opacity-80' : 'border-gray-50 hover:border-indigo-100'}`}>
+            <div key={t.id} className="bg-white p-5 rounded-[2.5rem] shadow-sm border border-gray-50 transition-all animate-in slide-in-from-bottom-2 hover:border-indigo-100">
               <div className="flex items-center gap-4">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shadow-sm transition-all ${t.type === 'INCOME' ? 'bg-emerald-50 text-emerald-600' : t.type === 'EXPENSE' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
                   {category.icon}
@@ -412,11 +414,14 @@ const TransactionList: React.FC<TransactionListProps> = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h4 className="font-black text-gray-800 text-sm truncate">{t.description}</h4>
-                    {isDraft && <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black border border-amber-200">{tr('مسودة', 'Draft')}</span>}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     {contactName && (
-                      <div className="flex items-center gap-1 text-[9px] text-blue-500 font-black uppercase tracking-widest">
+                      <div
+                        className="flex items-center gap-1 text-[9px] text-blue-500 font-black uppercase tracking-widest cursor-pointer hover:text-indigo-600"
+                        onDoubleClick={() => openContactStatement(t.contactId)}
+                        title={t.contactId ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined}
+                      >
                         <User size={10} />
                         {contactName}
                       </div>
@@ -433,15 +438,6 @@ const TransactionList: React.FC<TransactionListProps> = () => {
                     {t.type === 'INCOME' ? '+' : t.type === 'EXPENSE' ? '-' : ''}{formatAmount(t.amount)}
                   </span>
                   <div className="flex items-center gap-1 mt-1">
-                    {canPostDraftJournal && (
-                      <button
-                        onClick={() => handlePostDraftJournal(t.id)}
-                        className="text-gray-200 hover:text-emerald-600 transition-all p-1 active:scale-90"
-                        title={tr('ترحيل القيد', 'Post journal entry')}
-                      >
-                        <CheckCircle2 size={14} />
-                      </button>
-                    )}
                     {t.status === 'POSTED' && !t.isReversal && !t.reversedById && (
                       <button
                         onClick={() => handleReverse(t.id)}

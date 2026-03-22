@@ -33,3 +33,12 @@ ios/App/release.xcconfig
 
 # Firebase local cache
 .firebase/
+
+# Temporary QA/debug artifacts
+qa-output/
+firebase-debug.log
+tserrors.txt
+.tmp_*
+tmp_*
+tmpclaude-*-cwd
+*.vsix

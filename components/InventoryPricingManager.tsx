@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
 import DocumentActions from './DocumentActions';
 import { Product } from '../types';
 import { getDisplayContactName, getDisplayItemGroupName, getDisplayProductName } from '../utils/displayNames';
-import { downloadTextFile } from '../utils/documentExport';
-import { resolveProductPricing } from '../utils/productPricing';
+import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, extractElementReadableText, sanitizeDownloadName } from '../utils/documentExport';
+import { ProductPricingSnapshot, resolveProductPricing } from '../utils/productPricing';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { openDrilldown } from '../utils/drilldown';
 import {
   ArrowDownWideNarrow,
   Calculator,
@@ -31,6 +33,22 @@ type RowOverride = {
   cost?: string;
   wholesale?: string;
   retail?: string;
+};
+
+type PricingPreviewRow = {
+  product: Product;
+  currentPricing: ProductPricingSnapshot;
+  purchaseOnlyCost: number;
+  landedCost: number;
+  referenceCost: number;
+  nextCost: number;
+  nextWholesale: number;
+  nextRetail: number;
+  changed: boolean;
+  hasOverride: boolean;
+  costDelta: number;
+  wholesaleDelta: number;
+  retailDelta: number;
 };
 
 const round2 = (value: number): number => {
@@ -64,8 +82,6 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-const escapeCsvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
-
 const InventoryPricingManager: React.FC = () => {
   const {
     products,
@@ -86,6 +102,10 @@ const InventoryPricingManager: React.FC = () => {
     getDisplayItemGroupName(group || undefined, isEnglish);
   const displayContactName = (contact?: { id: string; name: string } | null) =>
     getDisplayContactName(contact || undefined, isEnglish);
+  const openProductMovement = (productId?: string) => {
+    if (!productId) return;
+    openDrilldown({ kind: 'PRODUCT_MOVEMENT', productId });
+  };
 
   const [scope, setScope] = useState<PricingScope>('ALL');
   const [costSource, setCostSource] = useState<CostSourceMode>('LANDED_WITH_IMPORT');
@@ -281,7 +301,7 @@ const InventoryPricingManager: React.FC = () => {
   const wholesaleRatio = Math.max(0, parseNumberInput(wholesalePercent, 100));
   const retailRatio = Math.max(0, parseNumberInput(retailPercent, 125));
 
-  const previewRows = useMemo(() => {
+  const previewRows = useMemo<PricingPreviewRow[]>(() => {
     return candidateProducts.map((product) => {
       const currentPricing = resolveProductPricing(product);
       const purchaseOnlyCost = scope === 'INVOICE'
@@ -465,7 +485,9 @@ const InventoryPricingManager: React.FC = () => {
       return;
     }
 
-    const previewMap = new Map(rowsToApply.map((row) => [row.product.id, row]));
+    const previewMap = new Map<string, PricingPreviewRow>(
+      rowsToApply.map((row) => [row.product.id, row] as const)
+    );
     const nextProducts = products.map((product) => {
       const row = previewMap.get(product.id);
       if (!row) return product;
@@ -509,6 +531,7 @@ const InventoryPricingManager: React.FC = () => {
     `${tr('مصدر التكلفة', 'Cost source')}: ${activeCostSourceLabel}`,
     `${tr('عدد الأصناف', 'Items count')}: ${formatPlain(previewRowsToRender.length, isEnglish)}`
   ].join('\n');
+  const pricingReportFileStem = sanitizeDownloadName(`${pricingReportTitle}-${printablePriceLabel}-${previewRowsToRender.length}`);
 
   const buildPricingReportHtml = (autoPrint = false) => {
     const rowsHtml = previewRowsToRender
@@ -590,17 +613,45 @@ const InventoryPricingManager: React.FC = () => {
     printWindow.document.close();
   };
 
-  const handleSavePricingSnapshot = () => {
+  const handleSavePricingSnapshot = async () => {
     if (previewRowsToRender.length === 0) {
       setStatusMessage(tr('لا توجد أصناف معروضة للتنزيل حاليًا.', 'There are no visible items to download right now.'));
       return;
     }
 
-    downloadTextFile(
-      buildPricingReportHtml(false),
-      `${pricingReportTitle}-${printablePriceLabel}-${previewRowsToRender.length}.html`,
-      'text/html;charset=utf-8'
-    );
+    const parsed = new DOMParser().parseFromString(buildPricingReportHtml(false), 'text/html');
+    const snapshotRoot = document.createElement('div');
+    snapshotRoot.lang = isEnglish ? 'en' : 'ar';
+    snapshotRoot.dir = isEnglish ? 'ltr' : 'rtl';
+    snapshotRoot.style.position = 'fixed';
+    snapshotRoot.style.left = '-100000px';
+    snapshotRoot.style.top = '0';
+    snapshotRoot.style.zIndex = '-1';
+    snapshotRoot.style.pointerEvents = 'none';
+    snapshotRoot.style.width = '1100px';
+    snapshotRoot.style.background = '#ffffff';
+    snapshotRoot.innerHTML = `${parsed.head.querySelector('style')?.outerHTML || ''}${parsed.body.innerHTML}`;
+    document.body.appendChild(snapshotRoot);
+
+    try {
+      const pdfFile = await buildElementPdfFile(snapshotRoot, {
+        title: pricingReportTitle,
+        fileName: `${pricingReportFileStem}.pdf`,
+        dir: isEnglish ? 'ltr' : 'rtl',
+        lang: isEnglish ? 'en' : 'ar',
+        backgroundColor: '#ffffff',
+        padding: 18
+      });
+
+      if (!pdfFile) {
+        setStatusMessage(tr('تعذر تجهيز PDF لقائمة الأسعار حاليًا.', 'Could not prepare the price list PDF right now.'));
+        return;
+      }
+
+      downloadBlobFile(pdfFile, pdfFile.name);
+    } finally {
+      snapshotRoot.remove();
+    }
   };
 
   const handleExportPricingExcel = () => {
@@ -609,27 +660,40 @@ const InventoryPricingManager: React.FC = () => {
       return;
     }
 
-    const csvRows = [
+    const rows: (string | number)[][] = [
+      [pricingReportTitle],
+      [`${tr('نطاق التطبيق', 'Scope')}: ${selectedScopeLabel}`],
+      [`${tr('نوع السعر', 'Price type')}: ${printablePriceLabel}`],
+      [`${tr('مصدر التكلفة', 'Cost source')}: ${activeCostSourceLabel}`],
+      [`${tr('عدد الأصناف', 'Items count')}: ${formatPlain(previewRowsToRender.length, isEnglish)}`],
+      [],
       [tr('#', '#'), tr('الصنف', 'Item'), tr('الرمز', 'Code'), tr('المجموعة', 'Group'), printablePriceLabel],
       ...previewRowsToRender.map((row, index) => {
         const group = itemGroups.find((item) => item.id === row.product.category) || null;
         const selectedPrice = printMode === 'WHOLESALE' ? row.nextWholesale : row.nextRetail;
         return [
-          String(index + 1),
+          index + 1,
           displayProductName(row.product),
           row.product.itemCode || row.product.barcode || '-',
           displayGroupName(group) || tr('غير مصنف', 'Uncategorized'),
-          formatPlain(selectedPrice, isEnglish)
+          Number(selectedPrice.toFixed(2))
         ];
       })
     ];
 
-    const csv = `\uFEFF${csvRows.map((row) => row.map(escapeCsvValue).join(',')).join('\n')}`;
-    downloadTextFile(
-      csv,
-      `${pricingReportTitle}-${printablePriceLabel}-${previewRowsToRender.length}.csv`,
-      'text/csv;charset=utf-8'
-    );
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 38 },
+      { wch: 20 },
+      { wch: 24 },
+      { wch: 16 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Pricing');
+    downloadWorkbookFile(workbook, { fileName: `${pricingReportFileStem}.xlsx` });
   };
 
   return (
@@ -696,9 +760,8 @@ const InventoryPricingManager: React.FC = () => {
             onPrint={handlePrintPricing}
             onSave={handleSavePricingSnapshot}
             onExcel={handleExportPricingExcel}
-            saveTitle={tr('تنزيل قائمة الأسعار', 'Download price list')}
+            saveTitle={tr('تنزيل PDF', 'Download PDF')}
             variant="dark"
-            showSaveButton={false}
             menuPlacement="top"
           />
         </div>
@@ -1050,7 +1113,18 @@ const InventoryPricingManager: React.FC = () => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-black text-slate-800">{displayProductName(product)}</div>
+                      <div
+                        className="truncate text-sm font-black text-slate-800 cursor-pointer"
+                        onClick={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openProductMovement(product.id);
+                        }}
+                        title={tr('اضغط مرتين لفتح حركة الصنف', 'Double-click to open item movement')}
+                      >
+                        {displayProductName(product)}
+                      </div>
                       <div className="mt-1 truncate text-[10px] font-black text-slate-400">
                         {displayGroupName(group) || tr('غير مصنف', 'Uncategorized')}
                       </div>
@@ -1181,7 +1255,13 @@ const InventoryPricingManager: React.FC = () => {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="truncate text-sm font-black text-slate-800">{displayProductName(row.product)}</h4>
+                      <h4
+                        className="truncate text-sm font-black text-slate-800 cursor-pointer"
+                        onDoubleClick={() => openProductMovement(row.product.id)}
+                        title={tr('اضغط مرتين لفتح حركة الصنف', 'Double-click to open item movement')}
+                      >
+                        {displayProductName(row.product)}
+                      </h4>
                       <span className="rounded-full border border-slate-100 bg-white px-2.5 py-1 text-[10px] font-black text-slate-500">
                         {displayGroupName(group) || tr('غير مصنف', 'Uncategorized')}
                       </span>

@@ -1,30 +1,7 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountingProvider, useAccounting } from './contexts/AccountingContext';
 import Dashboard from './components/Dashboard';
-import TransactionList from './components/TransactionList';
-import AIAssistant from './components/AIAssistant';
-import Directory from './components/Directory';
-import ProductList from './components/ProductList';
-import FinancialReports from './components/FinancialReports';
-import DefinitionsMenu from './components/DefinitionsMenu';
-import SalesInvoiceList from './components/SalesInvoiceList';
-import PurchaseInvoiceList from './components/PurchaseInvoiceList';
-import PurchasesExpenses from './components/PurchasesExpenses';
-import CheckPortfolio from './components/CheckPortfolio';
-import TreasuryManager from './components/TreasuryManager';
-import VoucherManager from './components/VoucherManager';
-import JournalManager from './components/JournalManager';
-import ImportManager from './components/ImportManager';
-import HRManager from './components/HRManager';
-import SettlementManager from './components/SettlementManager';
-import EquityPartnersManager from './components/EquityPartnersManager';
-import FixedAssetsManager from './components/FixedAssetsManager';
-import ManufacturingManager from './components/ManufacturingManager';
-import BankReconciliationManager from './components/BankReconciliationManager';
-import AdjustmentNoticesManager from './components/AdjustmentNoticesManager';
-import NotificationCenterManager from './components/NotificationCenterManager';
-import { WarehouseManager } from './components/WarehouseManager';
 import type { TransactionTabType } from './components/TransactionForm';
 import type { SettingsMode } from './components/DefinitionsMenu';
 import AuthScreen from './components/AuthScreen';
@@ -35,7 +12,9 @@ import useMobileInteractions from './hooks/useMobileInteractions';
 import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft } from 'lucide-react';
 import { getDocumentLanguageTag, isRtlLanguage, translate } from './utils/i18n';
 import { applyAppTheme } from './utils/appTheme';
-import InitialSetupWizard from './components/InitialSetupWizard';
+import { DRILLDOWN_EVENT_NAME, DrilldownTarget } from './utils/drilldown';
+import { APP_NAVIGATION_EVENT_NAME, AppNavigationTarget } from './utils/appNavigation';
+import { DEFAULT_BRAND_MARK_URL } from './utils/brandAssets';
 
 // Fix: Added 'fixed-assets' to TabView to resolve type mismatch in Dashboard and App components
 export type TabView =
@@ -43,7 +22,7 @@ export type TabView =
   | 'reports' | 'definitions' | 'sales' | 'purchases' | 'purchases-expenses'
   | 'checks' | 'treasury' | 'receipts-list' | 'payments-list' | 'journal-list'
   | 'import-list' | 'hr' | 'settlements' | 'fixed-assets' | 'equity-partners' | 'warehouses' | 'manufacturing' | 'bank-reconciliation'
-  | 'notices' | 'alerts';
+  | 'notices' | 'alerts' | 'accounts-hub';
 
 // Fix: Added 'voice-ai' to OverlayView to match updated features
 export type OverlayView =
@@ -61,9 +40,38 @@ const GUEST_USER_ID = 'guest_user';
 const GUEST_TRIAL_START_KEY = 'al_mohaseb_guest_trial_started_at';
 const GUEST_TRIAL_DAYS = 14;
 const INITIAL_SETUP_PENDING_KEY = 'al_mohaseb_initial_setup_pending';
+const INITIAL_SETUP_COMPLETED_KEY_PREFIX = 'al_mohaseb_initial_setup_completed_';
+
+const getInitialSetupCompletedKey = (companyId: string) => `${INITIAL_SETUP_COMPLETED_KEY_PREFIX}${companyId}`;
 
 const TransactionForm = lazy(() => import('./components/TransactionForm'));
 const LiveVoiceAssistant = lazy(() => import('./components/LiveVoiceAssistant'));
+const TransactionList = lazy(() => import('./components/TransactionList'));
+const AIAssistant = lazy(() => import('./components/AIAssistant'));
+const Directory = lazy(() => import('./components/Directory'));
+const ProductList = lazy(() => import('./components/ProductList'));
+const FinancialReports = lazy(() => import('./components/FinancialReports'));
+const DefinitionsMenu = lazy(() => import('./components/DefinitionsMenu'));
+const SalesInvoiceList = lazy(() => import('./components/SalesInvoiceList'));
+const PurchaseInvoiceList = lazy(() => import('./components/PurchaseInvoiceList'));
+const PurchasesExpenses = lazy(() => import('./components/PurchasesExpenses'));
+const CheckPortfolio = lazy(() => import('./components/CheckPortfolio'));
+const TreasuryManager = lazy(() => import('./components/TreasuryManager'));
+const VoucherManager = lazy(() => import('./components/VoucherManager'));
+const JournalManager = lazy(() => import('./components/JournalManager'));
+const ImportManager = lazy(() => import('./components/ImportManager'));
+const HRManager = lazy(() => import('./components/HRManager'));
+const SettlementManager = lazy(() => import('./components/SettlementManager'));
+const EquityPartnersManager = lazy(() => import('./components/EquityPartnersManager'));
+const FixedAssetsManager = lazy(() => import('./components/FixedAssetsManager'));
+const ManufacturingManager = lazy(() => import('./components/ManufacturingManager'));
+const BankReconciliationManager = lazy(() => import('./components/BankReconciliationManager'));
+const AdjustmentNoticesManager = lazy(() => import('./components/AdjustmentNoticesManager'));
+const NotificationCenterManager = lazy(() => import('./components/NotificationCenterManager'));
+const ImportantAccountsHub = lazy(() => import('./components/ImportantAccountsHub'));
+const WarehouseManager = lazy(() =>
+  import('./components/WarehouseManager').then((module) => ({ default: module.WarehouseManager }))
+);
 
 const ScreenFallback: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
   <div className={`w-full ${compact ? 'py-6' : 'py-12'} flex items-center justify-center`}>
@@ -88,6 +96,7 @@ const AppContent: React.FC = () => {
     companyAccessStatus,
     companyAccessDaysLeft,
     companyAccessEndsAt,
+    workspaceSubscription,
     workspaceMaxCompanies,
     workspaceRemainingCompanySlots,
     workspaceCompanyLimitReached,
@@ -101,13 +110,34 @@ const AppContent: React.FC = () => {
   const [initialDefinitionsMode, setInitialDefinitionsMode] = useState<SettingsMode>('MENU');
   const [showCompanyMenu, setShowCompanyMenu] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
-  const [showInitialSetupWizard, setShowInitialSetupWizard] = useState(false);
+  const [creatingCompany, setCreatingCompany] = useState(false);
   const companyMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const browserBackStateActiveRef = useRef(false);
+  const ignoreNextPopStateRef = useRef(false);
+  const currentUserRef = useRef(currentUser);
+  const canGoBackRef = useRef(false);
+  const handleSystemBackRef = useRef<() => void>(() => {});
   const [companyMenuStyle, setCompanyMenuStyle] = useState<React.CSSProperties | null>(null);
   const darkModeEnabled = Boolean(companySettings.darkModeEnabled);
   const appLanguage = companySettings.language ?? 'AR';
   const rtl = isRtlLanguage(appLanguage);
+  const companyLogoSrc = String(companySettings.logoUrl || '').trim() || DEFAULT_BRAND_MARK_URL;
   const t = (key: Parameters<typeof translate>[1]) => translate(appLanguage, key);
+  const workspaceCompaniesUnlimited = workspaceSubscription.unlimitedCompanies === true;
+  const workspaceCompanyUsageLabel = workspaceCompaniesUnlimited
+    ? `${companies.length}/${appLanguage === 'AR' ? 'غير محدود' : 'Unlimited'} ${appLanguage === 'AR' ? 'شركة' : 'company slot(s)'}`
+    : `${companies.length}/${workspaceMaxCompanies} ${appLanguage === 'AR' ? 'شركة' : 'company slot(s)'}`;
+  const workspaceRemainingSlotsLabel = workspaceCompaniesUnlimited
+    ? (appLanguage === 'AR'
+      ? 'يمكنك إضافة شركات جديدة بدون حد.'
+      : 'You can add companies without limits.')
+    : (workspaceRemainingCompanySlots > 0
+      ? (appLanguage === 'AR'
+        ? `المتبقي ${workspaceRemainingCompanySlots} شركة جديدة.`
+        : `${workspaceRemainingCompanySlots} new company slot(s) remaining.`)
+      : (appLanguage === 'AR'
+        ? 'لا توجد سعات إضافية متبقية. يلزمك ترقية الاشتراك.'
+        : 'No additional company slots left. Upgrade the subscription first.'));
   const { isMobile, isTablet, overlayVariant, shellVariant } = useResponsiveMode();
   const companyAccessSummary = useMemo(() => {
     const endsAtLabel = companyAccessEndsAt
@@ -287,7 +317,7 @@ const AppContent: React.FC = () => {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
   const [importDistributionInvoiceId, setImportDistributionInvoiceId] = useState<string | null>(null);
 
-  const handleBackNavigation = () => {
+  const handleBackNavigation = useCallback(() => {
     setShowCompanyMenu(false);
     setTabHistory(history => {
       if (history.length === 0) {
@@ -298,35 +328,123 @@ const AppContent: React.FC = () => {
       setActiveTab(previousTab);
       return history.slice(0, -1);
     });
-  };
+  }, [activeTab]);
 
-  const canGoBack = activeTab !== 'dashboard';
-  const showHeaderBackButton = canGoBack;
-  const { swipeHandlers } = useMobileInteractions({
+  const closeOverlay = useCallback(() => {
+    setOverlay(null);
+    setSelectedInvoiceId('');
+    setEditTransactionConfig(null);
+  }, []);
+
+  const handleSystemBack = useCallback(() => {
+    if (showCompanyMenu) {
+      setShowCompanyMenu(false);
+      return;
+    }
+
+    if (overlay) {
+      closeOverlay();
+      return;
+    }
+
+    handleBackNavigation();
+  }, [showCompanyMenu, overlay, closeOverlay, handleBackNavigation]);
+
+  const canGoBack = showCompanyMenu || Boolean(overlay) || activeTab !== 'dashboard';
+  const pushBrowserBackState = useCallback(() => {
+    if (typeof window === 'undefined' || browserBackStateActiveRef.current) return;
+    try {
+      const currentState = window.history.state && typeof window.history.state === 'object'
+        ? window.history.state
+        : {};
+      window.history.pushState(
+        { ...currentState, __smartAccountInAppBack: Date.now() },
+        document.title
+      );
+      browserBackStateActiveRef.current = true;
+    } catch {
+      browserBackStateActiveRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  useEffect(() => {
+    canGoBackRef.current = Boolean(currentUser) && canGoBack;
+  }, [currentUser, canGoBack]);
+
+  useEffect(() => {
+    handleSystemBackRef.current = handleSystemBack;
+  }, [handleSystemBack]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!currentUser) {
+      browserBackStateActiveRef.current = false;
+      return;
+    }
+    if (!canGoBack || browserBackStateActiveRef.current || ignoreNextPopStateRef.current) return;
+    pushBrowserBackState();
+  }, [currentUser, canGoBack, pushBrowserBackState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !currentUser) return;
+    if (canGoBack || !browserBackStateActiveRef.current) return;
+    ignoreNextPopStateRef.current = true;
+    browserBackStateActiveRef.current = false;
+    window.history.back();
+  }, [currentUser, canGoBack]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const onPopState = () => {
+      if (ignoreNextPopStateRef.current) {
+        ignoreNextPopStateRef.current = false;
+        return;
+      }
+      if (!browserBackStateActiveRef.current) return;
+
+      browserBackStateActiveRef.current = false;
+      if (!currentUserRef.current || !canGoBackRef.current) return;
+      handleSystemBackRef.current();
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const requestSystemBack = useCallback(() => {
+    if (typeof window !== 'undefined' && browserBackStateActiveRef.current) {
+      window.history.back();
+      return;
+    }
+    handleSystemBack();
+  }, [handleSystemBack]);
+
+  const requestOverlayClose = useCallback(() => {
+    requestSystemBack();
+  }, [requestSystemBack]);
+
+  const handleCompanyMenuToggle = useCallback(() => {
+    if (showCompanyMenu) {
+      requestSystemBack();
+      return;
+    }
+    setShowCompanyMenu(true);
+  }, [showCompanyMenu, requestSystemBack]);
+
+  const showHeaderBackButton = activeTab !== 'dashboard';
+  useMobileInteractions({
     isMobile,
     rtl,
     canGoBack: currentUser ? canGoBack : false,
-    onBack: handleBackNavigation
+    onBack: requestSystemBack
   });
 
-  if (!currentUser || guestTrialInfo.expired) {
-    return <AuthScreen guestTrialExpired={guestTrialInfo.expired} guestTrialDaysLeft={guestTrialInfo.remainingDays} />;
-  }
-
-  if (showInitialSetupWizard) {
-    return (
-      <InitialSetupWizard
-        onComplete={() => {
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem(INITIAL_SETUP_PENDING_KEY);
-          }
-          setShowInitialSetupWizard(false);
-        }}
-      />
-    );
-  }
-
-  const handleNavigate = (tab: TabView, definitionsMode?: SettingsMode) => {
+  const handleNavigate = useCallback((tab: TabView, definitionsMode?: SettingsMode) => {
     if (definitionsMode) {
       setInitialDefinitionsMode(definitionsMode);
     }
@@ -340,7 +458,7 @@ const AppContent: React.FC = () => {
       return tab;
     });
     setShowCompanyMenu(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !currentUser) return;
@@ -360,23 +478,77 @@ const AppContent: React.FC = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser || currentUser.id === GUEST_USER_ID) return;
+    if (!currentUser) return;
     if (typeof window === 'undefined') return;
-    if (localStorage.getItem(INITIAL_SETUP_PENDING_KEY) === '1') {
-      setShowInitialSetupWizard(true);
-    }
-  }, [currentUser]);
 
-  const openOverlay = (view: OverlayView) => setOverlay(view);
-  const openEditTransaction = (config: EditTransactionConfig) => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('openSubscription') === '1' || url.searchParams.get('billing')) {
+      return;
+    }
+
+    const targetCompanyId = String(currentCompanyId || currentUser.companyId || '').trim();
+    if (!targetCompanyId) return;
+
+    const completedKey = getInitialSetupCompletedKey(targetCompanyId);
+    const setupPending = localStorage.getItem(INITIAL_SETUP_PENDING_KEY) === '1';
+    const setupCompleted = localStorage.getItem(completedKey) === '1';
+    if (!setupPending && setupCompleted) return;
+
+    localStorage.setItem(completedKey, '1');
+    localStorage.removeItem(INITIAL_SETUP_PENDING_KEY);
+
+    if (activeTab !== 'definitions' || initialDefinitionsMode !== 'MENU') {
+      handleNavigate('definitions', 'MENU');
+    }
+  }, [currentUser, currentCompanyId, activeTab, initialDefinitionsMode, handleNavigate]);
+
+  useEffect(() => {
+    const handleDrilldown = (event: Event) => {
+      const target = (event as CustomEvent<DrilldownTarget>).detail;
+      if (!target) return;
+      if (target.kind === 'ACCOUNT_LEDGER' || target.kind === 'PRODUCT_MOVEMENT') {
+        if (activeTab === 'reports') {
+          return;
+        }
+        handleNavigate('reports');
+        return;
+      }
+      if (target.kind === 'CONTACT_STATEMENT') {
+        if (activeTab === 'reports' || activeTab === 'directory') {
+          return;
+        }
+        handleNavigate('directory');
+      }
+    };
+    window.addEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);
+    return () => window.removeEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);
+  }, [activeTab, handleNavigate]);
+
+  useEffect(() => {
+    const handleAppNavigation = (event: Event) => {
+      const target = (event as CustomEvent<AppNavigationTarget>).detail;
+      if (!target?.tab) return;
+      handleNavigate(target.tab, target.definitionsMode);
+    };
+
+    window.addEventListener(APP_NAVIGATION_EVENT_NAME, handleAppNavigation as EventListener);
+    return () => window.removeEventListener(APP_NAVIGATION_EVENT_NAME, handleAppNavigation as EventListener);
+  }, [handleNavigate]);
+
+  const openOverlay = useCallback((view: OverlayView) => {
+    setShowCompanyMenu(false);
+    setOverlay(view);
+  }, []);
+
+  const openEditTransaction = useCallback((config: EditTransactionConfig) => {
+    setShowCompanyMenu(false);
     setEditTransactionConfig(config);
     setOverlay('edit-transaction');
-  };
-  const closeOverlay = () => {
-    setOverlay(null);
-    setSelectedInvoiceId('');
-    setEditTransactionConfig(null);
-  };
+  }, []);
+
+  if (!currentUser || guestTrialInfo.expired) {
+    return <AuthScreen guestTrialExpired={guestTrialInfo.expired} guestTrialDaysLeft={guestTrialInfo.remainingDays} />;
+  }
 
   const handleSwitchCompany = (companyId: string) => {
     const result = switchCompany(companyId);
@@ -388,17 +560,24 @@ const AppContent: React.FC = () => {
   };
 
   const handleCreateCompany = async () => {
-    const result = await createCompany({ name: newCompanyName.trim() });
-    if (!result.ok) {
-      if (result.code === 'SUBSCRIPTION_LIMIT') {
-        setShowCompanyMenu(false);
-        handleNavigate('definitions', 'SUBSCRIPTION');
+    if (creatingCompany) return;
+    setCreatingCompany(true);
+    try {
+      const result = await createCompany({ name: newCompanyName.trim() });
+      if (!result.ok) {
+        if (result.code === 'SUBSCRIPTION_LIMIT') {
+          setShowCompanyMenu(false);
+          handleNavigate('definitions', 'SUBSCRIPTION');
+        }
+        alert(result.message);
+        return;
       }
-      alert(result.message);
-      return;
+
+      setNewCompanyName('');
+      setShowCompanyMenu(false);
+    } finally {
+      setCreatingCompany(false);
     }
-    setNewCompanyName('');
-    setShowCompanyMenu(false);
   };
 
   const companyMenuPanel = showCompanyMenu && companyMenuStyle
@@ -407,7 +586,7 @@ const AppContent: React.FC = () => {
         <button
           type="button"
           aria-label={appLanguage === 'AR' ? 'إغلاق قائمة الشركات' : 'Close company menu'}
-          onClick={() => setShowCompanyMenu(false)}
+          onClick={requestSystemBack}
           className="fixed inset-0 z-[190] bg-transparent"
         />
         <div
@@ -422,16 +601,10 @@ const AppContent: React.FC = () => {
               {appLanguage === 'AR' ? 'سعات الشركات في الاشتراك' : 'Company slots in subscription'}
             </div>
             <div className="mt-1 text-xs font-black text-slate-800">
-              {companies.length}/{workspaceMaxCompanies} {appLanguage === 'AR' ? 'شركة' : 'company slot(s)'}
+              {workspaceCompanyUsageLabel}
             </div>
             <div className="mt-1 text-[10px] font-bold text-slate-500">
-              {workspaceRemainingCompanySlots > 0
-                ? (appLanguage === 'AR'
-                  ? `المتبقي ${workspaceRemainingCompanySlots} شركة جديدة.`
-                  : `${workspaceRemainingCompanySlots} new company slot(s) remaining.`)
-                : (appLanguage === 'AR'
-                  ? 'لا توجد سعات إضافية متبقية. يلزمك ترقية الاشتراك.'
-                  : 'No additional company slots left. Upgrade the subscription first.')}
+              {workspaceRemainingSlotsLabel}
             </div>
             {workspaceCompanyLimitReached && (
               <button
@@ -469,15 +642,19 @@ const AppContent: React.FC = () => {
               value={newCompanyName}
               onChange={(e) => setNewCompanyName(e.target.value)}
               placeholder={appLanguage === 'AR' ? 'اسم شركة جديدة' : 'New company name'}
+              disabled={creatingCompany}
               className="w-full p-3 min-h-[44px] rounded-xl bg-gray-50 border border-gray-200 outline-none text-base sm:text-sm font-bold"
             />
             <button
               type="button"
               onClick={handleCreateCompany}
-              className="w-full p-3 min-h-[44px] rounded-xl bg-blue-600 text-white text-sm font-black flex items-center justify-center gap-2"
+              disabled={creatingCompany}
+              className="w-full p-3 min-h-[44px] rounded-xl bg-blue-600 text-white text-sm font-black flex items-center justify-center gap-2 disabled:opacity-70"
             >
               <Plus className="w-4 h-4" />
-              {appLanguage === 'AR' ? 'إضافة شركة' : 'Add Company'}
+              {creatingCompany
+                ? (appLanguage === 'AR' ? 'جارٍ إنشاء الشركة...' : 'Creating company...')
+                : (appLanguage === 'AR' ? 'إضافة شركة' : 'Add Company')}
             </button>
           </div>
         </div>
@@ -557,6 +734,15 @@ const AppContent: React.FC = () => {
       case 'payments-list': return <VoucherManager type="PAYMENT" onAddNew={() => openOverlay('add-voucher-payment')} onEditVoucher={(voucherId, voucherType) => openEditTransaction({ mode: 'VOUCHERS', voucherId, voucherType })} />;
       case 'checks': return <CheckPortfolio />;
       case 'treasury': return <TreasuryManager />;
+      case 'accounts-hub': return (
+        <ImportantAccountsHub
+          onBack={() => handleNavigate('dashboard')}
+          onOpenDirectory={() => handleNavigate('directory')}
+          onOpenTreasury={() => handleNavigate('treasury')}
+          onOpenAccountsTree={() => handleNavigate('definitions', 'ACCOUNTS')}
+          onOpenWarehouses={() => handleNavigate('warehouses')}
+        />
+      );
       case 'bank-reconciliation': return <BankReconciliationManager onBack={() => handleNavigate('dashboard')} />;
       case 'notices': return <AdjustmentNoticesManager />;
       case 'alerts': return <NotificationCenterManager />;
@@ -579,7 +765,7 @@ const AppContent: React.FC = () => {
   const renderOverlay = () => {
     if (!overlay) return null;
     if (overlay === 'voice-ai') {
-      return <LiveVoiceAssistant onClose={closeOverlay} />;
+      return <LiveVoiceAssistant onClose={requestOverlayClose} />;
     }
 
     const transactionOverlays: OverlayView[] = [
@@ -606,18 +792,18 @@ const AppContent: React.FC = () => {
 
     let content = null;
     switch (overlay) {
-      case 'add-sales': content = <TransactionForm initialMode="SALES" onBack={closeOverlay} />; break;
-      case 'add-purchase': content = <TransactionForm initialMode="PURCHASES" onBack={closeOverlay} />; break;
-      case 'add-manual-purchase': content = <TransactionForm initialMode="MANUAL_PURCHASE" onBack={closeOverlay} />; break;
-      case 'add-expense': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
-      case 'add-expense-form': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
-      case 'add-import': content = <TransactionForm initialMode="IMPORT_EXPENSES" initialCategory="import_expenses" initialVoucherType="PAYMENT" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
-      case 'add-voucher-receipt': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="RECEIPT" onBack={closeOverlay} />; break;
-      case 'add-voucher-payment': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="PAYMENT" onBack={closeOverlay} />; break;
-      case 'add-journal': content = <TransactionForm initialMode="JOURNAL" onBack={closeOverlay} />; break;
-      case 'add-purchase-return': content = <TransactionForm initialMode="PURCHASE_RETURN" onBack={closeOverlay} />; break;
-      case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
-      case 'add-quotation': content = <TransactionForm initialMode="QUOTATION" onBack={closeOverlay} />; break;
+      case 'add-sales': content = <TransactionForm initialMode="SALES" onBack={requestOverlayClose} />; break;
+      case 'add-purchase': content = <TransactionForm initialMode="PURCHASES" onBack={requestOverlayClose} />; break;
+      case 'add-manual-purchase': content = <TransactionForm initialMode="MANUAL_PURCHASE" onBack={requestOverlayClose} />; break;
+      case 'add-expense': content = <TransactionForm initialMode="EXPENSES" onBack={requestOverlayClose} />; break;
+      case 'add-expense-form': content = <TransactionForm initialMode="EXPENSES" onBack={requestOverlayClose} />; break;
+      case 'add-import': content = <TransactionForm initialMode="IMPORT_EXPENSES" initialCategory="import_expenses" initialVoucherType="PAYMENT" initialLinkedInvoiceId={selectedInvoiceId} onBack={requestOverlayClose} />; break;
+      case 'add-voucher-receipt': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="RECEIPT" onBack={requestOverlayClose} />; break;
+      case 'add-voucher-payment': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="PAYMENT" onBack={requestOverlayClose} />; break;
+      case 'add-journal': content = <TransactionForm initialMode="JOURNAL" onBack={requestOverlayClose} />; break;
+      case 'add-purchase-return': content = <TransactionForm initialMode="PURCHASE_RETURN" onBack={requestOverlayClose} />; break;
+      case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" initialLinkedInvoiceId={selectedInvoiceId} onBack={requestOverlayClose} />; break;
+      case 'add-quotation': content = <TransactionForm initialMode="QUOTATION" onBack={requestOverlayClose} />; break;
       case 'edit-transaction':
         content = editTransactionConfig ? (
           <TransactionForm
@@ -626,7 +812,7 @@ const AppContent: React.FC = () => {
             initialLinkedInvoiceId={editTransactionConfig.linkedInvoiceId}
             initialInvoiceId={editTransactionConfig.invoiceId}
             initialVoucherId={editTransactionConfig.voucherId}
-            onBack={closeOverlay}
+            onBack={requestOverlayClose}
           />
         ) : null;
         break;
@@ -643,8 +829,10 @@ const AppContent: React.FC = () => {
     return (
       <ResponsiveOverlay
         isOpen={Boolean(overlay)}
+        onClose={requestOverlayClose}
         variant={resolvedOverlayVariant}
         zIndexClassName="z-[100]"
+        onBackdropClick={resolvedOverlayVariant === 'fullscreen' ? undefined : requestOverlayClose}
         panelClassName={panelClassName}
         showHandle={resolvedOverlayVariant === 'bottom-sheet'}
         keyboardAware
@@ -659,7 +847,6 @@ const AppContent: React.FC = () => {
       <div className="w-full h-full min-h-0 bg-gray-50 overflow-hidden relative">
         <div
           className={`app-main-scroll scroll-smooth transition-all duration-500 ${overlay ? 'scale-[0.985] brightness-90 blur-[1px]' : 'scale-100'}`}
-          {...swipeHandlers}
         >
           {!overlay && (
             <div
@@ -672,7 +859,7 @@ const AppContent: React.FC = () => {
                 {showHeaderBackButton && (
                   <button
                     type="button"
-                    onClick={handleBackNavigation}
+                    onClick={requestSystemBack}
                     disabled={!canGoBack}
                     className={`app-back-btn min-w-[44px] sm:min-w-[74px] px-2.5 sm:px-3 py-2 rounded-xl border shadow-md inline-flex items-center justify-center gap-1.5 transition shrink-0 ${canGoBack
                       ? 'bg-white/95 backdrop-blur border-gray-200 text-slate-700'
@@ -688,11 +875,17 @@ const AppContent: React.FC = () => {
                 <button
                   ref={companyMenuButtonRef}
                   type="button"
-                  onClick={() => setShowCompanyMenu(prev => !prev)}
+                  onClick={handleCompanyMenuToggle}
                   className={`min-w-0 px-3 py-2 rounded-xl bg-white/95 backdrop-blur border border-gray-200 shadow-md flex items-center gap-2 ${showHeaderBackButton ? 'flex-1 max-w-[78vw] sm:max-w-[72vw]' : 'w-full'
                     }`}
                 >
-                  <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-indigo-100 bg-white p-1 shadow-sm">
+                    <img
+                      src={companyLogoSrc}
+                      alt={appLanguage === 'AR' ? 'شعار الشركة' : 'Company logo'}
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
                   <span className="text-[11px] font-black text-slate-700 truncate">{currentCompany?.name || companySettings.name}</span>
                   <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showCompanyMenu ? 'rotate-180' : ''}`} />
                 </button>
@@ -733,7 +926,9 @@ const AppContent: React.FC = () => {
             </div>
           )}
 
-          {renderMainContent()}
+          <Suspense fallback={<ScreenFallback />}>
+            {renderMainContent()}
+          </Suspense>
         </div>
         {companyMenuPanel}
         {<Suspense fallback={<ScreenFallback compact />}>{renderOverlay()}</Suspense>}

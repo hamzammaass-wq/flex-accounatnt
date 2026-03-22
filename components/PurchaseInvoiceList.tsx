@@ -10,6 +10,7 @@ import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
 import { getInvoiceTaxVisibility } from '../utils/companySettings';
 import { buildInvoiceItemBarcodeMarkup, INVOICE_ITEM_BARCODE_CSS } from '../utils/invoicePrintBarcodes';
 import { getInvoiceTaxModeDescription, isInvoiceTaxApplied, resolveInvoiceTaxMode } from '../utils/invoiceTax';
+import { openDrilldown } from '../utils/drilldown';
 import {
   Plus, Search, FileText, User, Calendar,
   CheckCircle2, Clock, XCircle, ShoppingBag,
@@ -53,6 +54,14 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
     getDisplayContactName(contact || undefined, isEnglish);
   const displayProductName = (product?: { id: string; name: string } | null) =>
     getDisplayProductName(product || undefined, isEnglish);
+  const openSupplierStatement = (contactId?: string) => {
+    if (!contactId) return;
+    openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+  };
+  const openProductMovement = (productId?: string) => {
+    if (!productId) return;
+    openDrilldown({ kind: 'PRODUCT_MOVEMENT', productId });
+  };
   const asText = (value: unknown) => String(value ?? '');
   const getInvoiceItems = (invoice: Invoice) => sanitizeInvoiceItems(invoice.items);
   const getInvoiceTotal = (invoice: Invoice) => Number(invoice.totalAmount || 0);
@@ -72,9 +81,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
   };
   const getPostingStatusLabel = (status: string) => status === 'POSTED'
     ? tr('مرحلة', 'Posted')
-    : status === 'DRAFT'
-      ? tr('مسودة', 'Draft')
-      : status;
+    : tr('مرحلة', 'Posted');
 
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return '';
@@ -500,16 +507,6 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('حالة الترحيل', 'Posting status')}</label>
-                  <select value={filterPostingStatus} onChange={(e) => setFilterPostingStatus(e.target.value)} className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white">
-                    <option value="ALL">{tr('كل حالات الترحيل', 'All Posting Statuses')}</option>
-                    {availablePostingStatuses.map(status => (
-                      <option key={status} value={status}>{getPostingStatusLabel(status)}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
                   <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('العملة', 'Currency')}</label>
                   <select value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)} className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white">
                     <option value="ALL">{tr('كل العملات', 'All Currencies')}</option>
@@ -596,9 +593,21 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className="font-black text-gray-800 text-base tracking-tight">{inv.invoiceNumber}</h4>
-                            {isDraft && <span className="text-[9px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded font-black border border-amber-100">{tr('مسودة', 'Draft')}</span>}
                           </div>
-                          <div className="flex items-center gap-1 text-[10px] font-black text-gray-400 uppercase tracking-wider"><User size={12} className="text-purple-400" />{getSupplierName(inv.customerId)}</div>
+                          <div className="flex items-center gap-1 text-[10px] font-black text-gray-400 uppercase tracking-wider">
+                            <User size={12} className="text-purple-400" />
+                            <span
+                              className="cursor-pointer hover:text-purple-600"
+                              onClick={(event) => event.stopPropagation()}
+                              onDoubleClick={(event) => {
+                                event.stopPropagation();
+                                openSupplierStatement(inv.customerId);
+                              }}
+                              title={tr('اضغط مرتين لفتح كشف المورد', 'Double-click to open supplier statement')}
+                            >
+                              {getSupplierName(inv.customerId)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -624,7 +633,15 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                           return (
                             <div key={idx} className={`flex justify-between items-center text-xs p-3 rounded-xl border ${item.returned ? 'bg-rose-50 border-rose-100' : 'bg-gray-50 border-gray-100'}`}>
                               <div>
-                                <span className={`font-bold ${item.returned ? 'text-rose-700 line-through' : 'text-gray-700'}`}>
+                                <span
+                                  className={`font-bold ${item.returned ? 'text-rose-700 line-through' : 'text-gray-700'} ${product ? 'cursor-pointer hover:text-purple-600' : ''}`}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onDoubleClick={(event) => {
+                                    event.stopPropagation();
+                                    if (product) openProductMovement(product.id);
+                                  }}
+                                  title={product ? tr('اضغط مرتين لفتح حركة الصنف', 'Double-click to open item movement') : undefined}
+                                >
                                   {product ? displayProductName(product) : item.description}
                                 </span>
                                 <div className="flex items-center gap-2 mt-1">
@@ -670,17 +687,6 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                             className="py-3 bg-gray-50 hover:bg-rose-50 text-rose-500 rounded-xl font-black text-xs shadow-sm transition-all flex items-center justify-center gap-2"
                           >
                             <Trash2 size={16} /> {tr('حذف', 'Delete')}
-                          </button>
-                        </div>
-                      )}
-
-                      {isDraft && (
-                        <div className="flex gap-2 mb-2">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handlePost(inv.id); }}
-                            className={`flex-[2] py-3 rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-2 text-white ${activeTab === 'RETURNS' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-purple-600 hover:bg-purple-700'}`}
-                          >
-                            <CheckCircle size={16} /> {activeTab === 'RETURNS' ? tr('اعتماد المرتجع', 'Approve Return') : tr('اعتماد الفاتورة', 'Approve Invoice')}
                           </button>
                         </div>
                       )}

@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Warehouse as WarehouseIcon, Plus, MapPin, Truck, ArrowRight, CheckCircle2, X, Package, ArrowRightLeft, History, Trash2, Edit2, AlertCircle, LayoutGrid, Calendar, ChevronDown, ChevronRight, ClipboardList, Sliders, Box, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getDisplayProductName, getDisplayUnitName, getDisplayWarehouseLocation, getDisplayWarehouseName } from '../utils/displayNames';
 import BarcodeStockTakeManager from './BarcodeStockTakeManager';
+import { isStockProduct } from '../utils/productKind';
+import { openDrilldown } from '../utils/drilldown';
 
 const inputClass = "w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-bold text-slate-700 outline-none transition-all focus:bg-white focus:shadow-md focus:border-indigo-400/30 focus:ring-4 focus:ring-indigo-50";
 const labelClass = "text-xs font-black text-slate-400 mb-2 block mr-2";
@@ -21,6 +23,21 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
         const unit = units.find(u => u.id === unitId);
         return getDisplayUnitName(unit, isEnglish) || unitId || '-';
     };
+    const getWarehouseProductQuantity = (productId: string, warehouseId: string) => (
+        stockProducts.find(item => item.id === productId)?.warehouseStock?.find(stock => stock.warehouseId === warehouseId)?.quantity ?? 0
+    );
+    const buildVarianceNote = (currentQuantity: number, newQuantity: number) => {
+        const delta = Number((newQuantity - currentQuantity).toFixed(4));
+        return tr(
+            `من ${currentQuantity} إلى ${newQuantity} (فرق ${delta > 0 ? '+' : ''}${delta})`,
+            `From ${currentQuantity} to ${newQuantity} (difference ${delta > 0 ? '+' : ''}${delta})`
+        );
+    };
+    const openProductMovement = (productId?: string) => {
+        if (!productId) return;
+        openDrilldown({ kind: 'PRODUCT_MOVEMENT', productId });
+    };
+    const stockProducts = useMemo(() => products.filter(product => isStockProduct(product)), [products]);
 
     // Warehouse CRUD State
     const [isEditing, setIsEditing] = useState<string | null>(null);
@@ -47,7 +64,8 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
     const [adjustData, setAdjustData] = useState({
         warehouseId: '',
         productId: '',
-        newQuantity: ''
+        newQuantity: '',
+        reason: 'VARIANCE' as 'VARIANCE' | 'DAMAGED'
     });
 
     const handleSubmitWarehouse = (e: React.FormEvent) => {
@@ -86,13 +104,13 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
         if (transferData.fromId === transferData.toId) return alert(tr('لا يمكن التحويل لنفس المستودع', 'Source and destination warehouse cannot be the same'));
         if (!(companySettings.allowNegativeStock ?? false)) {
             const insufficientItem = transferData.items.find((item) => {
-                const product = products.find(entry => entry.id === item.productId);
+                const product = stockProducts.find(entry => entry.id === item.productId);
                 if (!product) return false;
                 const sourceQty = product.warehouseStock?.find(stock => stock.warehouseId === transferData.fromId)?.quantity ?? product.stock ?? 0;
                 return sourceQty < item.quantity;
             });
             if (insufficientItem) {
-                const product = products.find(entry => entry.id === insufficientItem.productId);
+                const product = stockProducts.find(entry => entry.id === insufficientItem.productId);
                 return alert(tr(
                     `مخزون الصنف ${displayProductName(product || null)} غير كافٍ في المستودع المصدر. فعّل السماح بالمخزون السالب إذا كنت تريد المتابعة.`,
                     `Source warehouse stock for ${displayProductName(product || null)} is not sufficient. Enable negative stock if you want to continue.`
@@ -154,15 +172,31 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
     const handleSubmitAdjustment = () => {
         if (!adjustData.warehouseId || !adjustData.productId || adjustData.newQuantity === '') return alert(tr('يرجى تعبئة البيانات', 'Please fill all required fields'));
+        const currentQuantity = getWarehouseProductQuantity(adjustData.productId, adjustData.warehouseId);
+        const requestedQuantity = parseFloat(adjustData.newQuantity);
+        if (!Number.isFinite(requestedQuantity) || requestedQuantity < 0) {
+            return alert(tr('يرجى إدخال كمية صحيحة أكبر من أو تساوي صفر', 'Enter a valid quantity greater than or equal to zero.'));
+        }
+        if (adjustData.reason === 'DAMAGED' && requestedQuantity > currentQuantity) {
+            return alert(tr('إتلاف البضاعة يقبل فقط تخفيض الكمية الحالية.', 'Damaged goods flow can only reduce the current quantity.'));
+        }
 
-        adjustWarehouseStock(
+        const result = adjustWarehouseStock(
             adjustData.productId,
             adjustData.warehouseId,
-            parseFloat(adjustData.newQuantity)
+            requestedQuantity,
+            {
+                reason: adjustData.reason,
+                source: 'MANUAL',
+                note: buildVarianceNote(currentQuantity, requestedQuantity)
+            }
         );
+        if (!result.ok) return alert(result.message);
 
-        alert(tr('تم تعديل المخزون بنجاح', 'Stock updated successfully'));
-        setAdjustData({ warehouseId: '', productId: '', newQuantity: '' });
+        alert(adjustData.reason === 'DAMAGED'
+            ? tr('تم ترحيل إتلاف البضاعة بنجاح', 'Damaged goods entry was posted successfully')
+            : tr('تم تعديل الجرد وترحيل فرق الصنف إلى حساب فروقات المخزون', 'Inventory count was updated and the item difference was posted to the inventory variance account.'));
+        setAdjustData({ warehouseId: '', productId: '', newQuantity: '', reason: 'VARIANCE' });
     };
 
     const handleStartInlineAdjustment = (productId: string, quantity: number) => {
@@ -178,12 +212,20 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
     const handleSaveInlineAdjustment = (productId: string) => {
         if (!viewWarehouseId) return;
         if (inlineAdjustQuantity === '') return alert(tr('يرجى إدخال الكمية الصحيحة', 'Please enter the correct quantity'));
+        const currentQuantity = getWarehouseProductQuantity(productId, viewWarehouseId);
+        const requestedQuantity = Math.max(0, Number(inlineAdjustQuantity) || 0);
 
-        adjustWarehouseStock(
+        const result = adjustWarehouseStock(
             productId,
             viewWarehouseId,
-            Math.max(0, Number(inlineAdjustQuantity) || 0)
+            requestedQuantity,
+            {
+                reason: 'VARIANCE',
+                source: 'INLINE',
+                note: buildVarianceNote(currentQuantity, requestedQuantity)
+            }
         );
+        if (!result.ok) return alert(result.message);
 
         handleCancelInlineAdjustment();
     };
@@ -195,7 +237,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
         return [w.name, displayWarehouseName(w), w.location || '', displayWarehouseLocation(w) || '']
             .some(value => value.toLowerCase().includes(normalizedSearch));
     });
-    const filteredProducts = products.filter(p => {
+    const filteredProducts = stockProducts.filter(p => {
         if (!normalizedSearch) return true;
         return [p.name, displayProductName(p), p.barcode || '']
             .some(value => value.toLowerCase().includes(normalizedSearch));
@@ -203,10 +245,10 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
     useEffect(() => {
         if (!inlineAdjustProductId) return;
-        const product = products.find(item => item.id === inlineAdjustProductId);
+        const product = stockProducts.find(item => item.id === inlineAdjustProductId);
         const quantity = product?.warehouseStock?.find(stock => stock.warehouseId === viewWarehouseId)?.quantity ?? 0;
         setInlineAdjustQuantity(String(quantity));
-    }, [viewWarehouseId, inlineAdjustProductId, products]);
+    }, [viewWarehouseId, inlineAdjustProductId, stockProducts]);
 
     // Calculate generic stats
     const totalWarehouses = warehouses.length;
@@ -420,6 +462,8 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                             const stockEntry = product.warehouseStock?.find(s => s.warehouseId === viewWarehouseId);
                                             const qty = stockEntry ? stockEntry.quantity : 0;
                                             const isInlineEditing = inlineAdjustProductId === product.id;
+                                            const inlineNextQuantity = isInlineEditing ? Math.max(0, Number(inlineAdjustQuantity) || 0) : qty;
+                                            const inlineDelta = Number((inlineNextQuantity - qty).toFixed(4));
 
                                             return (
                                                 <div key={product.id} className="bg-slate-50 p-3 rounded-xl border border-gray-100 space-y-3">
@@ -427,7 +471,13 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                         <div className="flex items-center gap-2.5 min-w-0">
                                                             <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-[10px] font-black shrink-0">{idx + 1}</div>
                                                             <div className="min-w-0">
-                                                                <div className="font-bold text-xs text-slate-700 truncate">{displayProductName(product)}</div>
+                                                                <div
+                                                                    className="font-bold text-xs text-slate-700 truncate cursor-pointer"
+                                                                    onDoubleClick={() => openProductMovement(product.id)}
+                                                                    title={tr('اضغط مرتين لفتح حركة الصنف', 'Double-click to open item movement')}
+                                                                >
+                                                                    {displayProductName(product)}
+                                                                </div>
                                                                 <div className="text-[10px] text-slate-400 font-bold">{displayUnitName(product.unitId)}</div>
                                                             </div>
                                                         </div>
@@ -489,6 +539,11 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                                     <X size={16} />
                                                                 </button>
                                                             </div>
+                                                            <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-[10px] font-black text-slate-500">
+                                                                {tr('الفرق المتوقع', 'Expected difference')}: {inlineDelta > 0 ? '+' : ''}{inlineDelta}
+                                                                <span className="mx-1 text-slate-300">|</span>
+                                                                {tr('سيُرحل على حساب فروقات المخزون', 'It will be posted to the inventory variance account')}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -549,7 +604,18 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                     className={inputClass}
                                                 >
                                                     <option value="">{tr('-- اختر الصنف --', '-- Select Item --')}</option>
-                                                    {products.map(p => <option key={p.id} value={p.id}>{displayProductName(p)}</option>)}
+                                                    {stockProducts.map(p => <option key={p.id} value={p.id}>{displayProductName(p)}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className={labelClass}>{tr('سبب الحركة', 'Adjustment Reason')}</label>
+                                                <select
+                                                    value={adjustData.reason}
+                                                    onChange={e => setAdjustData({ ...adjustData, reason: e.target.value as 'VARIANCE' | 'DAMAGED' })}
+                                                    className={inputClass}
+                                                >
+                                                    <option value="VARIANCE">{tr('فروقات مخزون', 'Inventory variance')}</option>
+                                                    <option value="DAMAGED">{tr('إتلاف بضاعة', 'Damaged goods')}</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -560,11 +626,11 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                     <p className="text-[10px] font-black text-slate-400 mb-1">{tr('الرصيد الحالي', 'Current Balance')}</p>
                                                     <div className="text-2xl font-black text-slate-700">
                                                         {(() => {
-                                                            const p = products.find(x => x.id === adjustData.productId);
+                                                            const p = stockProducts.find(x => x.id === adjustData.productId);
                                                             return p?.warehouseStock?.find(s => s.warehouseId === adjustData.warehouseId)?.quantity || 0;
                                                         })()}
                                                         <span className="text-xs text-slate-400 font-bold mr-1">
-                                                            {displayUnitName(products.find(x => x.id === adjustData.productId)?.unitId)}
+                                                            {displayUnitName(stockProducts.find(x => x.id === adjustData.productId)?.unitId)}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -579,6 +645,23 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                         autoFocus
                                                     />
                                                 </div>
+                                                <div className="rounded-xl bg-white px-3 py-2 text-[10px] font-black text-slate-500 border border-slate-100">
+                                                    {tr('الفرق المتوقع', 'Expected difference')}: {(() => {
+                                                        const currentQty = getWarehouseProductQuantity(adjustData.productId, adjustData.warehouseId);
+                                                        const nextQty = Number(adjustData.newQuantity || 0);
+                                                        const delta = Number((nextQty - currentQty).toFixed(4));
+                                                        return `${delta > 0 ? '+' : ''}${delta}`;
+                                                    })()}
+                                                    <span className="mx-1 text-slate-300">|</span>
+                                                    {adjustData.reason === 'DAMAGED'
+                                                        ? tr('سيُرحل على حساب البضاعة التالفة', 'It will be posted to the damaged goods account')
+                                                        : tr('سيُرحل على حساب فروقات المخزون', 'It will be posted to the inventory variance account')}
+                                                </div>
+                                                <p className="text-[10px] font-black text-slate-400">
+                                                    {adjustData.reason === 'DAMAGED'
+                                                        ? tr('عند اختيار إتلاف بضاعة سيتم تحميل النقص على حساب البضاعة التالفة، ولا يمكن زيادة الكمية بهذا السبب.', 'When damaged goods is selected, any decrease will post to the damaged goods account and the quantity cannot be increased with this reason.')
+                                                        : tr('التعديل اليدوي سيُحمّل فرق الزيادة أو النقص على حساب فروقات المخزون.', 'Manual adjustment will post the increase or decrease difference to the inventory variance account.')}
+                                                </p>
                                             </div>
                                         )}
 
@@ -637,7 +720,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                             <div className="space-y-2 mb-3">
                                                 <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className={inputClass + " text-xs"}>
                                                     <option value="">{tr('-- اختر الصنف --', '-- Select Item --')}</option>
-                                                    {products.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({p.stock})</option>)}
+                                                    {stockProducts.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({p.stock})</option>)}
                                                 </select>
                                                 <div className="flex gap-2">
                                                     <input type="number" value={transferQty} onChange={e => setTransferQty(e.target.value)} placeholder={tr('الكمية', 'Quantity')} className={inputClass + " text-center font-black flex-1"} />
@@ -656,7 +739,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                         </motion.div>
                                                     ) : (
                                                         transferData.items.map((item, idx) => {
-                                                            const p = products.find(x => x.id === item.productId);
+                                                            const p = stockProducts.find(x => x.id === item.productId);
                                                             return (
                                                                 <motion.div
                                                                     key={idx}
@@ -665,7 +748,13 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                                 >
                                                                     <div className="flex items-center gap-2">
                                                                         <div className="w-6 h-6 bg-white rounded-lg flex items-center justify-center text-slate-500 text-[10px] font-bold border border-slate-100">{idx + 1}</div>
-                                                                        <span className="font-bold text-slate-700 text-xs">{displayProductName(p || null)}</span>
+                                                                        <span
+                                                                            className="font-bold text-slate-700 text-xs cursor-pointer"
+                                                                            onDoubleClick={() => openProductMovement(item.productId)}
+                                                                            title={tr('اضغط مرتين لفتح حركة الصنف', 'Double-click to open item movement')}
+                                                                        >
+                                                                            {displayProductName(p || null)}
+                                                                        </span>
                                                                     </div>
                                                                     <div className="flex items-center gap-2">
                                                                         <span className="font-black text-indigo-600 bg-white px-2.5 py-1 rounded-lg text-xs border border-indigo-100">{item.quantity}</span>
@@ -735,14 +824,14 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                         className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"
                                     >
                                         <div className="flex items-start gap-3 mb-3">
-                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${trf.status === 'POSTED' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                                                {trf.status === 'POSTED' ? <CheckCircle2 size={18} /> : <History size={18} />}
+                                            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-emerald-50 text-emerald-600">
+                                                <CheckCircle2 size={18} />
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-center mb-1">
                                                     <h4 className="font-black text-slate-800 text-sm">{trf.transferNumber}</h4>
-                                                    <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black ${trf.status === 'POSTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                        {trf.status === 'POSTED' ? tr('مرحلة', 'Posted') : tr('مسودة', 'Draft')}
+                                                    <span className="px-2 py-0.5 rounded-lg text-[9px] font-black bg-emerald-100 text-emerald-700">
+                                                        {tr('مرحلة', 'Posted')}
                                                     </span>
                                                 </div>
                                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-400">
@@ -772,15 +861,6 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                 <Trash2 size={13} />
                                                 {tr('حذف', 'Delete')}
                                             </button>
-                                            {trf.status === 'DRAFT' && (
-                                                <button
-                                                    onClick={() => postStockTransfer(trf.id)}
-                                                    className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white shadow-md shadow-emerald-200"
-                                                >
-                                                    <CheckCircle2 size={13} />
-                                                    {tr('ترحيل الآن', 'Post Now')}
-                                                </button>
-                                            )}
                                         </div>
                                     </motion.div>
                                 ))}

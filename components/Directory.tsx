@@ -1,5 +1,6 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
 import { ContactType, TransactionType, Contact, Invoice } from '../types';
 import ContactEditorDialog from './ContactEditorDialog';
@@ -12,10 +13,15 @@ import {
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadTextFile, exportElementAsCsv, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
+import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
+
+const DIRECTORY_TAB_STORAGE_KEY = 'smart-account:directory-tab:v1';
 
 const Directory: React.FC = () => {
     const { contacts, addContact, updateContact, deleteContact, transactions, invoices, baseCurrency, companySettings, products, accounts, checks } = useAccounting();
+    const currentFiscalYearRange = useMemo(() => getCurrentFiscalYearRange(), []);
 
     const [activeTab, setActiveTab] = useState<ContactType | 'ALL'>('ALL');
     const [searchTerm, setSearchTerm] = useState('');
@@ -24,8 +30,8 @@ const Directory: React.FC = () => {
     const [showOutstandingOnly, setShowOutstandingOnly] = useState(false);
     const [deleteContactId, setDeleteContactId] = useState<string | null>(null);
 
-    const [stmtStartDate, setStmtStartDate] = useState('');
-    const [stmtEndDate, setStmtEndDate] = useState('');
+    const [stmtStartDate, setStmtStartDate] = useState(currentFiscalYearRange.startDate);
+    const [stmtEndDate, setStmtEndDate] = useState(currentFiscalYearRange.endDate);
     const [printCheckImagesInStatement, setPrintCheckImagesInStatement] = useState(false);
 
     const [editingContactId, setEditingContactId] = useState<string | null>(null);
@@ -52,6 +58,44 @@ const Directory: React.FC = () => {
     const displayContactName = (contact?: Pick<Contact, 'id' | 'name'> | null) => getDisplayContactName(contact || undefined, isEnglish);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) => getDisplayProductName(product || undefined, isEnglish);
+    const openContactStatement = (contactId: string) => {
+        setStmtStartDate(currentFiscalYearRange.startDate);
+        setStmtEndDate(currentFiscalYearRange.endDate);
+        setSelectedContactId(contactId);
+    };
+
+    useEffect(() => {
+        const applyDrilldownTarget = (target: DrilldownTarget | null) => {
+            if (!target || target.kind !== 'CONTACT_STATEMENT') return;
+            openContactStatement(target.contactId);
+        };
+
+        applyDrilldownTarget(consumePendingDrilldown());
+
+        const handleDrilldown = (event: Event) => {
+            const target = (event as CustomEvent<DrilldownTarget>).detail;
+            if (!target || target.kind !== 'CONTACT_STATEMENT') {
+                return;
+            }
+            clearPendingDrilldown();
+            applyDrilldownTarget(target);
+        };
+        window.addEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);
+        return () => window.removeEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const nextTab = window.sessionStorage.getItem(DIRECTORY_TAB_STORAGE_KEY);
+            if (nextTab === 'CUSTOMER' || nextTab === 'SUPPLIER' || nextTab === 'PARTNER' || nextTab === 'EMPLOYEE' || nextTab === 'ALL') {
+                setActiveTab(nextTab as ContactType | 'ALL');
+            }
+            window.sessionStorage.removeItem(DIRECTORY_TAB_STORAGE_KEY);
+        } catch {
+            // Ignore storage failures and keep the default tab.
+        }
+    }, []);
 
     const tabLabel = (tab: 'ALL' | ContactType) => {
         if (isEnglish) {
@@ -257,6 +301,18 @@ const Directory: React.FC = () => {
         const { closingBalance } = getStatementData(contact);
         return closingBalance;
     };
+
+    const customerDueTotal = useMemo(() => (
+        contacts
+            .filter(contact => contact.type === 'CUSTOMER')
+            .reduce((sum, contact) => sum + Math.max(0, calculateCurrentBalance(contact)), 0)
+    ), [contacts, transactions, invoices]);
+
+    const supplierDueTotal = useMemo(() => (
+        contacts
+            .filter(contact => contact.type === 'SUPPLIER')
+            .reduce((sum, contact) => sum + Math.max(0, calculateCurrentBalance(contact)), 0)
+    ), [contacts, transactions, invoices]);
 
     const filteredContacts = useMemo(() => contacts.filter(c => activeTab === 'ALL' || c.type === activeTab).filter(c => {
         const displayName = displayContactName(c);
@@ -614,26 +670,211 @@ const Directory: React.FC = () => {
         `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString()} ${baseCurrency}`
     ].join('\n');
 
+    const buildStatementNotificationText = (contact: Contact, closingBalance: number) => [
+        tr('تم تحديث كشف حسابكم.', 'Your account statement was updated.'),
+        `${tr('الطرف', 'Contact')}: ${displayContactName(contact)}`,
+        `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`,
+        `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString()} ${baseCurrency}`
+    ].join('\n');
+
     const buildStatementPdfName = (contact: Contact) =>
         `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.pdf`;
 
-    const handleShareStatementWhatsApp = async (contact: Contact, closingBalance: number) => {
+    const buildStatementExcelName = (contact: Contact) =>
+        sanitizeDownloadName(`${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.xlsx`);
+
+    const buildStatementEntryDetails = (entry: any, contact: Contact, invoice: Invoice | null) => {
+        const detailLines: string[] = [];
+        const subTransactions = entry.subTransactions || [entry];
+
+        subTransactions.forEach((sub: any) => {
+            const relatedCheck = sub.checkId ? checks.find(c => c.id === sub.checkId) : null;
+            if (relatedCheck) {
+                detailLines.push(
+                    [
+                        `${tr('شيك', 'Check')}: ${relatedCheck.checkNumber}`,
+                        `${tr('البنك', 'Bank')}: ${displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}`,
+                        relatedCheck.accountNumber ? `${tr('الحساب', 'Account')}: ${relatedCheck.accountNumber}` : '',
+                        `${tr('الاستحقاق', 'Due')}: ${formatDate(relatedCheck.dueDate) || '-'}`,
+                        `${tr('المبلغ', 'Amount')}: ${relatedCheck.amount.toLocaleString()} ${relatedCheck.currency || entry.currency || baseCurrency}`
+                    ].filter(Boolean).join(' | ')
+                );
+                return;
+            }
+
+            const { contraAccountId, isReceipt } = getPaymentLineMeta(sub, contact);
+            const account = accounts.find(a => a.id === contraAccountId);
+            if (account && !invoice) {
+                const label = isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from');
+                const amountSuffix = sub.amount !== entry.debit && sub.amount !== entry.credit
+                    ? ` (${sub.amount.toLocaleString()} ${sub.currency || entry.currency || baseCurrency})`
+                    : '';
+                detailLines.push(`${label}: ${displayAccountName(account)}${amountSuffix}`);
+            }
+        });
+
+        if (invoice) {
+            detailLines.push(tr('تفاصيل الفاتورة', 'Invoice details'));
+            invoice.items.forEach((item, index) => {
+                const product = products.find(p => p.id === item.productId);
+                detailLines.push(
+                    `${index + 1}. ${item.description || displayProductName(product)} | ${tr('الكمية', 'Qty')}: ${item.quantity} | ${tr('السعر', 'Price')}: ${item.unitPrice.toLocaleString()} | ${tr('الإجمالي', 'Total')}: ${item.total.toLocaleString()}`
+                );
+            });
+            if (printExpiryDate && invoice.dueDate) {
+                detailLines.push(`${tr('تاريخ الاستحقاق', 'Expiry Date')}: ${formatDate(invoice.dueDate)}`);
+            }
+        }
+
+        return detailLines.join('\n');
+    };
+
+    const buildStatementPdfFile = async (contact: Contact) => {
         await settleStatementSnapshot();
-        const pdfFile = await buildElementPdfFile(statementExportRef.current, {
+        return buildElementPdfFile(statementExportRef.current, {
             title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
             fileName: buildStatementPdfName(contact),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar'
         });
+    };
+
+    const downloadStatementPdf = async (contact: Contact) => {
+        const { closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+        const shareText = buildStatementShareText(contact, closingBalance);
+        const shareWindow: Window | null = null;
+        const openWhatsappLink = (message: string) => {
+            window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+        };
+        try {
+            const pdfFile = await buildStatementPdfFile(contact);
+            if (!pdfFile) {
+            alert(tr('تعذر تجهيز ملف PDF للكشف الآن.', 'Could not prepare the statement PDF right now.'));
+            openWhatsappLink(shareText);
+            return;
+        }
+        const whatsappMessage = `${shareText}\n\n${tr('تم تنزيل ملف PDF للكشف على جهازك. أرفقه داخل واتساب لإرسال الكشف كاملًا بشكل مرتب.', 'The statement PDF was downloaded to your device. Attach it in WhatsApp to send the full statement in a clean layout.')}`;
+        if (shareWindow && !shareWindow.closed) {
+            downloadBlobFile(pdfFile, pdfFile.name);
+            shareWindow.location.href = `https://wa.me/?text=${encodeURIComponent(whatsappMessage)}`;
+            shareWindow.focus();
+            return;
+        }
+        downloadBlobFile(pdfFile, pdfFile.name);
+        } catch {
+            alert(tr('تعذر حفظ كشف الحساب بصيغة PDF.', 'Could not save the statement as PDF.'));
+        }
+    };
+
+    const exportStatementExcel = (contact: Contact) => {
+        try {
+        const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+        const printableStatements = statementDateAscending ? [...stmts] : [...stmts].reverse();
+        const title = `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`;
+        const periodText = `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`;
+        const contactInfo = printPersonalData
+            ? `${tr('الهاتف', 'Phone')}: ${contact.phone || '-'}${contact.address ? ` | ${tr('العنوان', 'Address')}: ${contact.address}` : ''}`
+            : '';
+        const toExcelNumber = (value: number) => Number((Number(value) || 0).toFixed(2));
+        const descriptionColumnIndex = hideVoucherColumnInStatement ? 1 : 2;
+        const tableHeader = [
+            tr('التاريخ', 'Date'),
+            ...(!hideVoucherColumnInStatement ? [tr('السند', 'Voucher')] : []),
+            tr('البيان', 'Description'),
+            debitLabel,
+            creditLabel,
+            tr('الرصيد', 'Balance')
+        ];
+        const rows: (string | number)[][] = [
+            [title],
+            [periodText]
+        ];
+
+        if (contactInfo) {
+            rows.push([contactInfo]);
+        }
+
+        rows.push([]);
+        const headerRowIndex = rows.length;
+        rows.push(tableHeader);
+        rows.push([
+            '-',
+            ...(!hideVoucherColumnInStatement ? ['-'] : []),
+            tr('الرصيد الافتتاحي', 'Opening balance'),
+            '',
+            '',
+            toExcelNumber(openingBalance)
+        ]);
+
+        printableStatements.forEach(entry => {
+            const invoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
+            const details = buildStatementEntryDetails(entry, contact, invoice);
+            rows.push([
+                formatDate(entry.date) || '',
+                ...(!hideVoucherColumnInStatement ? [entry.voucherId || '-'] : []),
+                [entry.description, details].filter(Boolean).join('\n'),
+                entry.debit > 0 ? toExcelNumber(entry.debit) : '',
+                entry.credit > 0 ? toExcelNumber(entry.credit) : '',
+                toExcelNumber(entry.runningBalance)
+            ]);
+        });
+
+        rows.push([]);
+        const closingRow = new Array(tableHeader.length).fill('');
+        closingRow[descriptionColumnIndex] = tr('الرصيد الختامي', 'Closing Balance');
+        closingRow[tableHeader.length - 1] = toExcelNumber(closingBalance);
+        rows.push(closingRow);
+
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        worksheet['!cols'] = [
+            { wch: 14 },
+            ...(!hideVoucherColumnInStatement ? [{ wch: 16 }] : []),
+            { wch: 68 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 16 }
+        ];
+        worksheet['!autofilter'] = {
+            ref: XLSX.utils.encode_range({
+                s: { r: headerRowIndex, c: 0 },
+                e: { r: headerRowIndex, c: tableHeader.length - 1 }
+            })
+        };
+
+        const workbook = XLSX.utils.book_new();
+        workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Statement');
+        downloadWorkbookFile(workbook, { fileName: buildStatementExcelName(contact) });
+        } catch {
+            alert(tr('تعذر تصدير كشف الحساب إلى Excel.', 'Could not export the statement to Excel.'));
+        }
+    };
+
+    const handleShareStatementWhatsApp = async (contact: Contact, closingBalance: number, shareWindow?: Window | null) => {
+        const shareText = buildStatementShareText(contact, closingBalance);
+        const openWhatsappLink = (message: string) => {
+            const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+            if (shareWindow && !shareWindow.closed) {
+                shareWindow.location.href = url;
+                shareWindow.focus();
+                return;
+            }
+            window.open(url, '_blank');
+        };
+        let pdfFile: File | null = null;
+        try {
+            pdfFile = await buildStatementPdfFile(contact);
+        } catch {
+            pdfFile = null;
+        }
 
         if (!pdfFile) {
             alert(tr('تعذر تجهيز ملف PDF للكشف الآن.', 'Could not prepare the statement PDF right now.'));
             return;
         }
 
-        const shareText = buildStatementShareText(contact, closingBalance);
-        let canShareFiles = Boolean(navigator.share);
-        if (canShareFiles && typeof navigator.canShare === 'function') {
+        let canShareFiles = Boolean(pdfFile && navigator.share);
+        if (pdfFile && canShareFiles && typeof navigator.canShare === 'function') {
             try {
                 canShareFiles = navigator.canShare({ files: [pdfFile] });
             } catch {
@@ -656,44 +897,284 @@ const Directory: React.FC = () => {
             }
         }
 
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(shareText);
+            } catch {
+                // Ignore clipboard fallback errors.
+            }
+        }
+
         downloadBlobFile(pdfFile, pdfFile.name);
         window.open(
-            `https://wa.me/?text=${encodeURIComponent(`${shareText}\n\n${tr('تم تنزيل ملف PDF للكشف. أرفقه داخل واتساب لإرسال الكشف كاملًا.', 'The statement PDF was downloaded. Attach it in WhatsApp to send the full statement.')}`)}`,
+            `https://wa.me/?text=${encodeURIComponent(`${shareText}\n\n${tr('تم تنزيل ملف PDF للكشف على جهازك. أرفقه داخل واتساب لإرسال الكشف كاملًا بشكل مرتب.', 'The statement PDF was downloaded to your device. Attach it in WhatsApp to send the full statement in a clean layout.')}`)}`,
             '_blank'
         );
     };
 
-    const handlePrintStatement = async (contact: Contact) => {
-        await settleStatementSnapshot();
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
+    const handlePrintStatement = async (contact: Contact, printWindow?: Window | null) => {
+        const targetWindow = printWindow || window.open('', '_blank');
+        if (!targetWindow) {
             alert(tr('تعذر فتح نافذة كشف الحساب.', 'Could not open statement window.'));
             return;
         }
+        targetWindow.document.open();
+        targetWindow.document.write(`<!doctype html><html><head><title>${tr('جاري تجهيز كشف الحساب', 'Preparing statement')}</title></head><body style="font-family:Arial,sans-serif;padding:24px;">${tr('جاري تجهيز كشف الحساب للطباعة...', 'Preparing statement for printing...')}</body></html>`);
+        targetWindow.document.close();
+        await settleStatementSnapshot();
         const html = buildStatementPrintHtml(contact, printCheckImagesInStatement);
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.focus();
+        targetWindow.document.open();
+        targetWindow.document.write(html);
+        targetWindow.document.close();
+        targetWindow.focus();
     };
 
-    const downloadStatementSnapshot = async (contact: Contact) => {
-        await settleStatementSnapshot();
-        downloadTextFile(
-            buildStatementPrintHtml(contact, printCheckImagesInStatement),
-            `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}.html`,
-            'text/html;charset=utf-8'
-        );
-    };
-
-    const exportStatementExcel = async (contact: Contact) => {
-        await settleStatementSnapshot();
-        const success = exportElementAsCsv(
-            statementContentRef.current,
-            `${tr('كشف حساب', 'Statement')}-${displayContactName(contact)}-${stmtStartDate || 'start'}-${stmtEndDate || 'end'}`
-        );
-        if (!success) {
-            alert(tr('تعذر تصدير كشف الحساب الآن.', 'Could not export the statement right now.'));
+    const printStatementSafe = async (contact: Contact, printWindow?: Window | null) => {
+        try {
+            await handlePrintStatement(contact, printWindow);
+        } catch {
+            if (printWindow && !printWindow.closed) {
+                printWindow.document.open();
+                printWindow.document.write(`<!doctype html><html><head><title>${tr('تعذر تجهيز الطباعة', 'Print unavailable')}</title></head><body style="font-family:Arial,sans-serif;padding:24px;">${tr('تعذر تجهيز كشف الحساب للطباعة الآن.', 'Could not prepare the statement for printing right now.')}</body></html>`);
+                printWindow.document.close();
+                printWindow.focus();
+            }
+            alert(tr('تعذر تجهيز كشف الحساب للطباعة الآن.', 'Could not prepare the statement for printing right now.'));
         }
+    };
+
+    const downloadStatementPdfSafe = async (contact: Contact) => {
+        try {
+            const pdfFile = await buildStatementPdfFile(contact);
+            if (!pdfFile) {
+                alert(tr('تعذر تجهيز ملف PDF للكشف الآن.', 'Could not prepare the statement PDF right now.'));
+                return;
+            }
+            downloadBlobFile(pdfFile, pdfFile.name);
+        } catch {
+            alert(tr('تعذر حفظ كشف الحساب بصيغة PDF.', 'Could not save the statement as PDF.'));
+        }
+    };
+
+    const shareStatementDocumentSafe = async (contact: Contact, closingBalance: number) => {
+        const shareText = buildStatementShareText(contact, closingBalance);
+        let pdfFile: File | null = null;
+        try {
+            pdfFile = await buildStatementPdfFile(contact);
+        } catch {
+            pdfFile = null;
+        }
+
+        let canShareFiles = Boolean(pdfFile && navigator.share);
+        if (pdfFile && canShareFiles && typeof navigator.canShare === 'function') {
+            try {
+                canShareFiles = navigator.canShare({ files: [pdfFile] });
+            } catch {
+                canShareFiles = false;
+            }
+        }
+
+        if (canShareFiles && pdfFile) {
+            try {
+                await navigator.share({
+                    title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
+                    text: shareText,
+                    files: [pdfFile]
+                });
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') {
+                    return;
+                }
+            }
+        }
+
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
+                    text: shareText
+                });
+                if (pdfFile) {
+                    downloadBlobFile(pdfFile, pdfFile.name);
+                }
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') {
+                    return;
+                }
+            }
+        }
+
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(shareText);
+            } catch {
+                // Ignore clipboard fallback failure.
+            }
+        }
+
+        if (pdfFile) {
+            downloadBlobFile(pdfFile, pdfFile.name);
+        }
+        window.prompt(tr('انسخ كشف الحساب التالي', 'Copy the statement below'), shareText);
+    };
+
+    const exportStatementExcelSafe = (contact: Contact) => {
+        try {
+            const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+            const printableStatements = statementDateAscending ? [...stmts] : [...stmts].reverse();
+            const title = `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`;
+            const periodText = `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`;
+            const contactInfo = printPersonalData
+                ? `${tr('الهاتف', 'Phone')}: ${contact.phone || '-'}${contact.address ? ` | ${tr('العنوان', 'Address')}: ${contact.address}` : ''}`
+                : '';
+            const toExcelNumber = (value: number) => Number((Number(value) || 0).toFixed(2));
+            const descriptionColumnIndex = hideVoucherColumnInStatement ? 1 : 2;
+            const tableHeader = [
+                tr('التاريخ', 'Date'),
+                ...(!hideVoucherColumnInStatement ? [tr('السند', 'Voucher')] : []),
+                tr('البيان', 'Description'),
+                debitLabel,
+                creditLabel,
+                tr('الرصيد', 'Balance')
+            ];
+            const rows: (string | number)[][] = [
+                [title],
+                [periodText]
+            ];
+
+            if (contactInfo) {
+                rows.push([contactInfo]);
+            }
+
+            rows.push([]);
+            const headerRowIndex = rows.length;
+            rows.push(tableHeader);
+            rows.push([
+                '-',
+                ...(!hideVoucherColumnInStatement ? ['-'] : []),
+                tr('الرصيد الافتتاحي', 'Opening balance'),
+                '',
+                '',
+                toExcelNumber(openingBalance)
+            ]);
+
+            printableStatements.forEach(entry => {
+                const invoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
+                const details = buildStatementEntryDetails(entry, contact, invoice);
+                rows.push([
+                    formatDate(entry.date) || '',
+                    ...(!hideVoucherColumnInStatement ? [entry.voucherId || '-'] : []),
+                    [entry.description, details].filter(Boolean).join('\n'),
+                    entry.debit > 0 ? toExcelNumber(entry.debit) : '',
+                    entry.credit > 0 ? toExcelNumber(entry.credit) : '',
+                    toExcelNumber(entry.runningBalance)
+                ]);
+            });
+
+            rows.push([]);
+            const closingRow = new Array(tableHeader.length).fill('');
+            closingRow[descriptionColumnIndex] = tr('الرصيد الختامي', 'Closing Balance');
+            closingRow[tableHeader.length - 1] = toExcelNumber(closingBalance);
+            rows.push(closingRow);
+
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+            worksheet['!cols'] = [
+                { wch: 14 },
+                ...(!hideVoucherColumnInStatement ? [{ wch: 16 }] : []),
+                { wch: 68 },
+                { wch: 14 },
+                { wch: 14 },
+                { wch: 16 }
+            ];
+            worksheet['!autofilter'] = {
+                ref: XLSX.utils.encode_range({
+                    s: { r: headerRowIndex, c: 0 },
+                    e: { r: headerRowIndex, c: tableHeader.length - 1 }
+                })
+            };
+
+            const workbook = XLSX.utils.book_new();
+            workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Statement');
+            downloadWorkbookFile(workbook, { fileName: buildStatementExcelName(contact) });
+        } catch {
+            alert(tr('تعذر تصدير كشف الحساب إلى Excel.', 'Could not export the statement to Excel.'));
+        }
+    };
+
+    const shareStatementOnWhatsAppSafe = async (contact: Contact, closingBalance: number, shareWindow?: Window | null) => {
+        const shareText = buildStatementShareText(contact, closingBalance);
+        const whatsappAttachmentHint = tr(
+            'تم تنزيل ملف PDF للكشف على جهازك. أرفقه داخل واتساب لإرسال الكشف كاملًا بشكل مرتب.',
+            'The statement PDF was downloaded to your device. Attach it in WhatsApp to send the full statement in a clean layout.'
+        );
+        const openWhatsappLink = (message: string) => {
+            const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+            if (shareWindow && !shareWindow.closed) {
+                shareWindow.location.href = url;
+                shareWindow.focus();
+                return;
+            }
+            const popup = window.open(url, '_blank');
+            if (!popup) {
+                alert(tr('تعذر فتح واتساب. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open WhatsApp. Please allow pop-ups.'));
+            }
+        };
+
+        let pdfFile: File | null = null;
+        try {
+            pdfFile = await buildStatementPdfFile(contact);
+        } catch {
+            pdfFile = null;
+        }
+
+        let canShareFiles = Boolean(pdfFile && navigator.share);
+        if (pdfFile && canShareFiles && typeof navigator.canShare === 'function') {
+            try {
+                canShareFiles = navigator.canShare({ files: [pdfFile] });
+            } catch {
+                canShareFiles = false;
+            }
+        }
+
+        if (canShareFiles && pdfFile) {
+            try {
+                await navigator.share({
+                    title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
+                    text: shareText,
+                    files: [pdfFile]
+                });
+                if (shareWindow && !shareWindow.closed) {
+                    shareWindow.close();
+                }
+                return;
+            } catch (error) {
+                if ((error as DOMException)?.name === 'AbortError') {
+                    if (shareWindow && !shareWindow.closed) {
+                        shareWindow.close();
+                    }
+                    return;
+                }
+            }
+        }
+
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(shareText);
+            } catch {
+                // Ignore clipboard fallback errors.
+            }
+        }
+
+        if (!pdfFile) {
+            openWhatsappLink(shareText);
+            return;
+        }
+
+        downloadBlobFile(pdfFile, pdfFile.name);
+        openWhatsappLink(`${shareText}\n\n${whatsappAttachmentHint}`);
     };
 
     const handleSave = (e: React.FormEvent) => {
@@ -783,6 +1264,37 @@ const Directory: React.FC = () => {
                 ))}
             </div>
 
+            {(activeTab === 'ALL' || activeTab === 'CUSTOMER' || activeTab === 'SUPPLIER') && (
+                <div className={`grid gap-3 mb-6 ${activeTab === 'ALL' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                    {(activeTab === 'ALL' || activeTab === 'CUSTOMER') && (
+                        <div className="rounded-[2rem] border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <div className="text-[11px] font-black text-blue-500">{tr('المستحق من الزبائن', 'Due From Customers')}</div>
+                                    <div className="mt-2 text-2xl font-black text-blue-700 dir-ltr">{customerDueTotal.toLocaleString()} {baseCurrency}</div>
+                                </div>
+                                <div className="rounded-2xl bg-blue-100 p-3 text-blue-600">
+                                    <Users size={20} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {(activeTab === 'ALL' || activeTab === 'SUPPLIER') && (
+                        <div className="rounded-[2rem] border border-orange-100 bg-gradient-to-br from-orange-50 to-white p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <div className="text-[11px] font-black text-orange-500">{tr('المستحق للموردين', 'Due To Suppliers')}</div>
+                                    <div className="mt-2 text-2xl font-black text-orange-700 dir-ltr">{supplierDueTotal.toLocaleString()} {baseCurrency}</div>
+                                </div>
+                                <div className="rounded-2xl bg-orange-100 p-3 text-orange-600">
+                                    <Truck size={20} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div className="relative mb-6">
                 <input
                     type="text"
@@ -798,7 +1310,7 @@ const Directory: React.FC = () => {
                 {visibleContacts.map(contact => {
                     const balance = calculateCurrentBalance(contact);
                     return (
-                        <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className="bg-white px-3 py-2.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer">
+                        <div key={contact.id} onClick={() => openContactStatement(contact.id)} onDoubleClick={() => openContactStatement(contact.id)} className="bg-white px-3 py-2.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer">
                             <div className="flex justify-between items-center mb-0 gap-2 min-w-0">
                                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0 ${contact.type === 'CUSTOMER' ? 'bg-gradient-to-br from-blue-500 to-blue-600' : contact.type === 'SUPPLIER' ? 'bg-gradient-to-br from-orange-500 to-orange-600' : contact.type === 'PARTNER' ? 'bg-gradient-to-br from-emerald-500 to-emerald-600' : 'bg-gradient-to-br from-purple-500 to-purple-600'}`}>{displayContactName(contact).charAt(0)}</div>
@@ -939,14 +1451,23 @@ const Directory: React.FC = () => {
                                         <DocumentActions
                                             title={`${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`}
                                             shareText={buildStatementShareText(contact, closingBalance)}
+                                            smsText={buildStatementNotificationText(contact, closingBalance)}
+                                            whatsappText={buildStatementNotificationText(contact, closingBalance)}
+                                            notificationPhone={contact.phone}
                                             isEnglish={isEnglish}
                                             tr={tr}
-                                            onPrint={() => handlePrintStatement(contact)}
-                                            onSave={() => downloadStatementSnapshot(contact)}
-                                            onExcel={() => exportStatementExcel(contact)}
-                                            onWhatsapp={() => handleShareStatementWhatsApp(contact, closingBalance)}
-                                            saveTitle={tr('تنزيل كشف الحساب', 'Download statement')}
-                                            showSaveButton={false}
+                                            onPrint={() => {
+                                                const printWindow = window.open('', '_blank');
+                                                if (!printWindow) {
+                                                    alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
+                                                    return;
+                                                }
+                                                void printStatementSafe(contact, printWindow);
+                                            }}
+                                            onShare={() => shareStatementDocumentSafe(contact, closingBalance)}
+                                            onSave={() => downloadStatementPdfSafe(contact)}
+                                            onExcel={() => exportStatementExcelSafe(contact)}
+                                            saveTitle={tr('تنزيل PDF', 'Download PDF')}
                                         />
                                         <button onClick={() => setSelectedContactId(null)} className="p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-100"><X size={18} /></button>
                                     </div>

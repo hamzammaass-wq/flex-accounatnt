@@ -1,5 +1,6 @@
 import { Check, Invoice, InvoiceSettlement, Product, TransactionType } from '../types';
 import { getInvoiceRemainingBase } from './invoiceSettlement';
+import { isStockProduct } from './productKind';
 
 interface OperationalAlertsInput {
   checks: Check[];
@@ -65,6 +66,7 @@ export const buildOperationalAlerts = ({
   const expiryItems = normalizedGlobalExpiryThreshold < 0
     ? 0
     : products.filter(product => {
+        if (!isStockProduct(product)) return false;
         if ((product.stock || 0) <= 0) return false;
         const expiryDate = normalizeDate(product.expiryDate);
         if (!expiryDate) return false;
@@ -78,6 +80,7 @@ export const buildOperationalAlerts = ({
   const lowStockItems = normalizedLowStockDefault < 0
     ? 0
     : products.filter(product => {
+        if (!isStockProduct(product)) return false;
         const threshold = Number.isFinite(Number(product.lowStockAlertQty))
           ? Math.max(0, Math.floor(Number(product.lowStockAlertQty)))
           : normalizedLowStockDefault;
@@ -87,6 +90,7 @@ export const buildOperationalAlerts = ({
   const orderNowItems = normalizedLowStockDefault < 0
     ? 0
     : products.filter(product => {
+        if (!isStockProduct(product)) return false;
         const threshold = Number.isFinite(Number(product.lowStockAlertQty))
           ? Math.max(0, Math.floor(Number(product.lowStockAlertQty)))
           : normalizedLowStockDefault;

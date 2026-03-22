@@ -62,6 +62,7 @@ const ResponsiveDialog: React.FC<ResponsiveDialogProps> = ({
   return (
     <ResponsiveOverlay
       isOpen={open}
+      onClose={onClose}
       variant={resolvedVariant}
       zIndexClassName={zIndexClassName}
       backdropClassName={backdropClassName}
@@ -69,6 +70,7 @@ const ResponsiveDialog: React.FC<ResponsiveDialogProps> = ({
       showHandle={showHandle ?? resolvedVariant === 'bottom-sheet'}
       onBackdropClick={closeOnBackdrop ? onClose : undefined}
       keyboardAware={keyboardAware}
+      swipeToClose={Boolean(onClose)}
     >
       {children}
     </ResponsiveOverlay>

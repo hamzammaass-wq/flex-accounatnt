@@ -183,8 +183,6 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
       });
     const totalAmount = detailLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
     const detailsRef = entry.voucherId || entry.id.substring(0, 8);
-    const isDraft = entry.status === 'DRAFT';
-
     return (
       <ResponsiveDialog
         open={Boolean(selectedJournalId)}
@@ -234,17 +232,12 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
             </div>
           </div>
           <div className="p-4 bg-gray-50 border-t flex gap-3">
-            {isDraft && (
-              <button onClick={() => handlePost(entry.id)} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-lg">
-                {tr('ترحيل', 'Post')}
-              </button>
-            )}
             {!entry.isReversal && !entry.reversedById && onEditJournal && (
               <button onClick={() => handleEdit(entry.id)} className="flex-1 py-3 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl font-black">
                 <span className="inline-flex items-center justify-center gap-2"><Pencil size={16} />{tr('تعديل', 'Edit')}</span>
               </button>
             )}
-            {!isDraft && !entry.isReversal && !entry.reversedById && (
+            {!entry.isReversal && !entry.reversedById && (
               <button onClick={() => handleReverse(entry.id)} className="flex-1 py-3 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl font-black">
                 <span className="inline-flex items-center justify-center gap-2"><RotateCcw size={16} />{tr('عكس', 'Reverse')}</span>
               </button>
@@ -303,7 +296,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
           <div key={t.id} onClick={() => setSelectedJournalId(t.id)} className="list-card bg-white p-6 rounded-[2.5rem] border border-gray-50 shadow-sm transition-all cursor-pointer">
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-4">
-                <div className={`p-4 rounded-2xl ${t.status === 'DRAFT' ? 'bg-gray-100 text-gray-400' : 'bg-indigo-50 text-indigo-600'}`}><FileText size={22} /></div>
+                <div className="p-4 rounded-2xl bg-indigo-50 text-indigo-600"><FileText size={22} /></div>
                 <div>
                   <h4 className="font-black text-gray-800 text-base">{t.description || tr('قيد يدوي', 'Manual entry')}</h4>
                   <span className="text-[10px] font-black text-gray-400">{formatDate(t.date)}</span>
@@ -318,15 +311,6 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
                   >
                     <Pencil size={12} />
                     {tr('تعديل', 'Edit')}
-                  </button>
-                )}
-                {t.status === 'DRAFT' && (
-                  <button
-                    onClick={(e) => handlePost(t.id, e)}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[10px] font-black shadow-sm hover:bg-indigo-700 transition-all active:scale-95 inline-flex items-center gap-1"
-                  >
-                    <CheckCircle2 size={12} />
-                    {tr('ترحيل', 'Post')}
                   </button>
                 )}
               </div>

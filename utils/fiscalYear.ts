@@ -14,6 +14,11 @@ export const getFiscalYearStart = (year: number): string => `${year}-01-01`;
 
 export const getFiscalYearEnd = (year: number): string => `${year}-12-31`;
 
+export const getCurrentFiscalYearRange = (year = new Date().getFullYear()) => ({
+  startDate: getFiscalYearStart(year),
+  endDate: getFiscalYearEnd(year)
+});
+
 export const isProfitLossAccount = (accountType: AccountType): boolean =>
   accountType === 'REVENUE' || accountType === 'EXPENSE';
 

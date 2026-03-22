@@ -24,7 +24,8 @@ import {
   Cloud,
   CloudUpload,
   CloudDownload,
-  BookOpen
+  BookOpen,
+  Trash2
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
 import CurrencyManager from './CurrencyManager';
@@ -33,18 +34,19 @@ import TreasuryManager from './TreasuryManager';
 import ItemGroupManager from './ItemGroupManager';
 import UnitManager from './UnitManager';
 import DataImportManager from './DataImportManager';
+import OpeningBalancesManager from './OpeningBalancesManager';
+import CompanyLogoCropDialog from './CompanyLogoCropDialog';
 import FingerprintReadersManager from './FingerprintReadersManager';
 import BarcodeDevicesManager from './BarcodeDevicesManager';
 import DeviceHubManager from './DeviceHubManager';
 import EnglishDateInput from './EnglishDateInput';
 import PolicyGuideScreen from './PolicyGuideScreen';
 import { useAccounting } from '../contexts/AccountingContext';
-import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider } from '../types';
+import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
 import { normalizeAppLanguage, translate } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { applyAppTheme } from '../utils/appTheme';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
-import { createStripeWorkspaceCheckoutSession } from '../utils/subscriptionCheckoutClient';
 import { buildWorkspaceSubscriptionQuote } from '../utils/subscriptionCommerce';
 import {
   applyIntegritySafeFixes,
@@ -103,6 +105,7 @@ export type SettingsMode =
   | 'POLICY'
   | 'USAGE_GUIDE'
   | 'COMPANY'
+  | 'OPENING_BALANCES'
   | 'ACCOUNTS'
   | 'TAXES'
   | 'VOUCHERS_AR_AP'
@@ -322,6 +325,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     workspaceProviderAvailability,
     switchCompany,
     createCompany,
+    deleteCompany,
     prepareSubscriptionCheckout,
     updateCompanyProfile,
     updateCompanySubscription,
@@ -331,12 +335,17 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     subscriptionCloudBusy,
     subscriptionCloudError,
     subscriptionAdminEnabled,
+    programOwnerEnabled,
     subscriptionCodes,
     subscriptionCodesLoading,
+    workspaceOfferCodes,
+    workspaceOfferCodesLoading,
     subscriptionCompanies,
     subscriptionCompaniesLoading,
     issueSubscriptionCode,
     cancelSubscriptionCode,
+    issueWorkspaceOfferCode,
+    redeemWorkspaceOfferCode,
     linkCurrentSubscriptionDevice,
     unlinkSubscriptionDevice,
     permissions,
@@ -373,6 +382,13 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
   const normalizeDecimalInput = (value: string) =>
     toEnglishDigits(String(value ?? '')).replace(/\u066B/g, '.').replace(/\u066C/g, ',').replace(/\u060C/g, ',').replace(/,/g, '');
+  const normalizeActivationCodeInput = (value: string) =>
+    toEnglishDigits(String(value ?? ''))
+      .trim()
+      .toUpperCase()
+      .replace(/[-\u2013\u2014]+/g, '-')
+      .replace(/\s+/g, '')
+      .replace(/[^A-Z0-9-]/g, '');
 
   useEffect(() => {
     if (initialMode) setMode(initialMode);
@@ -419,9 +435,20 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [subscriptionGraceDaysDraft, setSubscriptionGraceDaysDraft] = useState('0');
   const [activationCodeDraft, setActivationCodeDraft] = useState('');
   const [subscriptionStatusMessage, setSubscriptionStatusMessage] = useState('');
-  const [billingCycleDraft, setBillingCycleDraft] = useState<SubscriptionBillingCycle>('MONTHLY');
+  const billingCycleDraft: SubscriptionBillingCycle = 'YEARLY';
   const [billingCompanyCountDraft, setBillingCompanyCountDraft] = useState('1');
   const [billingStatusMessage, setBillingStatusMessage] = useState('');
+  const [workspaceOfferCodeDraft, setWorkspaceOfferCodeDraft] = useState('');
+  const [workspaceOfferStatusMessage, setWorkspaceOfferStatusMessage] = useState('');
+  const [workspaceOfferBusy, setWorkspaceOfferBusy] = useState(false);
+  const [workspaceOfferKindDraft, setWorkspaceOfferKindDraft] = useState<WorkspaceOfferCodeKind>('DISCOUNT_PERCENT');
+  const [workspaceOfferDiscountDraft, setWorkspaceOfferDiscountDraft] = useState('25');
+  const [workspaceOfferFreeDaysDraft, setWorkspaceOfferFreeDaysDraft] = useState('30');
+  const [workspaceOfferCompanyCountDraft, setWorkspaceOfferCompanyCountDraft] = useState('');
+  const [workspaceOfferExpiresAtDraft, setWorkspaceOfferExpiresAtDraft] = useState('');
+  const [workspaceOfferNotesDraft, setWorkspaceOfferNotesDraft] = useState('');
+  const [issuedWorkspaceOfferMessage, setIssuedWorkspaceOfferMessage] = useState('');
+  const [workspaceOfferIssueBusy, setWorkspaceOfferIssueBusy] = useState(false);
   const [issuePlanDraft, setIssuePlanDraft] = useState<CompanySubscriptionPlan>('BASIC');
   const [issueDurationDaysDraft, setIssueDurationDaysDraft] = useState('30');
   const [issueMaxDevicesDraft, setIssueMaxDevicesDraft] = useState('1');
@@ -434,6 +461,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [subscriptionReportCodeStatusFilter, setSubscriptionReportCodeStatusFilter] = useState<'ALL' | CloudSubscriptionCodeStatus>('ALL');
   const [auditSearch, setAuditSearch] = useState('');
   const [newCompanyName, setNewCompanyName] = useState('');
+  const [creatingCompany, setCreatingCompany] = useState(false);
+  const [deletingCompanyId, setDeletingCompanyId] = useState<string | null>(null);
+  const [logoCropSource, setLogoCropSource] = useState<string | null>(null);
   const [integrityReport, setIntegrityReport] = useState<IntegrityReport | null>(null);
   const [integrityStatus, setIntegrityStatus] = useState('');
   const [integrityBusy, setIntegrityBusy] = useState<'CHECK' | 'FIX' | null>(null);
@@ -474,16 +504,41 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     setSubscriptionPlanDraft(nextPlan);
     setSubscriptionEndsAtDraft(formatIsoDateInputValue(nextEndsAt));
     setSubscriptionGraceDaysDraft(String(currentCompany?.graceDays ?? 0));
-    setActivationCodeDraft(currentCompany?.activationCode || '');
-  }, [currentCompany]);
+    setActivationCodeDraft(normalizeActivationCodeInput(currentCompany?.activationCode || ''));
+  }, [
+    currentCompany?.id,
+    currentCompany?.subscriptionStatus,
+    currentCompany?.subscriptionPlan,
+    currentCompany?.trialEndsAt,
+    currentCompany?.subscriptionEndsAt,
+    currentCompany?.graceDays,
+    currentCompany?.activationCode
+  ]);
 
   useEffect(() => {
     setBillingCompanyCountDraft(String(Math.max(1, companies.length + (workspaceRemainingCompanySlots > 0 ? 1 : 0))));
   }, [companies.length, workspaceRemainingCompanySlots]);
 
   useEffect(() => {
+    if (workspaceSubscription.offerCode) {
+      setWorkspaceOfferCodeDraft(normalizeActivationCodeInput(workspaceSubscription.offerCode));
+    }
+  }, [workspaceSubscription.offerCode]);
+
+  useEffect(() => {
     setBrowserNotificationPermission(detectBrowserNotificationPermission());
   }, [mode]);
+
+  const workspaceCompaniesUnlimited = workspaceSubscription.unlimitedCompanies === true;
+  const workspaceMaxCompaniesLabel = workspaceCompaniesUnlimited
+    ? tr('غير محدود', 'Unlimited')
+    : String(workspaceMaxCompanies);
+  const workspaceRemainingCompanySlotsLabel = workspaceCompaniesUnlimited
+    ? tr('غير محدود', 'Unlimited')
+    : String(workspaceRemainingCompanySlots);
+  const workspaceCompanyUsageLabel = workspaceCompaniesUnlimited
+    ? tr(`${companies.length} / غير محدود`, `${companies.length} / Unlimited`)
+    : `${companies.length} / ${Math.max(workspaceMaxCompanies, companies.length)}`;
 
   const subscriptionMeta = useMemo(() => {
     const endsAtText = companyAccessEndsAt
@@ -539,71 +594,110 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     [billingCompanyCountDraft, companies.length]
   );
 
+  const visibleSubscriptionProviders = useMemo(
+    () => (['APPLE', 'GOOGLE'] as SubscriptionCheckoutProvider[]),
+    []
+  );
+
   const workspaceQuotes = useMemo(() => (
-    (['STRIPE', 'APPLE', 'GOOGLE'] as SubscriptionCheckoutProvider[]).map(provider => (
+    visibleSubscriptionProviders.map(provider => (
       buildWorkspaceSubscriptionQuote({
         provider,
         billingCycle: billingCycleDraft,
-        desiredCompanyCount: desiredBillingCompanyCount
+        desiredCompanyCount: desiredBillingCompanyCount,
+        discountPercent: workspaceSubscription.discountPercent,
+        offerCode: workspaceSubscription.offerCode
       })
     ))
-  ), [billingCycleDraft, desiredBillingCompanyCount]);
+  ), [billingCycleDraft, desiredBillingCompanyCount, visibleSubscriptionProviders, workspaceSubscription.discountPercent, workspaceSubscription.offerCode]);
 
   const formatUsd = (value: number) => `$${Number(value || 0).toFixed(Number.isInteger(value) ? 0 : 2)}`;
 
   const getBillingCycleLabel = (cycle: SubscriptionBillingCycle) => (
-    cycle === 'YEARLY' ? tr('سنوي', 'Yearly') : tr('شهري', 'Monthly')
+    tr('سنوي', 'Yearly')
   );
 
   const getCheckoutProviderLabel = (provider: SubscriptionCheckoutProvider) => {
     switch (provider) {
+      case 'PALPAY': return 'PalPay';
       case 'APPLE': return 'Apple';
       case 'GOOGLE': return 'Google';
-      default: return 'Stripe';
+      default: return '-';
     }
   };
 
   const getWorkspaceProviderLabel = () => {
     switch (workspaceSubscription.provider) {
+      case 'PALPAY': return 'PalPay';
       case 'APPLE': return 'Apple';
       case 'GOOGLE': return 'Google';
-      case 'STRIPE': return 'Stripe';
       case 'MANUAL': return tr('يدوي', 'Manual');
       case 'TRIAL': return tr('تجريبي', 'Trial');
       default: return '-';
     }
   };
 
-  const handleStartSubscriptionCheckout = async (provider: SubscriptionCheckoutProvider) => {
-    if (provider === 'STRIPE') {
-      try {
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        const checkout = await createStripeWorkspaceCheckoutSession({
-          billingCycle: billingCycleDraft,
-          desiredCompanyCount: desiredBillingCompanyCount,
-          successUrl: origin ? `${origin}/?openSubscription=1&billing=success` : undefined,
-          cancelUrl: origin ? `${origin}/?openSubscription=1&billing=cancelled` : undefined
-        });
-
-        if (!checkout.url) {
-          setBillingStatusMessage(tr('تعذر إنشاء جلسة دفع Stripe حاليًا.', 'Could not create a Stripe checkout session right now.'));
-          return;
-        }
-
-        if (typeof window !== 'undefined') {
-          window.open(checkout.url, '_blank', 'noopener,noreferrer');
-        }
-        setBillingStatusMessage(appLanguage === 'AR'
-          ? `تم إنشاء جلسة Stripe لعدد ${desiredBillingCompanyCount} شركة.`
-          : `Stripe checkout session created for ${desiredBillingCompanyCount} companies.`);
-        return;
-      } catch (error: any) {
-        setBillingStatusMessage(String(error?.message || tr('فشل إنشاء جلسة Stripe.', 'Failed to create Stripe checkout session.')));
-        return;
-      }
+  const getWorkspaceOfferKindLabel = (
+    kind: WorkspaceOfferCodeKind,
+    discountPercent?: number,
+    freeDays?: number
+  ) => {
+    switch (kind) {
+      case 'DISCOUNT_PERCENT':
+        return tr(`خصم ${discountPercent || 0}%`, `${discountPercent || 0}% discount`);
+      case 'LIFETIME':
+        return tr('اشتراك مدى الحياة', 'Lifetime access');
+      default:
+        return tr(`${freeDays || 30} يوم مجانًا`, `${freeDays || 30} free days`);
     }
+  };
 
-    const result = prepareSubscriptionCheckout(provider, billingCycleDraft, desiredBillingCompanyCount);
+  const getWorkspaceOfferCompanyEffectLabel = (
+    kind: WorkspaceOfferCodeKind,
+    companyCount?: number
+  ) => {
+    if (companyCount && companyCount > 0) {
+      return tr(`حتى ${companyCount} شركات`, `Up to ${companyCount} companies`);
+    }
+    if (kind === 'LIFETIME') {
+      return tr('شركات غير محدودة', 'Unlimited companies');
+    }
+    return tr('لا يغير عدد الشركات', 'Does not change company count');
+  };
+
+  const getWorkspaceOfferStatusLabel = (status: 'AVAILABLE' | 'USED' | 'CANCELLED' | 'EXPIRED') => {
+    switch (status) {
+      case 'USED': return tr('مستخدم', 'Used');
+      case 'CANCELLED': return tr('ملغي', 'Cancelled');
+      case 'EXPIRED': return tr('منتهي', 'Expired');
+      default: return tr('متاح', 'Available');
+    }
+  };
+
+  const getWorkspaceOfferStatusTone = (status: 'AVAILABLE' | 'USED' | 'CANCELLED' | 'EXPIRED') => {
+    switch (status) {
+      case 'USED': return 'border-slate-200 bg-slate-100 text-slate-700';
+      case 'CANCELLED': return 'border-rose-200 bg-rose-100 text-rose-700';
+      case 'EXPIRED': return 'border-amber-200 bg-amber-100 text-amber-700';
+      default: return 'border-emerald-200 bg-emerald-100 text-emerald-700';
+    }
+  };
+
+  const handleCopyText = async (value: string, successMessage?: string) => {
+    if (!navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      if (successMessage) setIssuedWorkspaceOfferMessage(successMessage);
+    } catch {
+      // Ignore clipboard failures and keep the code visible.
+    }
+  };
+
+  const handleStartSubscriptionCheckout = async (provider: SubscriptionCheckoutProvider) => {
+    const result = prepareSubscriptionCheckout(provider, billingCycleDraft, desiredBillingCompanyCount, {
+      discountPercent: workspaceSubscription.discountPercent,
+      offerCode: workspaceSubscription.offerCode
+    });
     if (!result.ok) {
       setBillingStatusMessage(appLanguage === 'AR'
         ? 'بوابة الدفع لهذه الجهة غير مهيأة بعد. أضف الروابط أو معرفات المنتجات في ملف البيئة أولًا.'
@@ -622,6 +716,70 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     setBillingStatusMessage(appLanguage === 'AR'
       ? `تم تجهيز منتج ${getCheckoutProviderLabel(provider)} بالمعرف ${result.productId || '-'}. فعّل الربط الأصلي داخل التطبيق لإتمام الشراء المباشر.`
       : `${getCheckoutProviderLabel(provider)} product ${result.productId || '-'} is ready. Complete the native in-app billing hookup to finish direct purchase.`);
+  };
+
+  const handleRedeemWorkspaceOfferCode = async () => {
+    const normalizedCode = normalizeActivationCodeInput(workspaceOfferCodeDraft);
+    if (!normalizedCode) {
+      setWorkspaceOfferStatusMessage(tr('أدخل كود العرض أولاً.', 'Enter an offer code first.'));
+      return;
+    }
+
+    try {
+      setWorkspaceOfferBusy(true);
+      setWorkspaceOfferStatusMessage('');
+      setBillingStatusMessage('');
+      const result = await redeemWorkspaceOfferCode(normalizedCode, desiredBillingCompanyCount);
+      if (!result.ok) {
+        setWorkspaceOfferStatusMessage(result.message);
+        return;
+      }
+
+      setWorkspaceOfferCodeDraft(normalizedCode);
+      setWorkspaceOfferStatusMessage(tr('تم تطبيق العرض بنجاح.', 'Offer applied successfully.'));
+    } finally {
+      setWorkspaceOfferBusy(false);
+    }
+  };
+
+  const handleIssueWorkspaceOffer = async () => {
+    try {
+      setWorkspaceOfferIssueBusy(true);
+      setIssuedWorkspaceOfferMessage('');
+      const result = await issueWorkspaceOfferCode({
+        kind: workspaceOfferKindDraft,
+        discountPercent: workspaceOfferKindDraft === 'DISCOUNT_PERCENT'
+          ? Math.max(1, Math.min(100, Math.floor(Number(workspaceOfferDiscountDraft) || 0)))
+          : undefined,
+        freeDays: workspaceOfferKindDraft === 'FREE_DAYS'
+          ? Math.max(1, Math.min(3650, Math.floor(Number(workspaceOfferFreeDaysDraft) || 0)))
+          : undefined,
+        companyCount: workspaceOfferCompanyCountDraft
+          ? Math.max(1, Math.min(50, Math.floor(Number(workspaceOfferCompanyCountDraft) || 0)))
+          : undefined,
+        expiresAt: workspaceOfferExpiresAtDraft || undefined,
+        notes: workspaceOfferNotesDraft.trim() || undefined
+      });
+
+      if (!result.ok) {
+        setIssuedWorkspaceOfferMessage(result.message || tr('تعذر إنشاء كود العرض.', 'Could not create the offer code.'));
+        return;
+      }
+
+      const createdCode = result.code || '';
+      setIssuedWorkspaceOfferMessage(
+        tr(`تم إنشاء الكود: ${createdCode}`, `Offer code created: ${createdCode}`)
+      );
+      setWorkspaceOfferCodeDraft(createdCode);
+      setWorkspaceOfferNotesDraft('');
+      setWorkspaceOfferExpiresAtDraft('');
+      void handleCopyText(
+        createdCode,
+        tr(`تم إنشاء الكود ونسخه: ${createdCode}`, `Offer code created and copied: ${createdCode}`)
+      );
+    } finally {
+      setWorkspaceOfferIssueBusy(false);
+    }
   };
 
   const runIntegrity = (overrides?: Partial<Parameters<typeof runIntegrityCheck>[0]>) => {
@@ -890,6 +1048,53 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     alert(tr(messageAr, messageEn));
   };
 
+  const applyLanguagePreference = (
+    language: CompanySettings['language'] | string | undefined,
+    options?: { notifySuccess?: boolean }
+  ) => {
+    const nextLanguage = normalizeLanguage(language);
+    const currentLanguage = normalizeLanguage(companySettings.language);
+
+    setLocalCompany(prev => (
+      normalizeLanguage(prev.language) === nextLanguage
+        ? prev
+        : { ...prev, language: nextLanguage }
+    ));
+
+    if (nextLanguage === currentLanguage) {
+      if (options?.notifySuccess) {
+        alert(translate(nextLanguage, 'settings.languageSaved'));
+      }
+      return;
+    }
+
+    const result = updateCompanySettings({
+      ...companySettings,
+      language: nextLanguage
+    });
+    if (!result.ok) {
+      setLocalCompany(prev => ({
+        ...prev,
+        language: currentLanguage
+      }));
+      alert(result.message);
+      return;
+    }
+
+    setLocalCompany(prev => ({
+      ...prev,
+      language: nextLanguage
+    }));
+
+    if (options?.notifySuccess) {
+      alert(translate(nextLanguage, 'settings.languageSaved'));
+    }
+  };
+
+  const saveLanguagePreference = () => {
+    applyLanguagePreference(localCompany.language, { notifySuccess: true });
+  };
+
   const toggleDarkModeImmediately = () => {
     const nextDarkModeEnabled = !coerceBoolean(localCompany.darkModeEnabled, false);
     setLocalCompany(prev => ({
@@ -1133,16 +1338,51 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   };
 
   const handleCreateCompany = async () => {
-    const result = await createCompany({ name: newCompanyName.trim() });
-    if (!result.ok) {
-      if (result.code === 'SUBSCRIPTION_LIMIT') {
-        setMode('SUBSCRIPTION');
+    if (creatingCompany) return;
+    setCreatingCompany(true);
+    try {
+      const result = await createCompany({ name: newCompanyName.trim() });
+      if (!result.ok) {
+        if (result.code === 'SUBSCRIPTION_LIMIT') {
+          setMode('SUBSCRIPTION');
+        }
+        alert(result.message);
+        return;
       }
-      alert(result.message);
-      return;
+
+      setNewCompanyName('');
+      alert(tr('تم إنشاء الشركة بنجاح', 'Company created successfully.'));
+    } finally {
+      setCreatingCompany(false);
     }
-    setNewCompanyName('');
-    alert(tr('تم إنشاء الشركة بنجاح', 'Company created successfully.'));
+  };
+
+  const handleDeleteCompany = async (company: CompanyProfile) => {
+    if (deletingCompanyId === company.id) return;
+    const confirmationMessage = company.id === currentCompanyId
+      ? tr(
+        `هل تريد حذف شركة "${company.name}"؟ سيتم التبديل تلقائيًا إلى شركة أخرى بعد الحذف.`,
+        `Do you want to delete "${company.name}"? The app will switch to another company after deletion.`
+      )
+      : tr(
+        `هل تريد حذف شركة "${company.name}"؟ لا يمكن التراجع عن هذا الإجراء.`,
+        `Do you want to delete "${company.name}"? This action cannot be undone.`
+      );
+
+    if (!confirm(confirmationMessage)) return;
+
+    setDeletingCompanyId(company.id);
+    try {
+      const result = await deleteCompany(company.id);
+      if (!result.ok) {
+        alert(result.message);
+        return;
+      }
+
+      alert(tr('تم حذف الشركة بنجاح.', 'Company deleted successfully.'));
+    } finally {
+      setDeletingCompanyId(null);
+    }
   };
 
   const getSubscriptionStatusLabel = (status: CompanySubscriptionStatus) => {
@@ -1187,6 +1427,41 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       return;
     }
     setSubscriptionStatusMessage(tr('تم تفعيل الاشتراك أو تمديده بنجاح.', 'Subscription activated or renewed successfully.'));
+  };
+
+  const handleActivationCodePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = event.clipboardData.getData('text');
+    if (!pastedText) return;
+    event.preventDefault();
+    setActivationCodeDraft(normalizeActivationCodeInput(pastedText));
+    setSubscriptionStatusMessage('');
+  };
+
+  const handlePasteActivationCodeFromClipboard = async () => {
+    try {
+      const pastedText = await navigator.clipboard.readText();
+      const normalized = normalizeActivationCodeInput(pastedText);
+      if (!normalized) {
+        const message = tr('لم يتم العثور على كود صالح في الحافظة.', 'No valid activation code was found in the clipboard.');
+        setSubscriptionStatusMessage(message);
+        alert(message);
+        return;
+      }
+      setActivationCodeDraft(normalized);
+      setSubscriptionStatusMessage('');
+      return;
+    } catch {
+      // Fall through to prompt fallback below.
+    }
+
+    if (typeof window === 'undefined') return;
+    const manualValue = window.prompt(
+      tr('ألصق كود التفعيل هنا:', 'Paste the activation code here:'),
+      activationCodeDraft
+    );
+    if (manualValue === null) return;
+    setActivationCodeDraft(normalizeActivationCodeInput(manualValue));
+    setSubscriptionStatusMessage('');
   };
 
   const handleSaveSubscription = async () => {
@@ -1291,12 +1566,30 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     }
     const reader = new FileReader();
     reader.onload = () => {
-      setLocalCompany(prev => ({
-        ...prev,
-        logoUrl: typeof reader.result === 'string' ? reader.result : prev.logoUrl
-      }));
+      if (typeof reader.result !== 'string') return;
+      setLogoCropSource(reader.result);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCloseLogoCrop = () => {
+    setLogoCropSource(null);
+  };
+
+  const handleApplyLogoCrop = (logoUrl: string) => {
+    const nextCompany = withCompanyDefaults({
+      ...localCompany,
+      logoUrl,
+      language: normalizeLanguage(localCompany.language)
+    });
+    const result = updateCompanySettings(nextCompany);
+    if (!result.ok) {
+      alert(result.message);
+      return;
+    }
+    setLocalCompany(nextCompany);
+    setLogoCropSource(null);
+    alert(tr('تم حفظ الشعار بنجاح.', 'Logo updated successfully.'));
   };
 
   const filteredAuditLogs = useMemo(() => {
@@ -1349,10 +1642,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             {tr('المستخدم', 'Used')}: {companies.length}
           </div>
           <div className="rounded-xl border border-white/70 bg-white/80 px-3 py-3 text-slate-700">
-            {tr('المسموح', 'Allowed')}: {workspaceMaxCompanies}
+            {tr('المسموح', 'Allowed')}: {workspaceMaxCompaniesLabel}
           </div>
           <div className="rounded-xl border border-white/70 bg-white/80 px-3 py-3 text-slate-700">
-            {tr('المتبقي', 'Remaining')}: {workspaceRemainingCompanySlots}
+            {tr('المتبقي', 'Remaining')}: {workspaceRemainingCompanySlotsLabel}
           </div>
         </div>
       </div>
@@ -1366,14 +1659,27 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 {getSubscriptionStatusLabel(company.subscriptionStatus)} | {getSubscriptionPlanLabel(company.subscriptionPlan)} | {tr('حتى', 'until')}: {resolveCompanyAccessEndLabel(company)}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => handleSwitchCompany(company.id)}
-              className={`px-3 py-2 rounded-lg text-xs font-black ${company.id === currentCompanyId ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-600 text-white'
-                }`}
-            >
-              {company.id === currentCompanyId ? tr('مفعلة', 'Active') : tr('تبديل', 'Switch')}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {companies.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteCompany(company)}
+                  disabled={deletingCompanyId === company.id}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-black border border-rose-200 bg-rose-50 text-rose-700 disabled:opacity-70"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {tr('حذف', 'Delete')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleSwitchCompany(company.id)}
+                className={`px-3 py-2 rounded-lg text-xs font-black ${company.id === currentCompanyId ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-600 text-white'
+                  }`}
+              >
+                {company.id === currentCompanyId ? tr('مفعلة', 'Active') : tr('تبديل', 'Switch')}
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -1384,13 +1690,15 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <input
             value={newCompanyName}
             onChange={(e) => setNewCompanyName(e.target.value)}
+            disabled={creatingCompany}
             className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm font-bold"
             placeholder={tr('اسم الشركة', 'Company name')}
           />
           <button
             type="button"
             onClick={handleCreateCompany}
-            className="px-4 rounded-xl bg-blue-600 text-white text-xs font-black"
+            disabled={creatingCompany}
+            className="px-4 rounded-xl bg-blue-600 text-white text-xs font-black disabled:opacity-70"
           >
             {tr('إضافة', 'Add')}
           </button>
@@ -1400,7 +1708,1012 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   );
 
   const renderSubscriptionForm = () => (
-    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-5 animate-in fade-in">
+    true ? (() => {
+      const activePlanLabel = getSubscriptionPlanLabel(currentCompany?.subscriptionPlan || 'TRIAL');
+      const preferredQuote = workspaceQuotes[0];
+      const readyQuotes = workspaceQuotes.filter(quote => quote.providerReady);
+      const displayQuotes = readyQuotes.length ? readyQuotes : workspaceQuotes;
+      const accessLabel = workspaceSubscription.lifetimeAccess
+        ? tr('مدى الحياة', 'Lifetime')
+        : tr('سنوي', 'Yearly');
+      const accessEndsLabel = workspaceSubscription.lifetimeAccess
+        ? tr('لا ينتهي', 'Does not expire')
+        : subscriptionMeta.endsAtText;
+      const activeOfferSummary = workspaceSubscription.lifetimeAccess
+        ? (
+          workspaceCompaniesUnlimited
+            ? tr('تم تفعيل اشتراك مدى الحياة مع شركات غير محدودة على هذا الحساب.', 'Lifetime access with unlimited companies is active on this account.')
+            : tr(`تم تفعيل اشتراك مدى الحياة لما يصل إلى ${workspaceMaxCompanies} شركة على هذا الحساب.`, `Lifetime access for up to ${workspaceMaxCompanies} companies is active on this account.`)
+        )
+        : workspaceSubscription.discountPercent > 0
+          ? tr(`خصم ${workspaceSubscription.discountPercent}% مطبق على التجديد السنوي.`, `${workspaceSubscription.discountPercent}% discount is applied to the yearly renewal.`)
+          : workspaceSubscription.offerNote || '';
+      const simplifiedSummaryCards = [
+        {
+          key: 'subscription',
+          label: tr('نوع الاشتراك', 'Subscription type'),
+          value: accessLabel
+        },
+        {
+          key: 'status',
+          label: tr('الحالة', 'Status'),
+          value: subscriptionMeta.badge
+        },
+        {
+          key: 'companies',
+          label: tr('الشركات الحالية', 'Current companies'),
+          value: workspaceCompanyUsageLabel
+        },
+        {
+          key: 'renewal',
+          label: tr('نهاية الوصول', 'Access ends'),
+          value: accessEndsLabel
+        }
+      ];
+
+      return (
+        <div className="bg-white p-4 sm:p-5 rounded-[28px] shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
+          <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5 sm:p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px] font-black text-blue-700">
+                  <Wallet className="w-4 h-4" />
+                  {workspaceSubscription.lifetimeAccess
+                    ? tr('الاشتراك الحالي: مدى الحياة', 'Current subscription: Lifetime')
+                    : tr('الاشتراك الحالي: سنوي', 'Current subscription: Yearly')}
+                </div>
+                <div className="text-2xl font-black text-slate-900">{currentCompany?.name || companySettings.name}</div>
+                <div className="max-w-3xl text-sm font-bold leading-7 text-slate-600">
+                  {tr(
+                    'هذه الشاشة مخصصة للاشتراك السنوي وإضافة الشركات فقط. يمكن الدخول من أي جهاز بدون تقييد بعدد الأجهزة، ويمكن أيضًا تطبيق كود خصم أو شهر مجاني أو مدى الحياة مباشرة من هنا.',
+                    'This screen focuses only on the yearly subscription and adding companies. Sign-in is allowed from any device, and you can also apply a discount, free month, or lifetime code directly here.'
+                  )}
+                </div>
+              </div>
+              <div className={`rounded-full px-3 py-1.5 text-[11px] font-black ${subscriptionMeta.tone}`}>
+                {subscriptionMeta.badge}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {simplifiedSummaryCards.map(card => (
+                <div key={card.key} className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                  <div className="text-[10px] font-black text-slate-400">{card.label}</div>
+                  <div className="mt-2 text-sm font-black text-slate-900 break-words dir-auto">{card.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {activeOfferSummary && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] font-black text-emerald-700 leading-6">
+                {workspaceSubscription.offerCode ? (
+                  <span className="dir-ltr inline-block text-left">{workspaceSubscription.offerCode}</span>
+                ) : null}
+                {workspaceSubscription.offerCode ? ' - ' : null}
+                {activeOfferSummary}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-[28px] border border-blue-100 bg-blue-50/50 p-5 sm:p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-lg font-black text-slate-900">{tr('تجديد الاشتراك أو إضافة شركة', 'Renew subscription or add a company')}</div>
+                  <div className="mt-2 text-[12px] font-bold leading-6 text-slate-600">
+                    {tr(
+                      'شركة واحدة ضمن الاشتراك السنوي بقيمة 20 دولار، وكل شركة إضافية بقيمة 5 دولارات سنويًا.',
+                      'One company is included in the yearly subscription for $20, and each extra company adds $5 per year.'
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-2 text-[11px] font-black text-slate-700 border border-blue-100">
+                  {activePlanLabel}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,170px)_minmax(0,1fr)]">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">{tr('عدد الشركات المطلوب', 'Required company count')}</label>
+                  <input
+                    value={billingCompanyCountDraft}
+                    onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                    className="w-full p-3 rounded-2xl border border-blue-100 bg-white outline-none font-black dir-ltr"
+                    inputMode="numeric"
+                    placeholder="1"
+                  />
+                </div>
+
+                <div className="rounded-[24px] border border-blue-100 bg-white px-4 py-4 space-y-3">
+                  <div className="flex items-end justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="text-[10px] font-black text-blue-700">{tr('الإجمالي السنوي', 'Yearly total')}</div>
+                      <div className="mt-2 text-3xl font-black text-slate-900 dir-ltr">
+                        {formatUsd(preferredQuote?.totalPriceUsd || 0)}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700">
+                      {tr('يشمل', 'Includes')} {desiredBillingCompanyCount} {tr('شركة', 'company slot(s)')}
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] font-bold text-slate-600 leading-6">
+                    {tr('الأساسي', 'Base')}: {formatUsd(preferredQuote?.basePriceUsd || 0)}
+                    {' | '}
+                    {tr('كل شركة إضافية', 'Each extra company')}: {formatUsd(preferredQuote?.extraCompanyPriceUsd || 0)} x {preferredQuote?.extraCompanyCount || 0}
+                    {preferredQuote && preferredQuote.discountPercent > 0 ? (
+                      <>
+                        <br />
+                        {tr('الخصم', 'Discount')}: {preferredQuote.discountPercent}% ({formatUsd(preferredQuote.discountAmountUsd)})
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-dashed border-blue-200 bg-white px-4 py-4 space-y-3">
+                <div>
+                  <div className="text-sm font-black text-slate-900">{tr('كود العرض أو المنحة', 'Offer or grant code')}</div>
+                  <div className="mt-1 text-[11px] font-bold leading-6 text-slate-500">
+                    {tr(
+                      'يمكنك إدخال كود خصم، أو كود شهر مجاني، أو كود اشتراك مدى الحياة.',
+                      'You can enter a discount code, a free-month code, or a lifetime subscription code.'
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <input
+                    value={workspaceOfferCodeDraft}
+                    onChange={(e) => {
+                      setWorkspaceOfferCodeDraft(normalizeActivationCodeInput(e.target.value));
+                      setWorkspaceOfferStatusMessage('');
+                    }}
+                    onPaste={(event) => {
+                      const pastedText = event.clipboardData.getData('text');
+                      if (!pastedText) return;
+                      event.preventDefault();
+                      setWorkspaceOfferCodeDraft(normalizeActivationCodeInput(pastedText));
+                      setWorkspaceOfferStatusMessage('');
+                    }}
+                    className="w-full p-3 rounded-2xl border border-blue-100 bg-white outline-none font-black dir-ltr"
+                    placeholder="AIFLEX-OFFER-..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { void handleRedeemWorkspaceOfferCode(); }}
+                    disabled={workspaceOfferBusy}
+                    className={`rounded-2xl px-4 py-3 text-sm font-black transition ${
+                      workspaceOfferBusy
+                        ? 'bg-slate-100 text-slate-400'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {workspaceOfferBusy ? tr('جارٍ التطبيق...', 'Applying...') : tr('تطبيق الكود', 'Apply code')}
+                  </button>
+                </div>
+
+                {workspaceOfferStatusMessage && (
+                  <div className={`rounded-2xl px-4 py-3 text-xs font-black ${
+                    workspaceOfferStatusMessage === tr('تم تطبيق العرض بنجاح.', 'Offer applied successfully.')
+                      ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border border-amber-200 bg-amber-50 text-amber-700'
+                  }`}>
+                    {workspaceOfferStatusMessage}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5 sm:p-6 space-y-4">
+              <div>
+                <div className="text-lg font-black text-slate-900">{tr('طرق الدفع', 'Payment methods')}</div>
+                <div className="mt-2 text-[12px] font-bold leading-6 text-slate-600">
+                  {workspaceSubscription.lifetimeAccess
+                    ? tr(
+                        'اشتراك مدى الحياة مفعل حاليًا، لذلك لا تحتاج إلى الدفع أو التجديد الآن.',
+                        'Lifetime access is already active, so no payment or renewal is needed right now.'
+                      )
+                    : tr(
+                        'اختر وسيلة الدفع المناسبة لتجديد الاشتراك السنوي أو زيادة عدد الشركات.',
+                        'Choose the payment method that fits your yearly renewal or company-count upgrade.'
+                      )}
+                </div>
+              </div>
+
+              {workspaceSubscription.lifetimeAccess ? (
+                <div className="rounded-[24px] border border-emerald-200 bg-white px-4 py-5 text-center">
+                  <div className="text-sm font-black text-emerald-700">{tr('مدى الحياة مفعل', 'Lifetime access active')}</div>
+                  <div className="mt-2 text-[12px] font-bold leading-6 text-slate-600">
+                    {workspaceSubscription.offerCode ? (
+                      <>
+                        <span className="dir-ltr inline-block text-left text-slate-900">{workspaceSubscription.offerCode}</span>
+                        <br />
+                      </>
+                    ) : null}
+                    {workspaceSubscription.offerNote || tr('يمكنك الاستمرار باستخدام البرنامج بدون تاريخ انتهاء.', 'You can continue using the app without an expiry date.')}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {displayQuotes.map(quote => (
+                    <div
+                      key={quote.provider}
+                      className={`rounded-[24px] border p-4 bg-white ${
+                        quote.providerReady ? 'border-emerald-100' : 'border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-black text-slate-900">{getCheckoutProviderLabel(quote.provider)}</div>
+                          <div className="mt-1 text-[11px] font-bold text-slate-500">
+                            {tr('الاشتراك السنوي', 'Yearly subscription')} | {tr('يشمل', 'Includes')} {quote.maxCompanies} {tr('شركة', 'company slot(s)')}
+                          </div>
+                        </div>
+                        <div className={`rounded-full px-3 py-1 text-[10px] font-black ${
+                          quote.providerReady ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {quote.providerReady ? tr('متاح', 'Available') : tr('غير مهيأ', 'Not configured')}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl bg-slate-950 px-4 py-4 text-white">
+                        {quote.discountPercent > 0 ? (
+                          <div className="text-[10px] font-black text-emerald-300">
+                            {tr('يشمل الخصم المطبق', 'Discount already applied')}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] font-black text-slate-400">{tr('الإجمالي السنوي', 'Yearly total')}</div>
+                        )}
+                        <div className="mt-2 text-2xl font-black dir-ltr">{formatUsd(quote.totalPriceUsd)}</div>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-[11px] font-bold text-slate-600 leading-6">
+                        {tr('الإجمالي قبل الخصم', 'Subtotal')}: {formatUsd(quote.subtotalPriceUsd)}
+                        <br />
+                        {tr('الأساسي', 'Base')}: {formatUsd(quote.basePriceUsd)}
+                        {' | '}
+                        {tr('الإضافي', 'Extra')}: {formatUsd(quote.extraCompanyPriceUsd)} x {quote.extraCompanyCount}
+                        {quote.discountPercent > 0 ? (
+                          <>
+                            <br />
+                            {tr('الخصم', 'Discount')}: {quote.discountPercent}% ({formatUsd(quote.discountAmountUsd)})
+                          </>
+                        ) : null}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => { void handleStartSubscriptionCheckout(quote.provider); }}
+                        disabled={!quote.providerReady}
+                        className={`mt-3 w-full rounded-2xl px-4 py-3 text-sm font-black transition ${
+                          quote.providerReady
+                            ? 'bg-slate-900 text-white hover:bg-slate-800'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {quote.providerReady ? tr('الانتقال إلى الدفع', 'Continue to payment') : tr('غير متاح الآن', 'Unavailable right now')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {subscriptionCloudError && (
+            <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">
+              {subscriptionCloudError}
+            </div>
+          )}
+
+          {billingStatusMessage && (
+            <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs font-black text-sky-700">
+              {billingStatusMessage}
+            </div>
+          )}
+
+          {programOwnerEnabled && (
+            <details className="rounded-[28px] border border-slate-200 bg-slate-50 p-5 sm:p-6" open={workspaceOfferCodes.length === 0}>
+              <summary className="cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-lg font-black text-slate-900">{tr('لوحة صاحب البرنامج', 'Program owner panel')}</div>
+                  <div className="mt-1 text-[12px] font-bold leading-6 text-slate-500">
+                    {tr(
+                      'من هنا فقط يتم إنشاء أكواد الخصم أو الشهر المجاني أو مدى الحياة للحسابات الأخرى.',
+                      'Only the main owner can issue discount, free-month, or lifetime codes from here.'
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700">
+                  {workspaceOfferCodesLoading ? tr('جارٍ تحميل الأكواد...', 'Loading codes...') : `${workspaceOfferCodes.length} ${tr('كود', 'code(s)')}`}
+                </div>
+              </summary>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr]">
+                <div className="rounded-[24px] border border-slate-200 bg-white p-4 space-y-4">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1">{tr('نوع الكود', 'Code type')}</label>
+                      <select
+                        value={workspaceOfferKindDraft}
+                        onChange={(e) => setWorkspaceOfferKindDraft(e.target.value as WorkspaceOfferCodeKind)}
+                        className="w-full p-3 rounded-2xl border border-slate-200 bg-white outline-none font-black"
+                      >
+                        <option value="DISCOUNT_PERCENT">{tr('خصم بالنسبة المئوية', 'Percentage discount')}</option>
+                        <option value="FREE_DAYS">{tr('اشتراك مجاني بعدد أيام', 'Free subscription days')}</option>
+                        <option value="LIFETIME">{tr('اشتراك مدى الحياة', 'Lifetime subscription')}</option>
+                      </select>
+                    </div>
+
+                    {workspaceOfferKindDraft === 'DISCOUNT_PERCENT' ? (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">{tr('نسبة الخصم %', 'Discount %')}</label>
+                        <input
+                          value={workspaceOfferDiscountDraft}
+                          onChange={(e) => setWorkspaceOfferDiscountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 3))}
+                          className="w-full p-3 rounded-2xl border border-slate-200 bg-white outline-none font-black dir-ltr"
+                          inputMode="numeric"
+                          placeholder="25"
+                        />
+                      </div>
+                    ) : workspaceOfferKindDraft === 'FREE_DAYS' ? (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">{tr('عدد الأيام المجانية', 'Free days')}</label>
+                        <input
+                          value={workspaceOfferFreeDaysDraft}
+                          onChange={(e) => setWorkspaceOfferFreeDaysDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+                          className="w-full p-3 rounded-2xl border border-slate-200 bg-white outline-none font-black dir-ltr"
+                          inputMode="numeric"
+                          placeholder="30"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[11px] font-black text-emerald-700 leading-6">
+                        {tr('سيمنح هذا الكود اشتراكًا مدى الحياة مباشرة عند تطبيقه.', 'This code will grant lifetime access immediately when redeemed.')}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1">{tr('عدد الشركات', 'Company count')}</label>
+                      <input
+                        value={workspaceOfferCompanyCountDraft}
+                        onChange={(e) => setWorkspaceOfferCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
+                        className="w-full p-3 rounded-2xl border border-slate-200 bg-white outline-none font-black dir-ltr"
+                        inputMode="numeric"
+                        placeholder={workspaceOfferKindDraft === 'LIFETIME' ? tr('فارغ = غير محدود', 'Blank = unlimited') : '5'}
+                      />
+                      <div className="mt-1 text-[10px] font-bold text-slate-400 leading-5">
+                        {workspaceOfferKindDraft === 'LIFETIME'
+                          ? tr('اختياري. إذا تركته فارغًا فسيكون مدى الحياة مع شركات غير محدودة.', 'Optional. Leave blank to grant lifetime access with unlimited companies.')
+                          : tr('اختياري. إذا أدخلت رقمًا فسيمنح الكود هذا الحد من الشركات عند تطبيقه.', 'Optional. If you enter a value, the code will grant that company limit when redeemed.')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1">{tr('تاريخ انتهاء الكود', 'Code expiry date')}</label>
+                      <EnglishDateInput
+                        value={workspaceOfferExpiresAtDraft}
+                        onChange={setWorkspaceOfferExpiresAtDraft}
+                        className="w-full p-3 rounded-2xl border border-slate-200 bg-white outline-none dir-ltr"
+                        aria-label={tr('تاريخ انتهاء كود العرض', 'Offer code expiry date')}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 mb-1">{tr('ملاحظة داخلية', 'Internal note')}</label>
+                      <input
+                        value={workspaceOfferNotesDraft}
+                        onChange={(e) => setWorkspaceOfferNotesDraft(e.target.value)}
+                        className="w-full p-3 rounded-2xl border border-slate-200 bg-white outline-none font-bold"
+                        placeholder={tr('مثال: عرض رمضان أو هدية عميل', 'Example: Ramadan offer or customer gift')}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => { void handleIssueWorkspaceOffer(); }}
+                    disabled={workspaceOfferIssueBusy}
+                    className={`w-full rounded-2xl px-4 py-3 text-sm font-black transition ${
+                      workspaceOfferIssueBusy
+                        ? 'bg-slate-100 text-slate-400'
+                        : 'bg-slate-900 text-white hover:bg-slate-800'
+                    }`}
+                  >
+                    {workspaceOfferIssueBusy ? tr('جارٍ إنشاء الكود...', 'Creating code...') : tr('إنشاء كود جديد', 'Create new code')}
+                  </button>
+
+                  {issuedWorkspaceOfferMessage && (
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-black text-blue-700">
+                      {issuedWorkspaceOfferMessage}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-[24px] border border-slate-200 bg-white p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="text-sm font-black text-slate-900">{tr('آخر أكواد العروض', 'Latest offer codes')}</div>
+                    <div className="text-[11px] font-bold text-slate-500">{workspaceOfferCodesLoading ? tr('تحديث...', 'Refreshing...') : tr('الأحدث أولاً', 'Newest first')}</div>
+                  </div>
+
+                  <div className="space-y-3 max-h-[26rem] overflow-auto">
+                    {!workspaceOfferCodesLoading && workspaceOfferCodes.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs font-bold text-slate-400">
+                        {tr('لا توجد أكواد عروض بعد.', 'No offer codes yet.')}
+                      </div>
+                    )}
+
+                    {workspaceOfferCodes.slice(0, 8).map(code => (
+                      <div key={code.code} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-black text-slate-900 dir-ltr text-left break-all">{code.code}</div>
+                            <div className="mt-1 text-[11px] font-bold text-slate-500">
+                              {getWorkspaceOfferKindLabel(code.kind, code.discountPercent, code.freeDays)}
+                            </div>
+                            <div className="mt-1 text-[11px] font-bold text-sky-700">
+                              {getWorkspaceOfferCompanyEffectLabel(code.kind, code.companyCount)}
+                            </div>
+                          </div>
+                          <div className={`rounded-full border px-3 py-1 text-[10px] font-black ${getWorkspaceOfferStatusTone(code.status)}`}>
+                            {getWorkspaceOfferStatusLabel(code.status)}
+                          </div>
+                        </div>
+
+                        <div className="grid gap-2 md:grid-cols-2 text-[11px] font-bold text-slate-600">
+                          <div className="rounded-xl border border-white bg-white px-3 py-2">
+                            {tr('تاريخ الإنشاء', 'Created at')}: {formatDeviceSeenAt(code.createdAt)}
+                          </div>
+                          <div className="rounded-xl border border-white bg-white px-3 py-2">
+                            {tr('ينتهي في', 'Expires at')}: {code.expiresAt ? formatDeviceSeenAt(code.expiresAt) : tr('بدون تاريخ', 'No expiry')}
+                          </div>
+                        </div>
+
+                        {code.notes && (
+                          <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600">
+                            {code.notes}
+                          </div>
+                        )}
+
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => { void handleCopyText(code.code, tr(`تم نسخ الكود: ${code.code}`, `Copied code: ${code.code}`)); }}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-700"
+                          >
+                            {tr('نسخ الكود', 'Copy code')}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </details>
+          )}
+        </div>
+      );
+      const summaryCards = [
+        {
+          key: 'status',
+          label: tr('حالة الاشتراك', 'Subscription status'),
+          value: subscriptionMeta.badge
+        },
+        {
+          key: 'plan',
+          label: tr('الخطة الحالية', 'Current plan'),
+          value: activePlanLabel
+        },
+        {
+          key: 'companies',
+          label: tr('الشركات الحالية', 'Current companies'),
+          value: String(companies.length)
+        },
+        {
+          key: 'remaining',
+          label: tr('المتاح الآن', 'Available now'),
+          value: workspaceRemainingCompanySlotsLabel
+        }
+      ];
+
+      return (
+        <div className="bg-white p-4 sm:p-5 rounded-[28px] shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
+          <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(140deg,rgba(248,252,255,1)_0%,rgba(237,247,255,1)_46%,rgba(245,247,255,1)_100%)] p-5 sm:p-6">
+            <div className="absolute -top-10 left-6 h-28 w-28 rounded-full bg-sky-200/30 blur-3xl" />
+            <div className="absolute -bottom-12 right-0 h-40 w-40 rounded-full bg-indigo-200/20 blur-3xl" />
+
+            <div className="relative flex items-center justify-between gap-3 flex-wrap">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/85 px-3 py-1.5 text-[11px] font-black text-slate-700 shadow-sm">
+                <Wallet className="w-4 h-4 text-blue-600" />
+                {tr('الاشتراك السنوي', 'Yearly subscription')}
+              </div>
+              <div className={`rounded-full px-3 py-1.5 text-[11px] font-black shadow-sm ${subscriptionMeta.tone}`}>
+                {subscriptionMeta.badge}
+              </div>
+            </div>
+
+            <div className="relative mt-5 max-w-3xl">
+              <div className="text-2xl font-black text-slate-900">{currentCompany?.name || companySettings.name}</div>
+              <div className="mt-2 text-sm font-bold leading-7 text-slate-600">
+                {tr(
+                  'هذه الشاشة مخصصة للاشتراك السنوي وإضافة الشركات فقط. يمكن تسجيل الدخول من أي جهاز بدون تقييد بعدد الأجهزة.',
+                  'This screen is dedicated to yearly subscription and adding companies only. Sign-in is allowed from any device without device-count limits.'
+                )}
+              </div>
+            </div>
+
+            <div className="relative mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {summaryCards.map(card => (
+                <div key={card.key} className="rounded-2xl border border-white/80 bg-white/85 px-4 py-4 shadow-sm">
+                  <div className="text-[10px] font-black text-slate-400">{card.label}</div>
+                  <div className="mt-2 text-sm font-black text-slate-900 break-words dir-auto">{card.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-[28px] border border-sky-100 bg-[linear-gradient(145deg,rgba(240,249,255,0.98)_0%,rgba(255,255,255,0.94)_42%,rgba(239,246,255,0.98)_100%)] p-5 sm:p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-lg font-black text-slate-900">{tr('تجديد الاشتراك أو إضافة شركة', 'Renew subscription or add a company')}</div>
+                  <div className="mt-2 text-[12px] font-bold leading-6 text-slate-600">
+                    {tr(
+                      'الاشتراك سنوي فقط: شركة واحدة مقابل 20 دولار سنويًا، وكل شركة إضافية مقابل 5 دولارات سنويًا.',
+                      'Yearly billing only: one company costs $20 per year, and each extra company costs $5 per year.'
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white shadow-sm">
+                  {tr('سنوي فقط', 'Yearly only')}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)]">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
+                  <input
+                    value={billingCompanyCountDraft}
+                    onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                    className="w-full p-3 rounded-2xl border border-sky-100 bg-white outline-none font-black dir-ltr shadow-sm"
+                    inputMode="numeric"
+                    placeholder="1"
+                  />
+                </div>
+
+                <div className="rounded-[24px] border border-sky-100 bg-white/90 px-4 py-4 shadow-sm">
+                  <div className="text-[10px] font-black text-sky-700">{tr('الإجمالي السنوي', 'Yearly total')}</div>
+                  <div className="mt-2 text-3xl font-black text-slate-900 dir-ltr">
+                    {formatUsd(preferredQuote?.totalPriceUsd || 0)}
+                  </div>
+                  <div className="mt-3 text-[11px] font-bold text-slate-600 leading-6">
+                    {tr('يشمل', 'Includes')} {desiredBillingCompanyCount} {tr('شركة', 'company slot(s)')}
+                    <br />
+                    {tr('نهاية الوصول الحالية', 'Current access ends')}: <span className="dir-ltr">{subscriptionMeta.endsAtText}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-dashed border-sky-200 bg-white/85 px-4 py-3 text-[11px] font-bold text-sky-700 leading-6">
+                {tr(
+                  'تم إخفاء إدارة الأجهزة والتحكم اليدوي والخيارات الإضافية من هذه الشاشة، لتبقى مخصصة للاشتراك السنوي وإضافة الشركات فقط.',
+                  'Device management, manual controls, and extra sections are hidden from this screen so it stays focused on yearly subscription and adding companies only.'
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-slate-50/90 p-5 sm:p-6 space-y-4">
+              <div>
+                <div className="text-lg font-black text-slate-900">{tr('طرق الدفع', 'Payment methods')}</div>
+                <div className="mt-2 text-[12px] font-bold leading-6 text-slate-600">
+                  {tr(
+                    'اختر وسيلة الدفع المناسبة لإتمام الاشتراك السنوي حسب عدد الشركات المطلوب.',
+                    'Choose the payment method that fits your yearly subscription based on the requested company count.'
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-3">
+                {displayQuotes.map(quote => (
+                  <div
+                    key={quote.provider}
+                    className={`rounded-[24px] border p-4 shadow-sm ${
+                      quote.providerReady ? 'border-emerald-100 bg-white' : 'border-slate-200 bg-white/80'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black text-slate-900">{getCheckoutProviderLabel(quote.provider)}</div>
+                        <div className="mt-1 text-[11px] font-bold text-slate-500">
+                          {tr('الاشتراك السنوي', 'Yearly subscription')} | {tr('يشمل', 'Includes')} {quote.maxCompanies} {tr('شركة', 'company slot(s)')}
+                        </div>
+                      </div>
+                      <div className={`rounded-full px-3 py-1 text-[10px] font-black ${
+                        quote.providerReady ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {quote.providerReady ? tr('متاح', 'Available') : tr('غير مهيأ', 'Not configured')}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl bg-slate-950 px-4 py-4 text-white">
+                      <div className="text-[10px] font-black text-slate-400">{tr('الإجمالي السنوي', 'Yearly total')}</div>
+                      <div className="mt-2 text-2xl font-black dir-ltr">{formatUsd(quote.totalPriceUsd)}</div>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-[11px] font-bold text-slate-600 leading-6">
+                      {tr('الأساسي', 'Base')}: {formatUsd(quote.basePriceUsd)}
+                      {' | '}
+                      {tr('كل شركة إضافية', 'Each extra company')}: {formatUsd(quote.extraCompanyPriceUsd)}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => { void handleStartSubscriptionCheckout(quote.provider); }}
+                      disabled={!quote.providerReady}
+                      className={`mt-3 w-full rounded-2xl px-4 py-3 text-sm font-black transition ${
+                        quote.providerReady
+                          ? 'bg-slate-900 text-white hover:bg-slate-800'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {quote.providerReady ? tr('المتابعة إلى الدفع', 'Continue to payment') : tr('غير متاح الآن', 'Unavailable right now')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {billingStatusMessage && (
+            <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs font-black text-sky-700">
+              {billingStatusMessage}
+            </div>
+          )}
+        </div>
+      );
+    })() : (
+    <div className="bg-white p-4 sm:p-5 rounded-[28px] shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
+      {(() => {
+        const activePlanLabel = getSubscriptionPlanLabel(currentCompany?.subscriptionPlan || 'TRIAL');
+        const preferredQuote = workspaceQuotes[0];
+        const quickStats = [
+          {
+            key: 'plan',
+            label: tr('الخطة الحالية', 'Current plan'),
+            value: activePlanLabel
+          },
+          {
+            key: 'ends',
+            label: tr('نهاية الوصول', 'Access ends'),
+            value: subscriptionMeta.endsAtText
+          },
+          {
+            key: 'used',
+            label: tr('الشركات المستخدمة', 'Used companies'),
+            value: String(companies.length)
+          },
+          {
+            key: 'remaining',
+            label: tr('المتبقي الآن', 'Remaining now'),
+            value: workspaceRemainingCompanySlotsLabel
+          }
+        ];
+        const workspaceMetricCards = [
+          {
+            key: 'commercial-plan',
+            label: tr('الخطة التجارية', 'Commercial plan'),
+            value: getSubscriptionPlanLabel(workspaceSubscription.plan),
+            help: getBillingCycleLabel(workspaceSubscription.billingCycle),
+            icon: Layers,
+            iconTone: 'bg-slate-900 text-white'
+          },
+          {
+            key: 'used-companies',
+            label: tr('الشركات المستخدمة', 'Used companies'),
+            value: String(companies.length),
+            help: tr('شركة مفعلة حاليًا', 'Currently active companies'),
+            icon: Building2,
+            iconTone: 'bg-blue-100 text-blue-700'
+          },
+          {
+            key: 'allowed-companies',
+            label: tr('الشركات المسموحة', 'Allowed companies'),
+            value: workspaceMaxCompaniesLabel,
+            help: tr('الحد الأقصى حسب الاشتراك', 'Maximum slots by subscription'),
+            icon: ShieldCheck,
+            iconTone: 'bg-emerald-100 text-emerald-700'
+          },
+          {
+            key: 'remaining-slots',
+            label: tr('المتبقي الآن', 'Remaining now'),
+            value: workspaceRemainingCompanySlotsLabel,
+            help: workspaceCompanyLimitReached
+              ? tr('تم الوصول إلى الحد الحالي', 'The current limit is reached')
+              : tr('مساحات متاحة الآن', 'Slots available right now'),
+            icon: Wallet,
+            iconTone: workspaceRemainingCompanySlots > 0 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+          }
+        ];
+        const providerReadinessCards = [
+          {
+            key: 'APPLE',
+            label: 'Apple',
+            ready: workspaceProviderAvailability.appleReady,
+            note: tr('شراء من داخل التطبيق', 'In-app purchase flow')
+          },
+          {
+            key: 'GOOGLE',
+            label: 'Google',
+            ready: workspaceProviderAvailability.googleReady,
+            note: tr('أندرويد ومتجر Play', 'Android and Play billing')
+          }
+        ];
+        const readyProvidersCount = providerReadinessCards.filter(provider => provider.ready).length;
+
+        return (
+          <>
+            <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(140deg,rgba(248,252,255,1)_0%,rgba(237,247,255,1)_46%,rgba(245,247,255,1)_100%)] p-5 sm:p-6">
+              <div className="absolute -top-10 left-6 h-28 w-28 rounded-full bg-sky-200/30 blur-3xl" />
+              <div className="absolute -bottom-12 right-0 h-40 w-40 rounded-full bg-indigo-200/20 blur-3xl" />
+
+              <div className="relative flex items-center justify-between gap-3 flex-wrap">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-[11px] font-black text-slate-700 shadow-sm">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  {tr('إدارة الاشتراك', 'Subscription management')}
+                </div>
+                <div className={`rounded-full px-3 py-1.5 text-[11px] font-black shadow-sm ${subscriptionMeta.tone}`}>
+                  {subscriptionMeta.badge}
+                </div>
+              </div>
+
+              <div className="relative mt-5 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-2xl font-black text-slate-900">{currentCompany?.name || companySettings.name}</div>
+                    <div className="mt-2 max-w-2xl text-sm font-bold leading-7 text-slate-600">
+                      {subscriptionMeta.summary}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <div className="rounded-2xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white shadow-sm">
+                      {activePlanLabel}
+                    </div>
+                    <div className="rounded-2xl border border-white/80 bg-white/80 px-3 py-2 text-[11px] font-black text-slate-700 shadow-sm">
+                      {tr('نهاية الوصول', 'Access ends')}: <span className="dir-ltr">{subscriptionMeta.endsAtText}</span>
+                    </div>
+                    <div className="rounded-2xl border border-white/80 bg-white/80 px-3 py-2 text-[11px] font-black text-slate-700 shadow-sm">
+                      {tr('مزود الربط', 'Provider')}: {getWorkspaceProviderLabel()}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-white/80 bg-white/80 p-4 backdrop-blur-sm shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+                  <div className="flex items-center gap-2 text-[11px] font-black text-slate-500">
+                    <Building2 className="w-4 h-4 text-blue-600" />
+                    {tr('ملخص سريع', 'Quick snapshot')}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {quickStats.map(stat => (
+                      <div key={stat.key} className="rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-3">
+                        <div className="text-[10px] font-black text-slate-400">{stat.label}</div>
+                        <div className="mt-2 text-sm font-black text-slate-900 break-words dir-auto">{stat.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden rounded-[28px] border border-sky-100 bg-[linear-gradient(145deg,rgba(240,249,255,0.98)_0%,rgba(255,255,255,0.94)_42%,rgba(239,246,255,0.98)_100%)] p-5 sm:p-6">
+              <div className="absolute -right-10 top-10 h-28 w-28 rounded-full bg-sky-200/30 blur-3xl" />
+              <div className="absolute -left-10 bottom-0 h-36 w-36 rounded-full bg-blue-100/50 blur-3xl" />
+
+              <div className="relative space-y-5">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="max-w-2xl">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 text-[11px] font-black text-sky-700 shadow-sm">
+                      <Wallet className="w-4 h-4" />
+                      {tr('الفوترة وعدد الشركات', 'Billing and company slots')}
+                    </div>
+                    <div className="mt-3 text-lg font-black text-slate-900">
+                      {tr('احسب اشتراكك السنوي حسب عدد الشركات', 'Calculate your annual subscription by company count')}
+                    </div>
+                    <div className="mt-2 text-[12px] font-bold leading-6 text-slate-600">
+                      {tr('شركة واحدة مشمولة في الخطة الأساسية باشتراك سنوي قدره 20 دولار، وكل شركة إضافية تُضاف مقابل 5 دولارات سنويًا.', 'One company is included in the base annual plan for $20, and each extra company adds $5 per year.')}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[22px] border border-slate-900/90 bg-slate-950 px-4 py-3 text-white shadow-[0_18px_40px_rgba(15,23,42,0.20)]">
+                    <div className="text-[10px] font-black tracking-[0.18em] text-slate-400 uppercase">
+                      {tr('نمط الفوترة', 'Billing mode')}
+                    </div>
+                    <div className="mt-1 text-sm font-black">
+                      {getBillingCycleLabel(workspaceSubscription.billingCycle)} | {getWorkspaceProviderLabel()}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                  {workspaceMetricCards.map(card => (
+                    <div key={card.key} className="rounded-[22px] border border-white/80 bg-white/88 p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl ${card.iconTone}`}>
+                          <card.icon className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0 text-right">
+                          <div className="text-[10px] font-black text-slate-400">{card.label}</div>
+                          <div className="mt-1 text-lg font-black text-slate-900 break-words dir-auto">{card.value}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 text-[11px] font-bold text-slate-500 leading-5">{card.help}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-[1.16fr_0.84fr]">
+                  <div className="rounded-[24px] border border-white/80 bg-white/90 p-4 shadow-sm space-y-4">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div>
+                        <div className="text-sm font-black text-slate-900">{tr('حسبة الاشتراك السنوي', 'Annual subscription calculator')}</div>
+                        <div className="mt-1 text-[11px] font-bold text-slate-500">
+                          {tr('حدد عدد الشركات التي تريد تضمينها داخل نفس الاشتراك التجاري.', 'Choose how many companies you want to include in the same commercial subscription.')}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white shadow-sm">
+                        {tr('اشتراك سنوي', 'Yearly subscription')}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)]">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
+                        <input
+                          value={billingCompanyCountDraft}
+                          onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                          className="w-full p-3 rounded-2xl border border-sky-100 bg-white outline-none font-black dir-ltr shadow-sm"
+                          inputMode="numeric"
+                          placeholder="1"
+                        />
+                      </div>
+
+                      <div className="rounded-[22px] border border-sky-100 bg-sky-50/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div>
+                            <div className="text-[10px] font-black text-sky-700">{tr('الإجمالي السنوي', 'Annual total')}</div>
+                            <div className="mt-2 text-3xl font-black text-slate-900 dir-ltr">
+                              {formatUsd(preferredQuote?.totalPriceUsd || 0)}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-sky-200 bg-white/80 px-3 py-2 text-[11px] font-black text-sky-700">
+                            {tr('يشمل', 'Includes')} {desiredBillingCompanyCount} {tr('شركة', 'company slot(s)')}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 text-[11px] font-bold text-slate-600 leading-6">
+                          {tr('الأساسي', 'Base')}: <span className="dir-ltr">{formatUsd(20)}</span>
+                          {' | '}
+                          {tr('كل شركة إضافية', 'Each extra company')}: <span className="dir-ltr">{formatUsd(5)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {workspaceCompanyLimitReached ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] font-black text-amber-800 leading-6">
+                        {tr('تم استخدام جميع الشركات المتاحة ضمن الخطة الحالية. زد العدد المطلوب أو فعّل عرض شراء جديد لإضافة شركات أخرى.', 'All available company slots are already used. Increase the requested company count or prepare a new purchase quote to add more companies.')}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-sky-200 bg-white/80 px-4 py-3 text-[11px] font-bold text-sky-700 leading-6">
+                        {tr('يمكنك زيادة العدد المطلوب قبل تجهيز الشراء، وسيتم احتساب الإجمالي مباشرة حسب الشركات الإضافية فقط.', 'You can increase the requested count before preparing checkout, and the total will update instantly based on extra company slots only.')}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-900 bg-slate-950 p-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.20)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black">{tr('جاهزية الربط', 'Provider readiness')}</div>
+                        <div className="mt-1 text-[11px] font-bold text-slate-400">
+                          {tr('تحقق سريع من مزودي الدفع قبل بدء الشراء.', 'A quick readiness check before starting checkout.')}
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-black text-white">
+                        {readyProvidersCount}/{providerReadinessCards.length}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-2.5">
+                      {providerReadinessCards.map(provider => (
+                        <div key={provider.key} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${provider.ready ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                              <div className="text-sm font-black text-white">{provider.label}</div>
+                            </div>
+                            <div className={`rounded-full px-2.5 py-1 text-[10px] font-black ${provider.ready ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-500/15 text-slate-300'}`}>
+                              {provider.ready ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-[11px] font-bold text-slate-400">{provider.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                  {workspaceQuotes.map(quote => (
+                    <div
+                      key={quote.provider}
+                      className={`rounded-[24px] border p-4 space-y-4 shadow-sm transition ${quote.providerReady
+                        ? 'border-emerald-100 bg-white'
+                        : 'border-slate-200 bg-white/75'
+                        }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl ${quote.providerReady ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <Wallet className="w-5 h-5" />
+                          </div>
+                          <div className="mt-3 text-sm font-black text-slate-900">{getCheckoutProviderLabel(quote.provider)}</div>
+                          <div className="mt-1 text-[11px] font-bold text-slate-500">
+                            {tr('يشمل', 'Includes')} {quote.maxCompanies} {tr('شركة', 'company slot(s)')}
+                          </div>
+                        </div>
+
+                        <div className={`rounded-full px-3 py-1 text-[10px] font-black ${quote.providerReady ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {quote.providerReady ? tr('جاهز', 'Ready') : tr('قيد التجهيز', 'Setup pending')}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[22px] bg-slate-950 px-4 py-4 text-white">
+                        <div className="text-[10px] font-black text-slate-400">{tr('الإجمالي السنوي', 'Annual total')}</div>
+                        <div className="mt-2 text-2xl font-black dir-ltr">{formatUsd(quote.totalPriceUsd)}</div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-[11px] font-bold text-slate-600 leading-6">
+                        {tr('الأساسي', 'Base')}: {formatUsd(quote.basePriceUsd)}
+                        {' | '}
+                        {tr('إضافي', 'Extra')}: {formatUsd(quote.extraCompanyPriceUsd)} x {quote.extraCompanyCount}
+                        {quote.productId ? (
+                          <>
+                            <br />
+                            ID: <span className="dir-ltr text-left inline-block">{quote.productId}</span>
+                          </>
+                        ) : null}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => { void handleStartSubscriptionCheckout(quote.provider); }}
+                        className={`w-full rounded-2xl px-4 py-3 text-sm font-black transition ${quote.providerReady
+                          ? 'bg-slate-900 text-white hover:bg-slate-800'
+                          : 'bg-slate-100 text-slate-500'
+                          }`}
+                      >
+                        {tr('تجهيز الشراء', 'Prepare purchase')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {billingStatusMessage && (
+                  <div className="rounded-2xl border border-sky-100 bg-white/90 px-4 py-3 text-xs font-black text-sky-700 shadow-sm">
+                    {billingStatusMessage}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
+      {false && (
+        <>
       <div className={`rounded-2xl border px-4 py-4 ${subscriptionMeta.tone}`}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -1424,7 +2737,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <div>
             <div className="text-sm font-black text-slate-900">{tr('الفوترة وحد الشركات', 'Billing and company slots')}</div>
             <div className="text-[11px] font-bold text-slate-500 mt-1">
-              {tr('شركة واحدة مشمولة في الخطة الأساسية، وكل شركة إضافية تُحسب تلقائيًا حسب الدورة التي تختارها.', 'One company is included in the base plan, and each extra company is priced automatically based on the billing cycle you choose.')}
+              {tr('شركة واحدة مشمولة في الخطة الأساسية باشتراك سنوي قدره 20 دولار، وكل شركة إضافية تُضاف مقابل 5 دولارات سنويًا.', 'One company is included in the base annual plan for $20, and each extra company adds $5 per year.')}
             </div>
           </div>
           <div className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-black text-indigo-700">
@@ -1440,29 +2753,19 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             {tr('الشركات المستخدمة', 'Used companies')}: {companies.length}
           </div>
           <div className="rounded-xl border border-white/70 bg-white/85 px-3 py-3 text-slate-700">
-            {tr('الشركات المسموحة', 'Allowed companies')}: {workspaceMaxCompanies}
+            {tr('الشركات المسموحة', 'Allowed companies')}: {workspaceMaxCompaniesLabel}
           </div>
           <div className="rounded-xl border border-white/70 bg-white/85 px-3 py-3 text-slate-700">
-            {tr('المتبقي الآن', 'Remaining now')}: {workspaceRemainingCompanySlots}
+            {tr('المتبقي الآن', 'Remaining now')}: {workspaceRemainingCompanySlotsLabel}
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
           <div className="rounded-2xl border border-white/70 bg-white/85 p-4 space-y-3">
             <div className="flex flex-wrap gap-2">
-              {(['MONTHLY', 'YEARLY'] as SubscriptionBillingCycle[]).map(cycle => (
-                <button
-                  key={cycle}
-                  type="button"
-                  onClick={() => setBillingCycleDraft(cycle)}
-                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${billingCycleDraft === cycle
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600'
-                    }`}
-                >
-                  {getBillingCycleLabel(cycle)}
-                </button>
-              ))}
+              <div className="rounded-xl px-4 py-2 text-xs font-black bg-slate-900 text-white cursor-default">
+                {tr('اشتراك سنوي', 'Yearly Subscription')}
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
@@ -1475,9 +2778,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               />
             </div>
             <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/70 px-3 py-3 text-[11px] font-bold text-indigo-700 leading-6">
-              {tr('الأساسي', 'Base')}: {formatUsd(billingCycleDraft === 'MONTHLY' ? 10 : 100)}
+              {tr('الأساسي', 'Base')}: {formatUsd(20)}
               {' | '}
-              {tr('كل شركة إضافية', 'Each extra company')}: {formatUsd(billingCycleDraft === 'MONTHLY' ? 3 : 20)}
+              {tr('كل شركة إضافية', 'Each extra company')}: {formatUsd(5)}
               <br />
               {tr('الإجمالي لهذه التهيئة', 'Total for this setup')}: {formatUsd(workspaceQuotes[0]?.totalPriceUsd || 0)}
             </div>
@@ -1486,7 +2789,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <div className="rounded-2xl border border-white/70 bg-white/85 p-4 min-w-[220px]">
             <div className="text-xs font-black text-slate-500">{tr('جاهزية الربط', 'Provider readiness')}</div>
             <div className="mt-3 space-y-2 text-xs font-black text-slate-700">
-              <div>Stripe: {workspaceProviderAvailability.stripeReady ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}</div>
               <div>Apple: {workspaceProviderAvailability.appleReady ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}</div>
               <div>Google: {workspaceProviderAvailability.googleReady ? tr('جاهز', 'Ready') : tr('غير مهيأ', 'Not configured')}</div>
             </div>
@@ -1526,9 +2828,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                   : 'bg-slate-100 text-slate-500'
                   }`}
               >
-                {quote.provider === 'STRIPE'
-                  ? tr('فتح الدفع', 'Open checkout')
-                  : tr('تجهيز الشراء', 'Prepare purchase')}
+                {tr('أ¯طںآ½أ¯طںآ½أ¯طںآ½أ¯طںآ½أ¯طںآ½ أ¯طںآ½أ¯طںآ½أ¯طںآ½أ¯طںآ½أ¯طںآ½أ¯طںآ½', 'Prepare purchase')}
               </button>
             </div>
           ))}
@@ -1540,8 +2840,24 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           </div>
         )}
       </div>
+        </>
+      )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <details className="rounded-2xl border border-gray-200 bg-white" open={Boolean(subscriptionCloudError)}>
+        <summary className="cursor-pointer px-4 py-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-black text-slate-900">{tr('الأجهزة والمزامنة السحابية', 'Devices and cloud sync')}</div>
+              <div className="text-[11px] font-bold text-slate-500 mt-1">
+                {tr('إدارة الجهاز الحالي والأجهزة المرتبطة بالشركة من مكان واحد.', 'Manage the current device and bound company devices from one place.')}
+              </div>
+            </div>
+            <div className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-700">
+              {(cloudSubscription?.boundDevices || []).length} {tr('جهاز', 'device(s)')}
+            </div>
+          </div>
+        </summary>
+        <div className="px-4 pb-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
@@ -1611,7 +2927,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             ))}
           </div>
         </div>
-      </div>
+        </div>
+      </details>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 space-y-3">
@@ -1624,10 +2941,35 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
           <input
             value={activationCodeDraft}
-            onChange={(e) => setActivationCodeDraft(e.target.value.toUpperCase())}
+            onChange={(e) => setActivationCodeDraft(normalizeActivationCodeInput(e.target.value))}
+            onPaste={handleActivationCodePaste}
             className="w-full p-3 bg-white rounded-xl border border-blue-200 outline-none text-sm font-black dir-ltr"
             placeholder="AIFLEX-BASIC-30"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="characters"
+            spellCheck={false}
           />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handlePasteActivationCodeFromClipboard()}
+              className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700"
+            >
+              {tr('لصق من الحافظة', 'Paste from clipboard')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActivationCodeDraft('');
+                setSubscriptionStatusMessage('');
+              }}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700"
+            >
+              {tr('مسح الحقل', 'Clear field')}
+            </button>
+          </div>
 
           <div className="rounded-xl border border-dashed border-blue-200 bg-white/80 px-3 py-3 text-[11px] font-bold text-blue-700 leading-6 dir-ltr">
             AIFLEX-BASIC-30
@@ -1642,19 +2984,25 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <button
             type="button"
             onClick={handleActivateSubscription}
-            className="w-full bg-blue-600 text-white font-black py-3 rounded-xl"
+            disabled={subscriptionCloudBusy}
+            className={`w-full font-black py-3 rounded-xl transition ${
+              subscriptionCloudBusy
+                ? 'bg-blue-300 text-white cursor-wait'
+                : 'bg-blue-600 text-white'
+            }`}
           >
             {tr('تفعيل / تمديد الاشتراك', 'Activate / renew subscription')}
           </button>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
-          <div>
-            <div className="text-sm font-black text-slate-800">{tr('تحكم يدوي', 'Manual control')}</div>
+        <details className="rounded-2xl border border-gray-200 bg-slate-50" open={Boolean(subscriptionStatusMessage)}>
+          <summary className="cursor-pointer px-4 py-4">
+            <div className="text-sm font-black text-slate-800">{tr('التحكم اليدوي المتقدم', 'Advanced manual control')}</div>
             <div className="text-[11px] font-bold text-gray-500 mt-1">
-              {tr('لتغيير الحالة أو الخطة أو تاريخ الانتهاء يدويًا من داخل الإعدادات.', 'Use this to change status, plan, or end date manually from settings.')}
+              {tr('افتح هذا القسم فقط عند الحاجة لتعديل الحالة أو الخطة أو تاريخ الانتهاء يدويًا.', 'Open this section only when you need to change the status, plan, or end date manually.')}
             </div>
-          </div>
+          </summary>
+          <div className="px-4 pb-4 space-y-3">
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
@@ -1715,19 +3063,35 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           >
             {tr('حفظ إعدادات الاشتراك', 'Save subscription settings')}
           </button>
-        </div>
+          </div>
+        </details>
       </div>
 
       {subscriptionAdminEnabled && (
-        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 space-y-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div className="text-sm font-black text-slate-800">{tr('لوحة أكواد التفعيل', 'Activation codes control panel')}</div>
-              <div className="text-[11px] font-bold text-gray-500 mt-1">
-                {tr('هذه اللوحة مخصصة للمشرف السحابي لإصدار أكواد جديدة وربطها بخطة وعدد أجهزة وشركة محددة عند الحاجة.', 'This panel is for the cloud admin to issue new codes with a plan, device count, and optional reserved company.')}
+        <details className="rounded-2xl border border-violet-200 bg-violet-50">
+          <summary className="cursor-pointer px-4 py-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-sm font-black text-slate-800">{tr('لوحة الأكواد وأدوات المشرف', 'Codes and admin tools')}</div>
+                <div className="text-[11px] font-bold text-gray-500 mt-1">
+                  {tr('إصدار أكواد جديدة ومراجعة الأكواد المصدرة عند الحاجة فقط.', 'Issue new codes and review issued codes only when needed.')}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="px-3 py-1 rounded-full bg-white/80 text-[11px] font-black text-violet-700">
+                  {subscriptionCodesLoading ? tr('جار التحديث...', 'Refreshing...') : `${subscriptionCodes.length} ${tr('كود', 'code(s)')}`}
+                </div>
+                <div className="px-3 py-1 rounded-full bg-white/80 text-[11px] font-black text-violet-700">
+                  {tr('مشرف سحابي', 'Cloud admin')}
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+          </summary>
+          <div className="px-4 pb-4 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-[11px] font-bold text-gray-500">
+                {tr('هذه اللوحة مخصصة لإصدار أكواد جديدة وربطها بخطة وعدد أجهزة وشركة محددة عند الحاجة.', 'This panel is for issuing new codes with a plan, device count, and optional reserved company.')}
+              </div>
               <button
                 type="button"
                 onClick={() => setMode('SUBSCRIPTION_REPORTS')}
@@ -1735,11 +3099,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               >
                 {tr('تقارير الاشتراكات', 'Subscription reports')}
               </button>
-              <div className="px-3 py-1 rounded-full bg-white/80 text-[11px] font-black text-violet-700">
-                {tr('مشرف سحابي', 'Cloud admin')}
-              </div>
             </div>
-          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             <div>
@@ -1867,7 +3227,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               ))}
             </div>
           </div>
-        </div>
+          </div>
+        </details>
       )}
 
       <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-[12px] font-bold text-gray-600 leading-6">
@@ -1881,6 +3242,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         </div>
       )}
     </div>
+  )
   );
 
   const renderSubscriptionReports = () => {
@@ -2099,12 +3461,15 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           )}
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm font-black text-slate-800">{tr('الشركات', 'Companies')}</div>
+        <details className="rounded-2xl border border-gray-200 bg-slate-50 p-4" open>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-black text-slate-800">{tr('الشركات', 'Companies')}</div>
+              <div className="mt-1 text-[11px] font-bold text-slate-500">{tr('الشركات المفعلة والمنتهية وحالة كل شركة باختصار.', 'Subscribed companies with a quick status summary.')}</div>
+            </div>
             <div className="text-[11px] font-bold text-slate-500">{filteredCompanies.length} / {summary.totalCompanies}</div>
-          </div>
-          <div className="space-y-3 max-h-[28rem] overflow-auto">
+          </summary>
+          <div className="mt-3 space-y-3 max-h-[28rem] overflow-auto">
             {!subscriptionCompaniesLoading && filteredCompanies.length === 0 && (
               <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
                 {tr('لا توجد شركات مطابقة ضمن الفلاتر الحالية.', 'No companies match the current filters.')}
@@ -2138,14 +3503,17 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               </div>
             ))}
           </div>
-        </div>
+        </details>
 
-        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm font-black text-slate-800">{tr('الأجهزة المرتبطة', 'Bound devices')}</div>
+        <details className="rounded-2xl border border-gray-200 bg-slate-50 p-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-black text-slate-800">{tr('الأجهزة المرتبطة', 'Bound devices')}</div>
+              <div className="mt-1 text-[11px] font-bold text-slate-500">{tr('تفاصيل الأجهزة المرتبطة بالشركات السحابية وآخر ظهور لها.', 'Linked devices with their latest activity and company ownership.')}</div>
+            </div>
             <div className="text-[11px] font-bold text-slate-500">{filteredDevices.length} / {summary.totalDevices}</div>
-          </div>
-          <div className="space-y-3 max-h-[24rem] overflow-auto">
+          </summary>
+          <div className="mt-3 space-y-3 max-h-[24rem] overflow-auto">
             {!subscriptionCompaniesLoading && filteredDevices.length === 0 && (
               <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
                 {tr('لا توجد أجهزة مطابقة ضمن الفلاتر الحالية.', 'No devices match the current filters.')}
@@ -2171,27 +3539,30 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               </div>
             ))}
           </div>
-        </div>
+        </details>
 
-        <div className="rounded-2xl border border-gray-200 bg-slate-50 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm font-black text-slate-800">{tr('الأكواد', 'Activation codes')}</div>
+        <details className="rounded-2xl border border-gray-200 bg-slate-50 p-4">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-black text-slate-800">{tr('الأكواد', 'Activation codes')}</div>
+              <div className="mt-1 text-[11px] font-bold text-slate-500">{tr('الأكواد المتاحة والمستخدمة والمنتهية مع تفاصيل كل كود.', 'Available, used, and expired activation codes with full details.')}</div>
+            </div>
             <div className="text-[11px] font-bold text-slate-500">
               {tr('متاح', 'Available')}: {summary.availableCodes} | {tr('مستخدم', 'Used')}: {summary.usedCodes} | {tr('منتهي', 'Expired')}: {summary.expiredCodes}
             </div>
-          </div>
-          <div className="space-y-3 max-h-[28rem] overflow-auto">
-            {!subscriptionCodesLoading && codeRows.length === 0 && (
+          </summary>
+          <div className="mt-3 space-y-3 max-h-[28rem] overflow-auto">
+            {!subscriptionCodesLoading && subscriptionCodes.length === 0 && (
               <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
                 {tr('لا توجد أكواد متاحة لعرضها حاليًا.', 'There are no activation codes to show right now.')}
               </div>
             )}
-            {!subscriptionCodesLoading && codeRows.length > 0 && filteredCodes.length === 0 && (
+            {!subscriptionCodesLoading && subscriptionCodes.length > 0 && codeRows.length === 0 && (
               <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-xs font-bold text-gray-400">
                 {tr('لا توجد أكواد مطابقة ضمن الفلاتر الحالية.', 'No activation codes match the current filters.')}
               </div>
             )}
-            {filteredCodes.map(code => (
+            {codeRows.map(code => (
               <div key={code.code} className="rounded-2xl border border-gray-200 bg-white px-4 py-4 space-y-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="dir-ltr text-left text-sm font-black text-slate-900">{code.code}</div>
@@ -2218,7 +3589,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               </div>
             ))}
           </div>
-        </div>
+        </details>
       </div>
     );
   };
@@ -2227,7 +3598,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        saveLocalCompany('تم حفظ بيانات الشركة بنجاح', 'Company data saved successfully.');
         const result = updateCompanyProfile(currentCompanyId, {
           name: localCompany.name,
           taxNumber: localCompany.taxNumber,
@@ -2237,14 +3607,16 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         });
         if (!result.ok) {
           alert(result.message);
+          return;
         }
+        saveLocalCompany('تم حفظ بيانات الشركة بنجاح', 'Company data saved successfully.');
       }}
       className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in"
     >
       <div className="flex items-center gap-3">
-        <div className="w-16 h-16 rounded-2xl bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
+        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-white p-2.5 shadow-sm [&_img]:!bg-transparent [&_img]:!p-0">
           {localCompany.logoUrl ? (
-            <img src={localCompany.logoUrl} alt={tr('شعار الشركة', 'Company logo')} className="w-full h-full object-contain bg-white p-2" />
+            <img src={localCompany.logoUrl} alt={tr('شعار الشركة', 'Company logo')} className="w-full h-full object-contain" />
           ) : (
             <Building className="w-6 h-6 text-gray-400" />
           )}
@@ -2254,9 +3626,18 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <input
             type="file"
             accept="image/*"
-            onChange={(e) => handleLogoFile(e.target.files?.[0] || null)}
+            onChange={(e) => {
+              handleLogoFile(e.target.files?.[0] || null);
+              e.target.value = '';
+            }}
             className="w-full text-xs font-bold text-gray-500"
           />
+          <p className="mt-2 text-[11px] font-bold text-gray-400">
+            {tr(
+              'بعد اختيار الصورة ستتمكن من سحبها وتحديد قصّها قبل اعتماد الشعار.',
+              'After picking an image, you can drag and crop it before applying the logo.'
+            )}
+          </p>
         </div>
       </div>
       <div>
@@ -2306,20 +3687,57 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        saveLocalCompany('تم حفظ اللغة بنجاح', 'Language updated successfully.');
+        saveLanguagePreference();
       }}
       className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in"
     >
       <div>
         <label className="block text-sm font-bold text-gray-600 mb-1">{t('settings.languageField')}</label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          {[
+            {
+              value: 'AR' as CompanySettings['language'],
+              label: t('settings.optionArabic'),
+              desc: tr('\u0648\u0627\u062c\u0647\u0629 \u0639\u0631\u0628\u064a\u0629 \u0628\u0627\u062a\u062c\u0627\u0647 \u0645\u0646 \u0627\u0644\u064a\u0645\u064a\u0646 \u0625\u0644\u0649 \u0627\u0644\u064a\u0633\u0627\u0631.', 'Arabic interface with right-to-left layout.')
+            },
+            {
+              value: 'EN' as CompanySettings['language'],
+              label: t('settings.optionEnglish'),
+              desc: tr('\u0648\u0627\u062c\u0647\u0629 \u0625\u0646\u062c\u0644\u064a\u0632\u064a\u0629 \u0628\u0627\u062a\u062c\u0627\u0647 \u0645\u0646 \u0627\u0644\u064a\u0633\u0627\u0631 \u0625\u0644\u0649 \u0627\u0644\u064a\u0645\u064a\u0646.', 'English interface with left-to-right layout.')
+            }
+          ].map(option => {
+            const active = normalizeLanguage(localCompany.language) === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => applyLanguagePreference(option.value)}
+                className={`w-full rounded-2xl border p-4 text-start transition-all ${active ? 'border-blue-300 bg-blue-50 shadow-sm ring-2 ring-blue-100' : 'border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-white'}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-black text-gray-800">{option.label}</div>
+                    <div className="mt-1 text-xs font-bold text-gray-500">{option.desc}</div>
+                  </div>
+                  <div className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-black ${active ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-transparent'}`}>
+                    {active ? 'OK' : ''}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
         <select
           value={normalizeLanguage(localCompany.language)}
-          onChange={(e) => setLocalCompany({ ...localCompany, language: e.target.value as CompanySettings['language'] })}
+          onChange={(e) => applyLanguagePreference(e.target.value as CompanySettings['language'])}
           className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 outline-none font-bold"
         >
           <option value="AR">{t('settings.optionArabic')}</option>
           <option value="EN">{t('settings.optionEnglish')}</option>
         </select>
+        <p className="mt-2 text-xs font-bold text-gray-400">
+          {tr('\u0627\u062e\u062a\u0631 \u0627\u0644\u0644\u063a\u0629 \u0645\u0646 \u0627\u0644\u0623\u0632\u0631\u0627\u0631 \u0623\u0648 \u0645\u0646 \u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0648\u0633\u064a\u062a\u0645 \u062a\u0637\u0628\u064a\u0642\u0647\u0627 \u0645\u0628\u0627\u0634\u0631\u0629. \u064a\u0628\u0642\u0649 \u0632\u0631 \u062d\u0641\u0638 \u0627\u0644\u0644\u063a\u0629 \u0643\u062e\u064a\u0627\u0631 \u0625\u0636\u0627\u0641\u064a.', 'Choose the language from the buttons or dropdown and it will apply immediately. The save button remains available as an extra fallback.')}
+        </p>
       </div>
       <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
         <Save className="w-5 h-5" />
@@ -2503,7 +3921,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               />
             </div>
             <div className="flex items-center px-3 rounded-xl border border-indigo-100 bg-white text-[11px] font-bold text-indigo-700">
-              {tr('يُستخدم كحد افتراضي للصنف عند ترك \"حد تنبيه نفاد المخزون\" فارغًا.', 'Used as the default item threshold when the per-item low-stock alert is left empty.')}
+              {tr('يُستخدم كحد افتراضي للصنف عند ترك \\"حد تنبيه نفاد المخزون\\" فارغًا.', 'Used as the default item threshold when the per-item low-stock alert is left empty.')}
             </div>
           </div>
           <p className="text-[11px] font-bold text-indigo-600/80">
@@ -2573,63 +3991,63 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             {tr('تخصيص أنواع تنبيهات الإشعار', 'Notification categories customization')}
           </div>
           <div className="grid grid-cols-2 gap-2">
-          <ToggleRow
-            label={tr('صوت تنبيه للتنبيهات', 'Alert sound for notifications')}
-            description={tr('تشغيل/إيقاف صوت تنبيه مستقل عن إشعار سطح المكتب.', 'Enable/disable alert sound independently from desktop notification.')}
-            checked={coerceBoolean(localCompany.alertsSoundEnabled, true)}
-            rtl={rtl}
-            compact
-            onToggle={() => toggleSetting('alertsSoundEnabled')}
-          />
-          {!coerceBoolean(localCompany.alertsDesktopNotificationsEnabled, false) && (
-            <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
-              {tr(
-                'ملاحظة: الإشعارات العامة معطلة حاليًا. فعّل خيار "إرسال إشعار سطح المكتب للتنبيهات" أولًا.',
-                'Note: desktop notifications are currently disabled. Enable "Send desktop notification for alerts" first.'
-              )}
-            </div>
-          )}
-          <ToggleRow
-            label={tr('شيكات مستحقة/متأخرة', 'Due/overdue checks')}
-            description={tr('إرسال إشعار عند الشيكات القريبة أو المستحقة.', 'Send notification when checks are near due or overdue.')}
-            checked={coerceBoolean(localCompany.alertsDesktopNotifyChecks, true)}
-            rtl={rtl}
-            compact
-            onToggle={() => toggleSetting('alertsDesktopNotifyChecks')}
-          />
-          <ToggleRow
-            label={tr('نقص المخزون واطلب الآن', 'Low stock / order now')}
-            description={tr('إرسال إشعار عند الوصول لحد المخزون أو الصفر.', 'Send notification when item stock reaches threshold or zero.')}
-            checked={coerceBoolean(localCompany.alertsDesktopNotifyLowStock, true)}
-            rtl={rtl}
-            compact
-            onToggle={() => toggleSetting('alertsDesktopNotifyLowStock')}
-          />
-          <ToggleRow
-            label={tr('قرب/انتهاء صلاحية الأصناف', 'Item near-expiry/expired')}
-            description={tr('إرسال إشعار عند قرب أو انتهاء الصلاحية.', 'Send notification for near-expiry and expired items.')}
-            checked={coerceBoolean(localCompany.alertsDesktopNotifyExpiry, true)}
-            rtl={rtl}
-            compact
-            onToggle={() => toggleSetting('alertsDesktopNotifyExpiry')}
-          />
-          <ToggleRow
-            label={tr('الفواتير الآجلة المتأخرة', 'Overdue credit invoices')}
-            description={tr('إرسال إشعار للفواتير الآجلة التي تجاوزت الاستحقاق.', 'Send notification for credit invoices past due date.')}
-            checked={coerceBoolean(localCompany.alertsDesktopNotifyOverdueInvoices, true)}
-            rtl={rtl}
-            compact
-            onToggle={() => toggleSetting('alertsDesktopNotifyOverdueInvoices')}
-          />
-          <ToggleRow
-            label={tr('انتهاء عقود الموظفين', 'Employee contract expiry')}
-            description={tr('إرسال إشعار عند قرب نهاية عقد موظف.', 'Send notification when an employee contract is near expiry.')}
-            checked={coerceBoolean(localCompany.alertsDesktopNotifyContractExpiry, true)}
-            rtl={rtl}
-            compact
-            onToggle={() => toggleSetting('alertsDesktopNotifyContractExpiry')}
-          />
-        </div>
+            <ToggleRow
+              label={tr('صوت تنبيه للتنبيهات', 'Alert sound for notifications')}
+              description={tr('تشغيل/إيقاف صوت تنبيه مستقل عن إشعار سطح المكتب.', 'Enable/disable alert sound independently from desktop notification.')}
+              checked={coerceBoolean(localCompany.alertsSoundEnabled, true)}
+              rtl={rtl}
+              compact
+              onToggle={() => toggleSetting('alertsSoundEnabled')}
+            />
+            {!coerceBoolean(localCompany.alertsDesktopNotificationsEnabled, false) && (
+              <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
+                {tr(
+                  'ملاحظة: الإشعارات العامة معطلة حاليًا. فعّل خيار "إرسال إشعار سطح المكتب للتنبيهات" أولًا.',
+                  'Note: desktop notifications are currently disabled. Enable "Send desktop notification for alerts" first.'
+                )}
+              </div>
+            )}
+            <ToggleRow
+              label={tr('شيكات مستحقة/متأخرة', 'Due/overdue checks')}
+              description={tr('إرسال إشعار عند الشيكات القريبة أو المستحقة.', 'Send notification when checks are near due or overdue.')}
+              checked={coerceBoolean(localCompany.alertsDesktopNotifyChecks, true)}
+              rtl={rtl}
+              compact
+              onToggle={() => toggleSetting('alertsDesktopNotifyChecks')}
+            />
+            <ToggleRow
+              label={tr('نقص المخزون واطلب الآن', 'Low stock / order now')}
+              description={tr('إرسال إشعار عند الوصول لحد المخزون أو الصفر.', 'Send notification when item stock reaches threshold or zero.')}
+              checked={coerceBoolean(localCompany.alertsDesktopNotifyLowStock, true)}
+              rtl={rtl}
+              compact
+              onToggle={() => toggleSetting('alertsDesktopNotifyLowStock')}
+            />
+            <ToggleRow
+              label={tr('قرب/انتهاء صلاحية الأصناف', 'Item near-expiry/expired')}
+              description={tr('إرسال إشعار عند قرب أو انتهاء الصلاحية.', 'Send notification for near-expiry and expired items.')}
+              checked={coerceBoolean(localCompany.alertsDesktopNotifyExpiry, true)}
+              rtl={rtl}
+              compact
+              onToggle={() => toggleSetting('alertsDesktopNotifyExpiry')}
+            />
+            <ToggleRow
+              label={tr('الفواتير الآجلة المتأخرة', 'Overdue credit invoices')}
+              description={tr('إرسال إشعار للفواتير الآجلة التي تجاوزت الاستحقاق.', 'Send notification for credit invoices past due date.')}
+              checked={coerceBoolean(localCompany.alertsDesktopNotifyOverdueInvoices, true)}
+              rtl={rtl}
+              compact
+              onToggle={() => toggleSetting('alertsDesktopNotifyOverdueInvoices')}
+            />
+            <ToggleRow
+              label={tr('انتهاء عقود الموظفين', 'Employee contract expiry')}
+              description={tr('إرسال إشعار عند قرب نهاية عقد موظف.', 'Send notification when an employee contract is near expiry.')}
+              checked={coerceBoolean(localCompany.alertsDesktopNotifyContractExpiry, true)}
+              rtl={rtl}
+              compact
+              onToggle={() => toggleSetting('alertsDesktopNotifyContractExpiry')}
+            />
+          </div>
         </div>
 
         {options.map((opt) => (
@@ -2815,8 +4233,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                       type="button"
                       onClick={() => togglePermission(module, action)}
                       className={`w-8 h-8 rounded-lg text-[10px] font-black ${permissionDraft.modules[module]?.[action]
-                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          : 'bg-gray-100 text-gray-400 border border-gray-200'
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                        : 'bg-gray-100 text-gray-400 border border-gray-200'
                         }`}
                     >
                       {permissionDraft.modules[module]?.[action] ? tr('نعم', 'ON') : tr('لا', 'OFF')}
@@ -3247,10 +4665,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                     <td className="p-2">
                       <span
                         className={`px-2 py-1 rounded-lg font-black ${issue.severity === 'ERROR'
-                            ? 'bg-rose-50 text-rose-700'
-                            : issue.severity === 'WARNING'
-                              ? 'bg-amber-50 text-amber-700'
-                              : 'bg-blue-50 text-blue-700'
+                          ? 'bg-rose-50 text-rose-700'
+                          : issue.severity === 'WARNING'
+                            ? 'bg-amber-50 text-amber-700'
+                            : 'bg-blue-50 text-blue-700'
                           }`}
                       >
                         {getIntegritySeverityLabel(issue.severity)}
@@ -3309,7 +4727,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                     {tr(selectedIntegrityIssue.messageAr, selectedIntegrityIssue.messageEn)}
                   </div>
                   <div className="text-[11px] text-gray-400 font-bold mt-1">
-                    {getIntegrityAreaLabel(selectedIntegrityIssue.area)} · {selectedIntegrityIssue.entityLabel || '-'} {selectedIntegrityIssue.entityId ? `(${selectedIntegrityIssue.entityId})` : ''}
+                    {getIntegrityAreaLabel(selectedIntegrityIssue.area)} ط·آ¢ط¢آ· {selectedIntegrityIssue.entityLabel || '-'} {selectedIntegrityIssue.entityId ? `(${selectedIntegrityIssue.entityId})` : ''}
                   </div>
                 </div>
                 <button
@@ -3354,6 +4772,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'POLICY': return <PolicyGuideScreen mode="POLICY" language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'USAGE_GUIDE': return <PolicyGuideScreen mode="USAGE_GUIDE" language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'COMPANY': return renderCompanyForm();
+      case 'OPENING_BALANCES': return <OpeningBalancesManager />;
       case 'LANGUAGE': return renderLanguageForm();
       case 'TAXES': return renderTaxesForm();
       case 'VOUCHERS_AR_AP': return renderVouchersArApForm();
@@ -3376,34 +4795,109 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'BARCODE_DEVICES': return <BarcodeDevicesManager />;
       default:
         return (
-          <div className="space-y-3">
-            <MenuItem icon={<Building2 className="w-6 h-6" />} title={tr('الشركات', 'Companies')} desc={tr('التبديل بين الشركات وإضافة شركة جديدة', 'Switch and manage multiple companies')} color="teal" rtl={rtl} onClick={() => setMode('COMPANIES')} />
-            <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('إدارة الاشتراك', 'Subscription')} desc={tr('تفعيل الاشتراك، تمديده، وضبط حالة الوصول للشركة الحالية', 'Activate, renew, and control company access status')} color="emerald" rtl={rtl} onClick={() => setMode('SUBSCRIPTION')} />
-            <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سياسة الخصوصية', 'Privacy Policy')} desc={tr('شروط الاستخدام وسياسة حماية البيانات الخاصة بالتطبيق', 'Usage terms and data privacy policy for the app')} color="rose" rtl={rtl} onClick={() => setMode('POLICY')} />
-            <MenuItem icon={<BookOpen className="w-6 h-6" />} title={tr('دليل الاستخدام', 'Usage Guide')} desc={tr('خطوات سريعة لبدء الاستخدام وإعداد الخيارات الأساسية', 'Quick steps to start using the app and configure core options')} color="purple" rtl={rtl} onClick={() => setMode('USAGE_GUIDE')} />
-            {subscriptionAdminEnabled && (
-              <MenuItem icon={<Cloud className="w-6 h-6" />} title={tr('تقارير الاشتراكات', 'Subscription Reports')} desc={tr('عرض الشركات السحابية والأجهزة المرتبطة والأكواد المستخدمة والمنتهية', 'View cloud companies, bound devices, and used or expired codes')} color="purple" rtl={rtl} onClick={() => setMode('SUBSCRIPTION_REPORTS')} />
-            )}
-            <MenuItem icon={<Globe className="w-6 h-6" />} title={t('settings.language')} desc={t('settings.languageDesc')} color="green" rtl={rtl} onClick={() => setMode('LANGUAGE')} />
-            <MenuItem icon={<Building className="w-6 h-6" />} title={t('settings.companyData')} desc={t('settings.companyDesc')} color="blue" rtl={rtl} onClick={() => setMode('COMPANY')} />
-            <MenuItem icon={<Percent className="w-6 h-6" />} title={t('settings.taxes')} desc={tr('التحكم بنسبة الضريبة وعرضها في الفواتير', 'Control tax rate and tax visibility in invoices')} color="rose" rtl={rtl} onClick={() => setMode('TAXES')} />
-            <MenuItem icon={<Wallet className="w-6 h-6" />} title={tr('إعدادات السندات والذمم', 'Voucher & A/R Settings')} desc={tr('خيارات تخصيص السداد وربط السندات بالفواتير', 'Voucher allocation and invoice settlement options')} color="emerald" rtl={rtl} onClick={() => setMode('VOUCHERS_AR_AP')} />
-            <MenuItem icon={<Settings2 className="w-6 h-6" />} title={tr('خيارات أخرى', 'Other Options')} desc={tr('إعدادات التشغيل والسلوك العام', 'Operational and behavior settings')} color="indigo" rtl={rtl} onClick={() => setMode('OTHER_OPTIONS')} />
-            <MenuItem icon={<Printer className="w-6 h-6" />} title={tr('خيارات الطباعة', 'Print Options')} desc={tr('إعدادات شكل وإخراج الطباعة', 'Print layout and output settings')} color="orange" rtl={rtl} onClick={() => setMode('PRINT_OPTIONS')} />
-            <MenuItem icon={<Wallet className="w-6 h-6" />} title={t('settings.treasury')} desc={t('settings.treasuryDesc')} color="emerald" rtl={rtl} onClick={() => setMode('TREASURY')} />
-            <MenuItem icon={<Layers className="w-6 h-6" />} title={t('settings.accounts')} desc={t('settings.accountsDesc')} color="indigo" rtl={rtl} onClick={() => setMode('ACCOUNTS')} />
-            <MenuItem icon={<PackagePlus className="w-6 h-6" />} title={t('settings.itemGroups')} desc={t('settings.itemGroupsDesc')} color="purple" rtl={rtl} onClick={() => setMode('ITEM_GROUPS')} />
-            <MenuItem icon={<Scale className="w-6 h-6" />} title={t('settings.units')} desc={t('settings.unitsDesc')} color="orange" rtl={rtl} onClick={() => setMode('UNITS')} />
-            <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('الصلاحيات', 'Permissions')} desc={tr('عرض/إضافة/تعديل/حذف/ترحيل/طباعة/عكس', 'Access matrix by operation')} color="indigo" rtl={rtl} onClick={() => setMode('PERMISSIONS')} />
-            <MenuItem icon={<Lock className="w-6 h-6" />} title={tr('سجل التدقيق', 'Audit Trail')} desc={tr('من عدّل ماذا ومتى وعلى أي شاشة', 'Who changed what and when')} color="gray" rtl={rtl} onClick={() => setMode('AUDIT')} />
-            <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سلامة البيانات', 'Integrity Check')} desc={tr('فحص شامل للأخطاء المؤثرة على التقارير مع إصلاحات آمنة', 'Scan data integrity issues affecting reports with safe fixes')} color="rose" rtl={rtl} onClick={() => setMode('INTEGRITY')} />
-            <MenuItem icon={<Percent className="w-6 h-6" />} title={t('settings.currency')} desc={t('settings.currencyDesc')} color="green" rtl={rtl} onClick={() => setMode('CURRENCY')} />
-            <MenuItem icon={<Building2 className="w-6 h-6" />} title={t('settings.assets')} desc={t('settings.assetsDesc')} color="teal" rtl={rtl} onClick={() => setMode('ASSETS')} />
-            <MenuItem icon={<Upload className="w-6 h-6" />} title={tr('استيراد البيانات', 'Data Import')} desc={tr('استيراد زبائن/أصناف/سجلات/فواتير من Excel أو CSV', 'Import contacts/products/transactions/invoices from Excel or CSV')} color="blue" rtl={rtl} onClick={() => setMode('DATA_IMPORT')} />
-            <MenuItem icon={<Cable className="w-6 h-6" />} title={tr('مركز إدارة الأجهزة', 'Device Management Center')} desc={tr('تعريف الأجهزة، الوكيل المحلي، السجل، وطابور الأوفلاين', 'Devices, local agent, logs, and offline queue')} color="gray" rtl={rtl} onClick={() => setMode('DEVICE_HUB')} />
-            <MenuItem icon={<ScanBarcode className="w-6 h-6" />} title={tr('قارئ الباركود والطباعة', 'Barcode Reader & Labels')} desc={tr('إعدادات المسح بالباركود وطباعة ملصقات الأصناف', 'Barcode scanning settings and product label printing')} color="orange" rtl={rtl} onClick={() => setMode('BARCODE_DEVICES')} />
-            <MenuItem icon={<Wrench className="w-6 h-6" />} title={tr('قارئ البصمة', 'Fingerprint Reader')} desc={tr('تعريف أجهزة البصمة والرفع المباشر/اليدوي لسجلات الحضور', 'Configure fingerprint devices and direct/manual attendance uploads')} color="indigo" rtl={rtl} onClick={() => setMode('FINGERPRINT_READERS')} />
-            <MenuItem icon={<Download className="w-6 h-6" />} title={t('settings.backup')} desc={t('settings.backupDesc')} color="gray" rtl={rtl} onClick={() => setMode('BACKUP')} />
+          <div className="space-y-4">
+            <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-[11px] font-black text-slate-500">{tr('الشركة الحالية', 'Current company')}</div>
+                  <div className="mt-1 text-lg font-black text-slate-900">{currentCompany?.name || companySettings.name || tr('بدون اسم', 'Unnamed')}</div>
+                  <div className="mt-2 text-[11px] font-bold text-slate-500">
+                    {tr('الخطة', 'Plan')}: {getSubscriptionPlanLabel(currentCompany?.subscriptionPlan || 'TRIAL')}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode('SUBSCRIPTION')}
+                    className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[11px] font-black"
+                  >
+                    {tr('إدارة الاشتراك', 'Subscription')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('COMPANY')}
+                    className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-700"
+                  >
+                    {tr('بيانات الشركة', 'Company data')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('OPENING_BALANCES')}
+                    className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-black text-emerald-700"
+                  >
+                    {tr('الأرصدة الافتتاحية', 'Opening balances')}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <MenuSection
+              title={tr('الأكثر استخدامًا', 'Most used')}
+              description={tr('المهام اليومية السريعة التي تحتاجها غالبًا أولًا.', 'The quick daily tasks you usually need first.')}
+            >
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <MenuItem icon={<Building2 className="w-6 h-6" />} title={tr('الشركات', 'Companies')} desc={tr('التبديل بين الشركات وإضافة شركة جديدة', 'Switch and manage multiple companies')} color="teal" rtl={rtl} onClick={() => setMode('COMPANIES')} />
+                <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('إدارة الاشتراك', 'Subscription')} desc={tr('تفعيل الاشتراك، تمديده، وضبط حالة الوصول للشركة الحالية', 'Activate, renew, and control company access status')} color="emerald" rtl={rtl} onClick={() => setMode('SUBSCRIPTION')} />
+                <MenuItem icon={<Building className="w-6 h-6" />} title={t('settings.companyData')} desc={t('settings.companyDesc')} color="blue" rtl={rtl} onClick={() => setMode('COMPANY')} />
+                <MenuItem icon={<Save className="w-6 h-6" />} title={tr('الأرصدة الافتتاحية', 'Opening Balances')} desc={tr('إدخال أرصدة البداية للعملاء والموردين وكافة الحسابات بقيود افتتاحية منظمة', 'Enter start balances for customers, suppliers, and all posting accounts with structured opening entries')} color="orange" rtl={rtl} onClick={() => setMode('OPENING_BALANCES')} />
+                <MenuItem icon={<Download className="w-6 h-6" />} title={t('settings.backup')} desc={t('settings.backupDesc')} color="gray" rtl={rtl} onClick={() => setMode('BACKUP')} />
+              </div>
+            </MenuSection>
+
+            <MenuSection
+              title={tr('الإعدادات الأساسية', 'Core settings')}
+              description={tr('لغة النظام، الضرائب، السندات، والسلوك العام للتشغيل والطباعة.', 'Language, tax, vouchers, and the main operating and print behavior.')}
+            >
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <MenuItem icon={<Globe className="w-6 h-6" />} title={t('settings.language')} desc={t('settings.languageDesc')} color="green" rtl={rtl} onClick={() => setMode('LANGUAGE')} />
+                <MenuItem icon={<Percent className="w-6 h-6" />} title={t('settings.taxes')} desc={tr('التحكم بنسبة الضريبة وعرضها في الفواتير', 'Control tax rate and tax visibility in invoices')} color="rose" rtl={rtl} onClick={() => setMode('TAXES')} />
+                <MenuItem icon={<Wallet className="w-6 h-6" />} title={tr('إعدادات السندات والذمم', 'Voucher & A/R Settings')} desc={tr('خيارات تخصيص السداد وربط السندات بالفواتير', 'Voucher allocation and invoice settlement options')} color="emerald" rtl={rtl} onClick={() => setMode('VOUCHERS_AR_AP')} />
+                <MenuItem icon={<Settings2 className="w-6 h-6" />} title={tr('خيارات أخرى', 'Other Options')} desc={tr('إعدادات التشغيل والسلوك العام', 'Operational and behavior settings')} color="indigo" rtl={rtl} onClick={() => setMode('OTHER_OPTIONS')} />
+                <MenuItem icon={<Printer className="w-6 h-6" />} title={tr('خيارات الطباعة', 'Print Options')} desc={tr('إعدادات شكل وإخراج الطباعة', 'Print layout and output settings')} color="orange" rtl={rtl} onClick={() => setMode('PRINT_OPTIONS')} />
+                <MenuItem icon={<Percent className="w-6 h-6" />} title={t('settings.currency')} desc={t('settings.currencyDesc')} color="green" rtl={rtl} onClick={() => setMode('CURRENCY')} />
+              </div>
+            </MenuSection>
+
+            <MenuSection
+              title={tr('الحسابات والأصناف', 'Accounts and items')}
+              description={tr('إدارة الدليل المحاسبي والخزينة والمخزون والتصنيفات المرتبطة به.', 'Manage the chart of accounts, treasury, inventory, and related item structures.')}
+            >
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <MenuItem icon={<Wallet className="w-6 h-6" />} title={t('settings.treasury')} desc={t('settings.treasuryDesc')} color="emerald" rtl={rtl} onClick={() => setMode('TREASURY')} />
+                <MenuItem icon={<Layers className="w-6 h-6" />} title={t('settings.accounts')} desc={t('settings.accountsDesc')} color="indigo" rtl={rtl} onClick={() => setMode('ACCOUNTS')} />
+                <MenuItem icon={<PackagePlus className="w-6 h-6" />} title={t('settings.itemGroups')} desc={t('settings.itemGroupsDesc')} color="purple" rtl={rtl} onClick={() => setMode('ITEM_GROUPS')} />
+                <MenuItem icon={<Scale className="w-6 h-6" />} title={t('settings.units')} desc={t('settings.unitsDesc')} color="orange" rtl={rtl} onClick={() => setMode('UNITS')} />
+                <MenuItem icon={<Building2 className="w-6 h-6" />} title={t('settings.assets')} desc={t('settings.assetsDesc')} color="teal" rtl={rtl} onClick={() => setMode('ASSETS')} />
+              </div>
+            </MenuSection>
+
+            <MenuSection
+              title={tr('الرقابة والبيانات', 'Control and data')}
+              description={tr('الاستيراد، الصلاحيات، سجل التدقيق، وفحص سلامة البيانات.', 'Import, permissions, audit trail, and data integrity tools.')}
+            >
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <MenuItem icon={<Upload className="w-6 h-6" />} title={tr('استيراد البيانات', 'Data Import')} desc={tr('استيراد زبائن/أصناف/سجلات/فواتير من Excel أو CSV', 'Import contacts/products/transactions/invoices from Excel or CSV')} color="blue" rtl={rtl} onClick={() => setMode('DATA_IMPORT')} />
+                <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('الصلاحيات', 'Permissions')} desc={tr('عرض/إضافة/تعديل/حذف/ترحيل/طباعة/عكس', 'Access matrix by operation')} color="indigo" rtl={rtl} onClick={() => setMode('PERMISSIONS')} />
+                <MenuItem icon={<Lock className="w-6 h-6" />} title={tr('سجل التدقيق', 'Audit Trail')} desc={tr('من عدّل ماذا ومتى وعلى أي شاشة', 'Who changed what and when')} color="gray" rtl={rtl} onClick={() => setMode('AUDIT')} />
+                <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سلامة البيانات', 'Integrity Check')} desc={tr('فحص شامل للأخطاء المؤثرة على التقارير مع إصلاحات آمنة', 'Scan data integrity issues affecting reports with safe fixes')} color="rose" rtl={rtl} onClick={() => setMode('INTEGRITY')} />
+              </div>
+            </MenuSection>
+
+            <MenuSection
+              title={tr('الأجهزة والمساعدة', 'Devices and help')}
+              description={tr('إعدادات الأجهزة الطرفية، مركز الأجهزة، ودلائل الاستخدام والسياسات.', 'Peripheral devices, device hub, usage guides, and policy screens.')}
+            >
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <MenuItem icon={<Cable className="w-6 h-6" />} title={tr('مركز إدارة الأجهزة', 'Device Management Center')} desc={tr('تعريف الأجهزة، الوكيل المحلي، السجل، وطابور الأوفلاين', 'Devices, local agent, logs, and offline queue')} color="gray" rtl={rtl} onClick={() => setMode('DEVICE_HUB')} />
+                <MenuItem icon={<ScanBarcode className="w-6 h-6" />} title={tr('قارئ الباركود والطباعة', 'Barcode Reader & Labels')} desc={tr('إعدادات المسح بالباركود وطباعة ملصقات الأصناف', 'Barcode scanning settings and product label printing')} color="orange" rtl={rtl} onClick={() => setMode('BARCODE_DEVICES')} />
+                <MenuItem icon={<Wrench className="w-6 h-6" />} title={tr('قارئ البصمة', 'Fingerprint Reader')} desc={tr('تعريف أجهزة البصمة والرفع المباشر/اليدوي لسجلات الحضور', 'Configure fingerprint devices and direct/manual attendance uploads')} color="indigo" rtl={rtl} onClick={() => setMode('FINGERPRINT_READERS')} />
+                <MenuItem icon={<BookOpen className="w-6 h-6" />} title={tr('دليل الاستخدام', 'Usage Guide')} desc={tr('خطوات سريعة لبدء الاستخدام وإعداد الخيارات الأساسية', 'Quick steps to start using the app and configure core options')} color="purple" rtl={rtl} onClick={() => setMode('USAGE_GUIDE')} />
+                <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سياسة الخصوصية', 'Privacy Policy')} desc={tr('شروط الاستخدام وسياسة حماية البيانات الخاصة بالتطبيق', 'Usage terms and data privacy policy for the app')} color="rose" rtl={rtl} onClick={() => setMode('POLICY')} />
+                {subscriptionAdminEnabled && (
+                  <MenuItem icon={<Cloud className="w-6 h-6" />} title={tr('تقارير الاشتراكات', 'Subscription Reports')} desc={tr('عرض الشركات السحابية والأجهزة المرتبطة والأكواد المستخدمة والمنتهية', 'View cloud companies, bound devices, and used or expired codes')} color="purple" rtl={rtl} onClick={() => setMode('SUBSCRIPTION_REPORTS')} />
+                )}
+              </div>
+            </MenuSection>
           </div>
         );
     }
@@ -3420,6 +4914,13 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         <h1 className="text-2xl font-bold text-gray-800">{mode === 'MENU' ? t('settings.title') : t('settings.systemManagement')}</h1>
       </header>
       {renderContent()}
+      <CompanyLogoCropDialog
+        open={Boolean(logoCropSource)}
+        imageSrc={logoCropSource}
+        language={appLanguage}
+        onClose={handleCloseLogoCrop}
+        onApply={handleApplyLogoCrop}
+      />
     </div>
   );
 };
@@ -3476,6 +4977,16 @@ const MenuItem: React.FC<{ icon: React.ReactNode; title: string; desc: string; c
     </div>
     <ChevronRight className={`w-5 h-5 text-gray-300 ${rtl ? 'rotate-180' : ''}`} />
   </button>
+);
+
+const MenuSection: React.FC<{ title: string; description?: string; children: React.ReactNode }> = ({ title, description, children }) => (
+  <section className="rounded-[1.75rem] border border-gray-100 bg-slate-50/80 p-3 sm:p-4 space-y-3">
+    <div>
+      <h2 className="text-sm font-black text-slate-900">{title}</h2>
+      {description && <p className="mt-1 text-[11px] font-bold text-slate-500">{description}</p>}
+    </div>
+    {children}
+  </section>
 );
 
 export default DefinitionsMenu;

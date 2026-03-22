@@ -276,10 +276,10 @@ const ImportManager: React.FC<ImportManagerProps> = ({
         // Determine the credit account based on contact type
         // Suppliers go to Accounts Payable, Customers to Accounts Receivable, Partners to linked equity account.
         const creditAccountId = party?.type === 'SUPPLIER'
-            ? 'acc_payable'
+            ? (party.currentAccountId || party.linkedAccountId || 'acc_payable')
             : party?.type === 'PARTNER'
                 ? (party.currentAccountId || party.linkedAccountId || 'acc_partner_current')
-                : 'acc_receivable';
+                : (party?.currentAccountId || party?.linkedAccountId || 'acc_receivable');
         
         // 1. Post Accounting Transaction (Move from Expense to Asset/Inventory Value)
         // This transaction credits the Supplier/Customer account (Liability increases)

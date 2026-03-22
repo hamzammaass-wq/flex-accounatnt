@@ -57,7 +57,6 @@ const ExpenseVoucherEntryScreen: React.FC<ExpenseVoucherEntryScreenProps> = ({
   const summary = useMemo(() => {
     const total = expenseInvoices.length;
     const posted = expenseInvoices.filter(inv => (inv.postingStatus || 'POSTED') === 'POSTED').length;
-    const drafts = Math.max(0, total - posted);
     const totalAmount = expenseInvoices.reduce((sum, inv) => sum + (Number(inv.totalAmount) || 0), 0);
     const monthKey = new Date().toISOString().slice(0, 7);
     const thisMonth = expenseInvoices.filter(inv => String(inv.date || '').slice(0, 7) === monthKey).length;
@@ -70,7 +69,6 @@ const ExpenseVoucherEntryScreen: React.FC<ExpenseVoucherEntryScreenProps> = ({
     return {
       total,
       posted,
-      drafts,
       totalAmount,
       thisMonth,
       beneficiaries,
@@ -180,8 +178,8 @@ const ExpenseVoucherEntryScreen: React.FC<ExpenseVoucherEntryScreenProps> = ({
               <div className="mt-1 text-lg font-black text-blue-600">{summary.posted}</div>
             </div>
             <div className="rounded-2xl border border-white/80 bg-white/85 p-3 shadow-sm">
-              <div className="text-[10px] font-black text-slate-400">{tr('المسودات', 'Drafts')}</div>
-              <div className="mt-1 text-lg font-black text-amber-600">{summary.drafts}</div>
+              <div className="text-[10px] font-black text-slate-400">{tr('هذا الشهر', 'This month')}</div>
+              <div className="mt-1 text-lg font-black text-sky-600">{summary.thisMonth}</div>
             </div>
           </div>
 
@@ -301,16 +299,14 @@ const ExpenseVoucherEntryScreen: React.FC<ExpenseVoucherEntryScreenProps> = ({
               const detailLabel = String(inv.notes || '').trim()
                 || String(inv.items?.[0]?.description || '').trim()
                 || tr('بدون تفاصيل إضافية', 'No extra details');
-              const posted = (inv.postingStatus || 'POSTED') === 'POSTED';
-
               return (
                 <div key={inv.id} className="rounded-2xl border border-slate-100 bg-[linear-gradient(180deg,rgba(255,255,255,1)_0%,rgba(248,250,252,0.94)_100%)] p-3 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-black text-slate-800">{inv.invoiceNumber}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${posted ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                          {posted ? tr('مرحل', 'Posted') : tr('مسودة', 'Draft')}
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black text-emerald-700">
+                          {tr('مرحل', 'Posted')}
                         </span>
                       </div>
                       <div className="mt-1 flex items-center gap-2 text-[10px] font-bold text-slate-500">

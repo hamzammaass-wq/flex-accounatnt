@@ -17,7 +17,6 @@ import {
   Scale,
   Ship,
   Briefcase,
-  LayoutGrid,
   Receipt,
   Sparkles,
   Warehouse,
@@ -27,11 +26,12 @@ import {
   BellRing,
   Coins,
   Building2,
+  Layers,
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
 import { SettingsMode } from './DefinitionsMenu';
-import { DEFAULT_BRAND_LOGO_URL } from '../utils/brandAssets';
+import { DEFAULT_BRAND_MARK_URL } from '../utils/brandAssets';
 import { getDateLocale, getNumberLocale, translate } from '../utils/i18n';
 import { buildOperationalAlerts } from '../utils/operationalAlerts';
 
@@ -47,6 +47,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const tr = (ar: string, en: string) => (appLanguage === 'AR' ? ar : en);
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
     translate(appLanguage, key, params);
+  const smartAccountantTitle = tr('المحاسب الذكي', 'AIFLEX Smart Accountant');
+  const smartAccountantCardText = tr(
+    'مساعد محاسبي ذكي يحلل بياناتك، يقترح القيود، ويساعدك على اتخاذ قرارات مالية أفضل بسرعة ودقة.',
+    'A smart accounting assistant that analyzes your data, suggests entries, and helps you make better financial decisions quickly and accurately.'
+  );
 
   const today = new Date();
   const weekdayStr = new Intl.DateTimeFormat(getDateLocale(appLanguage), {
@@ -62,8 +67,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const companyDisplayName = (companySettings.name || '').trim() || tr('الشركة', 'Company');
 
   const normalizedHeaderLogoUrl = String(companySettings.logoUrl || '').trim();
-  const headerUsesProgramLogo = !normalizedHeaderLogoUrl || /\/brand\/aiflex-erp-(?:logo|mark)\.(?:png|svg)$/i.test(normalizedHeaderLogoUrl);
-  const headerLogoSrc = headerUsesProgramLogo ? DEFAULT_BRAND_LOGO_URL : normalizedHeaderLogoUrl;
+  const headerLogoSrc = normalizedHeaderLogoUrl || DEFAULT_BRAND_MARK_URL;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat(getNumberLocale(appLanguage), { minimumFractionDigits: 0 }).format(amount);
@@ -131,6 +135,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     { label: t('dashboard.module.warehouses'), icon: Warehouse, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('warehouses') },
     { label: t('dashboard.module.inventory'), icon: Package, color: 'text-orange-600', bg: 'bg-orange-100', action: () => onNavigate('products') },
     { label: t('dashboard.module.treasury'), icon: Wallet, color: 'text-emerald-600', bg: 'bg-emerald-100', action: () => onNavigate('treasury') },
+    { label: appLanguage === 'AR' ? 'الحسابات' : 'Accounts', icon: Layers, color: 'text-sky-700', bg: 'bg-sky-100', action: () => onNavigate('accounts-hub') },
     { label: appLanguage === 'AR' ? 'مطابقة البنك' : 'Bank Reconciliation', icon: Landmark, color: 'text-teal-600', bg: 'bg-teal-100', action: () => onNavigate('bank-reconciliation') },
     { label: t('dashboard.module.assets'), icon: Briefcase, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('fixed-assets') },
     { label: appLanguage === 'AR' ? 'حقوق الملكية والشركاء' : 'Equity & Partners', icon: Coins, color: 'text-fuchsia-600', bg: 'bg-fuchsia-100', action: () => onNavigate('equity-partners') },
@@ -141,8 +146,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     { label: t('dashboard.module.imports'), icon: Ship, color: 'text-cyan-600', bg: 'bg-cyan-100', action: () => onNavigate('import-list') },
     { label: t('dashboard.module.journal'), icon: Scale, color: 'text-slate-600', bg: 'bg-slate-200', action: () => onNavigate('journal-list') },
     { label: t('dashboard.module.reports'), icon: BarChart3, color: 'text-violet-600', bg: 'bg-violet-100', action: () => onNavigate('reports') },
-    { label: t('dashboard.module.settlements'), icon: Scale, color: 'text-pink-600', bg: 'bg-pink-100', action: () => onNavigate('settlements') },
-    { label: t('dashboard.module.settings'), icon: LayoutGrid, color: 'text-gray-600', bg: 'bg-gray-200', action: () => onNavigate('definitions') }
+    { label: t('dashboard.module.settlements'), icon: Scale, color: 'text-pink-600', bg: 'bg-pink-100', action: () => onNavigate('settlements') }
   ];
 
   return (
@@ -172,17 +176,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           ) : (
             <>
               <div className="flex items-center gap-3">
-                <div className="relative">
+                <div className="relative shrink-0">
                   {headerLogoSrc ? (
-                    <img
-                      src={headerLogoSrc}
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-slate-200/80 bg-white p-2 shadow-md">
+                      <img
+                        src={headerLogoSrc}
                       alt={tr('شعار الشركة', 'Company logo')}
-                      className={headerUsesProgramLogo
-                        ? 'h-11 w-24 sm:w-28 rounded-2xl object-contain bg-white px-2 py-1.5 border border-white shadow-md'
-                        : 'w-11 h-11 rounded-full object-contain bg-white p-1.5 border-2 border-white shadow-md'}
-                    />
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
                   ) : (
-                    <div className="w-11 h-11 rounded-full border-2 border-white shadow-md bg-slate-100 text-slate-600 flex items-center justify-center">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200/80 bg-slate-100 text-slate-600 shadow-md">
                       <Building2 className="w-5 h-5" />
                     </div>
                   )}
@@ -265,6 +269,34 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             ))}
           </div>
         </div>
+
+        {false && (
+        <div className="mb-6 sm:mb-8">
+          <button
+            type="button"
+            onClick={() => onNavigate('ai')}
+            className="w-full text-start rounded-[2rem] border border-violet-100 bg-[linear-gradient(145deg,rgba(245,243,255,1)_0%,rgba(255,255,255,1)_48%,rgba(239,246,255,1)_100%)] p-5 shadow-sm transition-all hover:shadow-md hover:border-violet-200 active:scale-[0.99]"
+          >
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/85 border border-white px-3 py-1.5 text-[11px] font-black text-violet-700 shadow-sm">
+                  <Sparkles className="w-4 h-4" />
+                  {smartAccountantTitle}
+                </div>
+                <div className="mt-3 text-lg font-black text-slate-900">
+                  {tr('تحليل ذكي لبياناتك المالية', 'Smart analysis for your financial data')}
+                </div>
+                <p className="mt-2 text-sm font-bold leading-7 text-slate-600 max-w-2xl">
+                  {smartAccountantCardText}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-900 px-3 py-2 text-[11px] font-black text-white shadow-sm">
+                {tr('فتح الميزة', 'Open feature')}
+              </div>
+            </div>
+          </button>
+        </div>
+        )}
 
         <div className="mb-6 sm:mb-8">
           <div className="flex justify-between items-center mb-3 sm:mb-4 px-1">

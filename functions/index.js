@@ -22,7 +22,7 @@ const COLLECTIONS = {
 setGlobalOptions({ region: FUNCTIONS_REGION, maxInstances: 10 });
 
 const clampCompanyCount = (value) => Math.max(1, Math.min(50, Math.floor(Number(value) || 1)));
-const normalizeBillingCycle = (value) => String(value || '').trim().toUpperCase() === 'YEARLY' ? 'YEARLY' : 'MONTHLY';
+const normalizeBillingCycle = () => 'YEARLY';
 const isHttpUrl = (value) => /^https?:\/\//i.test(String(value || '').trim());
 const unixSecondsToIso = (value) => {
   const seconds = Number(value);
@@ -31,19 +31,11 @@ const unixSecondsToIso = (value) => {
 };
 const nowIso = () => new Date().toISOString();
 
-const pricingForCycle = (billingCycle) => (
-  billingCycle === 'YEARLY'
-    ? {
-      basePriceUsd: 20,
-      extraCompanyPriceUsd: 5,
-      interval: 'year'
-    }
-    : {
-      basePriceUsd: 10,
-      extraCompanyPriceUsd: 3,
-      interval: 'month'
-    }
-);
+const pricingForCycle = () => ({
+  basePriceUsd: 20,
+  extraCompanyPriceUsd: 5,
+  interval: 'year'
+});
 
 const mapGoogleStatus = (status) => {
   switch (String(status || '').trim()) {
@@ -134,12 +126,12 @@ const parseOfferFromProductId = (productId) => {
   const match = raw.match(/\.(monthly|yearly)\.(\d+)c$/);
   if (!match) {
     return {
-      billingCycle: 'MONTHLY',
+      billingCycle: 'YEARLY',
       desiredCompanyCount: 1
     };
   }
   return {
-    billingCycle: match[1] === 'yearly' ? 'YEARLY' : 'MONTHLY',
+    billingCycle: 'YEARLY',
     desiredCompanyCount: clampCompanyCount(match[2])
   };
 };

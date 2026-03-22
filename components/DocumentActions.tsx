@@ -5,11 +5,16 @@ import { FileSpreadsheet, MessageCircle, MessageSquareText, MoreVertical, Printe
 interface DocumentActionsProps {
   title: string;
   shareText: string;
+  smsText?: string;
+  whatsappText?: string;
+  notificationPhone?: string;
   isEnglish?: boolean;
   tr: (ar: string, en: string) => string;
-  onPrint: () => void;
+  onPrint: () => void | Promise<void>;
+  onShare?: () => void | Promise<void>;
   onSave?: () => void | Promise<void>;
   onExcel?: () => void | Promise<void>;
+  onSms?: () => void | Promise<void>;
   onWhatsapp?: () => void | Promise<void>;
   saveTitle?: string;
   saveButtonIcon?: 'save' | 'fileText';
@@ -22,11 +27,16 @@ interface DocumentActionsProps {
 const DocumentActions: React.FC<DocumentActionsProps> = ({
   title,
   shareText,
+  smsText,
+  whatsappText,
+  notificationPhone,
   isEnglish = false,
   tr,
   onPrint,
+  onShare,
   onSave,
   onExcel,
+  onSms,
   onWhatsapp,
   saveTitle,
   saveButtonIcon = 'save',
@@ -99,12 +109,42 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
     setIsBusy(true);
     try {
       await action();
+    } catch {
+      alert(tr('تعذر تنفيذ هذا الإجراء الآن.', 'Could not complete this action right now.'));
     } finally {
       setIsBusy(false);
     }
   };
 
+  const normalizePhoneForDirectMessage = (value?: string) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('+')) {
+      return raw.replace(/[^\d]/g, '');
+    }
+    const digitsOnly = raw.replace(/[^\d]/g, '');
+    if (digitsOnly.startsWith('00')) {
+      return digitsOnly.slice(2);
+    }
+    return /^\d{8,15}$/.test(digitsOnly) && !digitsOnly.startsWith('0') ? digitsOnly : '';
+  };
+
+  const openExternalUrl = (url: string, blockedMessage: string) => {
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (popup) return;
+    try {
+      window.location.href = url;
+      return;
+    } catch {
+      alert(blockedMessage);
+    }
+  };
+
   const handleShare = async () => {
+    if (onShare) {
+      await runAsyncAction(onShare);
+      return;
+    }
     await runAsyncAction(async () => {
       if (navigator.share) {
         try {
@@ -129,9 +169,19 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
     });
   };
 
-  const handleSms = () => {
+  const handleSms = async () => {
+    if (onSms) {
+      await runAsyncAction(onSms);
+      return;
+    }
+    const smsBody = smsText || shareText;
+    const directPhone = String(notificationPhone || '').trim().replace(/\s+/g, '');
+    const smsTarget = directPhone ? `sms:${directPhone}` : 'sms:';
     setIsOpen(false);
-    window.open(`sms:?&body=${encodeURIComponent(shareText)}`, '_blank');
+    openExternalUrl(
+      `${smsTarget}?&body=${encodeURIComponent(smsBody)}`,
+      tr('تعذر فتح تطبيق الرسائل من المتصفح الحالي.', 'Unable to open the SMS app from the current browser.')
+    );
   };
 
   const handleWhatsapp = async () => {
@@ -140,7 +190,15 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
         await onWhatsapp();
         return;
       }
-      window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
+      const message = whatsappText || smsText || shareText;
+      const directPhone = normalizePhoneForDirectMessage(notificationPhone);
+      const targetUrl = directPhone
+        ? `https://wa.me/${directPhone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+      openExternalUrl(
+        targetUrl,
+        tr('تعذر فتح واتساب. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open WhatsApp. Please allow pop-ups.')
+      );
     });
   };
 
@@ -172,7 +230,7 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
       <button
         type="button"
         title={tr('طباعة', 'Print')}
-        onClick={onPrint}
+        onClick={() => { void runAsyncAction(onPrint); }}
         disabled={isBusy}
         className={`h-10 w-10 rounded-xl border flex items-center justify-center transition-all ${printButtonClass} ${disabledButtonClass}`}
       >
@@ -217,7 +275,7 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
         <div
           ref={menuRef}
           style={{ top: `${menuStyle.top}px`, left: `${menuStyle.left}px` }}
-          className={`fixed z-[200] w-48 rounded-2xl p-2 ${menuPanelClass}`}
+          className={`fixed z-[450] w-48 rounded-2xl p-2 ${menuPanelClass}`}
         >
           <button
             type="button"
@@ -246,7 +304,7 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
           </button>
           <button
             type="button"
-            onClick={handleSms}
+            onClick={() => { void handleSms(); }}
             disabled={isBusy}
             className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-sm font-black transition-colors ${
               isBusy ? 'opacity-50 cursor-not-allowed' : variant === 'dark' ? 'hover:bg-white/10' : 'hover:bg-gray-50'

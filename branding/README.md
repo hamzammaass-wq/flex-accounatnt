@@ -1,13 +1,18 @@
 Branding masters live in `branding/masters`.
 
 Files:
-- `aiflex-erp-logo.svg`: primary vector logo used by the app UI.
-- `aiflex-erp-logo.png`: raster backup of the primary logo.
-- `aiflex-erp-app-icon.svg`: vector app icon source.
+- `aiflex-erp-logo.png`: primary logo master.
 - `aiflex-erp-app-icon.png`: 1024x1024 raster app icon master.
+- `aiflex-erp-ios-icon.png`: 1024x1024 iOS-specific app icon master used when the iPhone icon needs a full-bleed version.
+
+Generated automatically during `npm run brand:sync`:
+- `public/brand/aiflex-erp-logo.svg`
+- `public/brand/aiflex-erp-mark.svg`
+- `public/icons/icon-192.svg`
+- `public/icons/icon-512.svg`
 
 Build flow:
-- Run `npm run brand:sync` to copy and resize the saved masters into their runtime locations.
+- Run `npm run brand:sync` to copy the PNG masters, generate the SVG wrappers, and resize everything into runtime locations.
 - `npm run build` already runs `npm run brand:sync` before Vite builds the app.
 
 Main output groups:

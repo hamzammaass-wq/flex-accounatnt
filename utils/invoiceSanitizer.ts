@@ -60,6 +60,12 @@ export const sanitizeInvoice = (raw: unknown, index = 0): Invoice | null => {
   const id = asOptionalString(source.id) || `invoice_${index + 1}`;
   const type = isTransactionType(source.type) ? source.type : TransactionType.INCOME;
   const items = sanitizeInvoiceItems(source.items);
+  const hasExplicitPostingStatus = source.postingStatus != null;
+  const safePostingStatus = isPostingStatus(source.postingStatus)
+    ? source.postingStatus
+    : ((isInvoiceStatus(source.status) && source.status === 'QUOTATION') || hasExplicitPostingStatus
+      ? 'DRAFT'
+      : 'POSTED');
 
   return {
     id,
@@ -78,7 +84,7 @@ export const sanitizeInvoice = (raw: unknown, index = 0): Invoice | null => {
     discountAmount: asFiniteNumber(source.discountAmount),
     totalAmount: asFiniteNumber(source.totalAmount),
     status: isInvoiceStatus(source.status) ? source.status : 'PENDING',
-    postingStatus: isPostingStatus(source.postingStatus) ? source.postingStatus : 'DRAFT',
+    postingStatus: safePostingStatus,
     paymentType: isPaymentType(source.paymentType) ? source.paymentType : 'CASH',
     paymentAccountId: asOptionalString(source.paymentAccountId),
     isPartnerDrawings: Boolean(source.isPartnerDrawings),

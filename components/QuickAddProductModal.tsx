@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useAccounting } from '../contexts/AccountingContext';
-import { Product } from '../types';
+import { Product, ProductKind } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import EnglishDateInput from './EnglishDateInput';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayUnitName } from '../utils/displayNames';
+import { normalizeProductInventoryFields } from '../utils/productKind';
 
 const inputClass = 'w-full p-3 bg-gray-50 border border-gray-100 rounded-[1.2rem] text-sm font-bold text-slate-700 outline-none transition-all duration-300 shadow-sm focus:bg-white focus:shadow-[0_8px_20px_rgba(0,0,0,0.06)] focus:border-blue-400/30 placeholder:text-gray-300';
 
@@ -34,6 +35,7 @@ type QuickAddProductModalProps = {
 const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, onSave, mode = 'INVOICE', product = null, initialName = '' }) => {
   const { addProduct, addItemGroup, addUnit, updateProduct, baseCurrency, companySettings, itemGroups, products, units } = useAccounting();
   const [name, setName] = useState('');
+  const [productKind, setProductKind] = useState<ProductKind>('STOCK');
   const [groupId, setGroupId] = useState('');
   const [unitId, setUnitId] = useState('');
   const [itemCode, setItemCode] = useState('');
@@ -101,6 +103,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   useEffect(() => {
     if (!product) {
       setName(initialName);
+      setProductKind('STOCK');
       setGroupId('');
       setUnitId('');
       setItemCode('');
@@ -123,6 +126,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     }
 
     setName(product.name || '');
+    setProductKind(product.kind === 'SERVICE' ? 'SERVICE' : 'STOCK');
     setGroupId(product.category || '');
     setUnitId(product.unitId || '');
     setItemCode(product.itemCode || '');
@@ -218,6 +222,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     const draft: Product = {
       id: 'draft_product',
       name: name || 'draft',
+      kind: productKind,
       buyPrice: parseLocalizedPositiveDecimal(buyPrice),
       sellPrice: draftRetailInput,
       wholesalePrice: draftWholesaleInput > 0 ? draftWholesaleInput : draftRetailInput,
@@ -226,12 +231,13 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       retailPricingMode,
       wholesaleMarkupPercent: parseLocalizedPositiveDecimal(wholesaleMarkupPercent),
       retailMarkupPercent: parseLocalizedPositiveDecimal(retailMarkupPercent),
-      stock: parseLocalizedPositiveInt(stock) || 0
+      stock: productKind === 'SERVICE' ? 0 : (parseLocalizedPositiveInt(stock) || 0)
     };
     return resolveProductPricing(draft, draft.buyPrice);
   }, [
     buyPrice,
     name,
+    productKind,
     retailMarkupPercent,
     retailPricingMode,
     sellPrice,
@@ -298,13 +304,14 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       ...(product || {}),
       id,
       name: name.trim(),
+      kind: productKind,
       category: groupId || (itemGroups[0]?.id || 'ig_other'),
       unitId: unitId || undefined,
       itemCode: resolvedItemCode || undefined,
-      expiryDate: normalizedExpiryDate,
-      expiryPeriodDays: normalizedExpiryPeriodDays,
-      expiryAlertLeadDays: normalizedExpiryAlertLeadDays,
-      lowStockAlertQty: normalizedLowStockAlertQty,
+      expiryDate: productKind === 'SERVICE' ? undefined : normalizedExpiryDate,
+      expiryPeriodDays: productKind === 'SERVICE' ? undefined : normalizedExpiryPeriodDays,
+      expiryAlertLeadDays: productKind === 'SERVICE' ? undefined : normalizedExpiryAlertLeadDays,
+      lowStockAlertQty: productKind === 'SERVICE' ? undefined : normalizedLowStockAlertQty,
       reorderQty: undefined,
       imageUrl: imageUrl || undefined,
       sellPrice: pricing.retailPrice,
@@ -315,18 +322,19 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       retailMarkupPercent: normalizedRetailMarkup,
       wholesaleMarkupPercent: normalizedWholesaleMarkup,
       buyPrice: pricing.cost,
-      stock: parseLocalizedPositiveInt(stock) || 0,
+      stock: productKind === 'SERVICE' ? 0 : (parseLocalizedPositiveInt(stock) || 0),
       barcode: barcode || undefined
     };
+    const normalizedProduct = normalizeProductInventoryFields(nextProduct);
 
     if (product) {
-      const result = updateProduct(product.id, nextProduct);
+      const result = updateProduct(product.id, normalizedProduct);
       if (!result.ok) return;
     } else {
-      const result = addProduct(nextProduct);
+      const result = addProduct(normalizedProduct);
       if (!result.ok) return;
     }
-    onSave(nextProduct);
+    onSave(normalizedProduct);
     onClose();
   };
 
@@ -360,6 +368,33 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 placeholder={tr('\u0645\u062b\u0627\u0644: \u0622\u064a\u0641\u0648\u0646 15 \u0628\u0631\u0648 \u0645\u0627\u0643\u0633', 'Example: iPhone 15 Pro Max')}
                 className={inputClass}
               />
+            </div>
+
+            <div className="min-[430px]:col-span-2 rounded-2xl border border-blue-100 bg-blue-50/30 p-3">
+              <label className="text-[10px] font-black text-blue-700 uppercase tracking-widest block mb-2 px-1">
+                {tr('نوع الصنف', 'Item Type')}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProductKind('STOCK')}
+                  className={`rounded-2xl border px-3 py-3 text-sm font-black transition-all ${productKind === 'STOCK' ? 'border-blue-600 bg-blue-600 text-white shadow-lg shadow-blue-100' : 'border-blue-100 bg-white text-blue-700 hover:bg-blue-50'}`}
+                >
+                  {tr('صنف مخزني', 'Stock Item')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductKind('SERVICE')}
+                  className={`rounded-2xl border px-3 py-3 text-sm font-black transition-all ${productKind === 'SERVICE' ? 'border-amber-500 bg-amber-500 text-white shadow-lg shadow-amber-100' : 'border-amber-100 bg-white text-amber-700 hover:bg-amber-50'}`}
+                >
+                  {tr('صنف خدمة', 'Service Item')}
+                </button>
+              </div>
+              <p className="mt-2 px-1 text-[10px] font-bold text-slate-500">
+                {productKind === 'SERVICE'
+                  ? tr('صنف الخدمة لا يدخل في المخزون ولا تظهر له تنبيهات نقص أو صلاحية.', 'Service items do not affect inventory and will not show stock or expiry alerts.')
+                  : tr('الصنف المخزني يتابع الكمية والصلاحية والتنبيهات كالمعتاد.', 'Stock items track quantity, expiry, and inventory alerts as usual.')}
+              </p>
             </div>
 
             <div className={`rounded-2xl border border-indigo-100 bg-indigo-50/20 p-3 space-y-2.5 ${barcodeEnabled ? '' : 'min-[430px]:col-span-2'}`}>
@@ -515,8 +550,9 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 lang="en"
                 value={stock}
                 onChange={(e) => setStock(toEnglishDigits(e.target.value))}
-                className="w-full p-4 bg-blue-50/30 rounded-2xl border border-blue-100 outline-none font-black text-lg text-center dir-ltr text-blue-800 focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all"
-                placeholder="0"
+                disabled={productKind === 'SERVICE'}
+                className={`w-full p-4 rounded-2xl border outline-none font-black text-lg text-center dir-ltr transition-all ${productKind === 'SERVICE' ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-50/30 border-blue-100 text-blue-800 focus:bg-white focus:ring-4 focus:ring-blue-50'}`}
+                placeholder={productKind === 'SERVICE' ? tr('لا ينطبق على الخدمة', 'Not used for service') : '0'}
               />
             </div>
 
@@ -688,18 +724,20 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               </div>
             </div>
 
-            <details className="min-[430px]:col-span-2 rounded-2xl border border-violet-100 bg-violet-50/20 p-3 group">
+            <details className={`min-[430px]:col-span-2 rounded-2xl border p-3 group ${productKind === 'SERVICE' ? 'border-slate-200 bg-slate-50/70 opacity-70' : 'border-violet-100 bg-violet-50/20'}`}>
               <summary className="flex items-center justify-between gap-3 cursor-pointer list-none">
                 <div>
                   <h4 className="text-xs font-black text-violet-700">{tr('\u062e\u064a\u0627\u0631\u0627\u062a \u0625\u0636\u0627\u0641\u064a\u0629', 'Additional Options')}</h4>
                   <p className="text-[10px] font-bold text-slate-400 mt-1">
-                    {tr('\u0627\u0641\u062a\u062d \u0647\u0630\u0627 \u0627\u0644\u0642\u0633\u0645 \u0625\u0630\u0627 \u0643\u0646\u062a \u062a\u0631\u064a\u062f \u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0629 \u0648\u062a\u0646\u0628\u064a\u0647\u0627\u062a \u0646\u0641\u0627\u062f \u0627\u0644\u0645\u062e\u0632\u0648\u0646.', 'Open this section for expiry settings and stock alerts.')}
+                    {productKind === 'SERVICE'
+                      ? tr('هذه الخيارات مخصصة للأصناف المخزنية فقط.', 'These options are only used for stock items.')
+                      : tr('\u0627\u0641\u062a\u062d \u0647\u0630\u0627 \u0627\u0644\u0642\u0633\u0645 \u0625\u0630\u0627 \u0643\u0646\u062a \u062a\u0631\u064a\u062f \u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0629 \u0648\u062a\u0646\u0628\u064a\u0647\u0627\u062a \u0646\u0641\u0627\u062f \u0627\u0644\u0645\u062e\u0632\u0648\u0646.', 'Open this section for expiry settings and stock alerts.')}
                   </p>
                 </div>
                 <ChevronDown size={18} className="text-violet-500 transition-transform duration-200 group-open:rotate-180" />
               </summary>
 
-              <div className="mt-4 grid grid-cols-1 min-[430px]:grid-cols-2 gap-2">
+              <div className={`mt-4 grid grid-cols-1 min-[430px]:grid-cols-2 gap-2 ${productKind === 'SERVICE' ? 'pointer-events-none' : ''}`}>
                 <div>
                   <label className="text-[10px] font-black text-violet-600 uppercase tracking-widest block mb-2 px-1">
                     {tr('\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0627\u0646\u062a\u0647\u0627\u0621', 'Expiry Date')}

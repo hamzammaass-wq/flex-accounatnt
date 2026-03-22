@@ -4,6 +4,7 @@ import { CheckStatus, CheckType, TransactionType } from '../types';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
+import { openDrilldown } from '../utils/drilldown';
 import {
     AlertTriangle,
     ArrowRightLeft,
@@ -107,6 +108,24 @@ const CheckPortfolio: React.FC = () => {
         if (!id) return tr('غير محدد', 'Unknown');
         const acc = accounts.find(a => a.id === id);
         return displayAccountName(acc || null) || id;
+    };
+    const getContactCounterAccountId = (id?: string, isIncoming = true) => {
+        if (!id) return isIncoming ? 'acc_receivable' : 'acc_payable';
+        const contact = contacts.find(c => c.id === id);
+        if (!contact) return isIncoming ? 'acc_receivable' : 'acc_payable';
+        if (contact.type === 'PARTNER') return contact.currentAccountId || contact.linkedAccountId || 'acc_partner_current';
+        if (contact.type === 'EMPLOYEE') return 'acc_accrued_salaries';
+        if (contact.type === 'CUSTOMER') return 'acc_receivable';
+        if (contact.type === 'SUPPLIER') return contact.currentAccountId || contact.linkedAccountId || 'acc_payable';
+        return isIncoming ? 'acc_receivable' : 'acc_payable';
+    };
+    const openContactStatement = (contactId?: string) => {
+        if (!contactId) return;
+        openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+    };
+    const openAccountLedger = (accountId?: string) => {
+        if (!accountId) return;
+        openDrilldown({ kind: 'ACCOUNT_LEDGER', accountId });
     };
 
     const getStatusLabel = (status: CheckStatus) => {
@@ -259,6 +278,7 @@ const CheckPortfolio: React.FC = () => {
         const isIncoming = checkType === 'INCOMING';
         const contact = contacts.find(c => c.id === contactId);
         const contactName = displayContactName(contact || null) || tr('غير محدد', 'Unknown');
+        const contactCounterAccountId = getContactCounterAccountId(contactId, isIncoming);
         const newCheckId = `chk_${Math.random().toString(36).slice(2, 11)}`;
 
         addCheck({
@@ -283,8 +303,8 @@ const CheckPortfolio: React.FC = () => {
             category: 'journal',
             type: isIncoming ? TransactionType.INCOME : TransactionType.EXPENSE,
             date: issueDate,
-            debitAccountId: isIncoming ? 'acc_cheques_hand' : 'acc_payable',
-            creditAccountId: isIncoming ? 'acc_receivable' : 'acc_notes_payable',
+            debitAccountId: isIncoming ? 'acc_cheques_hand' : contactCounterAccountId,
+            creditAccountId: isIncoming ? contactCounterAccountId : 'acc_notes_payable',
             checkId: newCheckId,
             contactId,
             currency: baseCurrency,
@@ -339,6 +359,7 @@ const CheckPortfolio: React.FC = () => {
 
         const isIncoming = check.type === 'INCOMING';
         const contactName = getContactName(check.contactId);
+        const contactCounterAccountId = getContactCounterAccountId(check.contactId, isIncoming);
 
         addTransaction({
             amount: check.amount,
@@ -346,8 +367,8 @@ const CheckPortfolio: React.FC = () => {
             category: 'journal',
             type: TransactionType.TRANSFER,
             date: new Date().toISOString().split('T')[0],
-            debitAccountId: isIncoming ? 'acc_receivable' : 'acc_notes_payable',
-            creditAccountId: isIncoming ? 'acc_cheques_hand' : 'acc_payable',
+            debitAccountId: isIncoming ? contactCounterAccountId : 'acc_notes_payable',
+            creditAccountId: isIncoming ? 'acc_cheques_hand' : contactCounterAccountId,
             checkId: check.id,
             contactId: check.contactId,
             currency: check.currency,
@@ -462,7 +483,7 @@ const CheckPortfolio: React.FC = () => {
     };
 
     const tabLabels: Array<{ id: 'VAULT' | 'OUTGOING' | 'UNDER_COLLECTION' | 'ENDORSED' | 'BOUNCED' | 'ARCHIVE'; label: string; icon: React.ReactNode }> = [
-        { id: 'VAULT', label: tr('في الصندوق', 'In Vault'), icon: <Wallet size={14} /> },
+        { id: 'VAULT', label: tr('شيكات بالصندوق', 'Checks in Vault'), icon: <Wallet size={14} /> },
         { id: 'OUTGOING', label: tr('شيكات صادرة', 'Outgoing Checks'), icon: <ArrowUpRight size={14} /> },
         { id: 'UNDER_COLLECTION', label: tr('برسم التحصيل', 'Under Collection'), icon: <Building2 size={14} /> },
         { id: 'ENDORSED', label: tr('شيكات مجيرة', 'Endorsed Checks'), icon: <ArrowRightLeft size={14} /> },
@@ -898,9 +919,21 @@ const CheckPortfolio: React.FC = () => {
                                         <Banknote size={18} />
                                     </div>
                                     <div className="min-w-0">
-                                        <h4 className="font-black text-gray-800 text-xs truncate">#{check.checkNumber} - {displayBankName(check.bankName, check.bankAccountId)}</h4>
+                                        <h4
+                                            className={`font-black text-gray-800 text-xs truncate ${check.bankAccountId ? 'cursor-pointer hover:text-blue-600' : ''}`}
+                                            onDoubleClick={() => openAccountLedger(check.bankAccountId)}
+                                            title={check.bankAccountId ? tr('اضغط مرتين لفتح حركة الحساب البنكي', 'Double-click to open bank account ledger') : undefined}
+                                        >
+                                            #{check.checkNumber} - {displayBankName(check.bankName, check.bankAccountId)}
+                                        </h4>
                                         {check.accountNumber && <p className="text-[10px] font-bold text-gray-400 mt-0.5 dir-ltr">{check.accountNumber}</p>}
-                                        <p className="text-[10px] font-bold text-gray-400 mt-0.5 truncate">{getContactName(check.contactId)}</p>
+                                        <p
+                                            className={`text-[10px] font-bold text-gray-400 mt-0.5 truncate ${check.contactId ? 'cursor-pointer hover:text-emerald-600' : ''}`}
+                                            onDoubleClick={() => openContactStatement(check.contactId)}
+                                            title={check.contactId ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined}
+                                        >
+                                            {getContactName(check.contactId)}
+                                        </p>
                                         <div className="flex items-center gap-1 mt-1 flex-wrap">
                                             <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border ${getStatusStyle(check.status)}`}>
                                                 {getStatusLabel(check.status)}

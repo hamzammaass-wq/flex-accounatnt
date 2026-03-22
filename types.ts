@@ -134,6 +134,8 @@ export interface ItemGroup {
   parentId?: string;
 }
 
+export type ProductKind = 'STOCK' | 'SERVICE';
+
 export type ContactType = 'CUSTOMER' | 'SUPPLIER' | 'PARTNER' | 'EMPLOYEE';
 export type ContactPreferredPriceTier = 'RETAIL' | 'WHOLESALE';
 
@@ -329,6 +331,7 @@ export interface FingerprintAttendanceBatch {
 export interface Product {
   id: string;
   name: string;
+  kind?: ProductKind;
   category?: string;
   buyPrice: number;
   sellPrice: number;
@@ -474,6 +477,7 @@ export interface StockTransfer {
 export interface Product {
   id: string;
   name: string;
+  kind?: ProductKind;
   category?: string;
   buyPrice: number;
   sellPrice: number;
@@ -533,6 +537,7 @@ export interface CompanySettings {
   address: string;
   phone: string;
   logoUrl?: string;
+  importantAccountIds?: string[];
   defaultTaxRate: number;
   annualLeaveDefaultOpenEndedDays: number;
   annualLeaveDefaultFixedTermDays: number;
@@ -607,9 +612,11 @@ export interface CompanySettings {
 export type CompanySubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED';
 export type CompanySubscriptionPlan = 'NONE' | 'TRIAL' | 'BASIC' | 'PRO' | 'ENTERPRISE';
 export type CloudSubscriptionCodeStatus = 'AVAILABLE' | 'USED' | 'CANCELLED' | 'EXPIRED';
-export type SubscriptionBillingCycle = 'MONTHLY' | 'YEARLY';
-export type SubscriptionProvider = 'NONE' | 'TRIAL' | 'MANUAL' | 'STRIPE' | 'APPLE' | 'GOOGLE';
-export type SubscriptionCheckoutProvider = 'STRIPE' | 'APPLE' | 'GOOGLE';
+export type WorkspaceOfferCodeStatus = 'AVAILABLE' | 'USED' | 'CANCELLED' | 'EXPIRED';
+export type WorkspaceOfferCodeKind = 'DISCOUNT_PERCENT' | 'FREE_DAYS' | 'LIFETIME';
+export type SubscriptionBillingCycle = 'YEARLY';
+export type SubscriptionProvider = 'NONE' | 'TRIAL' | 'MANUAL' | 'PALPAY' | 'APPLE' | 'GOOGLE';
+export type SubscriptionCheckoutProvider = 'PALPAY' | 'APPLE' | 'GOOGLE';
 export type SubscriptionCheckoutMode = 'EXTERNAL_URL' | 'STORE_PRODUCT';
 
 export interface SubscriptionDeviceBinding {
@@ -666,6 +673,23 @@ export interface CloudSubscriptionCode {
   usedByEmail?: string;
 }
 
+export interface WorkspaceOfferCode {
+  code: string;
+  status: WorkspaceOfferCodeStatus;
+  kind: WorkspaceOfferCodeKind;
+  discountPercent?: number;
+  freeDays?: number;
+  companyCount?: number;
+  createdAt: string;
+  createdByUserId?: string;
+  createdByEmail?: string;
+  expiresAt?: string;
+  notes?: string;
+  usedAt?: string;
+  usedByUserId?: string;
+  usedByEmail?: string;
+}
+
 export interface WorkspaceSubscriptionAccount {
   userId: string;
   userEmail?: string;
@@ -686,11 +710,16 @@ export interface WorkspaceSubscriptionAccount {
   providerSubscriptionId?: string;
   providerProductId?: string;
   lastCheckoutSessionId?: string;
+  discountPercent?: number;
+  offerCode?: string;
+  offerNote?: string;
+  lifetimeAccess?: boolean;
+  unlimitedCompanies?: boolean;
   updatedAt: string;
 }
 
 export interface SubscriptionProviderAvailability {
-  stripeReady: boolean;
+  palpayReady: boolean;
   appleReady: boolean;
   googleReady: boolean;
 }
@@ -706,11 +735,15 @@ export interface WorkspaceSubscriptionQuote {
   currency: 'USD';
   basePriceUsd: number;
   extraCompanyPriceUsd: number;
+  subtotalPriceUsd: number;
+  discountPercent: number;
+  discountAmountUsd: number;
   totalPriceUsd: number;
   providerReady: boolean;
   checkoutMode?: SubscriptionCheckoutMode;
   checkoutUrl?: string;
   productId?: string;
+  offerCode?: string;
 }
 
 export type SubscriptionCheckoutResult =

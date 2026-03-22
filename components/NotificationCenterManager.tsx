@@ -18,6 +18,7 @@ import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { getDateLocale, getNumberLocale } from '../utils/i18n';
 import { TransactionType } from '../types';
 import EnglishDateInput from './EnglishDateInput';
+import { isStockProduct } from '../utils/productKind';
 
 type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 type AlertSource = 'SYSTEM' | 'MANUAL';
@@ -249,6 +250,7 @@ const NotificationCenterManager: React.FC = () => {
     });
 
     products.forEach(product => {
+      if (!isStockProduct(product)) return;
       const stock = Number(product.stock) || 0;
       const threshold = Number.isFinite(Number(product.lowStockAlertQty))
         ? Math.max(0, Math.floor(Number(product.lowStockAlertQty)))

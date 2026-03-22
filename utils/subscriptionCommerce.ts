@@ -16,7 +16,6 @@ const DEFAULT_PLAN: CompanySubscriptionPlan = 'BASIC';
 const DEFAULT_CYCLE: SubscriptionBillingCycle = 'YEARLY';
 
 const PRICING: Record<SubscriptionBillingCycle, { basePriceUsd: number; extraCompanyPriceUsd: number }> = {
-  MONTHLY: { basePriceUsd: 10, extraCompanyPriceUsd: 3 },
   YEARLY: { basePriceUsd: 20, extraCompanyPriceUsd: 5 }
 };
 
@@ -33,7 +32,7 @@ const isValidPlan = (value: unknown): value is CompanySubscriptionPlan => (
 );
 
 const isValidCycle = (value: unknown): value is SubscriptionBillingCycle => (
-  value === 'MONTHLY' || value === 'YEARLY'
+  value === 'YEARLY'
 );
 
 const isValidProvider = (value: unknown): value is SubscriptionProvider => (
@@ -60,6 +59,10 @@ const clampExtraCompanyCount = (value: unknown): number => (
   Math.max(0, Math.min(MAX_COMPANIES_CAP - INCLUDED_COMPANIES, Math.floor(Number(value) || 0)))
 );
 
+const clampDiscountPercent = (value: unknown): number => (
+  Math.max(0, Math.min(100, Math.floor(Number(value) || 0)))
+);
+
 const buildStoreProductId = (
   provider: Extract<SubscriptionCheckoutProvider, 'APPLE' | 'GOOGLE'>,
   cycle: SubscriptionBillingCycle,
@@ -81,6 +84,13 @@ const buildCheckoutUrl = (baseUrl: string, quote: WorkspaceSubscriptionQuote): s
     url.searchParams.set('extraCompanies', String(quote.extraCompanyCount));
     url.searchParams.set('currency', quote.currency);
     url.searchParams.set('totalPriceUsd', String(quote.totalPriceUsd));
+    if (quote.discountPercent > 0) {
+      url.searchParams.set('discountPercent', String(quote.discountPercent));
+      url.searchParams.set('discountAmountUsd', String(quote.discountAmountUsd));
+    }
+    if (quote.offerCode) {
+      url.searchParams.set('offerCode', quote.offerCode);
+    }
     return url.toString();
   } catch {
     return baseUrl;
@@ -147,6 +157,11 @@ export const buildDefaultWorkspaceSubscription = (input?: {
     providerSubscriptionId: String(input?.providerSubscriptionId || '').trim() || undefined,
     providerProductId: String(input?.providerProductId || '').trim() || undefined,
     lastCheckoutSessionId: String(input?.lastCheckoutSessionId || '').trim() || undefined,
+    discountPercent: 0,
+    offerCode: undefined,
+    offerNote: undefined,
+    lifetimeAccess: false,
+    unlimitedCompanies: false,
     updatedAt: new Date().toISOString()
   };
 };
@@ -171,6 +186,13 @@ export const normalizeWorkspaceSubscription = (
     clampExtraCompanyCount(candidate.extraCompanyCount),
     maxCompanies - includedCompanies
   );
+  const unlimitedCompanies = candidate.unlimitedCompanies === true
+    ? true
+    : candidate.unlimitedCompanies === false
+      ? false
+      : fallback?.unlimitedCompanies === true
+        ? true
+        : candidate.lifetimeAccess === true && fallback?.unlimitedCompanies == null;
 
   return {
     userId: String(candidate.userId || fallback?.userId || '').trim(),
@@ -192,6 +214,11 @@ export const normalizeWorkspaceSubscription = (
     providerSubscriptionId: String(candidate.providerSubscriptionId || fallback?.providerSubscriptionId || '').trim() || undefined,
     providerProductId: String(candidate.providerProductId || fallback?.providerProductId || '').trim() || undefined,
     lastCheckoutSessionId: String(candidate.lastCheckoutSessionId || fallback?.lastCheckoutSessionId || '').trim() || undefined,
+    discountPercent: clampDiscountPercent(candidate.discountPercent ?? fallback?.discountPercent),
+    offerCode: String(candidate.offerCode || fallback?.offerCode || '').trim() || undefined,
+    offerNote: String(candidate.offerNote || fallback?.offerNote || '').trim() || undefined,
+    lifetimeAccess: candidate.lifetimeAccess === true || fallback?.lifetimeAccess === true,
+    unlimitedCompanies,
     updatedAt: normalizeOptionalIsoDate(candidate.updatedAt) || new Date().toISOString()
   };
 };
@@ -199,26 +226,41 @@ export const normalizeWorkspaceSubscription = (
 export const getWorkspaceEffectiveMaxCompanies = (
   subscription: WorkspaceSubscriptionAccount,
   currentCompanyCount: number
-): number => Math.max(
-  INCLUDED_COMPANIES,
-  Math.max(0, Math.floor(Number(currentCompanyCount) || 0)),
-  clampCompanyCount(subscription.maxCompanies, subscription.includedCompanies + subscription.extraCompanyCount)
-);
+): number => {
+  if (subscription.unlimitedCompanies === true) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(
+    INCLUDED_COMPANIES,
+    Math.max(0, Math.floor(Number(currentCompanyCount) || 0)),
+    clampCompanyCount(subscription.maxCompanies, subscription.includedCompanies + subscription.extraCompanyCount)
+  );
+};
 
 export const getWorkspaceRemainingCompanySlots = (
   subscription: WorkspaceSubscriptionAccount,
   currentCompanyCount: number
-): number => Math.max(0, getWorkspaceEffectiveMaxCompanies(subscription, currentCompanyCount) - Math.max(0, currentCompanyCount));
+): number => (
+  subscription.unlimitedCompanies === true
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, getWorkspaceEffectiveMaxCompanies(subscription, currentCompanyCount) - Math.max(0, currentCompanyCount))
+);
 
 export const buildWorkspaceSubscriptionQuote = (input: {
   provider: SubscriptionCheckoutProvider;
   billingCycle: SubscriptionBillingCycle;
   desiredCompanyCount: number;
+  discountPercent?: number;
+  offerCode?: string;
 }): WorkspaceSubscriptionQuote => {
   const desiredCompanyCount = clampCompanyCount(input.desiredCompanyCount);
   const extraCompanyCount = Math.max(0, desiredCompanyCount - INCLUDED_COMPANIES);
   const pricing = PRICING[input.billingCycle];
   const availability = getSubscriptionProviderAvailability();
+  const subtotalPriceUsd = pricing.basePriceUsd + (extraCompanyCount * pricing.extraCompanyPriceUsd);
+  const discountPercent = clampDiscountPercent(input.discountPercent);
+  const discountAmountUsd = Number(((subtotalPriceUsd * discountPercent) / 100).toFixed(2));
   const quote: WorkspaceSubscriptionQuote = {
     plan: DEFAULT_PLAN,
     billingCycle: input.billingCycle,
@@ -230,7 +272,10 @@ export const buildWorkspaceSubscriptionQuote = (input: {
     currency: 'USD',
     basePriceUsd: pricing.basePriceUsd,
     extraCompanyPriceUsd: pricing.extraCompanyPriceUsd,
-    totalPriceUsd: pricing.basePriceUsd + (extraCompanyCount * pricing.extraCompanyPriceUsd),
+    subtotalPriceUsd,
+    discountPercent,
+    discountAmountUsd,
+    totalPriceUsd: Number((subtotalPriceUsd - discountAmountUsd).toFixed(2)),
     providerReady: false
   };
 
@@ -240,7 +285,8 @@ export const buildWorkspaceSubscriptionQuote = (input: {
       ...quote,
       providerReady: availability.palpayReady,
       checkoutMode: checkoutUrl ? 'EXTERNAL_URL' : undefined,
-      checkoutUrl
+      checkoutUrl,
+      offerCode: String(input.offerCode || '').trim() || undefined
     };
   }
 
@@ -249,7 +295,8 @@ export const buildWorkspaceSubscriptionQuote = (input: {
     ...quote,
     providerReady: input.provider === 'APPLE' ? availability.appleReady : availability.googleReady,
     checkoutMode: productId ? 'STORE_PRODUCT' : undefined,
-    productId
+    productId,
+    offerCode: String(input.offerCode || '').trim() || undefined
   };
 };
 
@@ -257,6 +304,8 @@ export const prepareWorkspaceCheckout = (input: {
   provider: SubscriptionCheckoutProvider;
   billingCycle: SubscriptionBillingCycle;
   desiredCompanyCount: number;
+  discountPercent?: number;
+  offerCode?: string;
 }): SubscriptionCheckoutResult => {
   const quote = buildWorkspaceSubscriptionQuote(input);
   if (!quote.providerReady || !quote.checkoutMode) {

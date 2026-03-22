@@ -6,8 +6,9 @@ import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName } from '../utils/displayNames';
-import { downloadElementAsHtml, exportElementAsCsv } from '../utils/documentExport';
+import { downloadElementAsPdf, downloadWorkbookFile, exportElementAsCsv, extractElementReadableText, settleElementBeforeSnapshot } from '../utils/documentExport';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
 import {
     Users, UserPlus, Briefcase, Landmark, Plus, Trash2,
     Edit2, Check, X, Search, FileText, DollarSign,
@@ -201,6 +202,7 @@ const HRManager: React.FC = () => {
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
+    const currentFiscalYearRange = useMemo(() => getCurrentFiscalYearRange(), []);
     const employeeStatementContentRef = useRef<HTMLDivElement | null>(null);
     const employeeStatementExportTableRef = useRef<HTMLTableElement | null>(null);
     const getPayBasisLabel = (basis: EmployeePayBasis) => {
@@ -597,13 +599,18 @@ const HRManager: React.FC = () => {
     }, [basicSalary, dailyHours, editingId]);
 
     const getDefaultPayrollPenaltyAccountId = () => {
-        const defaultPayrollPenaltyAccount = accounts.find(a => a.id === 'acc_exp_salaries' && !a.isGroup)
+        const defaultPayrollPenaltyAccount = accounts.find(a => a.id === 'acc_payroll_deductions_payable' && !a.isGroup)
+            || accounts.find(a => a.code === '214' && !a.isGroup)
+            || accounts.find(a => a.id === 'acc_exp_salaries' && !a.isGroup)
             || accounts.find(a => a.code === '521' && !a.isGroup)
+            || accounts.find(a => !a.isGroup && a.type === 'LIABILITY')
             || accounts.find(a => !a.isGroup && a.type === 'EXPENSE');
         return defaultPayrollPenaltyAccount?.id || '';
     };
     const getDefaultPayrollSettlementAccountId = () => {
-        const defaultPayrollDeductionAccount = accounts.find(a => a.id === 'acc_receivable' && !a.isGroup)
+        const defaultPayrollDeductionAccount = accounts.find(a => a.id === 'acc_employee_advances' && !a.isGroup)
+            || accounts.find(a => a.code === '117' && !a.isGroup)
+            || accounts.find(a => a.id === 'acc_receivable' && !a.isGroup)
             || accounts.find(a => a.id === 'acc_payable' && !a.isGroup)
             || accounts.find(a => !a.isGroup && a.id !== 'acc_accrued_salaries');
         return defaultPayrollDeductionAccount?.id || '';
@@ -630,7 +637,7 @@ const HRManager: React.FC = () => {
                     const legacyDeductions = next[emp.id].deductions || 0;
                     const legacyAccountId = next[emp.id].deductionAccountId || defaultSettlementAccountId;
                     const currentPenaltyAccountId = next[emp.id].latePenaltyAccountId;
-                    const isCurrentPenaltyReceivable = !!currentPenaltyAccountId && (() => {
+                    const isCurrentPenaltyLegacyReceivable = !!currentPenaltyAccountId && (() => {
                         const account = accounts.find(a => a.id === currentPenaltyAccountId);
                         return !!account && (account.id === 'acc_receivable' || account.parentId === 'acc_receivable_group');
                     })();
@@ -640,7 +647,7 @@ const HRManager: React.FC = () => {
                             ? Math.max(0, Number(next[emp.id].customBaseSalary))
                             : getPayrollCustomBaseDefault(emp),
                         latePenaltyDeduction: next[emp.id].latePenaltyDeduction ?? 0,
-                        latePenaltyAccountId: !currentPenaltyAccountId || isCurrentPenaltyReceivable ? defaultPenaltyAccountId : currentPenaltyAccountId,
+                        latePenaltyAccountId: !currentPenaltyAccountId || isCurrentPenaltyLegacyReceivable ? defaultPenaltyAccountId : currentPenaltyAccountId,
                         duesSettlementDeduction: next[emp.id].duesSettlementDeduction ?? legacyDeductions,
                         duesSettlementAccountId: next[emp.id].duesSettlementAccountId || legacyAccountId
                     };
@@ -1350,7 +1357,7 @@ const HRManager: React.FC = () => {
         if (!accountId) return false;
         const account = accounts.find(a => a.id === accountId);
         if (!account) return false;
-        return account.id === 'acc_receivable' || account.parentId === 'acc_receivable_group';
+        return account.id === 'acc_receivable' || account.parentId === 'acc_receivable_group' || account.id === 'acc_employee_advances';
     };
     const getEmployeeAccountBalance = (employeeId: string, accountId?: string) => {
         if (!accountId) return 0;
@@ -2141,12 +2148,12 @@ const HRManager: React.FC = () => {
             return alert(tr('تم ترحيل دفعة الدفع لهذه الدفعة مسبقًا.', 'This payroll run already has a posted payment batch.'));
         }
         if (run.paymentBatch && run.paymentBatch.status === 'DRAFT') {
-            const replace = confirm(tr('توجد مسودة دفعة دفع. هل تريد إعادة إنشائها من صافي الدفعة الحالي؟', 'A draft payment batch exists. Rebuild it from the current payroll run net values?'));
+            const replace = confirm(tr('توجد دفعة دفع قيد التحضير. هل تريد إعادة إنشائها من صافي الدفعة الحالي؟', 'A payment batch is still being prepared. Rebuild it from the current payroll run net values?'));
             if (!replace) return;
         }
         const batch = buildPayrollRunPaymentBatchDraft(run);
         updatePayrollRunRecord(runId, r => ({ ...r, paymentBatch: batch }));
-        alert(tr(`تم إنشاء مسودة دفعة دفع: ${batch.batchNumber}`, `Payment batch draft created: ${batch.batchNumber}`));
+        alert(tr(`تم إنشاء دفعة دفع: ${batch.batchNumber}`, `Payment batch created: ${batch.batchNumber}`));
     };
 
     const updatePayrollRunPaymentBatch = (runId: string, patch: Partial<PayrollRunPaymentBatch>) => {
@@ -2280,7 +2287,7 @@ const HRManager: React.FC = () => {
         const ws = XLSX.utils.json_to_sheet(rows);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'PayrollTransfer');
-        XLSX.writeFile(wb, `payroll_bank_transfer_${safeRunNo}.xlsx`);
+        downloadWorkbookFile(wb, { fileName: `payroll_bank_transfer_${safeRunNo}.xlsx` });
         updatePayrollRunPaymentBatch(runId, { exportedExcelAt: new Date().toISOString() });
     };
 
@@ -2424,7 +2431,7 @@ const HRManager: React.FC = () => {
                             </div>
                             {editingPayrollRun && (
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[10px] font-black text-amber-100 bg-amber-500/10 border border-amber-400/20 rounded-xl px-3 py-2">
-                                    <span>{tr(`??? ???? ???? ??????? ${editingPayrollRun.runNumber}. ??? ????? ???? ??????? ?????? ??? ????? ?????.`, `You are editing payroll run ${editingPayrollRun.runNumber}. Saving will post directly without a draft.`)}</span>
+                                    <span>{tr(`أنت تعدل كشف الرواتب ${editingPayrollRun.runNumber}. عند الحفظ سيتم تحديثه وترحيله مباشرة.`, `You are editing payroll run ${editingPayrollRun.runNumber}. Saving will update and post it directly.`)}</span>
                                     <button
                                         type="button"
                                         onClick={() => setEditingPayrollRunId(null)}
@@ -2527,7 +2534,7 @@ const HRManager: React.FC = () => {
                                                     run.status === 'POSTED' ? 'bg-emerald-100 text-emerald-700' :
                                                         'bg-slate-100 text-slate-700'
                                             }`}>
-                                            {run.status === 'DRAFT' ? tr('غير مرحل', 'Unposted')
+                                            {run.status === 'DRAFT' ? tr('قيد التحضير', 'Preparing')
                                                 : run.status === 'REVIEWED' ? tr('قيد التعديل', 'Editing')
                                                     : run.status === 'POSTED' ? tr('مرحل', 'Posted')
                                                         : tr('مقفلة', 'Locked')}
@@ -2648,7 +2655,7 @@ const HRManager: React.FC = () => {
                                                         <div className="text-[10px] text-gray-400 font-black mb-1">{tr('رقم دفعة الدفع', 'Payment Batch No.')}</div>
                                                         <div className="font-black text-xs text-gray-800 dir-ltr">{selectedPayrollRun.paymentBatch.batchNumber}</div>
                                                         <div className={`mt-2 inline-flex px-2 py-1 rounded-lg text-[10px] font-black ${selectedPayrollRun.paymentBatch.status === 'POSTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                            {selectedPayrollRun.paymentBatch.status === 'POSTED' ? tr('مرحل', 'Posted') : tr('مسودة', 'Draft')}
+                                                            {selectedPayrollRun.paymentBatch.status === 'POSTED' ? tr('مرحل', 'Posted') : tr('قيد التحضير', 'Preparing')}
                                                         </div>
                                                     </div>
                                                     <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
@@ -3594,13 +3601,10 @@ const HRManager: React.FC = () => {
     };
 
     const openEmployeeStatement = (employeeId: string) => {
-        setStatementRanges(prev => {
-            if (prev[employeeId]) return prev;
-            return {
-                ...prev,
-                [employeeId]: { startDate: payrollStartDate, endDate: payrollEndDate }
-            };
-        });
+        setStatementRanges(prev => ({
+            ...prev,
+            [employeeId]: { startDate: currentFiscalYearRange.startDate, endDate: currentFiscalYearRange.endDate }
+        }));
         setEmployeeStatementPayrollSummaryVisible(employeeId, false);
         setViewStatementId(employeeId);
     };
@@ -3619,7 +3623,7 @@ const HRManager: React.FC = () => {
 
     const updateStatementRange = (employeeId: string, patch: Partial<StatementRange>) => {
         setStatementRanges(prev => {
-            const current = prev[employeeId] || { startDate: payrollStartDate, endDate: payrollEndDate };
+            const current = prev[employeeId] || { startDate: currentFiscalYearRange.startDate, endDate: currentFiscalYearRange.endDate };
             return {
                 ...prev,
                 [employeeId]: { ...current, ...patch }
@@ -5187,9 +5191,9 @@ const HRManager: React.FC = () => {
         const previousEmployee = employeeIndex > 0 ? employees[employeeIndex - 1] : null;
         const nextEmployee = employeeIndex >= 0 && employeeIndex < employees.length - 1 ? employees[employeeIndex + 1] : null;
 
-        const selectedRange = statementRanges[viewStatementId] || { startDate: payrollStartDate, endDate: payrollEndDate };
-        const rawStartDate = selectedRange.startDate || payrollStartDate;
-        const rawEndDate = selectedRange.endDate || payrollEndDate;
+        const selectedRange = statementRanges[viewStatementId] || { startDate: currentFiscalYearRange.startDate, endDate: currentFiscalYearRange.endDate };
+        const rawStartDate = selectedRange.startDate || currentFiscalYearRange.startDate;
+        const rawEndDate = selectedRange.endDate || currentFiscalYearRange.endDate;
         const statementStartDate = rawStartDate <= rawEndDate ? rawStartDate : rawEndDate;
         const statementEndDate = rawStartDate <= rawEndDate ? rawEndDate : rawStartDate;
         const showPayrollSummary = statementPayrollSummaryVisibility[viewStatementId] ?? false;
@@ -5750,16 +5754,24 @@ const HRManager: React.FC = () => {
                     `${tr('المتبقي', 'Remaining')}: ${formatNumber(payrollRemaining)}`
                 ]
                 : [])
-        ].join('\n');
+        ]
+            .concat(extractElementReadableText(employeeStatementContentRef.current) ? ['', extractElementReadableText(employeeStatementContentRef.current)] : [])
+            .join('\n');
 
-        const handleSaveStatementSnapshot = () => {
+        const handleSaveStatementSnapshot = async () => {
             if (!employeeStatementContentRef.current) return;
-            downloadElementAsHtml(employeeStatementContentRef.current, {
+            await settleElementBeforeSnapshot(employeeStatementContentRef.current);
+            const success = await downloadElementAsPdf(employeeStatementContentRef.current, {
                 title: employeeStatementTitle,
                 fileName: `${employeeStatementTitle}-${statementStartDate}-${statementEndDate}`,
                 dir: isEnglish ? 'ltr' : 'rtl',
-                lang: isEnglish ? 'en' : 'ar'
+                lang: isEnglish ? 'en' : 'ar',
+                backgroundColor: '#f9fafb',
+                padding: 18
             });
+            if (!success) {
+                alert(tr('تعذر حفظ كشف الموظف بصيغة PDF حاليًا.', 'Could not save the employee statement as PDF right now.'));
+            }
         };
 
         const handleExportStatementExcel = () => {
@@ -5822,9 +5834,8 @@ const HRManager: React.FC = () => {
                                     onPrint={handlePrintStatement}
                                     onSave={handleSaveStatementSnapshot}
                                     onExcel={handleExportStatementExcel}
-                                    saveTitle={tr('تنزيل كشف الموظف', 'Download employee statement')}
+                                    saveTitle={tr('تنزيل PDF', 'Download PDF')}
                                     variant="dark"
-                                    showSaveButton={false}
                                 />
                             </div>
                         </div>

@@ -6,20 +6,112 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isBootstrapOwnerEmail() {
+      return isSignedIn()
+        && request.auth.token.email == 'hamza.mm.aa.ss@gmail.com';
+    }
+
     function isSubscriptionAdmin() {
       return isSignedIn()
         && exists(/databases/$(database)/documents/subscription_admins/$(request.auth.uid))
         && get(/databases/$(database)/documents/subscription_admins/$(request.auth.uid)).data.active == true;
     }
 
+    function isProgramOwner() {
+      return isSubscriptionAdmin()
+        && get(/databases/$(database)/documents/subscription_admins/$(request.auth.uid)).data.role == 'SUPER_ADMIN';
+    }
+
+    function optionalFieldUnchanged(fieldName) {
+      return (
+        !(fieldName in resource.data) && !(fieldName in request.resource.data)
+      ) || (
+        (fieldName in resource.data)
+        && (fieldName in request.resource.data)
+        && request.resource.data[fieldName] == resource.data[fieldName]
+      );
+    }
+
+    function isActivationCodeRedemption() {
+      return isSignedIn()
+        && resource.data.status == 'AVAILABLE'
+        && request.resource.data.status == 'USED'
+        && (!('usedAt' in resource.data) || resource.data.usedAt == null)
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.plan == resource.data.plan
+        && request.resource.data.durationDays == resource.data.durationDays
+        && request.resource.data.maxDevices == resource.data.maxDevices
+        && optionalFieldUnchanged('createdAt')
+        && optionalFieldUnchanged('createdByUserId')
+        && optionalFieldUnchanged('createdByEmail')
+        && optionalFieldUnchanged('expiresAt')
+        && optionalFieldUnchanged('notes')
+        && optionalFieldUnchanged('reservedCompanyId')
+        && optionalFieldUnchanged('reservedCompanyName')
+        && request.resource.data.usedByUserId == request.auth.uid
+        && (
+          !('reservedCompanyId' in resource.data)
+          || resource.data.reservedCompanyId == null
+          || request.resource.data.usedByCompanyId == resource.data.reservedCompanyId
+        )
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'usedAt',
+          'usedByCompanyId',
+          'usedByCompanyName',
+          'usedByDeviceId',
+          'usedByUserId',
+          'usedByEmail'
+        ]);
+    }
+
+    function isWorkspaceOfferCodeRedemption() {
+      return isSignedIn()
+        && resource.data.status == 'AVAILABLE'
+        && request.resource.data.status == 'USED'
+        && (!('usedAt' in resource.data) || resource.data.usedAt == null)
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.kind == resource.data.kind
+        && optionalFieldUnchanged('discountPercent')
+        && optionalFieldUnchanged('freeDays')
+        && optionalFieldUnchanged('companyCount')
+        && optionalFieldUnchanged('createdAt')
+        && optionalFieldUnchanged('createdByUserId')
+        && optionalFieldUnchanged('createdByEmail')
+        && optionalFieldUnchanged('expiresAt')
+        && optionalFieldUnchanged('notes')
+        && request.resource.data.usedByUserId == request.auth.uid
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'status',
+          'usedAt',
+          'usedByUserId',
+          'usedByEmail'
+        ]);
+    }
+
     match /subscription_admins/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
-      allow create, update, delete: if isSubscriptionAdmin();
+      allow create: if isSubscriptionAdmin() || (
+        isBootstrapOwnerEmail()
+        && request.auth.uid == userId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.active == true
+        && request.resource.data.role == 'SUPER_ADMIN'
+      );
+      allow update, delete: if isSubscriptionAdmin();
     }
 
     match /subscription_activation_codes/{codeId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSubscriptionAdmin();
+      allow create, delete: if isSubscriptionAdmin();
+      allow update: if isSubscriptionAdmin() || isActivationCodeRedemption();
+    }
+
+    match /workspace_offer_codes/{codeId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isProgramOwner();
+      allow update: if isProgramOwner() || isWorkspaceOfferCodeRedemption();
     }
 
     match /company_subscriptions/{companyId} {

@@ -18,6 +18,8 @@ import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayProductName, getDisplayUnitName } from '../utils/displayNames';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import InventoryPricingManager from './InventoryPricingManager';
+import { openDrilldown } from '../utils/drilldown';
+import { getProductKind, isServiceProduct } from '../utils/productKind';
 
 const ProductList: React.FC = () => {
   const { 
@@ -74,6 +76,7 @@ const ProductList: React.FC = () => {
   // Scanner State
   const [showScanner, setShowScanner] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const productOpenTimerRef = useRef<number | null>(null);
 
   // Group Form State
   const [groupName, setGroupName] = useState('');
@@ -86,6 +89,12 @@ const ProductList: React.FC = () => {
   // Inline Edit State (Quick Price)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState('');
+
+  useEffect(() => () => {
+    if (productOpenTimerRef.current !== null) {
+      window.clearTimeout(productOpenTimerRef.current);
+    }
+  }, []);
 
   const icons = ['📦', '📱', '🍞', '👕', '🏠', '✏️', '💊', '🔧', '💻', '🚗'];
 
@@ -316,6 +325,7 @@ const ProductList: React.FC = () => {
   };
 
   const lowStockCount = useMemo(() => products.filter(p => {
+    if (isServiceProduct(p)) return false;
     const threshold = Number.isFinite(Number(p.lowStockAlertQty)) ? Math.max(0, Number(p.lowStockAlertQty)) : lowStockThreshold;
     return p.stock <= threshold;
   }).length, [products, lowStockThreshold]);
@@ -336,6 +346,7 @@ const ProductList: React.FC = () => {
   }, [groupFilter, visibleItemGroups]);
 
   const filteredProducts = useMemo(() => products.filter(p => {
+    const serviceItem = isServiceProduct(p);
     const displayName = displayProductName(p);
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -347,9 +358,9 @@ const ProductList: React.FC = () => {
     const matchesStockFilter = (() => {
       switch (stockFilter) {
         case 'IN_STOCK':
-          return normalizedStock > 0;
+          return !serviceItem && normalizedStock > 0;
         case 'OUT_OF_STOCK':
-          return normalizedStock <= 0;
+          return !serviceItem && normalizedStock <= 0;
         case 'WITH_BARCODE':
           return !!p.barcode?.trim();
         case 'WITH_IMAGE':
@@ -361,7 +372,7 @@ const ProductList: React.FC = () => {
     })();
 
     if (groupFilter === 'LOW_STOCK') {
-        return matchesSearch && matchesStockFilter && p.stock <= threshold;
+        return !serviceItem && matchesSearch && matchesStockFilter && p.stock <= threshold;
     }
     const matchesGroup = groupFilter === 'ALL' || p.category === groupFilter;
     return matchesSearch && matchesGroup && matchesStockFilter;
@@ -369,22 +380,24 @@ const ProductList: React.FC = () => {
 
   const totalProductsCount = products.length;
   const totalUnitsInStock = useMemo(
-    () => products.reduce((sum, product) => sum + Math.max(0, Number(product.stock) || 0), 0),
+    () => products.reduce((sum, product) => sum + (isServiceProduct(product) ? 0 : Math.max(0, Number(product.stock) || 0)), 0),
     [products]
   );
   const totalInventoryValue = useMemo(
     () => products.reduce((sum, product) => {
+      if (isServiceProduct(product)) return sum;
       const pricing = resolveProductPricing(product);
       return sum + (Math.max(0, Number(product.stock) || 0) * pricing.cost);
     }, 0),
     [products]
   );
   const filteredUnitsInStock = useMemo(
-    () => filteredProducts.reduce((sum, product) => sum + Math.max(0, Number(product.stock) || 0), 0),
+    () => filteredProducts.reduce((sum, product) => sum + (isServiceProduct(product) ? 0 : Math.max(0, Number(product.stock) || 0)), 0),
     [filteredProducts]
   );
   const filteredInventoryValue = useMemo(
     () => filteredProducts.reduce((sum, product) => {
+      if (isServiceProduct(product)) return sum;
       const pricing = resolveProductPricing(product);
       return sum + (Math.max(0, Number(product.stock) || 0) * pricing.cost);
     }, 0),
@@ -398,12 +411,16 @@ const ProductList: React.FC = () => {
         list.sort((a, b) => displayProductName(a).localeCompare(displayProductName(b), isEnglish ? 'en' : 'ar'));
         break;
       case 'STOCK_LOW':
-        list.sort((a, b) => (Number(a.stock) || 0) - (Number(b.stock) || 0));
+        list.sort((a, b) => {
+          const aStock = isServiceProduct(a) ? Number.POSITIVE_INFINITY : (Number(a.stock) || 0);
+          const bStock = isServiceProduct(b) ? Number.POSITIVE_INFINITY : (Number(b.stock) || 0);
+          return aStock - bStock;
+        });
         break;
       case 'VALUE_HIGH':
         list.sort((a, b) => {
-          const aValue = (Number(a.stock) || 0) * resolveProductPricing(a).cost;
-          const bValue = (Number(b.stock) || 0) * resolveProductPricing(b).cost;
+          const aValue = isServiceProduct(a) ? 0 : ((Number(a.stock) || 0) * resolveProductPricing(a).cost);
+          const bValue = isServiceProduct(b) ? 0 : ((Number(b.stock) || 0) * resolveProductPricing(b).cost);
           return bValue - aValue;
         });
         break;
@@ -443,6 +460,24 @@ const ProductList: React.FC = () => {
     () => loadBarcodeReaderSettings(currentCompanyId),
     [currentCompanyId]
   );
+
+  const queueProductPreview = (productId: string) => {
+    if (productOpenTimerRef.current !== null) {
+      window.clearTimeout(productOpenTimerRef.current);
+    }
+    productOpenTimerRef.current = window.setTimeout(() => {
+      setViewProductId(productId);
+      productOpenTimerRef.current = null;
+    }, 220);
+  };
+
+  const openProductMovement = (productId: string) => {
+    if (productOpenTimerRef.current !== null) {
+      window.clearTimeout(productOpenTimerRef.current);
+      productOpenTimerRef.current = null;
+    }
+    openDrilldown({ kind: 'PRODUCT_MOVEMENT', productId });
+  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
@@ -775,15 +810,18 @@ const ProductList: React.FC = () => {
             const group = getGroupDetails(product.category);
             const unit = getUnitDetails(product.unitId);
             const pricing = resolveProductPricing(product);
+            const productKind = getProductKind(product);
+            const serviceItem = productKind === 'SERVICE';
             const productLowStockThreshold = Number.isFinite(Number(product.lowStockAlertQty)) ? Math.max(0, Number(product.lowStockAlertQty)) : lowStockThreshold;
-            const isLowStock = product.stock <= productLowStockThreshold;
+            const isLowStock = !serviceItem && product.stock <= productLowStockThreshold;
             const isEditing = editingId === product.id;
 
             return (
             <div 
                 key={product.id} 
-                onClick={() => setViewProductId(product.id)}
-                className={`bg-white p-5 rounded-[2.5rem] border shadow-sm group hover:shadow-xl hover:border-blue-100 transition-all cursor-pointer animate-in slide-in-from-bottom-2 ${isLowStock ? 'border-red-100 bg-red-50/5' : 'border-gray-50'}`}
+                onClick={() => queueProductPreview(product.id)}
+                onDoubleClick={() => openProductMovement(product.id)}
+                className={`bg-white p-5 rounded-[2.5rem] border shadow-sm group hover:shadow-xl hover:border-blue-100 transition-all cursor-pointer animate-in slide-in-from-bottom-2 ${isLowStock ? 'border-red-100 bg-red-50/5' : serviceItem ? 'border-amber-100 bg-amber-50/10' : 'border-gray-50'}`}
             >
                 <div className="flex justify-between items-start gap-3 mb-4 min-w-0">
                     <div className="flex gap-4 min-w-0 flex-1">
@@ -801,10 +839,13 @@ const ProductList: React.FC = () => {
                                 <span className="shrink-0 text-[9px] font-black text-gray-400 uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-lg group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
                                     {displayGroupName(group)}
                                 </span>
-                                {product.lowStockAlertQty !== undefined && <span className="shrink-0 text-[8px] font-mono text-orange-500">{tr('حد نقص', 'Low Threshold')} {product.lowStockAlertQty}</span>}
-                                {product.expiryPeriodDays !== undefined && product.expiryPeriodDays > 0 && <span className="shrink-0 text-[8px] font-mono text-violet-600">{tr('صلاحية', 'Shelf Life')} {product.expiryPeriodDays} {tr('يوم', 'day')}</span>}
-                                {product.expiryAlertLeadDays !== undefined && product.expiryAlertLeadDays >= 0 && <span className="shrink-0 text-[8px] font-mono text-rose-500">{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays} {tr('يوم', 'day')}</span>}
-                                {product.expiryDate && <span className="shrink-0 text-[8px] font-mono text-emerald-600">{tr('انتهاء', 'Expiry')} {product.expiryDate}</span>}
+                                <span className={`shrink-0 rounded-lg px-2 py-0.5 text-[8px] font-black ${serviceItem ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {serviceItem ? tr('خدمة', 'Service') : tr('مخزني', 'Stock')}
+                                </span>
+                                {!serviceItem && product.lowStockAlertQty !== undefined && <span className="shrink-0 text-[8px] font-mono text-orange-500">{tr('حد نقص', 'Low Threshold')} {product.lowStockAlertQty}</span>}
+                                {!serviceItem && product.expiryPeriodDays !== undefined && product.expiryPeriodDays > 0 && <span className="shrink-0 text-[8px] font-mono text-violet-600">{tr('صلاحية', 'Shelf Life')} {product.expiryPeriodDays} {tr('يوم', 'day')}</span>}
+                                {!serviceItem && product.expiryAlertLeadDays !== undefined && product.expiryAlertLeadDays >= 0 && <span className="shrink-0 text-[8px] font-mono text-rose-500">{tr('تنبيه قبل', 'Alert before')} {product.expiryAlertLeadDays} {tr('يوم', 'day')}</span>}
+                                {!serviceItem && product.expiryDate && <span className="shrink-0 text-[8px] font-mono text-emerald-600">{tr('انتهاء', 'Expiry')} {product.expiryDate}</span>}
                                 {product.itemCode && <span className="shrink-0 text-[8px] font-mono text-indigo-400">{product.itemCode}</span>}
                                 {product.barcode && <span className="shrink-0 text-[8px] font-mono text-slate-300">{product.barcode}</span>}
                             </div>
@@ -874,14 +915,27 @@ const ProductList: React.FC = () => {
                     </div>
 
                     <div className="flex flex-col items-center justify-center min-w-0 px-0.5 sm:px-1">
-                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('المخزون', 'Stock')}</span>
-                        <div className={`w-full text-center font-black text-[11px] sm:text-sm dir-ltr flex items-center justify-center gap-1 leading-tight ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
-                            {product.stock}
-                            <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold truncate">{unit?.code}</span>
-                        </div>
-                        <div className="w-full text-center text-[7px] sm:text-[8px] font-black text-gray-400 mt-1 dir-ltr leading-tight truncate">
-                          {formatCurrency(product.stock * pricing.cost)}
-                        </div>
+                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">
+                          {serviceItem ? tr('النوع', 'Type') : tr('المخزون', 'Stock')}
+                        </span>
+                        {serviceItem ? (
+                          <>
+                            <div className="w-full text-center font-black text-[11px] sm:text-sm text-amber-700 leading-tight">{tr('خدمة', 'Service')}</div>
+                            <div className="w-full text-center text-[7px] sm:text-[8px] font-black text-gray-400 mt-1 leading-tight truncate">
+                              {unit ? `${tr('الوحدة', 'Unit')}: ${unit.code}` : tr('بدون مخزون', 'No stock tracking')}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`w-full text-center font-black text-[11px] sm:text-sm dir-ltr flex items-center justify-center gap-1 leading-tight ${isLowStock ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                {product.stock}
+                                <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold truncate">{unit?.code}</span>
+                            </div>
+                            <div className="w-full text-center text-[7px] sm:text-[8px] font-black text-gray-400 mt-1 dir-ltr leading-tight truncate">
+                              {formatCurrency(product.stock * pricing.cost)}
+                            </div>
+                          </>
+                        )}
                     </div>
                 </div>
             </div>

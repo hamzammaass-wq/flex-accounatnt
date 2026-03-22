@@ -9,7 +9,7 @@ import {
   EmployeeLeaveRequest, EmployeeRecurringDeduction,
   BillOfMaterial, ProductionOrder, ProductionOrderStatus, MutationResult,
   PermissionAction, PermissionModule, PermissionMatrix, AuditLogEntry, BackupPayloadV1, UserRole,
-  CloudCompanySubscription, CloudSubscriptionCode, CompanyMembership, CompanyProfile, CompanySubscriptionPlan, CompanySubscriptionStatus, CreateCompanyInput, ImportExpenseDistribution, InventoryValuationMethod, ProductFifoLayer, SubscriptionBillingCycle, SubscriptionCheckoutProvider, SubscriptionCheckoutResult, SubscriptionCodeIssueResult, SubscriptionDeviceBinding, SubscriptionProviderAvailability, WorkspaceSubscriptionAccount
+  CloudCompanySubscription, CloudSubscriptionCode, CompanyMembership, CompanyProfile, CompanySubscriptionPlan, CompanySubscriptionStatus, CreateCompanyInput, ImportExpenseDistribution, InventoryValuationMethod, ProductFifoLayer, SubscriptionBillingCycle, SubscriptionCheckoutProvider, SubscriptionCheckoutResult, SubscriptionCodeIssueResult, SubscriptionDeviceBinding, SubscriptionProviderAvailability, WorkspaceOfferCode, WorkspaceOfferCodeKind, WorkspaceSubscriptionAccount
   , InvoiceSettlement, FingerprintReaderDevice, FingerprintAttendanceBatch
 } from '../types';
 import { validateInvoiceInput, validateTransactionInput } from '../utils/validationRules';
@@ -17,14 +17,22 @@ import { decryptBackupPayload, encryptBackupPayload, isBackupPayloadV1 } from '.
 import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { sanitizeInvoices } from '../utils/invoiceSanitizer';
 import { buildProductPricingPatch } from '../utils/productPricing';
+import { isStockProduct, normalizeProductInventoryFields } from '../utils/productKind';
 import { isProfitLossAccount } from '../utils/fiscalYear';
 import { DEFAULT_BRAND_MARK_URL, normalizeBrandLogoUrl } from '../utils/brandAssets';
 import { detectPreferredAppLanguage, normalizeAppLanguage } from '../utils/i18n';
 import { coerceCompanyBooleanSetting, normalizeCompanyDisplaySettings, normalizeInvoiceTaxSettings } from '../utils/companySettings';
+import {
+  findCompanyProfileNameConflict,
+  resolveCompanyDeletionTarget,
+  shouldBootstrapMissingCompanySubscription
+} from '../utils/companyLifecycle';
+import { normalizeEntityNameKey } from '../utils/entityNameMatching';
 import { buildDefaultWorkspaceSubscription, getSubscriptionProviderAvailability, getWorkspaceEffectiveMaxCompanies, getWorkspaceRemainingCompanySlots, normalizeWorkspaceSubscription, prepareWorkspaceCheckout } from '../utils/subscriptionCommerce';
-import { buildCloudSubscriptionFromCompanyProfile, getCurrentSubscriptionDeviceBinding, getOrCreateSubscriptionDeviceId, isSubscriptionAdminEmail, normalizeCloudCompanySubscription, normalizeCloudSubscriptionCode } from '../utils/subscriptionCloud';
+import { buildCloudSubscriptionFromCompanyProfile, getCurrentSubscriptionDeviceBinding, getOrCreateSubscriptionDeviceId, isLocalSubscriptionAdminEnabled, isProgramOwnerEmail, isSubscriptionAdminEmail, normalizeCloudCompanySubscription, normalizeCloudSubscriptionCode, normalizeWorkspaceOfferCode } from '../utils/subscriptionCloud';
+import { clearWorkspaceSnapshotStorage, deleteWorkspaceSnapshotRecord, readWorkspaceSnapshotRecord, writeWorkspaceSnapshotRecord } from '../utils/workspaceSnapshotStorage';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, limit as firestoreLimit } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, limit as firestoreLimit } from 'firebase/firestore';
 import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
 
 // ... (Existing Interfaces)
@@ -35,6 +43,8 @@ type GoogleTokenResponse = {
   error_description?: string;
   expires_in?: number;
 };
+
+type SubscriptionAdminScope = 'NONE' | 'LOCAL' | 'CLOUD';
 
 type BackupHistoryEntry = {
   id: string;
@@ -88,6 +98,14 @@ type EnsuredPartnerEquityAccountsResult = {
   changed: boolean;
 };
 
+type CommercialSubAccountContactType = Extract<Contact['type'], 'CUSTOMER' | 'SUPPLIER'>;
+
+type EnsuredCommercialSubAccountResult = {
+  linkedAccountId: string;
+  accountSnapshot: Account[];
+  changed: boolean;
+};
+
 type DeleteInvoiceOptions = {
   preserveSettlements?: boolean;
 };
@@ -110,11 +128,16 @@ interface AccountingContextType {
   workspaceProviderAvailability: SubscriptionProviderAvailability;
   switchCompany: (companyId: string) => MutationResult;
   createCompany: (input: CreateCompanyInput) => Promise<MutationResult>;
+  deleteCompany: (companyId: string) => Promise<MutationResult>;
   updateWorkspaceSubscription: (updates: Partial<WorkspaceSubscriptionAccount>) => Promise<MutationResult>;
   prepareSubscriptionCheckout: (
     provider: SubscriptionCheckoutProvider,
     billingCycle: SubscriptionBillingCycle,
-    desiredCompanyCount: number
+    desiredCompanyCount: number,
+    options?: {
+      discountPercent?: number;
+      offerCode?: string;
+    }
   ) => SubscriptionCheckoutResult;
   updateCompanyProfile: (companyId: string, updates: Partial<CompanyProfile>) => MutationResult;
   updateCompanySubscription: (companyId: string, updates: Partial<CompanyProfile>) => Promise<MutationResult>;
@@ -124,8 +147,11 @@ interface AccountingContextType {
   subscriptionCloudBusy: boolean;
   subscriptionCloudError: string;
   subscriptionAdminEnabled: boolean;
+  programOwnerEnabled: boolean;
   subscriptionCodes: CloudSubscriptionCode[];
   subscriptionCodesLoading: boolean;
+  workspaceOfferCodes: WorkspaceOfferCode[];
+  workspaceOfferCodesLoading: boolean;
   subscriptionCompanies: CloudCompanySubscription[];
   subscriptionCompaniesLoading: boolean;
   issueSubscriptionCode: (input: {
@@ -138,6 +164,15 @@ interface AccountingContextType {
     reservedCompanyName?: string;
   }) => Promise<SubscriptionCodeIssueResult>;
   cancelSubscriptionCode: (code: string) => Promise<MutationResult>;
+  issueWorkspaceOfferCode: (input: {
+    kind: WorkspaceOfferCodeKind;
+    discountPercent?: number;
+    freeDays?: number;
+    companyCount?: number;
+    expiresAt?: string;
+    notes?: string;
+  }) => Promise<SubscriptionCodeIssueResult>;
+  redeemWorkspaceOfferCode: (code: string, desiredCompanyCount?: number) => Promise<MutationResult>;
   linkCurrentSubscriptionDevice: (companyId?: string) => Promise<MutationResult>;
   unlinkSubscriptionDevice: (companyId: string, deviceId: string) => Promise<MutationResult>;
 
@@ -297,7 +332,17 @@ interface AccountingContextType {
   updateStockTransfer: (id: string, updates: Partial<StockTransfer>) => void;
   deleteStockTransfer: (id: string) => void;
   postStockTransfer: (id: string) => void;
-  adjustWarehouseStock: (productId: string, warehouseId: string, quantity: number) => void;
+  adjustWarehouseStock: (
+    productId: string,
+    warehouseId: string,
+    quantity: number,
+    options?: {
+      reason?: 'VARIANCE' | 'DAMAGED';
+      date?: string;
+      note?: string;
+      source?: 'MANUAL' | 'INLINE' | 'BARCODE';
+    }
+  ) => MutationResult;
 
   // Manufacturing Module
   boms: BillOfMaterial[];
@@ -359,6 +404,13 @@ const withNormalizedValuationSettings = (settings: CompanySettings): CompanySett
   const backupFrequency = normalizedSettings.autoBackupFrequency === 'HOURLY' ? 'HOURLY' : 'DAILY';
   const keepCountRaw = Number(normalizedSettings.autoBackupKeepCount);
   const keepCount = Number.isFinite(keepCountRaw) ? Math.max(1, Math.min(200, Math.floor(keepCountRaw))) : 30;
+  const importantAccountIds = Array.isArray(normalizedSettings.importantAccountIds)
+    ? Array.from(new Set(
+      normalizedSettings.importantAccountIds
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+    ))
+    : [];
   const lastRunAt = normalizedSettings.autoBackupLastRunAt && !Number.isNaN(Date.parse(normalizedSettings.autoBackupLastRunAt))
     ? normalizedSettings.autoBackupLastRunAt
     : undefined;
@@ -377,8 +429,27 @@ const withNormalizedValuationSettings = (settings: CompanySettings): CompanySett
     googleDriveFolderId: String(normalizedSettings.googleDriveFolderId || '').trim(),
     printItemBarcodeInInvoice: coerceCompanyBooleanSetting(normalizedSettings.printItemBarcodeInInvoice, false),
     darkModeEnabled: Boolean(normalizedSettings.darkModeEnabled),
+    importantAccountIds,
     language: normalizeAppLanguage(normalizedSettings.language)
   };
+};
+
+const stripLanguageFromCompanySettings = (settings: CompanySettings): Omit<CompanySettings, 'language'> => {
+  const { language: _language, ...rest } = withNormalizedValuationSettings(settings);
+  void _language;
+  return rest;
+};
+
+const isLanguageOnlyCompanySettingsChange = (
+  currentSettings: CompanySettings,
+  nextSettings: CompanySettings
+): boolean => {
+  if (normalizeAppLanguage(currentSettings.language) === normalizeAppLanguage(nextSettings.language)) {
+    return false;
+  }
+
+  return JSON.stringify(stripLanguageFromCompanySettings(currentSettings))
+    === JSON.stringify(stripLanguageFromCompanySettings(nextSettings));
 };
 
 const COMPANY_SUBSCRIPTION_STATUS_SET = new Set<CompanySubscriptionStatus>(['TRIAL', 'ACTIVE', 'EXPIRED', 'SUSPENDED']);
@@ -407,6 +478,29 @@ const normalizeOptionalIsoDate = (value: unknown): string | undefined => {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined;
 };
 
+const stripUndefinedDeep = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => stripUndefinedDeep(item))
+      .filter(item => typeof item !== 'undefined');
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).flatMap(([key, nestedValue]) => {
+        const sanitizedValue = stripUndefinedDeep(nestedValue);
+        return typeof sanitizedValue === 'undefined' ? [] : [[key, sanitizedValue]];
+      })
+    );
+  }
+
+  return typeof value === 'undefined' ? undefined : value;
+};
+
+const sanitizeFirestorePayload = (value: Record<string, unknown>): Record<string, unknown> => (
+  stripUndefinedDeep(value) as Record<string, unknown>
+);
+
 const normalizeGraceDays = (value: unknown): number =>
   Math.max(0, Math.min(30, Math.floor(Number(value) || 0)));
 
@@ -426,6 +520,66 @@ const parseActivationCode = (value: unknown): { code: string; plan: CompanySubsc
   const normalized = normalizeActivationCode(value);
   const match = ACTIVATION_CODE_CATALOG.find(item => item.code === normalized);
   return match ? { ...match, code: normalized } : null;
+};
+
+const sortSubscriptionCodesByCreatedAt = (codes: CloudSubscriptionCode[]): CloudSubscriptionCode[] => (
+  [...codes].sort((left, right) => Date.parse(String(right.createdAt || '')) - Date.parse(String(left.createdAt || '')))
+);
+
+const loadLocalSubscriptionCodes = (): CloudSubscriptionCode[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = localStorage.getItem(LOCAL_SUBSCRIPTION_CODES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return sortSubscriptionCodesByCreatedAt(
+      parsed
+        .map(item => normalizeCloudSubscriptionCode(item))
+        .filter((item): item is CloudSubscriptionCode => Boolean(item))
+    );
+  } catch {
+    return [];
+  }
+};
+
+const persistLocalSubscriptionCodes = (codes: CloudSubscriptionCode[]): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(LOCAL_SUBSCRIPTION_CODES_KEY, JSON.stringify(sortSubscriptionCodesByCreatedAt(codes)));
+};
+
+const sortWorkspaceOfferCodesByCreatedAt = (codes: WorkspaceOfferCode[]): WorkspaceOfferCode[] => (
+  [...codes].sort((left, right) => Date.parse(String(right.createdAt || '')) - Date.parse(String(left.createdAt || '')))
+);
+
+const loadLocalWorkspaceOfferCodes = (): WorkspaceOfferCode[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = localStorage.getItem(LOCAL_WORKSPACE_OFFER_CODES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return sortWorkspaceOfferCodesByCreatedAt(
+      parsed
+        .map(item => normalizeWorkspaceOfferCode(item))
+        .filter((item): item is WorkspaceOfferCode => Boolean(item))
+    );
+  } catch {
+    return [];
+  }
+};
+
+const persistLocalWorkspaceOfferCodes = (codes: WorkspaceOfferCode[]): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(LOCAL_WORKSPACE_OFFER_CODES_KEY, JSON.stringify(sortWorkspaceOfferCodesByCreatedAt(codes)));
+};
+
+const clampWorkspaceOfferCompanyCount = (value: unknown): number | undefined => {
+  const parsed = Math.floor(Number(value) || 0);
+  if (parsed <= 0) return undefined;
+  return Math.max(1, Math.min(50, parsed));
 };
 
 function resolveCompanySubscriptionStatus(profile: Partial<CompanyProfile>): CompanySubscriptionStatus {
@@ -844,7 +998,10 @@ const WORKSPACE_SYNC_COLLECTION = 'workspace_sync_snapshots';
 const COMPANY_SUBSCRIPTIONS_COLLECTION = 'company_subscriptions';
 const WORKSPACE_SUBSCRIPTIONS_COLLECTION = 'workspace_subscriptions';
 const SUBSCRIPTION_CODES_COLLECTION = 'subscription_activation_codes';
+const WORKSPACE_OFFER_CODES_COLLECTION = 'workspace_offer_codes';
 const SUBSCRIPTION_ADMINS_COLLECTION = 'subscription_admins';
+const LOCAL_SUBSCRIPTION_CODES_KEY = 'al_mohaseb_local_subscription_codes_v1';
+const LOCAL_WORKSPACE_OFFER_CODES_KEY = 'al_mohaseb_workspace_offer_codes_v1';
 const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
 const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -864,6 +1021,8 @@ type WorkspaceSyncQueueItem = {
   ownerUserId?: string;
   lastError?: string;
 };
+
+type SubscriptionAdminRoleScope = 'NONE' | 'ADMIN' | 'SUPER_ADMIN';
 
 const isWorkspaceSyncQueueItem = (value: unknown): value is WorkspaceSyncQueueItem => {
   if (!value || typeof value !== 'object') return false;
@@ -990,6 +1149,7 @@ const clearAppBrowserStorage = async (): Promise<void> => {
 
   removeMatchingKeys(window.localStorage);
   removeMatchingKeys(window.sessionStorage);
+  await clearWorkspaceSnapshotStorage();
 
   if ('caches' in window) {
     const cacheKeys = await window.caches.keys();
@@ -1109,6 +1269,12 @@ type CompanyWorkspaceSnapshot = {
   auditLogs: AuditLogEntry[];
 };
 
+type WorkspaceSnapshotReadResult = {
+  snapshot: CompanyWorkspaceSnapshot | null;
+  source: 'idb' | 'legacy' | 'none';
+  needsRewrite: boolean;
+};
+
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const [forceEmptyBootstrap] = useState<boolean>(() => {
     try {
@@ -1208,11 +1374,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     { id: 'acc_receivable_group', code: '113', name: 'الذمم المدينة (العملاء)', type: 'ASSET', balance: 0, parentId: 'acc_current_assets', isGroup: true, currency: baseCurrency },
     { id: 'acc_receivable', code: '11301', name: 'ذمم العملاء التجارية', type: 'ASSET', balance: 0, parentId: 'acc_receivable_group', currency: baseCurrency },
     { id: 'acc_notes_receivable', code: '114', name: 'أوراق القبض (شيكات واردة)', type: 'ASSET', balance: 0, parentId: 'acc_current_assets', isGroup: true, currency: baseCurrency },
-    { id: 'acc_cheques_hand', code: '11401', name: 'شيكات برسم التحصيل', type: 'ASSET', balance: 0, parentId: 'acc_notes_receivable', currency: baseCurrency },
+    { id: 'acc_cheques_hand', code: '11401', name: 'شيكات بالصندوق', type: 'ASSET', balance: 0, parentId: 'acc_notes_receivable', currency: baseCurrency },
     { id: 'acc_cheques_under_collection', code: '11402', name: 'شيكات تحت التحصيل', type: 'ASSET', balance: 0, parentId: 'acc_notes_receivable', currency: baseCurrency },
     { id: 'acc_inventory_group', code: '115', name: 'المخزون', type: 'ASSET', balance: 0, parentId: 'acc_current_assets', isGroup: true, currency: baseCurrency },
     { id: 'acc_inventory', code: '11501', name: 'مخزون البضائع', type: 'ASSET', balance: 0, parentId: 'acc_inventory_group', currency: baseCurrency },
     { id: 'acc_vat_input', code: '116', name: 'ضريبة المدخلات القابلة للاسترداد', type: 'ASSET', balance: 0, parentId: 'acc_current_assets', currency: baseCurrency },
+    { id: 'acc_employee_advances', code: '117', name: 'سلف الموظفين', type: 'ASSET', balance: 0, parentId: 'acc_current_assets', currency: baseCurrency },
     { id: 'acc_fixed_assets_root', code: '12', name: 'الأصول الثابتة', type: 'ASSET', balance: 0, parentId: 'acc_assets', isGroup: true, currency: baseCurrency },
     { id: 'acc_furniture', code: '121', name: 'أثاث ومفروشات', type: 'ASSET', balance: 0, parentId: 'acc_fixed_assets_root', currency: baseCurrency },
     { id: 'acc_equipment', code: '122', name: 'أجهزة ومعدات إلكترونية', type: 'ASSET', balance: 0, parentId: 'acc_fixed_assets_root', currency: baseCurrency },
@@ -1225,9 +1392,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     { id: 'acc_liabilities', code: '2', name: 'الخصوم (الالتزامات)', type: 'LIABILITY', balance: 0, isGroup: true, currency: baseCurrency },
     { id: 'acc_current_liabilities', code: '21', name: 'الالتزامات المتداولة', type: 'LIABILITY', balance: 0, parentId: 'acc_liabilities', isGroup: true, currency: baseCurrency },
     { id: 'acc_long_term_liabilities', code: '22', name: 'الالتزامات طويلة الأجل', type: 'LIABILITY', balance: 0, parentId: 'acc_liabilities', isGroup: true, currency: baseCurrency },
-    { id: 'acc_payable', code: '211', name: 'ذمم الموردين التجارية', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', currency: baseCurrency },
+    { id: 'acc_payable_group', code: '211', name: 'الذمم الدائنة (الموردون)', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', isGroup: true, currency: baseCurrency },
+    { id: 'acc_payable', code: '21101', name: 'ذمم الموردين التجارية', type: 'LIABILITY', balance: 0, parentId: 'acc_payable_group', currency: baseCurrency },
     { id: 'acc_notes_payable', code: '212', name: 'أوراق الدفع (شيكات صادرة)', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', currency: baseCurrency },
     { id: 'acc_accrued_salaries', code: '213', name: 'ذمم موظفين', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', currency: baseCurrency },
+    { id: 'acc_payroll_deductions_payable', code: '214', name: 'استقطاعات ومستحقات الرواتب', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', currency: baseCurrency },
     { id: 'acc_vat_output', code: '221', name: 'ضريبة المخرجات', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', currency: baseCurrency },
     { id: 'acc_vat_payable', code: '222', name: 'ضريبة القيمة المضافة المستحقة', type: 'LIABILITY', balance: 0, parentId: 'acc_current_liabilities', currency: baseCurrency },
 
@@ -1265,6 +1434,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     { id: 'acc_depreciation_exp', code: '54', name: 'مصروف الإهلاك', type: 'EXPENSE', balance: 0, parentId: 'acc_expense_root', currency: baseCurrency },
     { id: 'acc_exchange_diff', code: '55', name: 'فروقات أسعار العملات', type: 'EXPENSE', balance: 0, parentId: 'acc_expense_root', currency: baseCurrency },
     { id: 'acc_loss_asset_disposal', code: '56', name: 'خسائر بيع الأصول', type: 'EXPENSE', balance: 0, parentId: 'acc_expense_root', currency: baseCurrency },
+    { id: 'acc_inventory_adjustments', code: '57', name: 'تسويات وفروقات المخزون', type: 'EXPENSE', balance: 0, parentId: 'acc_expense_root', isGroup: true, currency: baseCurrency },
+    { id: 'acc_inventory_variance', code: '571', name: 'فروقات المخزون', type: 'EXPENSE', balance: 0, parentId: 'acc_inventory_adjustments', currency: baseCurrency },
+    { id: 'acc_damaged_goods', code: '572', name: 'بضاعة تالفة', type: 'EXPENSE', balance: 0, parentId: 'acc_inventory_adjustments', currency: baseCurrency },
     // Manufacturing Accounts
     { id: 'acc_direct_labor', code: '513', name: 'أجور عمالة مباشرة (صناعية)', type: 'EXPENSE', balance: 0, parentId: 'acc_expense_root', currency: baseCurrency },
     { id: 'acc_manufacturing_overhead', code: '514', name: 'ت. صناعية غير مباشرة (محملة)', type: 'EXPENSE', balance: 0, parentId: 'acc_expense_root', currency: baseCurrency },
@@ -1599,7 +1771,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       category: 'employee_advance',
       type: TransactionType.EXPENSE,
       date: '2026-01-05',
-      debitAccountId: 'acc_receivable',
+      debitAccountId: 'acc_employee_advances',
       creditAccountId: 'acc_cash',
       employeeId: 'emp_1',
       currency: baseCurrency,
@@ -1658,7 +1830,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       type: TransactionType.INCOME,
       date: '2026-01-20',
       debitAccountId: 'acc_cash',
-      creditAccountId: 'acc_receivable',
+      creditAccountId: 'acc_employee_advances',
       employeeId: 'emp_1',
       currency: baseCurrency,
       exchangeRate: 1,
@@ -1731,7 +1903,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       type: TransactionType.TRANSFER,
       date: '2026-01-31',
       debitAccountId: 'acc_accrued_salaries',
-      creditAccountId: 'acc_exp_salaries',
+      creditAccountId: 'acc_payroll_deductions_payable',
       employeeId: 'emp_1',
       currency: baseCurrency,
       exchangeRate: 1,
@@ -1745,7 +1917,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       type: TransactionType.TRANSFER,
       date: '2026-01-31',
       debitAccountId: 'acc_accrued_salaries',
-      creditAccountId: 'acc_receivable',
+      creditAccountId: 'acc_employee_advances',
       employeeId: 'emp_1',
       currency: baseCurrency,
       exchangeRate: 1,
@@ -1911,10 +2083,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       status: 'POSTED'
     },
     {
-      id: 'tx_voucher_payment_002_draft',
+      id: 'tx_voucher_payment_002',
       voucherId: 'PV-0002',
       amount: 450,
-      description: 'Payment voucher PV-0002 (draft)',
+      description: 'Payment voucher PV-0002',
       category: 'voucher_payment',
       type: TransactionType.EXPENSE,
       date: '2026-02-12',
@@ -1923,7 +2095,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       creditAccountId: 'acc_cash',
       currency: baseCurrency,
       exchangeRate: 1,
-      status: 'DRAFT'
+      status: 'POSTED'
     },
   ];
 
@@ -2176,6 +2348,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     address: 'الرياض - حي الملز',
     phone: '920001234',
     logoUrl: DEFAULT_BRAND_MARK_URL,
+    importantAccountIds: [],
     annualLeaveDefaultOpenEndedDays: 21,
     annualLeaveDefaultFixedTermDays: 14,
     leaveAccrualPolicy: 'ANNUAL',
@@ -2316,8 +2489,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const [subscriptionCloudBusy, setSubscriptionCloudBusy] = useState(false);
   const [subscriptionCloudError, setSubscriptionCloudError] = useState('');
   const [subscriptionAdminEnabled, setSubscriptionAdminEnabled] = useState(false);
+  const [subscriptionAdminScope, setSubscriptionAdminScope] = useState<SubscriptionAdminScope>('NONE');
+  const [subscriptionAdminRole, setSubscriptionAdminRole] = useState<SubscriptionAdminRoleScope>('NONE');
   const [subscriptionCodes, setSubscriptionCodes] = useState<CloudSubscriptionCode[]>([]);
   const [subscriptionCodesLoading, setSubscriptionCodesLoading] = useState(false);
+  const [workspaceOfferCodes, setWorkspaceOfferCodes] = useState<WorkspaceOfferCode[]>([]);
+  const [workspaceOfferCodesLoading, setWorkspaceOfferCodesLoading] = useState(false);
   const [subscriptionCompanies, setSubscriptionCompanies] = useState<CloudCompanySubscription[]>([]);
   const [subscriptionCompaniesLoading, setSubscriptionCompaniesLoading] = useState(false);
   const currentCompany = useMemo(
@@ -2336,6 +2513,49 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     () => resolveDaysLeft(companyAccessEndsAt),
     [companyAccessEndsAt]
   );
+  const localSubscriptionAdminEnabled = useMemo(
+    () => Boolean(
+      currentUser
+      && !isGuestUser(currentUser)
+      && currentUser.role === 'ADMIN'
+      && isLocalSubscriptionAdminEnabled()
+    ),
+    [currentUser]
+  );
+  const replaceLocalSubscriptionCodes = useCallback((codes: CloudSubscriptionCode[]): CloudSubscriptionCode[] => {
+    const nextCodes = sortSubscriptionCodesByCreatedAt(codes);
+    persistLocalSubscriptionCodes(nextCodes);
+    setSubscriptionCodes(nextCodes);
+    return nextCodes;
+  }, []);
+  const replaceLocalWorkspaceOfferCodes = useCallback((codes: WorkspaceOfferCode[]): WorkspaceOfferCode[] => {
+    const nextCodes = sortWorkspaceOfferCodesByCreatedAt(codes);
+    persistLocalWorkspaceOfferCodes(nextCodes);
+    setWorkspaceOfferCodes(nextCodes);
+    return nextCodes;
+  }, []);
+  const ensureProgramOwnerAdminDocument = useCallback(async (): Promise<void> => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !isProgramOwnerEmail(currentUser.email)) return;
+    const adminRef = doc(firebaseDb, SUBSCRIPTION_ADMINS_COLLECTION, currentUser.id);
+    await setDoc(adminRef, {
+      userId: currentUser.id,
+      email: currentUser.email || '',
+      active: true,
+      role: 'SUPER_ADMIN',
+      createdAt: new Date().toISOString()
+    }, { merge: true });
+  }, [currentUser]);
+  const programOwnerEnabled = useMemo(
+    () => Boolean(
+      currentUser
+      && !isGuestUser(currentUser)
+      && (
+        subscriptionAdminRole === 'SUPER_ADMIN'
+        || isProgramOwnerEmail(currentUser.email)
+      )
+    ),
+    [currentUser, subscriptionAdminRole]
+  );
   const [workspaceHydratedForCompanyId, setWorkspaceHydratedForCompanyId] = useState<string>('');
   const [isOnline, setIsOnline] = useState<boolean>(() => (
     typeof navigator === 'undefined' ? true : navigator.onLine
@@ -2345,6 +2565,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const [syncQueueVersion, setSyncQueueVersion] = useState<number>(0);
   const autoFiscalPostingInFlightRef = useRef(false);
   const autoBackupInFlightRef = useRef(false);
+  const companyCreateInFlightRef = useRef(false);
+  const companyDeleteInFlightRef = useRef<Set<string>>(new Set());
   const googleTokenRef = useRef<string>('');
   const googleTokenExpiresAtRef = useRef<number>(0);
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
@@ -2451,7 +2673,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       reservedCompanyName: options?.reservedCompanyName || existingRemote?.reservedCompanyName
     };
 
-    await setDoc(subscriptionRef, nextRemote, { merge: true });
+    await setDoc(subscriptionRef, sanitizeFirestorePayload(nextRemote as unknown as Record<string, unknown>), { merge: true });
   }, [currentDeviceBinding, currentUser]);
 
   const persistWorkspaceSubscriptionDoc = useCallback(async (
@@ -2463,7 +2685,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       userId: currentUser.id,
       userEmail: currentUser.email
     });
-    await setDoc(workspaceRef, payload, { merge: true });
+    await setDoc(workspaceRef, sanitizeFirestorePayload(payload as unknown as Record<string, unknown>), { merge: true });
   }, [currentUser]);
 
   const logout = async () => {
@@ -2561,36 +2783,64 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [cloudMemberships, currentCompanyId, currentUser]);
 
   useEffect(() => {
-    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
+    if (!currentUser || isGuestUser(currentUser)) {
       setSubscriptionAdminEnabled(false);
+      setSubscriptionAdminScope('NONE');
+      setSubscriptionAdminRole('NONE');
+      return;
+    }
+
+    if (!firebaseDb) {
+      setSubscriptionAdminEnabled(localSubscriptionAdminEnabled);
+      setSubscriptionAdminScope(localSubscriptionAdminEnabled ? 'LOCAL' : 'NONE');
+      setSubscriptionAdminRole(localSubscriptionAdminEnabled ? 'SUPER_ADMIN' : 'NONE');
       return;
     }
 
     const adminRef = doc(firebaseDb, SUBSCRIPTION_ADMINS_COLLECTION, currentUser.id);
     const unsubscribe = onSnapshot(adminRef, (snapshot) => {
-      const bootstrapByEmail = isSubscriptionAdminEmail(currentUser.email);
+      const bootstrapByEmail = isSubscriptionAdminEmail(currentUser.email) || isProgramOwnerEmail(currentUser.email);
       const activeInCloud = snapshot.exists() && snapshot.data()?.active !== false;
-      setSubscriptionAdminEnabled(Boolean(activeInCloud || bootstrapByEmail));
+      const nextRole = activeInCloud
+        ? (String(snapshot.data()?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN')
+        : (isProgramOwnerEmail(currentUser.email) ? 'SUPER_ADMIN' : 'NONE');
+      const nextScope: SubscriptionAdminScope = activeInCloud
+        ? 'CLOUD'
+        : (bootstrapByEmail || localSubscriptionAdminEnabled ? 'LOCAL' : 'NONE');
+      setSubscriptionAdminEnabled(nextScope !== 'NONE');
+      setSubscriptionAdminScope(nextScope);
+      setSubscriptionAdminRole(nextRole);
 
       if (!snapshot.exists() && bootstrapByEmail) {
         void setDoc(adminRef, {
           userId: currentUser.id,
           email: currentUser.email || '',
           active: true,
-          role: 'SUPER_ADMIN',
+          role: isProgramOwnerEmail(currentUser.email) ? 'SUPER_ADMIN' : 'ADMIN',
           createdAt: new Date().toISOString()
-        }, { merge: true });
+        }, { merge: true }).catch(() => undefined);
       }
     }, () => {
-      setSubscriptionAdminEnabled(isSubscriptionAdminEmail(currentUser.email));
+      const nextScope: SubscriptionAdminScope = (isSubscriptionAdminEmail(currentUser.email) || localSubscriptionAdminEnabled)
+        ? 'LOCAL'
+        : 'NONE';
+      setSubscriptionAdminEnabled(nextScope !== 'NONE');
+      setSubscriptionAdminScope(nextScope);
+      setSubscriptionAdminRole(isProgramOwnerEmail(currentUser.email) ? 'SUPER_ADMIN' : (nextScope === 'LOCAL' ? 'ADMIN' : 'NONE'));
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, localSubscriptionAdminEnabled]);
 
   useEffect(() => {
-    if (!firebaseDb || !subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
+    if (!subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
       setSubscriptionCodes([]);
+      setSubscriptionCodesLoading(false);
+      return;
+    }
+
+    if (!firebaseDb || subscriptionAdminScope !== 'CLOUD') {
+      setSubscriptionCodes(loadLocalSubscriptionCodes());
       setSubscriptionCodesLoading(false);
       return;
     }
@@ -2614,11 +2864,97 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [currentUser, subscriptionAdminEnabled]);
+  }, [currentUser, subscriptionAdminEnabled, subscriptionAdminScope]);
 
   useEffect(() => {
-    if (!firebaseDb || !subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
+    if (!programOwnerEnabled || !currentUser || isGuestUser(currentUser)) {
+      setWorkspaceOfferCodes([]);
+      setWorkspaceOfferCodesLoading(false);
+      return;
+    }
+
+    if (!firebaseDb || subscriptionAdminScope !== 'CLOUD') {
+      setWorkspaceOfferCodes(loadLocalWorkspaceOfferCodes());
+      setWorkspaceOfferCodesLoading(false);
+      return;
+    }
+
+    setWorkspaceOfferCodesLoading(true);
+    const offersQuery = query(
+      collection(firebaseDb, WORKSPACE_OFFER_CODES_COLLECTION),
+      orderBy('createdAt', 'desc'),
+      firestoreLimit(100)
+    );
+
+    const unsubscribe = onSnapshot(offersQuery, (snapshot) => {
+      const nextCodes = snapshot.docs
+        .map(docSnapshot => normalizeWorkspaceOfferCode(docSnapshot.data()))
+        .filter((item): item is WorkspaceOfferCode => Boolean(item));
+      setWorkspaceOfferCodes(nextCodes);
+      setWorkspaceOfferCodesLoading(false);
+    }, (error) => {
+      setSubscriptionCloudError(String(error?.message || 'Failed to load workspace offer codes.'));
+      setWorkspaceOfferCodes(loadLocalWorkspaceOfferCodes());
+      setWorkspaceOfferCodesLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, programOwnerEnabled, subscriptionAdminScope]);
+
+  useEffect(() => {
+    if (!firebaseDb || !programOwnerEnabled || !currentUser || isGuestUser(currentUser)) return;
+
+    let cancelled = false;
+    const syncLocalWorkspaceOfferCodesToCloud = async () => {
+      const localCodes = loadLocalWorkspaceOfferCodes();
+      if (!localCodes.length) return;
+
+      try {
+        await ensureProgramOwnerAdminDocument();
+        for (const localCode of localCodes) {
+          if (cancelled) return;
+          await setDoc(
+            doc(firebaseDb, WORKSPACE_OFFER_CODES_COLLECTION, localCode.code),
+            sanitizeFirestorePayload(localCode as unknown as Record<string, unknown>),
+            { merge: true }
+          );
+        }
+      } catch {
+        // Keep local fallback copies so the owner can retry after permissions settle.
+      }
+    };
+
+    void syncLocalWorkspaceOfferCodesToCloud();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, ensureProgramOwnerAdminDocument, programOwnerEnabled]);
+
+  useEffect(() => {
+    if (!subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
       setSubscriptionCompanies([]);
+      setSubscriptionCompaniesLoading(false);
+      return;
+    }
+
+    if (!firebaseDb || subscriptionAdminScope !== 'CLOUD') {
+      const nextCompanies = companies
+        .map(company => {
+          if (company.id === currentCompanyId && cloudSubscription) {
+            return normalizeCloudCompanySubscription(company.id, cloudSubscription, company);
+          }
+
+          return buildCloudSubscriptionFromCompanyProfile(company, {
+            source: company.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
+            updatedByUserId: currentUser.id,
+            updatedByEmail: currentUser.email,
+            maxDevices: company.id === currentCompanyId ? (cloudSubscription?.maxDevices || 1) : 1,
+            boundDevices: company.id === currentCompanyId ? (cloudSubscription?.boundDevices || [currentDeviceBinding]) : []
+          });
+        })
+        .sort((left, right) => Date.parse(String(right.updatedAt || '')) - Date.parse(String(left.updatedAt || '')));
+
+      setSubscriptionCompanies(nextCompanies);
       setSubscriptionCompaniesLoading(false);
       return;
     }
@@ -2645,7 +2981,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [companies, currentUser, subscriptionAdminEnabled]);
+  }, [cloudSubscription, companies, currentCompanyId, currentDeviceBinding, currentUser, subscriptionAdminEnabled, subscriptionAdminScope]);
 
   useEffect(() => {
     if (!firebaseDb || !currentCompany || !currentUser || isGuestUser(currentUser)) {
@@ -2657,6 +2993,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, currentCompany.id);
     const unsubscribe = onSnapshot(subscriptionRef, (snapshot) => {
       if (!snapshot.exists()) {
+        if (!shouldBootstrapMissingCompanySubscription(companies, currentCompany.id, companyDeleteInFlightRef.current)) {
+          setCloudSubscription(null);
+          setSubscriptionCloudBusy(false);
+          setSubscriptionCloudError('');
+          return;
+        }
+
         void persistCloudSubscription(currentCompany, {
           source: currentCompany.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
           boundDevices: [currentDeviceBinding]
@@ -2674,9 +3017,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       let remote = normalizeCloudCompanySubscription(currentCompany.id, snapshot.data(), currentCompany);
       const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
-      const canAutoBindDevice = !existingDevice && remote.boundDevices.length < remote.maxDevices;
 
-      if (canAutoBindDevice) {
+      if (!existingDevice) {
         const nextDevices = [...remote.boundDevices, { ...currentDeviceBinding, firstSeenAt: new Date().toISOString() }];
         const nextRemote = {
           ...remote,
@@ -2685,7 +3027,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           updatedByUserId: currentUser.id,
           updatedByEmail: currentUser.email
         };
-        void setDoc(subscriptionRef, nextRemote, { merge: true }).catch(() => {
+        void setDoc(
+          subscriptionRef,
+          sanitizeFirestorePayload(nextRemote as unknown as Record<string, unknown>),
+          { merge: true }
+        ).catch(() => {
           // Let the current snapshot continue even if the auto-bind write fails.
         });
         remote = nextRemote;
@@ -2702,12 +3048,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         ));
         const changed = JSON.stringify(nextDevices) !== JSON.stringify(remote.boundDevices);
         if (changed) {
-          void setDoc(subscriptionRef, {
+          void setDoc(subscriptionRef, sanitizeFirestorePayload({
             boundDevices: nextDevices,
             updatedAt: new Date().toISOString(),
             updatedByUserId: currentUser.id,
             updatedByEmail: currentUser.email
-          }, { merge: true }).catch(() => {
+          }), { merge: true }).catch(() => {
             // Keep working even if heartbeat update fails.
           });
           remote = {
@@ -2717,13 +3063,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }
       }
 
-      const deviceBlocked = !remote.boundDevices.some(device => device.deviceId === currentDeviceBinding.deviceId)
-        && remote.boundDevices.length >= remote.maxDevices;
-      const localPatch = buildCompanyProfilePatchFromCloud(
-        remote,
-        currentCompany,
-        deviceBlocked ? 'SUSPENDED' : undefined
-      );
+      const localPatch = buildCompanyProfilePatchFromCloud(remote, currentCompany);
 
       setCloudSubscription(remote);
       setSubscriptionCloudBusy(false);
@@ -2735,7 +3075,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [currentCompany, currentDeviceBinding, currentUser, persistCloudSubscription, applyCompanySubscriptionLocally, buildCompanyProfilePatchFromCloud]);
+  }, [companies, currentCompany, currentDeviceBinding, currentUser, persistCloudSubscription, applyCompanySubscriptionLocally, buildCompanyProfilePatchFromCloud]);
 
   useEffect(() => {
     if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !companies.length) return;
@@ -2753,11 +3093,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     void Promise.allSettled(syncPromises);
   }, [companies, currentUser]);
 
-  const makeSuccess = (): MutationResult => ({ ok: true });
+  const makeSuccess = (): Extract<MutationResult, { ok: true }> => ({ ok: true });
   const makeError = (
     code: 'POSTED_LOCKED' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'SUBSCRIPTION_LIMIT',
     message: string
-  ): MutationResult => ({ ok: false, code, message });
+  ): Extract<MutationResult, { ok: false }> => ({ ok: false, code, message });
 
   const updateWorkspaceSubscription = async (
     updates: Partial<WorkspaceSubscriptionAccount>
@@ -2792,11 +3132,17 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const prepareSubscriptionCheckoutAction = (
     provider: SubscriptionCheckoutProvider,
     billingCycle: SubscriptionBillingCycle,
-    desiredCompanyCount: number
+    desiredCompanyCount: number,
+    options?: {
+      discountPercent?: number;
+      offerCode?: string;
+    }
   ): SubscriptionCheckoutResult => prepareWorkspaceCheckout({
     provider,
     billingCycle,
-    desiredCompanyCount
+    desiredCompanyCount,
+    discountPercent: options?.discountPercent,
+    offerCode: options?.offerCode
   });
 
   const appendAuditLog: AccountingContextType['appendAuditLog'] = (entry) => {
@@ -2862,7 +3208,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     module: PermissionModule,
     action: PermissionAction,
     screen: string
-  ): MutationResult | null => {
+  ): Extract<MutationResult, { ok: false }> | null => {
     if (!currentCompany) return null;
     if (!SUBSCRIPTION_RESTRICTED_ACTIONS.has(action)) return null;
     if (!isSubscriptionAccessRestricted(companyAccessStatus)) return null;
@@ -2989,6 +3335,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     ensureFromTemplate('acc_cheques_under_collection');
     ensureFromTemplate('acc_gain_asset_disposal');
     ensureFromTemplate('acc_loss_asset_disposal');
+    ensureFromTemplate('acc_employee_advances');
+    ensureFromTemplate('acc_payable_group');
+    ensureFromTemplate('acc_payroll_deductions_payable');
+    ensureFromTemplate('acc_inventory_adjustments');
+    ensureFromTemplate('acc_inventory_variance');
+    ensureFromTemplate('acc_damaged_goods');
 
     // Equity partners subtree additions
     ensureFromTemplate('acc_partners_accounts_group');
@@ -3025,6 +3377,70 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       )
     );
 
+    const payableGroupLegacy = accounts.find(a => a.id === 'acc_payable_group');
+    const payableLegacy = accounts.find(a => a.id === 'acc_payable');
+    const shouldNormalizePayables = Boolean(
+      (payableGroupLegacy && (
+        payableGroupLegacy.parentId !== 'acc_current_liabilities' ||
+        payableGroupLegacy.type !== 'LIABILITY' ||
+        payableGroupLegacy.isGroup !== true ||
+        payableGroupLegacy.code !== '211' ||
+        payableGroupLegacy.name !== 'الذمم الدائنة (الموردون)'
+      )) ||
+      (payableLegacy && (
+        payableLegacy.parentId !== 'acc_payable_group' ||
+        payableLegacy.type !== 'LIABILITY' ||
+        payableLegacy.isGroup === true ||
+        payableLegacy.code !== '21101' ||
+        payableLegacy.name !== 'ذمم الموردين التجارية'
+      ))
+    );
+
+    const employeeAdvancesLegacy = accounts.find(a => a.id === 'acc_employee_advances');
+    const shouldNormalizeEmployeeAdvances = Boolean(
+      employeeAdvancesLegacy && (
+        employeeAdvancesLegacy.parentId !== 'acc_current_assets' ||
+        employeeAdvancesLegacy.type !== 'ASSET' ||
+        employeeAdvancesLegacy.code !== '117' ||
+        employeeAdvancesLegacy.name !== 'سلف الموظفين'
+      )
+    );
+
+    const payrollDeductionsLegacy = accounts.find(a => a.id === 'acc_payroll_deductions_payable');
+    const shouldNormalizePayrollDeductions = Boolean(
+      payrollDeductionsLegacy && (
+        payrollDeductionsLegacy.parentId !== 'acc_current_liabilities' ||
+        payrollDeductionsLegacy.type !== 'LIABILITY' ||
+        payrollDeductionsLegacy.code !== '214' ||
+        payrollDeductionsLegacy.name !== 'استقطاعات ومستحقات الرواتب'
+      )
+    );
+
+    const inventoryAdjustmentsLegacy = accounts.find(a => a.id === 'acc_inventory_adjustments');
+    const inventoryVarianceLegacy = accounts.find(a => a.id === 'acc_inventory_variance');
+    const damagedGoodsLegacy = accounts.find(a => a.id === 'acc_damaged_goods');
+    const shouldNormalizeInventoryAdjustmentAccounts = Boolean(
+      (inventoryAdjustmentsLegacy && (
+        inventoryAdjustmentsLegacy.parentId !== 'acc_expense_root' ||
+        inventoryAdjustmentsLegacy.type !== 'EXPENSE' ||
+        inventoryAdjustmentsLegacy.isGroup !== true ||
+        inventoryAdjustmentsLegacy.code !== '57' ||
+        inventoryAdjustmentsLegacy.name !== 'تسويات وفروقات المخزون'
+      )) ||
+      (inventoryVarianceLegacy && (
+        inventoryVarianceLegacy.parentId !== 'acc_inventory_adjustments' ||
+        inventoryVarianceLegacy.type !== 'EXPENSE' ||
+        inventoryVarianceLegacy.code !== '571' ||
+        inventoryVarianceLegacy.name !== 'فروقات المخزون'
+      )) ||
+      (damagedGoodsLegacy && (
+        damagedGoodsLegacy.parentId !== 'acc_inventory_adjustments' ||
+        damagedGoodsLegacy.type !== 'EXPENSE' ||
+        damagedGoodsLegacy.code !== '572' ||
+        damagedGoodsLegacy.name !== 'بضاعة تالفة'
+      ))
+    );
+
     const shouldNormalizePartnerParents = Boolean(
       accounts.some(a => (
         (a.id === 'acc_partners_accounts_group' && (a.parentId !== 'acc_equity_root' || a.type !== 'EQUITY' || a.isGroup !== true)) ||
@@ -3034,7 +3450,17 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       ))
     );
 
-    if (missingAccounts.length > 0 || shouldNormalizeVatPayable || shouldNormalizeUtilitiesAccount || shouldNormalizeRetainedEarnings || shouldNormalizePartnerParents) {
+    if (
+      missingAccounts.length > 0 ||
+      shouldNormalizeVatPayable ||
+      shouldNormalizeUtilitiesAccount ||
+      shouldNormalizeRetainedEarnings ||
+      shouldNormalizePartnerParents ||
+      shouldNormalizePayables ||
+      shouldNormalizeEmployeeAdvances ||
+      shouldNormalizePayrollDeductions ||
+      shouldNormalizeInventoryAdjustmentAccounts
+    ) {
       setAccounts(prev => {
         let next = prev;
         if (missingAccounts.length > 0) {
@@ -3082,6 +3508,101 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
               }
               : account
           ));
+        }
+        if (shouldNormalizePayables) {
+          next = next.map(account => {
+            if (account.id === 'acc_payable_group') {
+              return {
+                ...account,
+                code: '211',
+                name: 'الذمم الدائنة (الموردون)',
+                parentId: 'acc_current_liabilities',
+                type: 'LIABILITY',
+                isGroup: true,
+                currency: account.currency || baseCurrency
+              };
+            }
+            if (account.id === 'acc_payable') {
+              return {
+                ...account,
+                code: '21101',
+                name: 'ذمم الموردين التجارية',
+                parentId: 'acc_payable_group',
+                type: 'LIABILITY',
+                isGroup: undefined,
+                currency: account.currency || baseCurrency
+              };
+            }
+            return account;
+          });
+        }
+        if (shouldNormalizeEmployeeAdvances) {
+          next = next.map(account => (
+            account.id === 'acc_employee_advances'
+              ? {
+                ...account,
+                code: '117',
+                name: 'سلف الموظفين',
+                parentId: 'acc_current_assets',
+                type: 'ASSET',
+                isGroup: undefined,
+                currency: account.currency || baseCurrency
+              }
+              : account
+          ));
+        }
+        if (shouldNormalizePayrollDeductions) {
+          next = next.map(account => (
+            account.id === 'acc_payroll_deductions_payable'
+              ? {
+                ...account,
+                code: '214',
+                name: 'استقطاعات ومستحقات الرواتب',
+                parentId: 'acc_current_liabilities',
+                type: 'LIABILITY',
+                isGroup: undefined,
+                currency: account.currency || baseCurrency
+              }
+              : account
+          ));
+        }
+        if (shouldNormalizeInventoryAdjustmentAccounts) {
+          next = next.map(account => {
+            if (account.id === 'acc_inventory_adjustments') {
+              return {
+                ...account,
+                code: '57',
+                name: 'تسويات وفروقات المخزون',
+                parentId: 'acc_expense_root',
+                type: 'EXPENSE',
+                isGroup: true,
+                currency: account.currency || baseCurrency
+              };
+            }
+            if (account.id === 'acc_inventory_variance') {
+              return {
+                ...account,
+                code: '571',
+                name: 'فروقات المخزون',
+                parentId: 'acc_inventory_adjustments',
+                type: 'EXPENSE',
+                isGroup: undefined,
+                currency: account.currency || baseCurrency
+              };
+            }
+            if (account.id === 'acc_damaged_goods') {
+              return {
+                ...account,
+                code: '572',
+                name: 'بضاعة تالفة',
+                parentId: 'acc_inventory_adjustments',
+                type: 'EXPENSE',
+                isGroup: undefined,
+                currency: account.currency || baseCurrency
+              };
+            }
+            return account;
+          });
         }
         if (shouldNormalizePartnerParents) {
           next = next.map(account => {
@@ -3137,6 +3658,39 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   }, [baseCurrency, accounts.length]); // Depend on length to avoid infinite loop with simple dependency, but ideally run once or check existence safely
 
+  useEffect(() => {
+    const employeeAdvancesAccount = accounts.find(a => a.id === 'acc_employee_advances' && !a.isGroup);
+    if (!employeeAdvancesAccount) return;
+
+    setTransactions(prev => {
+      let changed = false;
+      const next = prev.map(transaction => {
+        let debitAccountId = transaction.debitAccountId;
+        let creditAccountId = transaction.creditAccountId;
+        if (transaction.category === 'employee_advance' && debitAccountId === 'acc_receivable') {
+          debitAccountId = employeeAdvancesAccount.id;
+        }
+        if (transaction.category === 'employee_payment_received' && creditAccountId === 'acc_receivable') {
+          creditAccountId = employeeAdvancesAccount.id;
+        }
+        if (
+          transaction.category === 'employee_deduction' &&
+          creditAccountId === 'acc_receivable' &&
+          transaction.employeeId &&
+          /تسوية|settlement/i.test(String(transaction.description || ''))
+        ) {
+          creditAccountId = employeeAdvancesAccount.id;
+        }
+        if (debitAccountId !== transaction.debitAccountId || creditAccountId !== transaction.creditAccountId) {
+          changed = true;
+          return { ...transaction, debitAccountId, creditAccountId };
+        }
+        return transaction;
+      });
+      return changed ? next : prev;
+    });
+  }, [accounts]);
+
   // Cleanup: remove legacy partner withdrawals account when unused.
   useEffect(() => {
     const legacy = accounts.find(a => a.id === 'acc_partner_withdrawals');
@@ -3154,6 +3708,64 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     setAccounts(prev => prev.filter(a => a.id !== legacy.id));
   }, [accounts, transactions, contacts]);
+
+  // Cleanup: remove legacy opening balances branch and remap any postings to retained earnings.
+  useEffect(() => {
+    const openingBranchIds = new Set(['acc_opening_balances_group', 'acc_opening_inventory']);
+    const hasOpeningBranch = accounts.some(account => openingBranchIds.has(account.id));
+    const hasOpeningChildren = accounts.some(account => account.parentId === 'acc_opening_balances_group');
+    if (!hasOpeningBranch && !hasOpeningChildren) return;
+
+    const targetAccount = accounts.find(account => account.id === 'acc_retained_earnings' && !account.isGroup)
+      || accounts.find(account => account.id === 'acc_capital' && !account.isGroup);
+    if (!targetAccount) return;
+
+    const affectedTransactions = transactions.reduce((count, tx) => {
+      const touched = openingBranchIds.has(String(tx.debitAccountId || '')) || openingBranchIds.has(String(tx.creditAccountId || ''));
+      return touched ? count + 1 : count;
+    }, 0);
+
+    if (affectedTransactions > 0) {
+      setTransactions(prev => {
+        let changed = false;
+        const next = prev.map(tx => {
+          const nextDebit = openingBranchIds.has(String(tx.debitAccountId || '')) ? targetAccount.id : tx.debitAccountId;
+          const nextCredit = openingBranchIds.has(String(tx.creditAccountId || '')) ? targetAccount.id : tx.creditAccountId;
+          if (nextDebit !== tx.debitAccountId || nextCredit !== tx.creditAccountId) {
+            changed = true;
+            return { ...tx, debitAccountId: nextDebit, creditAccountId: nextCredit };
+          }
+          return tx;
+        });
+        return changed ? next : prev;
+      });
+    }
+
+    setAccounts(prev => {
+      let changed = false;
+      const reparented = prev.map(account => {
+        if (account.parentId === 'acc_opening_balances_group' && !openingBranchIds.has(account.id)) {
+          changed = true;
+          return { ...account, parentId: 'acc_equity_root' };
+        }
+        return account;
+      });
+      const filtered = reparented.filter(account => !openingBranchIds.has(account.id));
+      if (filtered.length !== prev.length) changed = true;
+      return changed ? filtered : prev;
+    });
+
+    appendAuditLog({
+      entityType: 'account',
+      action: 'REMOVE_OPENING_BALANCES_BRANCH',
+      screen: 'System Migration',
+      metadata: {
+        removedAccountIds: Array.from(openingBranchIds),
+        targetAccountId: targetAccount.id,
+        remappedTransactionsCount: affectedTransactions
+      }
+    });
+  }, [accounts, transactions]);
 
   // Migration: merge legacy "profit distribution" account(s) into retained earnings, then delete them.
   useEffect(() => {
@@ -3643,6 +4255,133 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const addTransaction = (t: Omit<Transaction, 'id'>): MutationResult => (
     commitTransaction(t, accounts)
   );
+
+  const isAutoCommercialSubAccountType = (type: Contact['type']): type is CommercialSubAccountContactType =>
+    type === 'CUSTOMER' || type === 'SUPPLIER';
+
+  const shouldAutoCreateCommercialSubAccount = (contactId: string, type: Contact['type']) =>
+    type === 'SUPPLIER' && !/^cash_/i.test(String(contactId || '').trim());
+
+  const getUnifiedCommercialPostingAccountId = (type: Contact['type']) => (
+    type === 'CUSTOMER' ? 'acc_receivable' : type === 'SUPPLIER' ? 'acc_payable' : ''
+  );
+
+  const getCommercialAccountTemplate = (
+    type: CommercialSubAccountContactType,
+    contactName: string
+  ) => ({
+    rootId: type === 'CUSTOMER' ? 'acc_receivable_group' : 'acc_payable_group',
+    fallbackId: type === 'CUSTOMER' ? 'acc_receivable' : 'acc_payable',
+    idPrefix: type === 'CUSTOMER' ? 'acc_receivable' : 'acc_payable',
+    accountType: (type === 'CUSTOMER' ? 'ASSET' : 'LIABILITY') as AccountType,
+    expectedName: type === 'CUSTOMER'
+      ? `ذمم العميل ${contactName}`
+      : `ذمم المورد ${contactName}`
+  });
+
+  const ensureCommercialContactSubAccountSnapshot = (
+    sourceAccounts: Account[],
+    contactId: string,
+    contactName: string,
+    type: CommercialSubAccountContactType,
+    preferredId?: string
+  ): EnsuredCommercialSubAccountResult => {
+    const safeContactId = sanitizePartnerAccountId(contactId) || newId(type === 'CUSTOMER' ? 'customer' : 'supplier');
+    const normalizedName = String(contactName || '').trim() || safeContactId;
+    const template = getCommercialAccountTemplate(type, normalizedName);
+    const parent = sourceAccounts.find(a => a.id === template.rootId);
+
+    const usedCodes = new Set<string>(sourceAccounts.map(a => a.code));
+    const patches = new Map<string, Partial<Account>>();
+    const additions: Account[] = [];
+
+    const prepareExistingAccount = (account: Account) => {
+      if (!parent || account.parentId !== parent.id) return account.id;
+      const patch: Partial<Account> = {};
+      if (account.name !== template.expectedName) patch.name = template.expectedName;
+      if (account.parentId !== parent.id) patch.parentId = parent.id;
+      if (account.type !== template.accountType) patch.type = template.accountType;
+      if (account.currency !== baseCurrency) patch.currency = baseCurrency;
+      if (account.isGroup) patch.isGroup = undefined;
+      if (Object.keys(patch).length > 0) patches.set(account.id, patch);
+      return account.id;
+    };
+
+    const preferredAccount = preferredId && preferredId !== template.fallbackId
+      ? sourceAccounts.find(a => a.id === preferredId && !a.isGroup)
+      : undefined;
+    if (preferredAccount) {
+      const linkedAccountId = prepareExistingAccount(preferredAccount);
+      const accountSnapshot = patches.size > 0
+        ? sourceAccounts.map(account => {
+          const patch = patches.get(account.id);
+          return patch ? { ...account, ...patch } : account;
+        })
+        : sourceAccounts;
+      return {
+        linkedAccountId,
+        accountSnapshot,
+        changed: accountSnapshot !== sourceAccounts
+      };
+    }
+
+    const targetId = `${template.idPrefix}_${safeContactId}`;
+    const existing = sourceAccounts.find(a => a.id === targetId);
+    if (existing && !existing.isGroup) {
+      const linkedAccountId = prepareExistingAccount(existing);
+      const accountSnapshot = patches.size > 0
+        ? sourceAccounts.map(account => {
+          const patch = patches.get(account.id);
+          return patch ? { ...account, ...patch } : account;
+        })
+        : sourceAccounts;
+      return {
+        linkedAccountId,
+        accountSnapshot,
+        changed: accountSnapshot !== sourceAccounts
+      };
+    }
+
+    if (!parent) {
+      return {
+        linkedAccountId: preferredId || template.fallbackId,
+        accountSnapshot: sourceAccounts,
+        changed: false
+      };
+    }
+
+    additions.push({
+      id: targetId,
+      code: buildPartnerChildCode(parent.code, safeContactId, usedCodes),
+      name: template.expectedName,
+      type: template.accountType,
+      balance: 0,
+      parentId: parent.id,
+      currency: baseCurrency
+    });
+
+    return {
+      linkedAccountId: targetId,
+      accountSnapshot: [...sourceAccounts, ...additions],
+      changed: true
+    };
+  };
+
+  const ensureCommercialContactSubAccount = (
+    contactId: string,
+    contactName: string,
+    type: CommercialSubAccountContactType,
+    preferredId?: string
+  ): { linkedAccountId: string } => {
+    const prepared = ensureCommercialContactSubAccountSnapshot(accounts, contactId, contactName, type, preferredId);
+    if (prepared.changed) {
+      setAccounts(prev => {
+        const next = ensureCommercialContactSubAccountSnapshot(prev, contactId, contactName, type, preferredId);
+        return next.changed ? next.accountSnapshot : prev;
+      });
+    }
+    return { linkedAccountId: prepared.linkedAccountId };
+  };
 
   const ensurePartnerEquitySubAccountsSnapshot = (
     sourceAccounts: Account[],
@@ -4391,6 +5130,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (method !== 'FIFO') {
       return roundToFour(invoice.items.reduce((sum, item) => {
         const product = products.find(p => p.id === item.productId);
+        if (!isStockProduct(product)) return sum;
         return sum + ((Number(item.quantity) || 0) * (Number(product?.buyPrice) || 0));
       }, 0));
     }
@@ -4400,7 +5140,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     invoice.items.forEach(item => {
       if (!item.productId) return;
       const product = productMap.get(item.productId);
-      if (!product) return;
+      if (!product || !isStockProduct(product)) return;
       const qty = Math.max(0, Number(item.quantity) || 0);
       if (qty <= 0) return;
 
@@ -4416,19 +5156,40 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return roundToFour(totalCost);
   };
 
-  const resolvePartnerCurrentAccountForInvoice = (
-    invoice: Pick<Invoice, 'customerId' | 'paymentType'>
+  const resolveContactPostingAccount = (
+    contactId?: string,
+    paymentType?: Invoice['paymentType']
   ): string | null => {
-    if (!invoice.customerId || invoice.paymentType === 'CASH') return null;
+    if (!contactId || paymentType === 'CASH') return null;
 
-    const partner = contacts.find(c => c.id === invoice.customerId && c.type === 'PARTNER');
-    if (!partner) return null;
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return null;
 
-    const { ensured, accountSnapshot } = resolvePartnerPostingAccounts(partner.id, partner.name);
-    const currentAccount = accountSnapshot.find(a => a.id === ensured.currentAccountId);
-    if (!currentAccount || currentAccount.isGroup) return null;
+    if (contact.type === 'PARTNER') {
+      const { ensured, accountSnapshot } = resolvePartnerPostingAccounts(contact.id, contact.name);
+      const currentAccount = accountSnapshot.find(a => a.id === ensured.currentAccountId);
+      return currentAccount && !currentAccount.isGroup ? currentAccount.id : null;
+    }
 
-    return currentAccount.id;
+    if (contact.type === 'CUSTOMER') {
+      return 'acc_receivable';
+    }
+
+    if (shouldAutoCreateCommercialSubAccount(contact.id, contact.type)) {
+      const { linkedAccountId } = ensureCommercialContactSubAccount(
+        contact.id,
+        contact.name,
+        contact.type as CommercialSubAccountContactType,
+        contact.currentAccountId || contact.linkedAccountId
+      );
+      const linkedAccount = accounts.find(a => a.id === linkedAccountId);
+      if (linkedAccount && !linkedAccount.isGroup) return linkedAccount.id;
+      return linkedAccountId || (contact.type === 'CUSTOMER' ? 'acc_receivable' : 'acc_payable');
+    }
+
+    if (contact.type === 'CUSTOMER') return 'acc_receivable';
+    if (contact.type === 'SUPPLIER') return contact.currentAccountId || contact.linkedAccountId || 'acc_payable';
+    return contact.currentAccountId || contact.linkedAccountId || null;
   };
 
   const createInvoice = async (invoiceData: Omit<Invoice, 'id'> & { id?: string }) => {
@@ -4449,9 +5210,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const newInvoice: Invoice = {
       ...invoiceData,
       id: invoiceData.id || newId('inv'),
-      postingStatus: invoiceData.postingStatus || 'POSTED'
+      postingStatus: invoiceData.postingStatus || (invoiceData.status === 'QUOTATION' ? 'DRAFT' : 'POSTED')
     };
-    const partnerCurrentAccountId = resolvePartnerCurrentAccountForInvoice(newInvoice);
+    const contactPostingAccountId = resolveContactPostingAccount(newInvoice.customerId, newInvoice.paymentType);
     setInvoices(prev => [newInvoice, ...prev]);
     appendAuditLog({
       entityType: 'invoice',
@@ -4473,28 +5234,28 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       debitAccount = 'acc_sales_returns';
       creditAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : (partnerCurrentAccountId || 'acc_receivable');
+        : (contactPostingAccountId || 'acc_receivable');
       transactionCategory = 'sales_return';
     } else if (newInvoice.category === 'customer_credit_note') {
       // Customer credit note (discount/allowance): Debit contra revenue, Credit customer receivable
       debitAccount = 'acc_sales_discounts';
       creditAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : (partnerCurrentAccountId || 'acc_receivable');
+        : (contactPostingAccountId || 'acc_receivable');
       transactionCategory = 'customer_credit_note';
     } else if (newInvoice.category === 'purchase_return') {
       // Purchase Return: Debit Supplier/Cash, Credit Inventory
       // This acts like a reversal of Purchase.
       debitAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : (partnerCurrentAccountId || 'acc_payable');
+        : (contactPostingAccountId || 'acc_payable');
       creditAccount = 'acc_inventory';
       transactionCategory = 'purchase_return';
     } else if (newInvoice.category === 'supplier_debit_note') {
       // Supplier debit note (earned discount): Debit payable, Credit purchase returns/contra-expense
       debitAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : (partnerCurrentAccountId || 'acc_payable');
+        : (contactPostingAccountId || 'acc_payable');
       creditAccount = 'acc_purchase_discounts_earned';
       transactionCategory = 'supplier_debit_note';
     } else if (newInvoice.type === TransactionType.INCOME) {
@@ -4502,7 +5263,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       creditAccount = 'acc_sales';
       debitAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : (partnerCurrentAccountId || 'acc_receivable');
+        : (contactPostingAccountId || 'acc_receivable');
       transactionCategory = 'sales_invoice';
     } else {
       // Purchase or Expense
@@ -4518,7 +5279,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       creditAccount = newInvoice.paymentType === 'CASH'
         ? (newInvoice.paymentAccountId || 'acc_cash')
-        : (partnerCurrentAccountId || 'acc_payable');
+        : (contactPostingAccountId || 'acc_payable');
     }
 
     const contactName = contacts.find(c => c.id === newInvoice.customerId)?.name || 'عميل نقدي';
@@ -4570,6 +5331,43 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         status: newInvoice.postingStatus
       });
     };
+
+    const allocateInvoicePostingLines = <T extends { amount: number }>(lines: T[], targetTotal: number): T[] => {
+      const sourceTotal = lines.reduce((sum, line) => sum + Math.max(0, Number(line.amount) || 0), 0);
+      if (lines.length === 0) return [];
+      if (targetTotal <= 0 || sourceTotal <= 0) {
+        return lines.map(line => ({ ...line, amount: 0 }));
+      }
+      return lines.map((line, index) => {
+        if (index === lines.length - 1) {
+          const previousSum = lines
+            .slice(0, -1)
+            .reduce((sum, current) => sum + Number(((Math.max(0, Number(current.amount) || 0) / sourceTotal) * targetTotal).toFixed(2)), 0);
+          return {
+            ...line,
+            amount: Number((targetTotal - previousSum).toFixed(2))
+          };
+        }
+        return {
+          ...line,
+          amount: Number(((Math.max(0, Number(line.amount) || 0) / sourceTotal) * targetTotal).toFixed(2))
+        };
+      });
+    };
+
+    const purchasePostingLines = allocateInvoicePostingLines(
+      newInvoice.items
+        .map(item => {
+          const linkedProduct = item.productId ? products.find(product => product.id === item.productId) : undefined;
+          return {
+            amount: Math.max(0, Number(item.total) || 0),
+            accountId: isStockProduct(linkedProduct) ? 'acc_inventory' : (item.accountId || 'acc_admin_exp'),
+            description: item.description
+          };
+        })
+        .filter(line => line.amount > 0),
+      primaryAmount
+    );
 
     if (isGeneralExpense) {
       // Split expense value across item accounts, then book input VAT separately.
@@ -4640,11 +5438,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         });
       }
     } else if (newInvoice.category === 'purchase_return') {
-      addInvoiceEntry({
-        amount: primaryAmount,
-        debitAccountId: debitAccount,
-        creditAccountId: 'acc_inventory',
-        entryType: TransactionType.INCOME
+      purchasePostingLines.forEach((line, index) => {
+        addInvoiceEntry({
+          amount: line.amount,
+          debitAccountId: debitAccount,
+          creditAccountId: line.accountId,
+          descriptionSuffix: `${line.description ? ` - ${line.description}` : ''}${purchasePostingLines.length > 1 ? ` (${index + 1}/${purchasePostingLines.length})` : ''}`,
+          entryType: TransactionType.INCOME
+        });
       });
       if (taxAmount > 0) {
         addInvoiceEntry({
@@ -4672,11 +5473,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         });
       }
     } else if (newInvoice.category === 'purchase_invoice') {
-      addInvoiceEntry({
-        amount: primaryAmount,
-        debitAccountId: 'acc_inventory',
-        creditAccountId: creditAccount,
-        entryType: TransactionType.EXPENSE
+      purchasePostingLines.forEach((line, index) => {
+        addInvoiceEntry({
+          amount: line.amount,
+          debitAccountId: line.accountId,
+          creditAccountId: creditAccount,
+          descriptionSuffix: `${line.description ? ` - ${line.description}` : ''}${purchasePostingLines.length > 1 ? ` (${index + 1}/${purchasePostingLines.length})` : ''}`,
+          entryType: TransactionType.EXPENSE
+        });
       });
       if (taxAmount > 0) {
         addInvoiceEntry({
@@ -4745,7 +5549,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       setProducts(prev => prev.map(p => {
         const item = newInvoice.items.find(i => i.productId === p.id);
-        if (!item) return p;
+        if (!item || !isStockProduct(p)) return p;
 
         const qtyChange = getQtyChange(newInvoice, item.quantity);
         if (qtyChange === 0) return p;
@@ -4806,7 +5610,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const applyInvoiceStockEffect = (inv: Invoice, reverse = false) => {
     setProducts(prev => prev.map(p => {
       const item = inv.items.find(i => i.productId === p.id);
-      if (!item) return p;
+      if (!item || !isStockProduct(p)) return p;
 
       const qtyChange = getInvoiceQtyChange(inv, item.quantity) * (reverse ? -1 : 1);
       if (qtyChange === 0) return p;
@@ -4847,7 +5651,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     setProducts(prev => prev.map(product => {
       const item = returnedItems.find(entry => entry.productId === product.id);
-      if (!item) return product;
+      if (!item || !isStockProduct(product)) return product;
 
       const originalQtyChange = inv.type === TransactionType.INCOME ? item.quantity : -item.quantity;
       const qtyChange = originalQtyChange * (reverse ? -1 : 1);
@@ -5100,12 +5904,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       : (itemsBaseTotal > 0 ? itemBaseAmount / itemsBaseTotal : 0);
     const itemTaxAmount = roundMoney((Number(inv.taxAmount) || 0) * Math.max(0, Math.min(1, taxShareBase)));
     const primaryAmount = itemNetAmount > 0 ? itemNetAmount : itemBaseAmount;
+    const contactPostingAccountId = resolveContactPostingAccount(inv.customerId, inv.paymentType);
 
     const debitAccount = isSales
       ? 'acc_sales_returns'
-      : (inv.paymentType === 'CASH' ? (inv.paymentAccountId || 'acc_cash') : 'acc_payable');
+      : (inv.paymentType === 'CASH' ? (inv.paymentAccountId || 'acc_cash') : (contactPostingAccountId || 'acc_payable'));
     const creditAccount = isSales
-      ? (inv.paymentType === 'CASH' ? (inv.paymentAccountId || 'acc_cash') : 'acc_receivable')
+      ? (inv.paymentType === 'CASH' ? (inv.paymentAccountId || 'acc_cash') : (contactPostingAccountId || 'acc_receivable'))
       : (inv.category === 'purchase_invoice' ? 'acc_inventory' : (item.accountId || 'acc_admin_exp'));
 
     const invoiceCogsTotal = isSales
@@ -5191,7 +5996,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     if (item.productId && (inv.type === TransactionType.INCOME || inv.category === 'purchase_invoice')) {
       const product = products.find(p => p.id === item.productId);
-      if (product) {
+      if (product && isStockProduct(product)) {
         const qtyChange = inv.type === TransactionType.INCOME ? item.quantity : -item.quantity;
         let updatedWarehouseStock = product.warehouseStock || [];
         if (inv.warehouseId) {
@@ -5392,27 +6197,55 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
 
-  const normalizeEntityName = (value: string) =>
-    String(value || '')
-      .trim()
-      .replace(/\s+/g, ' ')
-      .toLowerCase();
+  const normalizeEntityName = (value: string) => normalizeEntityNameKey(value);
+
+  const findCompanyNameConflict = (
+    list: CompanyProfile[],
+    candidateName: string,
+    excludeId?: string
+  ) => findCompanyProfileNameConflict(list, candidateName, excludeId);
+
+  const getCompanyNameConflictMessage = (conflictName: string) => (
+    companySettings.language === 'AR'
+      ? `اسم الشركة "${conflictName}" مستخدم بالفعل. اختر اسمًا مختلفًا.`
+      : `The company name "${conflictName}" is already in use. Please choose a different name.`
+  );
 
   const isCommercialContactType = (type: Contact['type']) =>
     type === 'CUSTOMER' || type === 'SUPPLIER' || type === 'PARTNER';
 
+  const getCommercialContactTypeLabel = (type: Contact['type']) => {
+    const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
+    if (type === 'SUPPLIER') return isEnglish ? 'supplier' : 'المورد';
+    if (type === 'PARTNER') return isEnglish ? 'partner' : 'الشريك';
+    return isEnglish ? 'customer' : 'العميل';
+  };
+
   const findCommercialContactNameConflict = (
     list: Contact[],
     candidateName: string,
+    candidateType: Contact['type'],
     excludeId?: string
   ) => {
     const normalizedCandidate = normalizeEntityName(candidateName);
     if (!normalizedCandidate) return undefined;
     return list.find((contact) =>
       contact.id !== excludeId
-      && isCommercialContactType(contact.type)
+      && contact.type === candidateType
       && normalizeEntityName(contact.name) === normalizedCandidate
     );
+  };
+
+  const getCommercialContactNameConflictMessage = (
+    candidateName: string,
+    candidateType: Contact['type']
+  ) => {
+    const typeLabel = getCommercialContactTypeLabel(candidateType);
+    const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
+    if (isEnglish) {
+      return `The ${typeLabel} name "${candidateName}" already exists. Please use a different name.`;
+    }
+    return `اسم ${typeLabel} "${candidateName}" مكرر. الرجاء اختيار اسم مختلف.`;
   };
 
   const findProductNameConflict = (
@@ -5470,7 +6303,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeError('VALIDATION_ERROR', `Duplicate item name: ${candidateName}`);
     }
 
-    setProducts(prev => [...prev, { ...product, id: product.id || Math.random().toString(36).substr(2, 9) }]);
+    const createdProduct = normalizeProductInventoryFields({
+      ...product,
+      id: product.id || Math.random().toString(36).substr(2, 9)
+    });
+    setProducts(prev => [...prev, createdProduct]);
     return makeSuccess();
   };
 
@@ -5508,7 +6345,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }
     }
 
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    setProducts(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      return normalizeProductInventoryFields({ ...p, ...updates });
+    }));
     return makeSuccess();
   };
   const deleteProduct = (id: string) => {
@@ -5598,7 +6438,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     if (isCommercialContactType(contact.type)) {
-      const conflict = findCommercialContactNameConflict(contacts, candidateName);
+      const conflict = findCommercialContactNameConflict(contacts, candidateName, contact.type);
       if (conflict) {
         appendAuditLog({
           entityType: 'contact',
@@ -5612,16 +6452,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             existingType: conflict.type
           }
         });
-        showValidationAlert(
-          `اسم الطرف "${candidateName}" مكرر ضمن العملاء/الموردين/الشركاء.`,
-          `Contact name "${candidateName}" already exists in customers/suppliers/partners.`
-        );
+        const duplicateMessage = getCommercialContactNameConflictMessage(candidateName, contact.type);
+        showValidationAlert(duplicateMessage, duplicateMessage);
         return makeError('VALIDATION_ERROR', `Duplicate contact name: ${candidateName}`);
       }
     }
 
     const contactId = contact.id || Math.random().toString(36).substr(2, 9);
     const nextType = contact.type;
+    const unifiedCommercialPostingAccountId = getUnifiedCommercialPostingAccountId(nextType);
+    const preferredCommercialPostingAccountId = contact.currentAccountId || contact.linkedAccountId;
     const ensuredPartnerAccounts = nextType === 'PARTNER'
       ? ensurePartnerEquitySubAccounts(contactId, contact.name, {
         currentAccountId: contact.currentAccountId || contact.linkedAccountId,
@@ -5629,6 +6469,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         drawingsAccountId: contact.drawingsAccountId
       })
       : undefined;
+    const ensuredCommercialAccount = shouldAutoCreateCommercialSubAccount(contactId, nextType)
+      ? ensureCommercialContactSubAccount(
+        contactId,
+        contact.name,
+        nextType as CommercialSubAccountContactType,
+        preferredCommercialPostingAccountId
+      )
+      : undefined;
+
+    const resolvedCommercialPostingAccountId = ensuredCommercialAccount?.linkedAccountId || preferredCommercialPostingAccountId || unifiedCommercialPostingAccountId;
 
     setContacts(prev => {
       if (contact.type === 'EMPLOYEE') {
@@ -5648,8 +6498,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return [...prev, {
         ...contact,
         id: contactId,
-        linkedAccountId: ensuredPartnerAccounts?.currentAccountId,
-        currentAccountId: ensuredPartnerAccounts?.currentAccountId,
+        linkedAccountId: ensuredPartnerAccounts?.currentAccountId || resolvedCommercialPostingAccountId || contact.linkedAccountId,
+        currentAccountId: ensuredPartnerAccounts?.currentAccountId || resolvedCommercialPostingAccountId || contact.currentAccountId,
         capitalAccountId: ensuredPartnerAccounts?.capitalAccountId,
         drawingsAccountId: ensuredPartnerAccounts?.drawingsAccountId
       }];
@@ -5670,9 +6520,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const nextNormalizedName = normalizeEntityName(nextName);
     const nameChanged = nextNormalizedName !== currentNormalizedName;
     const typeChanged = nextType !== existing.type;
+    const unifiedCommercialPostingAccountId = getUnifiedCommercialPostingAccountId(nextType);
+    const preferredCommercialPostingAccountId = updates.currentAccountId || updates.linkedAccountId || existing.currentAccountId || existing.linkedAccountId;
 
     if ((nameChanged || typeChanged) && isCommercialContactType(nextType)) {
-      const conflict = findCommercialContactNameConflict(contacts, nextName, id);
+      const conflict = findCommercialContactNameConflict(contacts, nextName, nextType, id);
       if (conflict) {
         appendAuditLog({
           entityType: 'contact',
@@ -5687,10 +6539,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             existingType: conflict.type
           }
         });
-        showValidationAlert(
-          `اسم الطرف "${nextName}" مكرر ضمن العملاء/الموردين/الشركاء.`,
-          `Contact name "${nextName}" already exists in customers/suppliers/partners.`
-        );
+        const duplicateMessage = getCommercialContactNameConflictMessage(nextName, nextType);
+        showValidationAlert(duplicateMessage, duplicateMessage);
         return makeError('VALIDATION_ERROR', `Duplicate contact name: ${nextName}`);
       }
     }
@@ -5702,17 +6552,136 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         drawingsAccountId: updates.drawingsAccountId || existing.drawingsAccountId
       })
       : undefined;
+    const ensuredCommercialAccount = shouldAutoCreateCommercialSubAccount(id, nextType)
+      ? ensureCommercialContactSubAccount(
+        id,
+        nextName,
+        nextType as CommercialSubAccountContactType,
+        preferredCommercialPostingAccountId
+      )
+      : undefined;
+
+    const resolvedCommercialPostingAccountId = ensuredCommercialAccount?.linkedAccountId || preferredCommercialPostingAccountId || unifiedCommercialPostingAccountId;
 
     setContacts(prev => prev.map(c => c.id === id ? {
       ...c,
       ...updates,
-      linkedAccountId: ensuredPartnerAccounts?.currentAccountId,
-      currentAccountId: ensuredPartnerAccounts?.currentAccountId,
+      linkedAccountId: ensuredPartnerAccounts?.currentAccountId || resolvedCommercialPostingAccountId || updates.linkedAccountId || c.linkedAccountId,
+      currentAccountId: ensuredPartnerAccounts?.currentAccountId || resolvedCommercialPostingAccountId || updates.currentAccountId || c.currentAccountId,
       capitalAccountId: ensuredPartnerAccounts?.capitalAccountId,
       drawingsAccountId: ensuredPartnerAccounts?.drawingsAccountId
     } : c));
     return makeSuccess();
   };
+
+  useEffect(() => {
+    const commercialContacts = contacts.filter((contact): contact is Contact & { type: CommercialSubAccountContactType } =>
+      shouldAutoCreateCommercialSubAccount(contact.id, contact.type)
+    );
+    if (!commercialContacts.length) return;
+
+    const patches = new Map<string, Partial<Contact>>();
+    commercialContacts.forEach(contact => {
+      const ensured = ensureCommercialContactSubAccount(
+        contact.id,
+        contact.name,
+        contact.type as CommercialSubAccountContactType,
+        contact.currentAccountId || contact.linkedAccountId
+      );
+      const patch: Partial<Contact> = {};
+      if (contact.linkedAccountId !== ensured.linkedAccountId) patch.linkedAccountId = ensured.linkedAccountId;
+      if (contact.currentAccountId !== ensured.linkedAccountId) patch.currentAccountId = ensured.linkedAccountId;
+      if (Object.keys(patch).length > 0) {
+        patches.set(contact.id, patch);
+      }
+    });
+
+    if (patches.size === 0) return;
+    setContacts(prev => prev.map(contact => {
+      const patch = patches.get(contact.id);
+      return patch ? { ...contact, ...patch } : contact;
+    }));
+  }, [contacts, accounts, baseCurrency]);
+
+  useEffect(() => {
+    const customerContacts = contacts.filter(contact => contact.type === 'CUSTOMER');
+    if (!customerContacts.length) return;
+
+    const legacyCustomerAccountIds = new Set<string>();
+    const patches = new Map<string, Partial<Contact>>();
+
+    customerContacts.forEach(contact => {
+      const postingAccountId = contact.currentAccountId || contact.linkedAccountId || '';
+      if (postingAccountId && postingAccountId !== 'acc_receivable') {
+        legacyCustomerAccountIds.add(postingAccountId);
+      }
+
+      const patch: Partial<Contact> = {};
+      if (contact.linkedAccountId !== 'acc_receivable') patch.linkedAccountId = 'acc_receivable';
+      if (contact.currentAccountId !== 'acc_receivable') patch.currentAccountId = 'acc_receivable';
+      if (Object.keys(patch).length > 0) {
+        patches.set(contact.id, patch);
+      }
+    });
+
+    if (legacyCustomerAccountIds.size > 0) {
+      setTransactions(prev => {
+        let changed = false;
+        const next = prev.map(transaction => {
+          let debitAccountId = transaction.debitAccountId;
+          let creditAccountId = transaction.creditAccountId;
+
+          if (legacyCustomerAccountIds.has(String(debitAccountId || ''))) {
+            debitAccountId = 'acc_receivable';
+          }
+          if (legacyCustomerAccountIds.has(String(creditAccountId || ''))) {
+            creditAccountId = 'acc_receivable';
+          }
+
+          if (debitAccountId !== transaction.debitAccountId || creditAccountId !== transaction.creditAccountId) {
+            changed = true;
+            return { ...transaction, debitAccountId, creditAccountId };
+          }
+          return transaction;
+        });
+        return changed ? next : prev;
+      });
+    }
+
+    if (patches.size === 0) return;
+    setContacts(prev => prev.map(contact => {
+      const patch = patches.get(contact.id);
+      return patch ? { ...contact, ...patch } : contact;
+    }));
+  }, [contacts]);
+
+  useEffect(() => {
+    const removableIds = accounts
+      .filter(account => (
+        account.id !== 'acc_receivable'
+        && (
+          account.parentId === 'acc_receivable_group'
+          || String(account.id || '').startsWith('acc_receivable_')
+        )
+      ))
+      .filter(account => !accounts.some(candidate => candidate.parentId === account.id))
+      .filter(account => getAccountUsageSummary(account.id).count === 0)
+      .map(account => account.id);
+
+    if (removableIds.length === 0) return;
+
+    setAccounts(prev => prev.filter(account => !removableIds.includes(account.id)));
+
+    removableIds.forEach(accountId => {
+      appendAuditLog({
+        entityType: 'account',
+        entityId: accountId,
+        action: 'DELETE',
+        screen: 'System Migration',
+        metadata: { reason: 'REMOVE_LEGACY_CUSTOMER_SUBACCOUNT' }
+      });
+    });
+  }, [accounts, transactions, invoices, checks, contacts, assetGroups]);
 
   useEffect(() => {
     const partnerContacts = contacts.filter(c => c.type === 'PARTNER');
@@ -5741,6 +6710,49 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return patch ? { ...contact, ...patch } : contact;
     }));
   }, [contacts, accounts, baseCurrency]);
+
+  useEffect(() => {
+    const commercialContacts: Array<Contact & { type: CommercialSubAccountContactType; postingAccountId: string }> = contacts
+      .filter((contact): contact is Contact & { type: CommercialSubAccountContactType } =>
+        shouldAutoCreateCommercialSubAccount(contact.id, contact.type)
+      )
+      .filter(contact => Boolean(contact.currentAccountId || contact.linkedAccountId))
+      .map(contact => ({
+        ...contact,
+        postingAccountId: contact.currentAccountId || contact.linkedAccountId || ''
+      }))
+      .filter(contact => contact.postingAccountId && contact.postingAccountId !== 'acc_receivable' && contact.postingAccountId !== 'acc_payable');
+
+    if (!commercialContacts.length) return;
+
+    const byContactId = new Map<string, Contact & { type: CommercialSubAccountContactType; postingAccountId: string }>(
+      commercialContacts.map(contact => [contact.id, contact])
+    );
+    setTransactions(prev => {
+      let changed = false;
+      const next = prev.map(transaction => {
+        const commercialContact = byContactId.get(String(transaction.contactId || ''));
+        if (!commercialContact) return transaction;
+
+        let debitAccountId = transaction.debitAccountId;
+        let creditAccountId = transaction.creditAccountId;
+        if (commercialContact.type === 'CUSTOMER') {
+          if (debitAccountId === 'acc_receivable') debitAccountId = commercialContact.postingAccountId;
+          if (creditAccountId === 'acc_receivable') creditAccountId = commercialContact.postingAccountId;
+        } else {
+          if (debitAccountId === 'acc_payable') debitAccountId = commercialContact.postingAccountId;
+          if (creditAccountId === 'acc_payable') creditAccountId = commercialContact.postingAccountId;
+        }
+
+        if (debitAccountId !== transaction.debitAccountId || creditAccountId !== transaction.creditAccountId) {
+          changed = true;
+          return { ...transaction, debitAccountId, creditAccountId };
+        }
+        return transaction;
+      });
+      return changed ? next : prev;
+    });
+  }, [contacts]);
   const deleteContact = (id: string): MutationResult => {
     const existing = contacts.find(c => c.id === id);
     if (!existing) {
@@ -6306,13 +7318,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setCurrencies(prev => prev.map(c => c.code === code ? { ...c, rate } : c));
   };
   const updateCompanySettings = (settings: CompanySettings): MutationResult => {
-    const permission = enforcePermission('SETTINGS', 'EDIT', 'Settings');
-    if (!permission.ok) return permission;
-
     const next = withNormalizedValuationSettings({
       ...companySettings,
       ...settings
     });
+    const languageOnlyChange = isLanguageOnlyCompanySettingsChange(companySettings, next);
+    if (!languageOnlyChange) {
+      const permission = enforcePermission('SETTINGS', 'EDIT', 'Settings');
+      if (!permission.ok) return permission;
+    }
+
     setCompanySettings(next);
     setCompanies(prev => prev.map(company => (
       company.id === currentCompanyId
@@ -6411,6 +7426,45 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   // --- WAREHOUSE STATE ---
   const [warehouses, setWarehouses] = useState<Warehouse[]>(initialWarehouses);
   const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>(initialStockTransfers);
+
+  useEffect(() => {
+    setTransactions(prev => {
+      let changed = false;
+      const next = prev.map(transaction => {
+        if (transaction.status === 'DRAFT') {
+          changed = true;
+          return { ...transaction, status: 'POSTED' };
+        }
+        return transaction;
+      });
+      return changed ? next : prev;
+    });
+
+    setInvoices(prev => {
+      let changed = false;
+      const next = prev.map(invoice => {
+        const desiredPostingStatus = invoice.status === 'QUOTATION' ? 'DRAFT' : 'POSTED';
+        if ((invoice.postingStatus || 'POSTED') !== desiredPostingStatus) {
+          changed = true;
+          return { ...invoice, postingStatus: desiredPostingStatus };
+        }
+        return invoice;
+      });
+      return changed ? next : prev;
+    });
+
+    setStockTransfers(prev => {
+      let changed = false;
+      const next = prev.map(transfer => {
+        if (transfer.status !== 'POSTED') {
+          changed = true;
+          return { ...transfer, status: 'POSTED' };
+        }
+        return transfer;
+      });
+      return changed ? next : prev;
+    });
+  }, [currentCompanyId, transactions, invoices, stockTransfers]);
 
 
   // --- MANUFACTURING STATE ---
@@ -6537,7 +7591,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     );
   };
 
-  const buildInitialWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot => {
+  const buildInitialWorkspaceSnapshot = (
+    companyId: string,
+    existing: CompanyWorkspaceSnapshot | null
+  ): CompanyWorkspaceSnapshot => {
     const companyProfile = companies.find(company => company.id === companyId) || {
       id: companyId,
       name: defaultCompanySettings.name,
@@ -6557,7 +7614,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return buildEmptyWorkspaceSnapshot(companyProfile);
     }
 
-    const existing = readWorkspaceSnapshot(companyId);
     const isCloudCompany = cloudMemberships.some(membership => membership.companyId === companyId);
 
     if (existing) {
@@ -6574,11 +7630,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return buildDefaultWorkspaceSnapshot(companyId);
   };
 
-  const readWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot | null => {
+  const parseWorkspaceSnapshot = (
+    companyId: string,
+    raw: unknown
+  ): CompanyWorkspaceSnapshot | null => {
     try {
-      const raw = localStorage.getItem(getCompanyWorkspaceKey(companyId));
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<CompanyWorkspaceSnapshot>;
+      const parsed = typeof raw === 'string'
+        ? JSON.parse(raw) as Partial<CompanyWorkspaceSnapshot>
+        : raw as Partial<CompanyWorkspaceSnapshot>;
       if (!parsed || parsed.companyId !== companyId) return null;
       return normalizeWorkspaceSnapshotCashContact({
         schemaVersion: 1,
@@ -6621,6 +7681,66 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   };
 
+  const readLegacyWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot | null => {
+    try {
+      return parseWorkspaceSnapshot(companyId, localStorage.getItem(getCompanyWorkspaceKey(companyId)));
+    } catch {
+      return null;
+    }
+  };
+
+  const persistWorkspaceSnapshot = async (
+    companyId: string,
+    snapshot: CompanyWorkspaceSnapshot
+  ): Promise<boolean> => {
+    try {
+      const storedInIndexedDb = await writeWorkspaceSnapshotRecord(companyId, snapshot);
+      if (storedInIndexedDb) {
+        try {
+          localStorage.removeItem(getCompanyWorkspaceKey(companyId));
+        } catch {
+          // Ignore cleanup failures after a successful IndexedDB write.
+        }
+        return true;
+      }
+
+      try {
+        localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
+        return true;
+      } catch {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  };
+
+  const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
+    const indexedDbRecord = await readWorkspaceSnapshotRecord(companyId);
+    const indexedDbSnapshot = parseWorkspaceSnapshot(companyId, indexedDbRecord);
+    if (indexedDbSnapshot) {
+      return {
+        snapshot: indexedDbSnapshot,
+        source: 'idb',
+        needsRewrite: typeof indexedDbRecord === 'string'
+      };
+    }
+
+    const legacySnapshot = readLegacyWorkspaceSnapshot(companyId);
+    if (legacySnapshot) {
+      return {
+        snapshot: legacySnapshot,
+        source: 'legacy',
+        needsRewrite: true
+      };
+    }
+    return {
+      snapshot: null,
+      source: 'none',
+      needsRewrite: false
+    };
+  };
+
   const applyWorkspaceSnapshot = (snapshot: CompanyWorkspaceSnapshot) => {
     const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
     setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
@@ -6656,7 +7776,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setAuditLogs(normalizedSnapshot.auditLogs || []);
   };
 
-  const saveCurrentWorkspaceSnapshot = (companyId: string) => {
+  const saveCurrentWorkspaceSnapshot = async (companyId: string): Promise<boolean> => {
     const snapshot: CompanyWorkspaceSnapshot = {
       schemaVersion: 1,
       companyId,
@@ -6693,9 +7813,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       permissions,
       auditLogs
     };
-    localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
+    const didPersist = await persistWorkspaceSnapshot(companyId, snapshot);
+    if (!didPersist) return false;
     upsertWorkspaceSyncQueueItem(companyId, snapshot.updatedAt, currentUser?.id);
     setSyncQueueVersion(prev => prev + 1);
+    return true;
   };
 
   const persistLastWorkspaceSyncAt = (value: Date) => {
@@ -6722,7 +7844,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setIsSyncing(true);
     try {
       for (const queueItem of queueItems) {
-        const snapshot = readWorkspaceSnapshot(queueItem.companyId);
+        const { snapshot } = await readWorkspaceSnapshot(queueItem.companyId);
         if (!snapshot) {
           removeWorkspaceSyncQueueItem(queueItem.companyId);
           continue;
@@ -6768,10 +7890,18 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   useEffect(() => {
     if (!currentUser) {
-      localStorage.removeItem(STORAGE_KEYS.currentUser);
+      try {
+        localStorage.removeItem(STORAGE_KEYS.currentUser);
+      } catch {
+        // Ignore storage cleanup failures so logout still completes.
+      }
       return;
     }
-    localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
+    try {
+      localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
+    } catch {
+      // Ignore storage write failures so auth state is kept in memory.
+    }
   }, [currentUser]);
 
   useEffect(() => {
@@ -6810,17 +7940,29 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [companies.length, currentCompany?.trialEndsAt, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.workspaceSubscription, JSON.stringify(workspaceSubscription));
+    try {
+      localStorage.setItem(STORAGE_KEYS.workspaceSubscription, JSON.stringify(workspaceSubscription));
+    } catch {
+      // Ignore storage write failures so subscription UI keeps working.
+    }
   }, [workspaceSubscription]);
 
   useEffect(() => {
     if (!companies.length) return;
-    localStorage.setItem(STORAGE_KEYS.companies, JSON.stringify(companies));
+    try {
+      localStorage.setItem(STORAGE_KEYS.companies, JSON.stringify(companies));
+    } catch {
+      // Ignore storage write failures so company changes remain in memory.
+    }
   }, [companies]);
 
   useEffect(() => {
     if (!currentCompanyId) return;
-    localStorage.setItem(STORAGE_KEYS.currentCompany, currentCompanyId);
+    try {
+      localStorage.setItem(STORAGE_KEYS.currentCompany, currentCompanyId);
+    } catch {
+      // Ignore storage write failures so switching companies doesn't crash.
+    }
   }, [currentCompanyId]);
 
   useEffect(() => {
@@ -6834,15 +7976,59 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     // Rehydrate only when the active company context changes.
     // Depending on `companies` here causes settings updates to reload a stale
     // workspace snapshot before the latest state is persisted.
-    const loaded = buildInitialWorkspaceSnapshot(currentCompanyId);
-    applyWorkspaceSnapshot(loaded);
-    localStorage.setItem(getCompanyWorkspaceKey(currentCompanyId), JSON.stringify(loaded));
-    setWorkspaceHydratedForCompanyId(currentCompanyId);
-  }, [currentCompanyId, cloudMemberships, currentUser]);
+    const activeCompanyId = currentCompanyId;
+    let cancelled = false;
+    setWorkspaceHydratedForCompanyId('');
+
+    const hydrateWorkspace = async () => {
+      try {
+        const readResult = forceEmptyBootstrap
+          ? { snapshot: null, source: 'none' as const, needsRewrite: false }
+          : await readWorkspaceSnapshot(activeCompanyId);
+        const existing = readResult.snapshot;
+        if (cancelled) return;
+
+        const loaded = buildInitialWorkspaceSnapshot(activeCompanyId, existing);
+        applyWorkspaceSnapshot(loaded);
+        if (cancelled) return;
+
+        setWorkspaceHydratedForCompanyId(activeCompanyId);
+
+        const shouldPersistLoaded = !existing || readResult.needsRewrite || loaded !== existing;
+        if (shouldPersistLoaded) {
+          // Persist in the background so a slow storage layer does not block app boot.
+          void persistWorkspaceSnapshot(activeCompanyId, loaded);
+        }
+      } catch (error) {
+        console.error('Failed to hydrate workspace snapshot. Falling back to a safe bootstrap.', error);
+        if (cancelled) return;
+
+        const fallbackSnapshot = (() => {
+          try {
+            return buildInitialWorkspaceSnapshot(activeCompanyId, null);
+          } catch {
+            return buildDefaultWorkspaceSnapshot(activeCompanyId);
+          }
+        })();
+
+        applyWorkspaceSnapshot(fallbackSnapshot);
+        if (cancelled) return;
+
+        setWorkspaceHydratedForCompanyId(activeCompanyId);
+        void persistWorkspaceSnapshot(activeCompanyId, fallbackSnapshot);
+      }
+    };
+
+    void hydrateWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCompanyId, cloudMemberships]);
 
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
-    saveCurrentWorkspaceSnapshot(currentCompanyId);
+    void saveCurrentWorkspaceSnapshot(currentCompanyId);
   }, [
     currentCompanyId,
     workspaceHydratedForCompanyId,
@@ -7005,7 +8191,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeError('VALIDATION_ERROR', 'This company is not linked to your account.');
     }
     if (companyId === currentCompanyId) return makeSuccess();
-    saveCurrentWorkspaceSnapshot(currentCompanyId);
+    void saveCurrentWorkspaceSnapshot(currentCompanyId);
     setCurrentCompanyId(companyId);
     return makeSuccess();
   };
@@ -7015,6 +8201,18 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!permission.ok) return permission;
     const name = (input.name || '').trim();
     if (!name) return makeError('VALIDATION_ERROR', 'Company name is required.');
+    if (companyCreateInFlightRef.current) {
+      return makeError(
+        'VALIDATION_ERROR',
+        companySettings.language === 'AR'
+          ? 'يجري الآن إنشاء شركة أخرى. انتظر قليلًا ثم أعد المحاولة.'
+          : 'Another company is being created right now. Please wait a moment and try again.'
+      );
+    }
+    const nameConflict = findCompanyNameConflict(companies, name);
+    if (nameConflict) {
+      return makeError('VALIDATION_ERROR', getCompanyNameConflictMessage(nameConflict.name));
+    }
     if (companies.length >= workspaceMaxCompanies) {
       const message = companySettings.language === 'AR'
         ? `الخطة الحالية تسمح حتى ${workspaceMaxCompanies} شركة فقط. لديك الآن ${companies.length} شركة. قم بترقية الاشتراك أو إضافة شركات إضافية من شاشة الاشتراك.`
@@ -7023,6 +8221,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     try {
+      companyCreateInFlightRef.current = true;
       const nowIso = new Date().toISOString();
       const companyId = newId('cmp');
       const profile: CompanyProfile = {
@@ -7042,12 +8241,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       graceDays: Number.isFinite(Number(input.graceDays)) ? Math.max(0, Math.min(30, Math.floor(Number(input.graceDays)))) : 0
     };
 
-      saveCurrentWorkspaceSnapshot(currentCompanyId);
+      await saveCurrentWorkspaceSnapshot(currentCompanyId);
 
       const snapshot = buildEmptyWorkspaceSnapshot(profile);
-      localStorage.setItem(getCompanyWorkspaceKey(profile.id), JSON.stringify(snapshot));
-      upsertWorkspaceSyncQueueItem(profile.id, snapshot.updatedAt, currentUser?.id);
-      setSyncQueueVersion(prev => prev + 1);
+      const didPersistSnapshot = await persistWorkspaceSnapshot(profile.id, snapshot);
+      if (didPersistSnapshot) {
+        upsertWorkspaceSyncQueueItem(profile.id, snapshot.updatedAt, currentUser?.id);
+        setSyncQueueVersion(prev => prev + 1);
+      }
 
       await persistCloudSubscription(profile, {
         source: profile.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
@@ -7067,6 +8268,431 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeSuccess();
     } catch (error: any) {
       return makeError('VALIDATION_ERROR', error?.message || 'Failed to create company.');
+    } finally {
+      companyCreateInFlightRef.current = false;
+    }
+  };
+
+  const deleteCompany = async (companyId: string): Promise<MutationResult> => {
+    const permission = enforcePermission('SETTINGS', 'DELETE', 'Company Switcher');
+    if (!permission.ok) return permission;
+    if (companyDeleteInFlightRef.current.has(companyId)) {
+      return makeError(
+        'VALIDATION_ERROR',
+        companySettings.language === 'AR'
+          ? 'يجري حذف هذه الشركة الآن. انتظر قليلًا.'
+          : 'This company is already being deleted. Please wait a moment.'
+      );
+    }
+
+    const deletionTarget = resolveCompanyDeletionTarget(companies, companyId);
+    if ('reason' in deletionTarget) {
+      if (deletionTarget.reason === 'NOT_FOUND') {
+        return makeError('VALIDATION_ERROR', 'Company not found.');
+      }
+      if (deletionTarget.reason === 'LAST_COMPANY') {
+        return makeError(
+          'VALIDATION_ERROR',
+          companySettings.language === 'AR'
+            ? 'يجب أن تبقى شركة واحدة على الأقل داخل الحساب.'
+            : 'At least one company must remain in the account.'
+        );
+      }
+      return makeError('VALIDATION_ERROR', 'Could not determine a fallback company after deletion.');
+    }
+
+    const existing = deletionTarget.target;
+    const fallbackCompany = deletionTarget.fallback;
+
+    companyDeleteInFlightRef.current.add(companyId);
+    try {
+      const nextCompanies = companies.filter(company => company.id !== companyId);
+      let didDeleteSnapshot = false;
+      const cleanupWarnings: string[] = [];
+
+      if (currentCompanyId === companyId) {
+        setCurrentCompanyId(fallbackCompany.id);
+        try {
+          localStorage.setItem(STORAGE_KEYS.currentCompany, fallbackCompany.id);
+        } catch {
+          // Ignore storage failures and keep the in-memory switch.
+        }
+        setCurrentUser(prev => (
+          prev
+            ? {
+              ...prev,
+              companyId: fallbackCompany.id
+            }
+            : prev
+        ));
+        setCloudSubscription(null);
+      }
+
+      setCompanies(nextCompanies);
+      removeWorkspaceSyncQueueItem(companyId);
+      setSyncQueueVersion(prev => prev + 1);
+
+      try {
+        localStorage.removeItem(getCompanyWorkspaceKey(companyId));
+        localStorage.removeItem(getBackupHistoryKey(companyId));
+        didDeleteSnapshot = await deleteWorkspaceSnapshotRecord(companyId);
+      } catch (error: any) {
+        cleanupWarnings.push(String(error?.message || 'Failed to delete local company snapshot artifacts.'));
+      }
+
+      if (firebaseDb && currentUser && !isGuestUser(currentUser)) {
+        const cleanupResults = await Promise.allSettled([
+          deleteDoc(doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, companyId)),
+          deleteDoc(doc(firebaseDb, WORKSPACE_SYNC_COLLECTION, `${companyId}_${currentUser.id}`))
+        ]);
+
+        cleanupResults.forEach((result) => {
+          if (result.status === 'rejected') {
+            cleanupWarnings.push(String(result.reason?.message || result.reason || 'Failed to delete cloud company artifacts.'));
+          }
+        });
+      }
+
+      appendAuditLog({
+        entityType: 'company',
+        entityId: companyId,
+        action: 'DELETE',
+        screen: 'Settings > Companies',
+        before: safeClone(existing),
+        metadata: {
+          deletedCompanyName: existing.name,
+          fallbackCompanyId: fallbackCompany.id,
+          deletedSnapshotFromIndexedDb: didDeleteSnapshot,
+          cleanupWarnings: cleanupWarnings.length ? cleanupWarnings : undefined
+        }
+      });
+
+      return makeSuccess();
+    } catch (error: any) {
+      return makeError('VALIDATION_ERROR', error?.message || 'Failed to delete company.');
+    } finally {
+      companyDeleteInFlightRef.current.delete(companyId);
+    }
+  };
+
+  const buildWorkspaceSubscriptionFromOfferCode = useCallback((
+    base: WorkspaceSubscriptionAccount,
+    offer: WorkspaceOfferCode
+  ): WorkspaceSubscriptionAccount => {
+    const nowIso = new Date().toISOString();
+    const grantedCompanyCount = clampWorkspaceOfferCompanyCount(offer.companyCount);
+    const nextMaxCompanies = Math.max(companies.length, base.maxCompanies || 1, grantedCompanyCount || 0);
+    const nextUnlimitedCompanies = base.unlimitedCompanies === true || (offer.kind === 'LIFETIME' && !grantedCompanyCount);
+    const fallback = {
+      ...base,
+      userId: currentUser?.id || base.userId,
+      userEmail: currentUser?.email || base.userEmail,
+      maxCompanies: nextMaxCompanies,
+      unlimitedCompanies: nextUnlimitedCompanies
+    };
+    const nextPlan = base.plan === 'TRIAL' || base.plan === 'NONE' ? 'BASIC' : base.plan;
+
+    if (offer.kind === 'DISCOUNT_PERCENT') {
+      return normalizeWorkspaceSubscription({
+        ...base,
+        status: base.status,
+        plan: base.plan,
+        billingCycle: 'YEARLY',
+        maxCompanies: nextMaxCompanies,
+        discountPercent: offer.discountPercent || 0,
+        offerCode: offer.code,
+        offerNote: offer.notes || `Discount ${offer.discountPercent || 0}%${grantedCompanyCount ? ` | ${grantedCompanyCount} companies` : ''}`,
+        lifetimeAccess: base.lifetimeAccess === true,
+        unlimitedCompanies: nextUnlimitedCompanies,
+        updatedAt: nowIso
+      }, fallback);
+    }
+
+    if (offer.kind === 'LIFETIME') {
+      return normalizeWorkspaceSubscription({
+        ...base,
+        status: 'ACTIVE',
+        plan: nextPlan,
+        billingCycle: 'YEARLY',
+        provider: 'MANUAL',
+        maxCompanies: nextMaxCompanies,
+        renewalDate: undefined,
+        expiresAt: undefined,
+        discountPercent: 0,
+        offerCode: offer.code,
+        offerNote: offer.notes || (grantedCompanyCount ? `Lifetime access | ${grantedCompanyCount} companies` : 'Lifetime access'),
+        lifetimeAccess: true,
+        unlimitedCompanies: nextUnlimitedCompanies,
+        updatedAt: nowIso
+      }, fallback);
+    }
+
+    const extensionDays = Math.max(1, Math.min(3650, Math.floor(Number(offer.freeDays) || 30)));
+    const referenceEndsAt = String(base.expiresAt || base.renewalDate || '');
+    const referenceEndsAtMs = Date.parse(referenceEndsAt);
+    const extensionBaseIso = base.status === 'ACTIVE' && Number.isFinite(referenceEndsAtMs) && referenceEndsAtMs > Date.now()
+      ? referenceEndsAt
+      : nowIso;
+    const nextEndsAt = addDaysIso(extensionBaseIso, extensionDays);
+
+    return normalizeWorkspaceSubscription({
+      ...base,
+      status: 'ACTIVE',
+      plan: nextPlan,
+      billingCycle: 'YEARLY',
+      provider: 'MANUAL',
+      maxCompanies: nextMaxCompanies,
+      renewalDate: nextEndsAt,
+      expiresAt: nextEndsAt,
+      discountPercent: 0,
+      offerCode: offer.code,
+      offerNote: offer.notes || `${extensionDays} free days${grantedCompanyCount ? ` | ${grantedCompanyCount} companies` : ''}`,
+      lifetimeAccess: false,
+      unlimitedCompanies: nextUnlimitedCompanies,
+      updatedAt: nowIso
+    }, fallback);
+  }, [companies.length, currentUser?.email, currentUser?.id]);
+
+  const issueWorkspaceOfferCode = async (input: {
+    kind: WorkspaceOfferCodeKind;
+    discountPercent?: number;
+    freeDays?: number;
+    companyCount?: number;
+    expiresAt?: string;
+    notes?: string;
+  }): Promise<SubscriptionCodeIssueResult> => {
+    if (!currentUser || isGuestUser(currentUser) || !programOwnerEnabled) {
+      return { ok: false, code: 'PERMISSION_DENIED', message: 'Only the main program owner can issue workspace offer codes.' };
+    }
+
+    const kind: WorkspaceOfferCodeKind = input.kind === 'DISCOUNT_PERCENT' || input.kind === 'LIFETIME'
+      ? input.kind
+      : 'FREE_DAYS';
+    const discountPercent = kind === 'DISCOUNT_PERCENT'
+      ? Math.max(1, Math.min(100, Math.floor(Number(input.discountPercent) || 0)))
+      : undefined;
+    const freeDays = kind === 'FREE_DAYS'
+      ? Math.max(1, Math.min(3650, Math.floor(Number(input.freeDays) || 30)))
+      : undefined;
+    const companyCount = clampWorkspaceOfferCompanyCount(input.companyCount);
+
+    if (kind === 'DISCOUNT_PERCENT' && !discountPercent) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'A valid discount percentage is required.' };
+    }
+    if (kind === 'FREE_DAYS' && !freeDays) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'A valid free-days duration is required.' };
+    }
+
+    const expiresAt = normalizeOptionalIsoDate(input.expiresAt);
+    const notes = String(input.notes || '').trim() || undefined;
+    const nowIso = new Date().toISOString();
+    const companyCountSuffix = companyCount ? `-${companyCount}C` : '';
+    const codePrefix = kind === 'DISCOUNT_PERCENT'
+      ? `AIFLEX-OFFER-DISCOUNT-${discountPercent}${companyCountSuffix}`
+      : kind === 'LIFETIME'
+        ? `AIFLEX-OFFER-LIFETIME${companyCountSuffix}`
+        : `AIFLEX-OFFER-FREE-${freeDays}${companyCountSuffix}`;
+
+    const issueLocalWorkspaceOfferCode = (): SubscriptionCodeIssueResult => {
+      const existingCodes = loadLocalWorkspaceOfferCodes();
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+        const candidateCode = normalizeActivationCode(`${codePrefix}-${suffix}`);
+        if (existingCodes.some(code => code.code === candidateCode)) continue;
+
+        const payload: WorkspaceOfferCode = {
+          code: candidateCode,
+          status: 'AVAILABLE',
+          kind,
+          discountPercent,
+          freeDays,
+          companyCount,
+          createdAt: nowIso,
+          createdByUserId: currentUser.id,
+          createdByEmail: currentUser.email,
+          expiresAt,
+          notes
+        };
+
+        replaceLocalWorkspaceOfferCodes([payload, ...existingCodes.filter(code => code.code !== candidateCode)]);
+        return { ok: true, code: candidateCode };
+      }
+
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'Could not generate a unique workspace offer code. Try again.' };
+    };
+
+    if (!firebaseDb || subscriptionAdminScope !== 'CLOUD') {
+      return issueLocalWorkspaceOfferCode();
+    }
+
+    try {
+      await ensureProgramOwnerAdminDocument();
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+        const candidateCode = normalizeActivationCode(`${codePrefix}-${suffix}`);
+        const candidateRef = doc(firebaseDb, WORKSPACE_OFFER_CODES_COLLECTION, candidateCode);
+        const existing = await getDoc(candidateRef);
+        if (existing.exists()) continue;
+
+        const payload: WorkspaceOfferCode = {
+          code: candidateCode,
+          status: 'AVAILABLE',
+          kind,
+          discountPercent,
+          freeDays,
+          companyCount,
+          createdAt: nowIso,
+          createdByUserId: currentUser.id,
+          createdByEmail: currentUser.email,
+          expiresAt,
+          notes
+        };
+
+        await setDoc(candidateRef, sanitizeFirestorePayload(payload as unknown as Record<string, unknown>), { merge: false });
+        return { ok: true, code: candidateCode };
+      }
+
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'Could not generate a unique workspace offer code. Try again.' };
+    } catch (error: any) {
+      const fallbackResult = issueLocalWorkspaceOfferCode();
+      if (fallbackResult.ok) {
+        setSubscriptionCloudError(String(error?.message || 'Failed to sync workspace offer code to cloud.'));
+        return fallbackResult;
+      }
+      return {
+        ok: false,
+        code: 'VALIDATION_ERROR',
+        message: String(error?.message || 'Failed to issue workspace offer code.')
+      };
+    }
+  };
+
+  const redeemWorkspaceOfferCode = async (code: string, desiredCompanyCount = workspaceSubscription.maxCompanies): Promise<MutationResult> => {
+    if (!currentUser || isGuestUser(currentUser)) {
+      return makeError('PERMISSION_DENIED', 'Sign in with a Firebase account before applying an offer code.');
+    }
+
+    const normalizedCode = normalizeActivationCode(code);
+    if (!normalizedCode) return makeError('VALIDATION_ERROR', 'Offer code is required.');
+    void desiredCompanyCount;
+
+    const applyLocalNextWorkspace = async (offer: WorkspaceOfferCode): Promise<MutationResult> => {
+      const next = buildWorkspaceSubscriptionFromOfferCode(workspaceSubscription, offer);
+      setWorkspaceSubscription(next);
+      try {
+        await persistWorkspaceSubscriptionDoc(next);
+      } catch {
+        // Keep the updated local subscription even if the cloud sync is temporarily unavailable.
+      }
+      appendAuditLog({
+        entityType: 'workspace_subscription',
+        entityId: currentUser.id,
+        action: 'APPLY_OFFER_CODE',
+        screen: 'Settings > Subscription',
+        before: safeClone(workspaceSubscription),
+        after: safeClone(next),
+        metadata: { offerCode: offer.code, kind: offer.kind }
+      });
+      return makeSuccess();
+    };
+
+    const consumeLocalWorkspaceOfferCode = async (offer: WorkspaceOfferCode): Promise<MutationResult> => {
+      if (offer.status !== 'AVAILABLE') return makeError('VALIDATION_ERROR', 'This offer code is no longer available.');
+      if (offer.expiresAt && Date.parse(offer.expiresAt) < Date.now()) {
+        return makeError('VALIDATION_ERROR', 'This offer code has expired.');
+      }
+
+      const result = await applyLocalNextWorkspace(offer);
+      if (!result.ok) return result;
+
+      const existingCodes = loadLocalWorkspaceOfferCodes();
+      replaceLocalWorkspaceOfferCodes(existingCodes.map(item => (
+        item.code === normalizedCode
+          ? {
+            ...item,
+            status: 'USED',
+            usedAt: new Date().toISOString(),
+            usedByUserId: currentUser.id,
+            usedByEmail: currentUser.email
+          }
+          : item
+      )));
+      setSubscriptionCloudError('');
+      return makeSuccess();
+    };
+
+    if (!firebaseDb) {
+      const existingCodes = loadLocalWorkspaceOfferCodes();
+      const offer = existingCodes.find(item => item.code === normalizedCode);
+      if (!offer) return makeError('VALIDATION_ERROR', 'Offer code is invalid.');
+      return consumeLocalWorkspaceOfferCode(offer);
+    }
+
+    try {
+      const workspaceRef = doc(firebaseDb, WORKSPACE_SUBSCRIPTIONS_COLLECTION, currentUser.id);
+      const codeRef = doc(firebaseDb, WORKSPACE_OFFER_CODES_COLLECTION, normalizedCode);
+      const nowIso = new Date().toISOString();
+      const nextWorkspace = await runTransaction(firebaseDb, async (transaction) => {
+        const codeSnapshot = await transaction.get(codeRef);
+        const offer = codeSnapshot.exists() ? normalizeWorkspaceOfferCode(codeSnapshot.data()) : null;
+        if (!offer) throw new Error('Offer code is invalid.');
+        if (offer.status !== 'AVAILABLE') throw new Error('This offer code is no longer available.');
+        if (offer.expiresAt && Date.parse(offer.expiresAt) < Date.now()) {
+          throw new Error('This offer code has expired.');
+        }
+
+        const workspaceSnapshot = await transaction.get(workspaceRef);
+        const baseWorkspace = workspaceSnapshot.exists()
+          ? normalizeWorkspaceSubscription(workspaceSnapshot.data(), {
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+            maxCompanies: Math.max(workspaceSubscription.maxCompanies, companies.length)
+          })
+          : normalizeWorkspaceSubscription(workspaceSubscription, {
+            userId: currentUser.id,
+            userEmail: currentUser.email,
+            maxCompanies: Math.max(workspaceSubscription.maxCompanies, companies.length)
+          });
+        const next = buildWorkspaceSubscriptionFromOfferCode(baseWorkspace, offer);
+
+        transaction.set(
+          workspaceRef,
+          sanitizeFirestorePayload(next as unknown as Record<string, unknown>),
+          { merge: true }
+        );
+        transaction.set(codeRef, sanitizeFirestorePayload({
+          status: 'USED',
+          usedAt: nowIso,
+          usedByUserId: currentUser.id,
+          usedByEmail: currentUser.email
+        }), { merge: true });
+
+        return next;
+      });
+
+      setWorkspaceSubscription(nextWorkspace);
+      setSubscriptionCloudError('');
+      appendAuditLog({
+        entityType: 'workspace_subscription',
+        entityId: currentUser.id,
+        action: 'APPLY_OFFER_CODE',
+        screen: 'Settings > Subscription',
+        before: safeClone(workspaceSubscription),
+        after: safeClone(nextWorkspace),
+        metadata: { offerCode: normalizedCode }
+      });
+      return makeSuccess();
+    } catch (error: any) {
+      const localOffer = loadLocalWorkspaceOfferCodes().find(item => item.code === normalizedCode);
+      if (localOffer) {
+        const localResult = await consumeLocalWorkspaceOfferCode(localOffer);
+        if (localResult.ok) {
+          return localResult;
+        }
+      }
+      const message = String(error?.message || 'Failed to apply the workspace offer code.');
+      setSubscriptionCloudError(message);
+      return makeError('VALIDATION_ERROR', message);
     }
   };
 
@@ -7079,7 +8705,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     reservedCompanyId?: string;
     reservedCompanyName?: string;
   }): Promise<SubscriptionCodeIssueResult> => {
-    if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !subscriptionAdminEnabled) {
+    if (!currentUser || isGuestUser(currentUser) || !subscriptionAdminEnabled) {
       return { ok: false, code: 'PERMISSION_DENIED', message: 'You do not have permission to issue subscription codes.' };
     }
 
@@ -7097,6 +8723,36 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const reservedCompanyId = String(input.reservedCompanyId || '').trim() || undefined;
     const reservedCompanyName = String(input.reservedCompanyName || '').trim() || undefined;
     const nowIso = new Date().toISOString();
+
+    if (!firebaseDb || subscriptionAdminScope !== 'CLOUD') {
+      const existingCodes = loadLocalSubscriptionCodes();
+
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+        const candidateCode = normalizeActivationCode(`AIFLEX-${plan}-${durationDays}-${suffix}`);
+        if (existingCodes.some(code => code.code === candidateCode)) continue;
+
+        const payload: CloudSubscriptionCode = {
+          code: candidateCode,
+          status: 'AVAILABLE',
+          plan,
+          durationDays,
+          maxDevices,
+          createdAt: nowIso,
+          createdByUserId: currentUser.id,
+          createdByEmail: currentUser.email,
+          expiresAt,
+          notes,
+          reservedCompanyId,
+          reservedCompanyName
+        };
+
+        replaceLocalSubscriptionCodes([payload, ...existingCodes.filter(code => code.code !== candidateCode)]);
+        return { ok: true, code: candidateCode };
+      }
+
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'Could not generate a unique activation code. Try again.' };
+    }
 
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -7121,7 +8777,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           reservedCompanyName
         };
 
-        await setDoc(candidateRef, payload, { merge: false });
+        await setDoc(candidateRef, sanitizeFirestorePayload(payload as unknown as Record<string, unknown>), { merge: false });
         return { ok: true, code: candidateCode };
       }
 
@@ -7136,12 +8792,28 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const cancelSubscriptionCode = async (code: string): Promise<MutationResult> => {
-    if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !subscriptionAdminEnabled) {
+    if (!currentUser || isGuestUser(currentUser) || !subscriptionAdminEnabled) {
       return makeError('PERMISSION_DENIED', 'You do not have permission to cancel activation codes.');
     }
 
     const normalizedCode = normalizeActivationCode(code);
     if (!normalizedCode) return makeError('VALIDATION_ERROR', 'Activation code is required.');
+
+    if (!firebaseDb || subscriptionAdminScope !== 'CLOUD') {
+      const existingCodes = loadLocalSubscriptionCodes();
+      const existing = existingCodes.find(item => item.code === normalizedCode);
+      if (!existing) return makeError('VALIDATION_ERROR', 'Activation code not found.');
+      if (existing.status === 'USED') return makeError('VALIDATION_ERROR', 'Used activation codes cannot be cancelled.');
+      if (existing.status === 'CANCELLED') return makeSuccess();
+
+      replaceLocalSubscriptionCodes(existingCodes.map(item => (
+        item.code === normalizedCode
+          ? { ...item, status: 'CANCELLED' }
+          : item
+      )));
+      return makeSuccess();
+    }
+
     const codeRef = doc(firebaseDb, SUBSCRIPTION_CODES_COLLECTION, normalizedCode);
     const snapshot = await getDoc(codeRef);
     const existing = snapshot.exists() ? normalizeCloudSubscriptionCode(snapshot.data()) : null;
@@ -7181,10 +8853,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           });
 
         const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
-        if (!existingDevice && remote.boundDevices.length >= remote.maxDevices) {
-          throw new Error('Device limit reached for this company subscription.');
-        }
-
         const boundDevices = existingDevice
           ? remote.boundDevices.map(device => (
             device.deviceId === currentDeviceBinding.deviceId
@@ -7207,7 +8875,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           updatedByEmail: currentUser.email
         };
 
-        transaction.set(subscriptionRef, next, { merge: true });
+        transaction.set(
+          subscriptionRef,
+          sanitizeFirestorePayload(next as unknown as Record<string, unknown>),
+          { merge: true }
+        );
         return next;
       });
 
@@ -7257,7 +8929,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           updatedByUserId: currentUser.id,
           updatedByEmail: currentUser.email
         };
-        transaction.set(subscriptionRef, next, { merge: true });
+        transaction.set(
+          subscriptionRef,
+          sanitizeFirestorePayload(next as unknown as Record<string, unknown>),
+          { merge: true }
+        );
         return next;
       });
 
@@ -7385,10 +9061,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             });
 
           const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
-          if (!existingDevice && remote.boundDevices.length >= codeRecord.maxDevices) {
-            throw new Error('This subscription has reached its device limit.');
-          }
-
           const nextDevices = existingDevice
             ? remote.boundDevices.map(device => (
               device.deviceId === currentDeviceBinding.deviceId
@@ -7427,8 +9099,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             reservedCompanyName: codeRecord.reservedCompanyName
           };
 
-          transaction.set(subscriptionRef, next, { merge: true });
-          transaction.set(codeRef, {
+          transaction.set(
+            subscriptionRef,
+            sanitizeFirestorePayload(next as unknown as Record<string, unknown>),
+            { merge: true }
+          );
+          transaction.set(codeRef, sanitizeFirestorePayload({
             status: 'USED',
             usedAt: nowIso,
             usedByCompanyId: companyId,
@@ -7436,7 +9112,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             usedByDeviceId: currentDeviceBinding.deviceId,
             usedByUserId: currentUser.id,
             usedByEmail: currentUser.email
-          }, { merge: true });
+          }), { merge: true });
 
           return next;
         });
@@ -7461,16 +9137,91 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       } catch (error: any) {
         setSubscriptionCloudBusy(false);
         const message = String(error?.message || 'Failed to activate the company subscription.');
-        setSubscriptionCloudError(message);
-        appendAuditLog({
-          entityType: 'company_subscription',
-          entityId: companyId,
-          action: 'ACTIVATE_REJECTED',
-          screen: 'Settings > Subscription',
-          metadata: { reason: message, activationCode: normalizedCode, source: 'FIRESTORE' }
-        });
-        return makeError('VALIDATION_ERROR', message);
+        if (message !== 'Activation code is invalid.') {
+          setSubscriptionCloudError(message);
+          appendAuditLog({
+            entityType: 'company_subscription',
+            entityId: companyId,
+            action: 'ACTIVATE_REJECTED',
+            screen: 'Settings > Subscription',
+            metadata: { reason: message, activationCode: normalizedCode, source: 'FIRESTORE' }
+          });
+          return makeError('VALIDATION_ERROR', message);
+        }
       }
+    }
+
+    const localIssuedCode = loadLocalSubscriptionCodes().find(code => code.code === normalizedCode);
+    if (localIssuedCode) {
+      if (localIssuedCode.status !== 'AVAILABLE') {
+        return makeError('VALIDATION_ERROR', 'This activation code is no longer available.');
+      }
+      if (localIssuedCode.expiresAt && Date.parse(localIssuedCode.expiresAt) < Date.now()) {
+        return makeError('VALIDATION_ERROR', 'This activation code has expired.');
+      }
+      if (localIssuedCode.reservedCompanyId && localIssuedCode.reservedCompanyId !== companyId) {
+        return makeError('VALIDATION_ERROR', 'This activation code is reserved for another company.');
+      }
+
+      const nowIso = new Date().toISOString();
+      const currentEndsAtMs = Date.parse(String(existing.subscriptionEndsAt || ''));
+      const extensionBaseIso = existing.subscriptionStatus === 'ACTIVE' && Number.isFinite(currentEndsAtMs) && currentEndsAtMs > Date.now()
+        ? String(existing.subscriptionEndsAt)
+        : nowIso;
+
+      const next = withNormalizedCompanyProfile({
+        ...existing,
+        subscriptionStatus: 'ACTIVE',
+        subscriptionPlan: localIssuedCode.plan,
+        subscriptionStartsAt: existing.subscriptionStatus === 'ACTIVE'
+          ? existing.subscriptionStartsAt || nowIso
+          : nowIso,
+        subscriptionEndsAt: addDaysIso(extensionBaseIso, localIssuedCode.durationDays),
+        activationCode: localIssuedCode.code
+      });
+
+      applyCompanySubscriptionLocally(companyId, next);
+      if (currentUser && !isGuestUser(currentUser)) {
+        void persistCloudSubscription(next, {
+          source: 'ACTIVATION_CODE',
+          maxDevices: localIssuedCode.maxDevices,
+          boundDevices: cloudSubscription?.boundDevices || [currentDeviceBinding],
+          notes: localIssuedCode.notes,
+          reservedCompanyId: localIssuedCode.reservedCompanyId,
+          reservedCompanyName: localIssuedCode.reservedCompanyName
+        }).catch(() => undefined);
+      }
+
+      replaceLocalSubscriptionCodes(loadLocalSubscriptionCodes().map(code => (
+        code.code === normalizedCode
+          ? {
+            ...code,
+            status: 'USED',
+            usedAt: nowIso,
+            usedByCompanyId: companyId,
+            usedByCompanyName: existing.name,
+            usedByDeviceId: currentDeviceBinding.deviceId,
+            usedByUserId: currentUser?.id,
+            usedByEmail: currentUser?.email
+          }
+          : code
+      )));
+
+      appendAuditLog({
+        entityType: 'company_subscription',
+        entityId: companyId,
+        action: existing.subscriptionStatus === 'ACTIVE' ? 'RENEW' : 'ACTIVATE',
+        screen: 'Settings > Subscription',
+        before: safeClone(existing),
+        after: safeClone(next),
+        metadata: {
+          plan: localIssuedCode.plan,
+          durationDays: localIssuedCode.durationDays,
+          source: 'LOCAL_ADMIN_CODE'
+        }
+      });
+      setSubscriptionCloudError('');
+      return makeSuccess();
     }
 
     const parsedCode = parseActivationCode(normalizedCode);
@@ -7503,6 +9254,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     applyCompanySubscriptionLocally(companyId, next);
+    setSubscriptionCloudError('');
     appendAuditLog({
       entityType: 'company_subscription',
       entityId: companyId,
@@ -7525,9 +9277,20 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const existing = companies.find(c => c.id === companyId);
     if (!existing) return makeError('VALIDATION_ERROR', 'Company not found.');
 
+    const requestedName = Object.prototype.hasOwnProperty.call(updates, 'name')
+      ? String(updates.name || '').trim()
+      : String(existing.name || '').trim();
+    if (!requestedName) return makeError('VALIDATION_ERROR', 'Company name is required.');
+
+    const nameConflict = findCompanyNameConflict(companies, requestedName, companyId);
+    if (nameConflict) {
+      return makeError('VALIDATION_ERROR', getCompanyNameConflictMessage(nameConflict.name));
+    }
+
     const next = withNormalizedCompanyProfile({
       ...existing,
       ...updates,
+      name: requestedName,
       id: existing.id,
       createdAt: existing.createdAt
     });
@@ -7594,6 +9357,57 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     };
   });
 
+  const resolveInventoryAdjustmentCostOutcome = (
+    product: Product,
+    qtyChange: number
+  ): { amount: number; nextCost: number; layers?: ProductFifoLayer[] } => {
+    if (Math.abs(qtyChange) <= 0.0001) {
+      return {
+        amount: 0,
+        nextCost: roundToFour(Math.max(0, Number(product.buyPrice) || 0)),
+        layers: product.fifoLayers
+      };
+    }
+
+    const baseCost = roundToFour(Math.max(0, Number(product.buyPrice) || 0));
+    const pseudoInvoice: Invoice = {
+      id: 'inv_inventory_adjustment_preview',
+      invoiceNumber: 'INV-ADJ',
+      customerId: '',
+      type: qtyChange > 0 ? TransactionType.EXPENSE : TransactionType.INCOME,
+      category: qtyChange > 0 ? 'purchase_invoice' : 'sales_invoice',
+      date: new Date().toISOString().split('T')[0],
+      items: [],
+      subTotal: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      discountAmount: 0,
+      totalAmount: 0,
+      status: 'PAID',
+      postingStatus: 'POSTED',
+      paymentType: 'CASH',
+      currency: baseCurrency,
+      exchangeRate: 1
+    };
+    const pseudoItem = { quantity: Math.abs(qtyChange), unitPrice: baseCost };
+
+    if (getCurrentInventoryValuationMethod() === 'FIFO') {
+      const fifoResult = applyFifoCostingForQtyChange(product, pseudoInvoice, pseudoItem, qtyChange, false);
+      return {
+        amount: qtyChange < 0 ? roundToFour(fifoResult.outgoingCost) : roundToFour(Math.abs(qtyChange) * baseCost),
+        nextCost: fifoResult.nextCost,
+        layers: fifoResult.layers
+      };
+    }
+
+    const costOutcome = resolveNextInventoryCost(product, pseudoInvoice, pseudoItem, qtyChange, false);
+    return {
+      amount: roundToFour(Math.abs(qtyChange) * baseCost),
+      nextCost: costOutcome.nextCost,
+      layers: costOutcome.layers ?? product.fifoLayers
+    };
+  };
+
   const addStockTransfer = (t: Omit<StockTransfer, 'id'>) => {
     if (!guardSubscriptionOnlyMutation('PRODUCTS', 'ADD', 'Stock Transfers')) return;
     const nextTransfer = { ...t, id: 'st_' + Math.random().toString(36).substr(2, 9) };
@@ -7638,25 +9452,111 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   };
 
-  const adjustWarehouseStock = (productId: string, warehouseId: string, quantity: number) => {
-    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Warehouse Stock')) return;
-    setProducts(prev => prev.map(p => {
-      if (p.id !== productId) return p;
-      const currentStock = p.warehouseStock || [];
-      const idx = currentStock.findIndex(s => s.warehouseId === warehouseId);
-      let newWs = [...currentStock];
+  const adjustWarehouseStock = (
+    productId: string,
+    warehouseId: string,
+    quantity: number,
+    options?: {
+      reason?: 'VARIANCE' | 'DAMAGED';
+      date?: string;
+      note?: string;
+      source?: 'MANUAL' | 'INLINE' | 'BARCODE';
+    }
+  ): MutationResult => {
+    const permission = enforcePermission('PRODUCTS', 'EDIT', 'Warehouse Stock');
+    if (!permission.ok) return permission;
+    if (!guardSubscriptionOnlyMutation('PRODUCTS', 'EDIT', 'Warehouse Stock')) {
+      return makeError('SUBSCRIPTION_LIMIT', 'Subscription access is blocked for warehouse adjustments.');
+    }
 
+    const numericQuantity = roundToFour(Number(quantity) || 0);
+    if (!Number.isFinite(numericQuantity) || numericQuantity < 0) {
+      return makeError('VALIDATION_ERROR', 'Warehouse quantity must be zero or greater.');
+    }
+
+    const product = products.find(p => p.id === productId);
+    if (!product || !isStockProduct(product)) {
+      return makeError('VALIDATION_ERROR', 'Stock item not found.');
+    }
+
+    const warehouse = warehouses.find(entry => entry.id === warehouseId);
+    if (!warehouse) {
+      return makeError('VALIDATION_ERROR', 'Warehouse not found.');
+    }
+
+    const currentQuantity = roundToFour(product.warehouseStock?.find(stock => stock.warehouseId === warehouseId)?.quantity ?? 0);
+    const qtyChange = roundToFour(numericQuantity - currentQuantity);
+    if (Math.abs(qtyChange) <= 0.0001) return makeSuccess();
+
+    const reason = options?.reason === 'DAMAGED' ? 'DAMAGED' : 'VARIANCE';
+    if (reason === 'DAMAGED' && qtyChange > 0) {
+      return makeError('VALIDATION_ERROR', 'Damaged goods adjustment must reduce stock, not increase it.');
+    }
+
+    const offsetAccountId = reason === 'DAMAGED' ? 'acc_damaged_goods' : 'acc_inventory_variance';
+    const inventoryAccount = accounts.find(a => a.id === 'acc_inventory' && !a.isGroup);
+    const offsetAccount = accounts.find(a => a.id === offsetAccountId && !a.isGroup);
+    if (!inventoryAccount || !offsetAccount) {
+      return makeError('VALIDATION_ERROR', 'Required inventory adjustment accounts are missing.');
+    }
+
+    const costOutcome = resolveInventoryAdjustmentCostOutcome(product, qtyChange);
+    const adjustmentAmount = roundToFour(costOutcome.amount);
+    const postingDate = options?.date || new Date().toISOString().split('T')[0];
+    const sourceLabel = reason === 'DAMAGED'
+      ? 'إتلاف بضاعة'
+      : options?.source === 'BARCODE'
+        ? 'تسوية جرد بالباركود'
+        : options?.source === 'INLINE'
+          ? 'تسوية جرد مباشرة'
+          : 'تسوية جرد يدوي';
+    const deltaLabel = `${qtyChange > 0 ? '+' : ''}${roundToFour(qtyChange)}`;
+    const quantityNote = options?.note || `من ${currentQuantity} إلى ${numericQuantity} (فرق ${deltaLabel})`;
+    const description = [
+      sourceLabel,
+      product.name,
+      warehouse.name,
+      quantityNote
+    ].join(' - ');
+
+    if (adjustmentAmount > 0.0001) {
+      const postingResult = addTransaction({
+        amount: adjustmentAmount,
+        description,
+        category: 'journal',
+        type: TransactionType.TRANSFER,
+        date: postingDate,
+        debitAccountId: qtyChange > 0 ? inventoryAccount.id : offsetAccount.id,
+        creditAccountId: qtyChange > 0 ? offsetAccount.id : inventoryAccount.id,
+        currency: baseCurrency,
+        exchangeRate: 1,
+        status: 'POSTED'
+      });
+      if (!postingResult.ok) return postingResult;
+    }
+
+    setProducts(prev => prev.map(entry => {
+      if (entry.id !== productId) return entry;
+      const currentStock = entry.warehouseStock || [];
+      const idx = currentStock.findIndex(stock => stock.warehouseId === warehouseId);
+      let nextWarehouseStock = [...currentStock];
       if (idx >= 0) {
-        newWs[idx] = { ...newWs[idx], quantity };
+        nextWarehouseStock[idx] = { ...nextWarehouseStock[idx], quantity: numericQuantity };
       } else {
-        newWs.push({ warehouseId, quantity });
+        nextWarehouseStock.push({ warehouseId, quantity: numericQuantity });
       }
-
-      // Update global stock to match sum of warehouses
-      const newGlobalStock = newWs.reduce((acc, curr) => acc + curr.quantity, 0);
-
-      return { ...p, warehouseStock: newWs, stock: newGlobalStock };
+      const nextGlobalStock = roundToFour(nextWarehouseStock.reduce((sum, stock) => sum + (Number(stock.quantity) || 0), 0));
+      const pricingPatch = buildProductPricingPatch(entry, costOutcome.nextCost);
+      return {
+        ...entry,
+        ...pricingPatch,
+        warehouseStock: nextWarehouseStock,
+        stock: nextGlobalStock,
+        fifoLayers: costOutcome.layers ?? entry.fifoLayers
+      };
     }));
+
+    return makeSuccess();
   };
 
   const postStockTransfer = (id: string) => {
@@ -8394,13 +10294,19 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     companySettings.autoBackupKeepCount
   ]);
 
+  const showWorkspaceBootstrapping = Boolean(
+    currentUser &&
+    currentCompanyId &&
+    workspaceHydratedForCompanyId !== currentCompanyId
+  );
+
   return (
     <AccountingContext.Provider value={{
       currentUser, setCurrentUser, logout,
       companies, currentCompanyId, currentCompany, trialDaysLeft, companyAccessStatus, companyAccessDaysLeft, companyAccessEndsAt,
       workspaceSubscription, workspaceMaxCompanies, workspaceRemainingCompanySlots, workspaceCompanyLimitReached, workspaceProviderAvailability,
-      switchCompany, createCompany, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
-      deviceBindingId, cloudSubscription, subscriptionCloudBusy, subscriptionCloudError, subscriptionAdminEnabled, subscriptionCodes, subscriptionCodesLoading, subscriptionCompanies, subscriptionCompaniesLoading, issueSubscriptionCode, cancelSubscriptionCode, linkCurrentSubscriptionDevice, unlinkSubscriptionDevice,
+      switchCompany, createCompany, deleteCompany, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
+      deviceBindingId, cloudSubscription, subscriptionCloudBusy, subscriptionCloudError, subscriptionAdminEnabled, programOwnerEnabled, subscriptionCodes, subscriptionCodesLoading, workspaceOfferCodes, workspaceOfferCodesLoading, subscriptionCompanies, subscriptionCompaniesLoading, issueSubscriptionCode, cancelSubscriptionCode, issueWorkspaceOfferCode, redeemWorkspaceOfferCode, linkCurrentSubscriptionDevice, unlinkSubscriptionDevice,
       transactions, addTransaction, deleteTransaction, setTransactions, updateTransaction, postVoucher, deleteVoucher, reverseTransaction,
       invoices, createInvoice, updateInvoice, deleteInvoice, postInvoice, reverseInvoice, returnInvoiceItem, setInvoices,
       invoiceSettlements, upsertInvoiceSettlementsForVoucher,
@@ -8436,7 +10342,23 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       boms, addBOM, updateBOM, deleteBOM,
       productionOrders, addProductionOrder, updateProductionOrder, deleteProductionOrder, executeProduction
     }}>
-      {children}
+      {showWorkspaceBootstrapping ? (
+        <div className="min-h-dvh bg-slate-950 text-white flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-slate-900/80 px-6 py-7 text-center shadow-[0_28px_90px_rgba(2,6,23,0.58)]">
+            <div className="mx-auto mb-4 h-2 w-24 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-500" />
+            </div>
+            <div className="text-lg font-black">
+              {companySettings.language === 'EN' ? 'Loading workspace...' : 'جارٍ تحميل بيانات الشركة...'}
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              {companySettings.language === 'EN'
+                ? 'We are restoring the latest company data safely.'
+                : 'نستعيد الآن آخر بيانات الشركة بشكل آمن.'}
+            </p>
+          </div>
+        </div>
+      ) : children}
     </AccountingContext.Provider>
   );
 };

@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { TransactionType } from '../types';
 import { getDisplayAccountName, getDisplayProductName } from '../utils/displayNames';
+import { isStockProduct } from '../utils/productKind';
+import { openDrilldown } from '../utils/drilldown';
 
 interface SettlementManagerProps {
     onBack?: () => void;
@@ -23,6 +25,11 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
         getDisplayAccountName(account || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) =>
         getDisplayProductName(product || undefined, isEnglish);
+    const openAccountLedger = (accountId?: string) => {
+        if (!accountId) return;
+        openDrilldown({ kind: 'ACCOUNT_LEDGER', accountId });
+    };
+    const stockProducts = useMemo(() => products.filter(product => isStockProduct(product)), [products]);
     
     const [activeTab, setActiveTab] = useState<'INVENTORY' | 'DEPRECIATION' | 'TAX' | 'CURRENCY'>('DEPRECIATION');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -40,7 +47,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
     // Inventory Settlement State
     const [invProductId, setInvProductId] = useState('');
     const [actualQty, setActualQty] = useState('');
-    const [invAdjAcc, setInvAdjAcc] = useState('acc_cogs'); // Usually adjusted against COGS or Inventory Loss/Gain
+    const [invAdjAcc, setInvAdjAcc] = useState('acc_inventory_variance'); // Inventory adjustments should default to variance account
 
     // --- Depreciation Logic ---
     const depreciationData = useMemo(() => {
@@ -280,7 +287,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
     const handleInventoryAdjustment = () => {
         if (!invProductId || actualQty === '') return alert(tr('يرجى اختيار صنف وإدخال الكمية الفعلية', 'Please select item and enter actual quantity'));
         
-        const product = products.find(p => p.id === invProductId);
+        const product = stockProducts.find(p => p.id === invProductId);
         if (!product) return;
 
         const actual = parseFloat(actualQty);
@@ -415,7 +422,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                                 <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block">{tr('اختر الصنف', 'Select Item')}</label>
                                 <select value={invProductId} onChange={e => setInvProductId(e.target.value)} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-xs font-bold outline-none border border-gray-50">
                                     <option value="">{tr('-- اختر الصنف --', '-- Select Item --')}</option>
-                                    {products.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({tr('المخزون', 'Stock')}: {p.stock})</option>)}
+                                    {stockProducts.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({tr('المخزون', 'Stock')}: {p.stock})</option>)}
                                 </select>
                             </div>
 
@@ -428,7 +435,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                                 <div className="col-span-2 p-2.5 bg-blue-50/50 rounded-xl border border-blue-100 flex items-center gap-2">
                                     <Info size={14} className="text-blue-500" />
                                     <span className="text-[11px] font-bold text-blue-700">
-                                        {tr('الرصيد الدفتري الحالي', 'Current book quantity')}: <span className="font-black">{products.find(p => p.id === invProductId)?.stock}</span>
+                                        {tr('الرصيد الدفتري الحالي', 'Current book quantity')}: <span className="font-black">{stockProducts.find(p => p.id === invProductId)?.stock}</span>
                                     </span>
                                 </div>
                             )}
@@ -579,7 +586,12 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
 
                     <div className="space-y-3">
                         {currencyData.length > 0 ? currencyData.map(item => (
-                            <div key={item.acc.id} className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
+                            <div
+                                key={item.acc.id}
+                                className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm"
+                                onDoubleClick={() => openAccountLedger(item.acc.id)}
+                                title={tr('اضغط مرتين لفتح حركة الحساب', 'Double-click to open account ledger')}
+                            >
                                 <div className="flex justify-between items-center mb-4">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl"><Coins size={18} /></div>

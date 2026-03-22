@@ -75,4 +75,28 @@ describe('invoice sanitizer', () => {
       total: 25
     });
   });
+
+  it('keeps legacy invoices posted when posting status is absent, but downgrades malformed values to draft', () => {
+    const invoices = sanitizeInvoices([
+      {
+        id: 'legacy_posted',
+        type: TransactionType.INCOME,
+        date: '2026-03-12',
+        items: [],
+        totalAmount: 10
+      },
+      {
+        id: 'broken_posting',
+        type: TransactionType.INCOME,
+        date: '2026-03-12',
+        items: [],
+        postingStatus: 'INVALID_VALUE',
+        totalAmount: 10
+      }
+    ]);
+
+    expect(invoices).toHaveLength(2);
+    expect(invoices[0]?.postingStatus).toBe('POSTED');
+    expect(invoices[1]?.postingStatus).toBe('DRAFT');
+  });
 });

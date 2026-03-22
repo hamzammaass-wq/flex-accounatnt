@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type TouchEvent } from 'react';
+import { useEffect, useMemo, useRef, type TouchEvent as ReactTouchEvent } from 'react';
 
 interface UseMobileInteractionsOptions {
   isMobile: boolean;
@@ -8,9 +8,9 @@ interface UseMobileInteractionsOptions {
 }
 
 interface SwipeHandlers {
-  onTouchStart: (event: TouchEvent<HTMLElement>) => void;
-  onTouchMove: (event: TouchEvent<HTMLElement>) => void;
-  onTouchEnd: (event: TouchEvent<HTMLElement>) => void;
+  onTouchStart: (event: ReactTouchEvent<HTMLElement>) => void;
+  onTouchMove: (event: ReactTouchEvent<HTMLElement>) => void;
+  onTouchEnd: (event: ReactTouchEvent<HTMLElement>) => void;
 }
 
 const EDGE_GESTURE_PX = 28;
@@ -55,7 +55,62 @@ export const useMobileInteractions = ({
   const startTimeRef = useRef(0);
   const edgeStartRef = useRef(false);
   const cancelledRef = useRef(false);
+  const backTriggeredRef = useRef(false);
   const lastTapAtRef = useRef(0);
+
+  const beginBackGesture = (clientX: number, clientY: number) => {
+    if (!isMobile || !canGoBack || typeof window === 'undefined') return;
+    startXRef.current = clientX;
+    startYRef.current = clientY;
+    startTimeRef.current = Date.now();
+    cancelledRef.current = false;
+    backTriggeredRef.current = false;
+
+    const viewportWidth = window.innerWidth || 0;
+    edgeStartRef.current = rtl
+      ? clientX >= viewportWidth - EDGE_GESTURE_PX
+      : clientX <= EDGE_GESTURE_PX;
+  };
+
+  const updateBackGesture = (
+    clientX: number,
+    clientY: number,
+    event?: { cancelable?: boolean; preventDefault?: () => void }
+  ) => {
+    if (!isMobile || !canGoBack || !edgeStartRef.current || cancelledRef.current) return;
+    const dx = clientX - startXRef.current;
+    const dy = Math.abs(clientY - startYRef.current);
+    const mostlyVertical = dy > Math.abs(dx) * 1.15;
+    if (mostlyVertical || dy > MAX_VERTICAL_DRIFT_PX) {
+      cancelledRef.current = true;
+      return;
+    }
+
+    const isBackDirection = rtl ? dx < 0 : dx > 0;
+    if (isBackDirection && Math.abs(dx) > 12 && event?.cancelable && event.preventDefault) {
+      event.preventDefault();
+    }
+  };
+
+  const completeBackGesture = (clientX: number, clientY: number) => {
+    if (!isMobile || !canGoBack || !edgeStartRef.current || cancelledRef.current || backTriggeredRef.current) {
+      edgeStartRef.current = false;
+      return;
+    }
+
+    const elapsed = Date.now() - startTimeRef.current;
+    const dx = clientX - startXRef.current;
+    const dy = Math.abs(clientY - startYRef.current);
+    const isBackDirection = rtl ? dx <= -SWIPE_THRESHOLD_PX : dx >= SWIPE_THRESHOLD_PX;
+
+    if (isBackDirection && dy <= MAX_VERTICAL_DRIFT_PX && elapsed <= MAX_SWIPE_MS) {
+      backTriggeredRef.current = true;
+      triggerHaptic(18);
+      onBack();
+    }
+
+    edgeStartRef.current = false;
+  };
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -92,46 +147,63 @@ export const useMobileInteractions = ({
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [isMobile]);
 
-  const swipeHandlers = useMemo<SwipeHandlers>(() => ({
-    onTouchStart: (event) => {
-      if (!isMobile || !canGoBack) return;
-      const touch = event.touches[0];
-      if (!touch) return;
-      startXRef.current = touch.clientX;
-      startYRef.current = touch.clientY;
-      startTimeRef.current = Date.now();
-      cancelledRef.current = false;
+  useEffect(() => {
+    if (!isMobile || typeof document === 'undefined') return;
 
-      const viewportWidth = window.innerWidth || 0;
-      edgeStartRef.current = rtl
-        ? startXRef.current >= viewportWidth - EDGE_GESTURE_PX
-        : startXRef.current <= EDGE_GESTURE_PX;
-    },
-    onTouchMove: (event) => {
-      if (!isMobile || !canGoBack || !edgeStartRef.current || cancelledRef.current) return;
+    const onTouchStart = (event: TouchEvent) => {
       const touch = event.touches[0];
       if (!touch) return;
-      const dx = touch.clientX - startXRef.current;
-      const dy = Math.abs(touch.clientY - startYRef.current);
-      const mostlyVertical = dy > Math.abs(dx) * 1.15;
-      if (mostlyVertical || dy > MAX_VERTICAL_DRIFT_PX) {
-        cancelledRef.current = true;
-      }
-    },
-    onTouchEnd: (event) => {
-      if (!isMobile || !canGoBack || !edgeStartRef.current || cancelledRef.current) return;
+      beginBackGesture(touch.clientX, touch.clientY);
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      updateBackGesture(touch.clientX, touch.clientY, event);
+    };
+
+    const onTouchEnd = (event: TouchEvent) => {
       const touch = event.changedTouches[0];
       if (!touch) return;
-      const elapsed = Date.now() - startTimeRef.current;
-      const dx = touch.clientX - startXRef.current;
-      const dy = Math.abs(touch.clientY - startYRef.current);
-      const isBackDirection = rtl ? dx <= -SWIPE_THRESHOLD_PX : dx >= SWIPE_THRESHOLD_PX;
-      if (isBackDirection && dy <= MAX_VERTICAL_DRIFT_PX && elapsed <= MAX_SWIPE_MS) {
-        triggerHaptic(18);
-        onBack();
-      }
+      completeBackGesture(touch.clientX, touch.clientY);
+    };
+
+    const onTouchCancel = () => {
+      edgeStartRef.current = false;
+      cancelledRef.current = true;
+      backTriggeredRef.current = false;
+    };
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    document.addEventListener('touchcancel', onTouchCancel, { passive: true, capture: true });
+
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart, true);
+      document.removeEventListener('touchmove', onTouchMove, true);
+      document.removeEventListener('touchend', onTouchEnd, true);
+      document.removeEventListener('touchcancel', onTouchCancel, true);
+    };
+  }, [isMobile, canGoBack, rtl, onBack]);
+
+  const swipeHandlers = useMemo<SwipeHandlers>(() => ({
+    onTouchStart: (event) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      beginBackGesture(touch.clientX, touch.clientY);
+    },
+    onTouchMove: (event) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      updateBackGesture(touch.clientX, touch.clientY, event.nativeEvent);
+    },
+    onTouchEnd: (event) => {
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      completeBackGesture(touch.clientX, touch.clientY);
     }
-  }), [isMobile, canGoBack, rtl, onBack]);
+  }), [beginBackGesture, updateBackGesture, completeBackGesture]);
 
   return {
     swipeHandlers,

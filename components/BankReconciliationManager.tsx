@@ -21,7 +21,8 @@ import DocumentActions from './DocumentActions';
 import { BankMatchSuggestion, TransactionType } from '../types';
 import { buildBankMatchSuggestions } from '../utils/bankAutoMatch';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
-import { downloadElementAsHtml, exportElementAsCsv } from '../utils/documentExport';
+import { downloadElementAsPdf, exportElementAsCsv, extractElementReadableText, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { openDrilldown } from '../utils/drilldown';
 import {
   BANK_STATEMENT_PROFILES,
   BankStatementColumnMapping,
@@ -77,6 +78,10 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
     getDisplayAccountName(account || undefined, isEnglish);
   const displayContactName = (contact?: { id: string; name: string } | null) =>
     getDisplayContactName(contact || undefined, isEnglish);
+  const openContactStatement = (contactId?: string) => {
+    if (!contactId) return;
+    openDrilldown({ kind: 'CONTACT_STATEMENT', contactId });
+  };
 
   const bankAccounts = useMemo(
     () => accounts.filter(a => !a.isGroup && a.parentId === 'acc_bank_root'),
@@ -550,16 +555,24 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
     `${tr('الفترة', 'Period')}: ${formatDate(periodStartDate)} - ${formatDate(periodEndDate)}`,
     `${tr('فرق المطابقة', 'Difference')}: ${reconciliationDifference >= 0 ? '+' : '-'}${formatAmount(Math.abs(reconciliationDifference))} ${currencyCode}`,
     `${tr('الصفوف المعروضة', 'Visible Rows')}: ${filteredRows.length}/${rowsWithCleared.length}`
-  ].join('\n');
+  ]
+    .concat(extractElementReadableText(reconciliationSnapshotRef.current) ? ['', extractElementReadableText(reconciliationSnapshotRef.current)] : [])
+    .join('\n');
 
-  const handleSaveReconciliationSnapshot = () => {
+  const handleSaveReconciliationSnapshot = async () => {
     if (!reconciliationSnapshotRef.current) return;
-    downloadElementAsHtml(reconciliationSnapshotRef.current, {
+    await settleElementBeforeSnapshot(reconciliationSnapshotRef.current);
+    const success = await downloadElementAsPdf(reconciliationSnapshotRef.current, {
       title: `${reconciliationTitle} - ${displayAccountName(selectedBank || null) || 'bank'} - ${periodEndDate}`,
       fileName: `${reconciliationTitle}-${displayAccountName(selectedBank || null) || selectedBankId || 'bank'}-${periodEndDate}`,
       dir: isEnglish ? 'ltr' : 'rtl',
-      lang: isEnglish ? 'en' : 'ar'
+      lang: isEnglish ? 'en' : 'ar',
+      backgroundColor: '#f8fafc',
+      padding: 18
     });
+    if (!success) {
+      alert(tr('تعذر حفظ كشف المطابقة بصيغة PDF حاليًا.', 'Could not save the reconciliation statement as PDF right now.'));
+    }
   };
 
   const handleExportReconciliationExcel = () => {
@@ -601,8 +614,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
             onPrint={printReconciliation}
             onSave={handleSaveReconciliationSnapshot}
             onExcel={handleExportReconciliationExcel}
-            saveTitle={tr('تنزيل كشف المطابقة', 'Download reconciliation statement')}
-            showSaveButton={false}
+            saveTitle={tr('تنزيل PDF', 'Download PDF')}
           />
           {onBack ? (
             <button onClick={onBack} className="app-back-btn p-2.5 bg-white text-gray-500 rounded-xl shadow-sm border border-gray-100 hover:bg-gray-50">
@@ -1063,7 +1075,15 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
                         </div>
                       </td>
                       <td className="p-3 text-right font-bold text-gray-700">{row.tx.description || '-'}</td>
-                      <td className="p-3 text-right text-gray-500 font-bold">{row.counterparty || '-'}</td>
+                      <td className="p-3 text-right text-gray-500 font-bold">
+                        <span
+                          className={row.tx.contactId ? 'cursor-pointer hover:text-indigo-600' : undefined}
+                          onDoubleClick={() => openContactStatement(row.tx.contactId)}
+                          title={row.tx.contactId ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined}
+                        >
+                          {row.counterparty || '-'}
+                        </span>
+                      </td>
                       <td className="p-3 text-center font-black dir-ltr text-emerald-700">{row.debit > 0 ? formatAmount(row.debit) : '-'}</td>
                       <td className="p-3 text-center font-black dir-ltr text-rose-700">{row.credit > 0 ? formatAmount(row.credit) : '-'}</td>
                       <td className={`p-3 text-center font-black dir-ltr ${row.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
