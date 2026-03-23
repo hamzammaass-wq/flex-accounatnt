@@ -74,10 +74,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   };
 
   const pendingChecksCount = checks.filter(c => c.status === 'PENDING').length;
-  const expiryAlertEnabled = companySettings.expiryAlertEnabled ?? true;
-  const globalExpiryAlertDays = Number.isFinite(Number(companySettings.expiryAlertDays))
-    ? Math.max(0, Math.floor(Number(companySettings.expiryAlertDays)))
-    : 30;
+  const globalExpiryAlertDays = 30;
   const globalLowStockAlertQtyDefault = Number.isFinite(Number(companySettings.lowStockAlertQtyDefault))
     ? Math.max(0, Math.floor(Number(companySettings.lowStockAlertQtyDefault)))
     : 5;
@@ -89,10 +86,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       invoices,
       invoiceSettlements,
       bankDiffCount: 0,
-      expiryAlertDays: expiryAlertEnabled ? globalExpiryAlertDays : -1,
+      expiryAlertDays: globalExpiryAlertDays,
       lowStockAlertQtyDefault: globalLowStockAlertQtyDefault
     }),
-    [checks, products, invoices, invoiceSettlements, expiryAlertEnabled, globalExpiryAlertDays, globalLowStockAlertQtyDefault]
+    [checks, products, invoices, invoiceSettlements, globalExpiryAlertDays, globalLowStockAlertQtyDefault]
   );
 
   const alertCards = [
@@ -178,11 +175,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
               <div className="flex items-center gap-3">
                 <div className="relative shrink-0">
                   {headerLogoSrc ? (
-                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-slate-200/80 bg-white p-2 shadow-md">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-slate-200/80 bg-white shadow-md">
                       <img
                         src={headerLogoSrc}
                       alt={tr('شعار الشركة', 'Company logo')}
-                        className="h-full w-full object-contain"
+                        className="h-full w-full object-cover"
                       />
                     </div>
                   ) : (

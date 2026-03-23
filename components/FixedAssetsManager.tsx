@@ -568,11 +568,11 @@ const FixedAssetsManager: React.FC = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest px-1 block mb-1">{tr('سعر الشراء الأساسي', 'Base Purchase Price')}</label>
-                                    <input type="number" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} className="w-full p-3 bg-white rounded-2xl border border-emerald-100 text-sm font-black outline-none dir-ltr text-center text-emerald-700" required />
+                                    <input type="number" inputMode="decimal" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} className="w-full p-3 bg-white rounded-2xl border border-emerald-100 text-sm font-black outline-none dir-ltr text-center text-emerald-700" required />
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-black text-orange-600 uppercase tracking-widest px-1 block mb-1">{tr('مصاريف تخليص/شحن', 'Clearance/Shipping Cost')}</label>
-                                    <input type="number" placeholder="0.00" value={clearanceCost} onChange={e => setClearanceCost(e.target.value)} className="w-full p-3 bg-white rounded-2xl border border-orange-100 text-sm font-black outline-none dir-ltr text-center text-orange-700" />
+                                    <input type="number" inputMode="decimal" placeholder="0.00" value={clearanceCost} onChange={e => setClearanceCost(e.target.value)} className="w-full p-3 bg-white rounded-2xl border border-orange-100 text-sm font-black outline-none dir-ltr text-center text-orange-700" />
                                 </div>
                             </div>
 
@@ -614,11 +614,11 @@ const FixedAssetsManager: React.FC = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1">{tr('العمر الإنتاجي (سنة)', 'Useful Life (Years)')}</label>
-                                <input type="number" value={lifeInYears} onChange={e => setLifeInYears(e.target.value)} className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-bold outline-none text-center" />
+                                <input type="number" inputMode="decimal" value={lifeInYears} onChange={e => setLifeInYears(e.target.value)} className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-bold outline-none text-center" />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1">{tr('قيمة الخردة', 'Salvage Value')}</label>
-                                <input type="number" value={salvageValue} onChange={e => setSalvageValue(e.target.value)} className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-bold outline-none text-center" />
+                                <input type="number" inputMode="decimal" value={salvageValue} onChange={e => setSalvageValue(e.target.value)} className="w-full p-3 bg-gray-50 rounded-2xl border border-gray-100 text-sm font-bold outline-none text-center" />
                             </div>
                         </div>
 
@@ -783,7 +783,7 @@ const FixedAssetsManager: React.FC = () => {
                                     <div>
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1">{tr('العمر الإنتاجي (سنة)', 'Useful Life (Years)')}</label>
                                         <input
-                                            type="number"
+                                            type="number" inputMode="decimal"
                                             min="1"
                                             step="1"
                                             value={groupLife}
@@ -797,7 +797,7 @@ const FixedAssetsManager: React.FC = () => {
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1">{tr('نسبة الإهلاك السنوية (اختياري)', 'Annual Depreciation Rate (Optional)')}</label>
                                     <input
-                                        type="number"
+                                        type="number" inputMode="decimal"
                                         min="0"
                                         step="0.01"
                                         value={groupRate}
@@ -949,7 +949,7 @@ const FixedAssetsManager: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('التكلفة (المرسملة)', 'Capitalized Cost')}</label>
-                                    <input type="number" value={selectedAsset.cost} onChange={e => setSelectedAsset({ ...selectedAsset, cost: parseFloat(e.target.value) || 0 })} className="w-full p-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none text-center dir-ltr" />
+                                    <input type="number" inputMode="decimal" value={selectedAsset.cost} onChange={e => setSelectedAsset({ ...selectedAsset, cost: parseFloat(e.target.value) || 0 })} className="w-full p-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none text-center dir-ltr" />
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('تاريخ الشراء', 'Purchase Date')}</label>
@@ -965,11 +965,11 @@ const FixedAssetsManager: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('العمر الإنتاجي (سنة)', 'Useful Life (Years)')}</label>
-                                    <input type="number" value={selectedAsset.lifeInYears} onChange={e => setSelectedAsset({ ...selectedAsset, lifeInYears: parseFloat(e.target.value) || 0 })} className="w-full p-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none text-center" />
+                                    <input type="number" inputMode="decimal" value={selectedAsset.lifeInYears} onChange={e => setSelectedAsset({ ...selectedAsset, lifeInYears: parseFloat(e.target.value) || 0 })} className="w-full p-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none text-center" />
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1.5">{tr('قيمة الخردة', 'Salvage Value')}</label>
-                                    <input type="number" value={selectedAsset.salvageValue} onChange={e => setSelectedAsset({ ...selectedAsset, salvageValue: parseFloat(e.target.value) || 0 })} className="w-full p-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none text-center" />
+                                    <input type="number" inputMode="decimal" value={selectedAsset.salvageValue} onChange={e => setSelectedAsset({ ...selectedAsset, salvageValue: parseFloat(e.target.value) || 0 })} className="w-full p-3 bg-gray-50 rounded-2xl border-none font-bold text-sm outline-none text-center" />
                                 </div>
                             </div>
 

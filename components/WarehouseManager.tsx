@@ -515,7 +515,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <input
-                                                                    type="number"
+                                                                    type="number" inputMode="decimal"
                                                                     value={inlineAdjustQuantity}
                                                                     onChange={e => setInlineAdjustQuantity(e.target.value)}
                                                                     className="w-full rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-2 text-center text-sm font-black text-indigo-700 outline-none focus:border-indigo-300 focus:bg-white"
@@ -637,7 +637,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                 <div>
                                                     <label className={labelClass + " text-indigo-500"}>{tr('الرصيد الفعلي (الجديد)', 'Actual Balance (New)')}</label>
                                                     <input
-                                                        type="number"
+                                                        type="number" inputMode="decimal"
                                                         value={adjustData.newQuantity}
                                                         onChange={e => setAdjustData({ ...adjustData, newQuantity: e.target.value })}
                                                         placeholder={tr('أدخل الكمية الصحيحة', 'Enter the correct quantity')}
@@ -723,7 +723,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                     {stockProducts.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({p.stock})</option>)}
                                                 </select>
                                                 <div className="flex gap-2">
-                                                    <input type="number" value={transferQty} onChange={e => setTransferQty(e.target.value)} placeholder={tr('الكمية', 'Quantity')} className={inputClass + " text-center font-black flex-1"} />
+                                                    <input type="number" inputMode="decimal" value={transferQty} onChange={e => setTransferQty(e.target.value)} placeholder={tr('الكمية', 'Quantity')} className={inputClass + " text-center font-black flex-1"} />
                                                     <button onClick={handleAddTransferItem} className="bg-indigo-600 text-white rounded-xl px-4 shadow-md shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center shrink-0">
                                                         <Plus size={18} />
                                                     </button>

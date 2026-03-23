@@ -492,7 +492,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                                 : tr('إدارة عروض الأسعار', 'Manage quotations')}
                     </p>
                 </div>
-                <button onClick={handleAdd} className={`text-white p-3 rounded-2xl shadow-lg transition-all active:scale-90 shrink-0 ms-2 ${activeTab === 'RETURNS' ? 'bg-rose-600 hover:bg-rose-700' : activeTab === 'QUOTATIONS' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                <button data-testid="sales-add-action" onClick={handleAdd} className={`text-white p-3 rounded-2xl shadow-lg transition-all active:scale-90 shrink-0 ms-2 ${activeTab === 'RETURNS' ? 'bg-rose-600 hover:bg-rose-700' : activeTab === 'QUOTATIONS' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
                     <Plus className="w-6 h-6" />
                 </button>
             </header>

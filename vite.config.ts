@@ -48,6 +48,22 @@ export default defineConfig(({ mode }) => {
                 return 'vendor-ai';
               }
 
+              if (id.includes('sql.js')) {
+                return 'vendor-sqljs';
+              }
+
+              if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('jsbarcode')) {
+                return 'vendor-print';
+              }
+
+              if (id.includes('html5-qrcode')) {
+                return 'vendor-qrcode';
+              }
+
+              if (id.includes('@capacitor')) {
+                return 'vendor-capacitor';
+              }
+
               if (id.includes('react') || id.includes('scheduler')) {
                 return 'vendor-react';
               }

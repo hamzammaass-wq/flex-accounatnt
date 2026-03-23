@@ -513,6 +513,7 @@ interface SearchableAccountSelectProps {
     isEnglish: boolean;
     className?: string;
     inputClassName?: string;
+    inputTestId?: string;
 }
 
 const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
@@ -524,7 +525,8 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
     emptyLabel,
     isEnglish,
     className = '',
-    inputClassName = ''
+    inputClassName = '',
+    inputTestId
 }) => {
     const [query, setQuery] = useState('');
     const [isOpen, setIsOpen] = useState(false);
@@ -668,6 +670,7 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
                 placeholder={placeholder}
                 autoComplete="off"
                 data-enter-skip="true"
+                data-testid={inputTestId}
                 className={`${inputClassName} ${inputPaddingClass}`}
             />
             <button
@@ -4558,6 +4561,7 @@ const VoucherScreen: React.FC<{
             className="transaction-mobile-form transaction-screen-with-submit-dock app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
+            data-testid="voucher-form-root"
         >
             {outerHeaderActionsContainer && createPortal(voucherHeaderActions, outerHeaderActionsContainer)}
             {amountNotice && (
@@ -5726,6 +5730,7 @@ const JournalScreen: React.FC<{
             className="transaction-mobile-form transaction-screen-with-submit-dock w-full max-w-full space-y-2.5 pb-[calc(var(--app-safe-bottom)+4rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
+            data-testid="journal-form-root"
         >
             {amountNotice && (
                 <div className="sticky top-2 z-20 mx-1 rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 shadow-sm">
@@ -5745,7 +5750,7 @@ const JournalScreen: React.FC<{
                         >
                             <MoreVertical size={16} />
                         </button>
-                        <button onClick={handleAddLine} className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center"><Plus size={16} /></button>
+                        <button data-testid="journal-add-line-action" onClick={handleAddLine} className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center"><Plus size={16} /></button>
                         {showJournalActions && (
                             <>
                                 <button
@@ -5778,7 +5783,7 @@ const JournalScreen: React.FC<{
                 </div>
                 <div className="space-y-3">
                     {lines.map((line, idx) => (
-                        <div key={line.id} className="transaction-line-card p-2.5 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-2">
+                        <div key={line.id} className="transaction-line-card p-2.5 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-2" data-testid={`journal-line-${idx + 1}`}>
                             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 min-w-0">
                                                                 <SearchableAccountSelect
                                     accounts={postingAccounts}
@@ -5789,22 +5794,23 @@ const JournalScreen: React.FC<{
                                     emptyLabel={tr('لا يوجد حساب مطابق.', 'No matching account found.')}
                                     isEnglish={isEnglish}
                                     className="w-full min-w-0"
+                                    inputTestId={`journal-line-${idx + 1}-account`}
                                     inputClassName="w-full min-w-0 h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none border border-slate-200"
                                 />
-                                <button onClick={() => handleRemoveLine(line.id)} className="text-rose-400 p-2 rounded-xl"><Trash2 size={16} /></button>
+                                <button data-testid={`journal-line-${idx + 1}-remove`} onClick={() => handleRemoveLine(line.id)} className="text-rose-400 p-2 rounded-xl"><Trash2 size={16} /></button>
                             </div>
                             <div className="journal-line-grid journal-line-grid--compact grid gap-2 min-w-0">
                                 <label className="min-w-0">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-emerald-600">{tr('مدين', 'Debit')}</span>
-                                    <input placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
+                                    <input data-testid={`journal-line-${idx + 1}-debit`} placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
                                 </label>
                                 <label className="min-w-0">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-rose-600">{tr('دائن', 'Credit')}</span>
-                                    <input placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
+                                    <input data-testid={`journal-line-${idx + 1}-credit`} placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
                                 </label>
                                 <label className="min-w-0 journal-line-description-field">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-slate-400">{tr('شرح مبسط', 'Description')}</span>
-                                    <input placeholder={tr('شرح مبسط', 'Description')} value={line.description} onChange={e => handleUpdateLine(line.id, 'description', e.target.value)} className="w-full h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none" />
+                                    <input data-testid={`journal-line-${idx + 1}-description`} placeholder={tr('شرح مبسط', 'Description')} value={line.description} onChange={e => handleUpdateLine(line.id, 'description', e.target.value)} className="w-full h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none" />
                                 </label>
                             </div>
 
@@ -6003,6 +6009,7 @@ const JournalScreen: React.FC<{
                     </div>
                 </div>
                 <button
+                    data-testid="journal-submit-action"
                     onClick={handleSubmit}
                     className={`hidden w-full min-h-[54px] sm:min-h-[58px] py-3 rounded-2xl font-black text-base shadow-lg active:scale-[0.99] transition-all md:block ${isBalanced && totals.totalDebit > 0
                         ? 'bg-blue-600 hover:bg-blue-500 text-white'

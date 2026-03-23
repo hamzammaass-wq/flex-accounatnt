@@ -3,13 +3,26 @@
 
 name: Deploy to Firebase Hosting on PR
 on: pull_request
+concurrency:
+  group: hosting-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+env:
+  E2E_SMOKE_BROWSER_ATTEMPTS: '3'
+  E2E_SMOKE_STEP_RETRIES: '3'
+  E2E_SMOKE_RETRY_DELAY_MS: '500'
+  E2E_CRITICAL_BROWSER_ATTEMPTS: '3'
+  E2E_CRITICAL_STEP_RETRIES: '3'
+  E2E_CRITICAL_RETRY_DELAY_MS: '500'
+  VITEST_JUNIT: '1'
+  VITEST_JUNIT_OUTPUT_FILE: artifacts/test-results/vitest.junit.xml
 permissions:
   checks: write
   contents: read
   pull-requests: write
 jobs:
-  build_and_preview:
+  quality_checks:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,10 +30,231 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm run build
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Run unit tests with JUnit
+        run: npm run test:ci
+      - name: Run text integrity check
+        run: npm run text:check
+      - name: Publish JUnit report
+        if: always()
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: artifacts/test-results/vitest.junit.xml
+          check_name: Vitest Results
+          detailed_summary: true
+          require_tests: true
+      - name: Upload test results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Append quality summary
+        if: always()
+        run: |
+          {
+            echo "## Quality Checks"
+            echo "- Unit tests: completed with JUnit output"
+            echo "- Text integrity check: completed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build_app:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Build application
+        run: npm run ci:build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+      - name: Append build summary
+        if: always()
+        run: |
+          {
+            echo "## Build"
+            echo "- Production build: completed"
+            echo "- Bundle size check: completed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  e2e_smoke:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: build_app
+    timeout-minutes: 35
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: .
+      - run: npx playwright install --with-deps chromium
+      - name: Run smoke E2E with Playwright Test
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: artifacts/playwright/smoke/results
+          PLAYWRIGHT_HTML_REPORT: artifacts/playwright/smoke/html
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: artifacts/test-results/playwright-smoke.junit.xml
+        run: npm run e2e:smoke:test
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-artifacts
+          path: |
+            artifacts/playwright/smoke
+            artifacts/test-results/playwright-smoke.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Append smoke summary
+        if: always()
+        run: |
+          {
+            echo "## E2E Smoke"
+            echo "- Runner: Playwright Test"
+            echo "- Artifacts: HTML report, JUnit, trace, screenshot, video on failure"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  e2e_critical:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: build_app
+    timeout-minutes: 35
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: .
+      - run: npx playwright install --with-deps chromium
+      - name: Run critical E2E with Playwright Test
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: artifacts/playwright/critical/results
+          PLAYWRIGHT_HTML_REPORT: artifacts/playwright/critical/html
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: artifacts/test-results/playwright-critical.junit.xml
+        run: npm run e2e:critical:test
+      - name: Upload critical artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-critical-artifacts
+          path: |
+            artifacts/playwright/critical
+            artifacts/test-results/playwright-critical.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Append critical summary
+        if: always()
+        run: |
+          {
+            echo "## E2E Critical"
+            echo "- Runner: Playwright Test"
+            echo "- Scenario: create journal, post it, validate trial balance deltas"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build_and_preview:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    needs:
+      - quality_checks
+      - build_app
+      - e2e_smoke
+      - e2e_critical
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: .
+      - id: firebase_preview_deploy
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SMART_ACCOUNT_CC181 }}
           projectId: smart-account-cc181
+      - id: preview_url
+        name: Resolve preview URL
+        run: |
+          URLS='${{ steps.firebase_preview_deploy.outputs.urls }}'
+          DETAILS='${{ steps.firebase_preview_deploy.outputs.details_url }}'
+          RESOLVED="${URLS%%,*}"
+          if [ -z "$RESOLVED" ]; then
+            RESOLVED="$DETAILS"
+          fi
+          echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: npx playwright install --with-deps chromium
+      - name: Verify deployed preview URL
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.preview_url.outputs.value }}
+          PLAYWRIGHT_OUTPUT_DIR: artifacts/playwright/deploy-smoke/results
+          PLAYWRIGHT_HTML_REPORT: artifacts/playwright/deploy-smoke/html
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: artifacts/test-results/playwright-deploy-smoke.junit.xml
+        run: npm run e2e:deploy:smoke:test
+      - name: Upload preview verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-preview-verification-artifacts
+          path: |
+            artifacts/playwright/deploy-smoke
+            artifacts/test-results/playwright-deploy-smoke.junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Append preview summary
+        if: always()
+        run: |
+          {
+            echo "## Preview Deploy"
+            echo "- Preview URL: ${{ steps.preview_url.outputs.value }}"
+            echo "- Post-deploy smoke verification: completed"
+          } >> "$GITHUB_STEP_SUMMARY"

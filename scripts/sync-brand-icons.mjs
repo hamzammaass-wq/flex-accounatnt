@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 
 const rootDir = process.cwd();
 const fromRoot = (...parts) => path.resolve(rootDir, ...parts);
+const includeMobileTargets = process.argv.includes('--include-mobile');
 
 const sourceFiles = {
   logoPng: fromRoot('branding', 'masters', 'aiflex-erp-logo.png'),
@@ -40,7 +41,7 @@ const renderTarget = (relativePath, size, sourcePath = sourceFiles.iconPng) => (
   sourcePath
 });
 
-const iconResizeTargets = [
+const webIconResizeTargets = [
   renderTarget('public/brand/aiflex-erp-mark.png', 1024),
   renderTarget('public/icons/favicon-32.png', 32),
   renderTarget('public/icons/apple-touch-icon.png', 180),
@@ -50,7 +51,10 @@ const iconResizeTargets = [
   renderTarget('public/icons/icon-128.png', 128),
   renderTarget('public/icons/icon-192.png', 192),
   renderTarget('public/icons/icon-256.png', 256),
-  renderTarget('public/icons/icon-512.png', 512),
+  renderTarget('public/icons/icon-512.png', 512)
+];
+
+const mobileIconResizeTargets = [
   renderTarget('ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png', 1024, sourceFiles.iosIconPng),
   renderTarget('android/app/src/main/res/mipmap-ldpi/ic_launcher.png', 36),
   renderTarget('android/app/src/main/res/mipmap-mdpi/ic_launcher.png', 48),
@@ -78,6 +82,10 @@ const iconResizeTargets = [
   renderTarget('android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png', 432)
 ];
 
+const iconResizeTargets = includeMobileTargets
+  ? [...webIconResizeTargets, ...mobileIconResizeTargets]
+  : webIconResizeTargets;
+
 const ensureSourceFiles = async () => {
   for (const filePath of Object.values(sourceFiles)) {
     try {
@@ -98,10 +106,43 @@ const ensureParentDirectory = async (targetPath) => {
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryFsError = (error) => {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String(error.code) : '';
+  return code === 'EBUSY' || code === 'EPERM' || code === 'UNKNOWN';
+};
+
+const withFsRetry = async (operation, attempts = 3) => {
+  let lastError;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryFsError(error) || index === attempts - 1) {
+        throw error;
+      }
+      await sleep(120 * (index + 1));
+    }
+  }
+  throw lastError;
+};
+
+const fileExists = async (targetPath) => {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const copyBrandFiles = async () => {
   for (const [sourcePath, targetPath] of copyTargets) {
     await ensureParentDirectory(targetPath);
-    await fs.copyFile(sourcePath, targetPath);
+    await withFsRetry(() => fs.copyFile(sourcePath, targetPath));
     console.log(`copied ${path.relative(rootDir, targetPath)}`);
   }
 };
@@ -116,14 +157,35 @@ const writeSvgTargets = async () => {
     }
 
     await ensureParentDirectory(target.targetPath);
-    await fs.writeFile(target.targetPath, toEmbeddedSvg(dataUrlCache.get(target.sourcePath)));
+    await withFsRetry(() => fs.writeFile(target.targetPath, toEmbeddedSvg(dataUrlCache.get(target.sourcePath))));
     console.log(`generated ${path.relative(rootDir, target.targetPath)}`);
   }
 };
 
 const renderIconTargets = async () => {
   const iconDataUrlCache = new Map();
-  const browser = await chromium.launch({ headless: true });
+  const preserveOrCopyWithoutResize = async () => {
+    for (const target of iconResizeTargets) {
+      const exists = await fileExists(target.path);
+      if (exists) {
+        console.log(`kept existing (fallback) ${path.relative(rootDir, target.path)}`);
+        continue;
+      }
+      await ensureParentDirectory(target.path);
+      await withFsRetry(() => fs.copyFile(target.sourcePath, target.path));
+      console.log(`copied (fallback) ${path.relative(rootDir, target.path)}`);
+    }
+  };
+
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[brand:sync] Playwright launch failed, preserving existing assets fallback: ${message}`);
+    await preserveOrCopyWithoutResize();
+    return;
+  }
 
   try {
     for (const target of iconResizeTargets) {
@@ -157,6 +219,9 @@ const renderIconTargets = async () => {
 };
 
 const main = async () => {
+  console.log(includeMobileTargets
+    ? 'Brand sync mode: web + mobile targets.'
+    : 'Brand sync mode: web targets only.');
   await ensureSourceFiles();
   await copyBrandFiles();
   await writeSvgTargets();

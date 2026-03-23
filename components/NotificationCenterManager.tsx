@@ -56,6 +56,7 @@ interface FeedAlert {
 }
 
 const CHECK_PRE_ALERT_DAYS = 5;
+const DEFAULT_EXPIRY_ALERT_LEAD_DAYS = 30;
 const MANUAL_ALERTS_STORAGE_PREFIX = 'smart-acc-manual-alerts';
 const NOTIFIED_ALERTS_STORAGE_PREFIX = 'smart-acc-alert-notified';
 
@@ -190,10 +191,7 @@ const NotificationCenterManager: React.FC = () => {
     [employees]
   );
 
-  const expiryAlertEnabled = companySettings.expiryAlertEnabled ?? true;
-  const globalExpiryDays = Number.isFinite(Number(companySettings.expiryAlertDays))
-    ? Math.max(0, Math.floor(Number(companySettings.expiryAlertDays)))
-    : 30;
+  const globalExpiryDays = DEFAULT_EXPIRY_ALERT_LEAD_DAYS;
   const globalLowStockThreshold = Number.isFinite(Number(companySettings.lowStockAlertQtyDefault))
     ? Math.max(0, Math.floor(Number(companySettings.lowStockAlertQtyDefault)))
     : 5;
@@ -275,30 +273,28 @@ const NotificationCenterManager: React.FC = () => {
         });
       }
 
-      if (expiryAlertEnabled) {
-        const expiryDate = normalizeIso(product.expiryDate);
-        if (!expiryDate || stock <= 0) return;
-        const days = diffDays(expiryDate, todayIso);
-        const thresholdDays = Number.isFinite(Number(product.expiryAlertLeadDays))
-          ? Math.max(0, Math.floor(Number(product.expiryAlertLeadDays)))
-          : globalExpiryDays;
-        if (days <= thresholdDays) {
-          items.push({
-            id: `product_expiry_${product.id}`,
-            source: 'SYSTEM',
-            kind: 'EXPIRY',
-            title: days < 0 ? tr('صنف منتهي الصلاحية', 'Expired item') : tr('صنف قريب الانتهاء', 'Item near expiry'),
-            note: tr(
-              `${product.name} • ينتهي ${expiryDate}${days < 0 ? ` • متأخر ${Math.abs(days)} يوم` : ` • خلال ${days} يوم`}`,
-              `${product.name} • Expires ${expiryDate}${days < 0 ? ` • ${Math.abs(days)} day(s) overdue` : ` • in ${days} day(s)`}`
-            ),
-            severity: days < 0 ? 'CRITICAL' : 'WARNING',
-            dueDate: expiryDate,
-            createdAt: expiryDate,
-            done: false,
-            entityLabel: product.name,
-          });
-        }
+      const expiryDate = normalizeIso(product.expiryDate);
+      if (!expiryDate || stock <= 0) return;
+      const days = diffDays(expiryDate, todayIso);
+      const thresholdDays = Number.isFinite(Number(product.expiryAlertLeadDays))
+        ? Math.max(0, Math.floor(Number(product.expiryAlertLeadDays)))
+        : globalExpiryDays;
+      if (days <= thresholdDays) {
+        items.push({
+          id: `product_expiry_${product.id}`,
+          source: 'SYSTEM',
+          kind: 'EXPIRY',
+          title: days < 0 ? tr('صنف منتهي الصلاحية', 'Expired item') : tr('صنف قريب الانتهاء', 'Item near expiry'),
+          note: tr(
+            `${product.name} • ينتهي ${expiryDate}${days < 0 ? ` • متأخر ${Math.abs(days)} يوم` : ` • خلال ${days} يوم`}`,
+            `${product.name} • Expires ${expiryDate}${days < 0 ? ` • ${Math.abs(days)} day(s) overdue` : ` • in ${days} day(s)`}`
+          ),
+          severity: days < 0 ? 'CRITICAL' : 'WARNING',
+          dueDate: expiryDate,
+          createdAt: expiryDate,
+          done: false,
+          entityLabel: product.name,
+        });
       }
     });
 
@@ -368,7 +364,6 @@ const NotificationCenterManager: React.FC = () => {
     employeeNameMap,
     todayIso,
     globalLowStockThreshold,
-    expiryAlertEnabled,
     globalExpiryDays,
   ]);
 

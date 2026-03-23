@@ -13,6 +13,11 @@ const isValidIsoDate = (value: string): boolean => {
   return !Number.isNaN(parsed.getTime());
 };
 
+const toSafeNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 export const validateTransactionInput = (payload: Omit<Transaction, 'id'>): ValidationIssue[] => {
   const issues: ValidationIssue[] = [];
 
@@ -56,6 +61,80 @@ export const validateInvoiceInput = (payload: Omit<Invoice, 'id'>): ValidationIs
   if (!Number.isFinite(payload.totalAmount) || payload.totalAmount < 0) {
     issues.push({ code: 'TOTAL_INVALID', message: 'Invoice total is invalid.' });
   }
+  if (!Number.isFinite(payload.discountAmount) || payload.discountAmount < 0) {
+    issues.push({ code: 'DISCOUNT_INVALID', message: 'Invoice discount is invalid.' });
+  }
+  if (!Number.isFinite(payload.taxAmount) || payload.taxAmount < 0) {
+    issues.push({ code: 'TAX_INVALID', message: 'Invoice tax amount is invalid.' });
+  }
+
+  if (Array.isArray(payload.items) && payload.items.length > 0) {
+    payload.items.forEach((item, index) => {
+      const qty = toSafeNumber(item.quantity);
+      const unitPrice = toSafeNumber(item.unitPrice);
+      const lineTotal = toSafeNumber(item.total);
+
+      if (qty <= 0) {
+        issues.push({
+          code: 'ITEM_QUANTITY_INVALID',
+          message: `Invoice item #${index + 1} quantity must be greater than zero.`
+        });
+      }
+
+      if (unitPrice < 0) {
+        issues.push({
+          code: 'ITEM_PRICE_INVALID',
+          message: `Invoice item #${index + 1} unit price cannot be negative.`
+        });
+      }
+
+      if (lineTotal < 0) {
+        issues.push({
+          code: 'ITEM_TOTAL_INVALID',
+          message: `Invoice item #${index + 1} total cannot be negative.`
+        });
+      }
+
+      const expectedTotal = Number((qty * unitPrice).toFixed(2));
+      const delta = Math.abs(expectedTotal - Number(lineTotal.toFixed(2)));
+      if (qty > 0 && unitPrice >= 0 && delta > 0.02) {
+        issues.push({
+          code: 'ITEM_TOTAL_MISMATCH',
+          message: `Invoice item #${index + 1} total does not match quantity x unit price.`
+        });
+      }
+    });
+
+    const itemsSubtotal = Number(
+      payload.items.reduce((sum, item) => sum + toSafeNumber(item.total), 0).toFixed(2)
+    );
+    const discountAmount = Number(toSafeNumber(payload.discountAmount).toFixed(2));
+    const taxAmount = Number(toSafeNumber(payload.taxAmount).toFixed(2));
+    const totalAmount = Number(toSafeNumber(payload.totalAmount).toFixed(2));
+    const expectedInvoiceTotal = Number((itemsSubtotal - discountAmount + taxAmount).toFixed(2));
+
+    if (discountAmount - itemsSubtotal > 0.02) {
+      issues.push({
+        code: 'DISCOUNT_EXCEEDS_SUBTOTAL',
+        message: 'Invoice discount cannot exceed items subtotal.'
+      });
+    }
+
+    if (taxAmount - (itemsSubtotal - discountAmount) > 0.02) {
+      issues.push({
+        code: 'TAX_EXCEEDS_NET',
+        message: 'Invoice tax cannot exceed net subtotal.'
+      });
+    }
+
+    if (Math.abs(expectedInvoiceTotal - totalAmount) > 0.02) {
+      issues.push({
+        code: 'TOTAL_MISMATCH',
+        message: 'Invoice total does not match subtotal - discount + tax.'
+      });
+    }
+  }
+
   if (payload.isPartnerDrawings) {
     if (payload.type !== 'INCOME') {
       issues.push({ code: 'PARTNER_DRAWINGS_TYPE_INVALID', message: 'Partner drawings invoice must be sales (income) type.' });

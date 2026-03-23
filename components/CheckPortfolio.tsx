@@ -839,7 +839,7 @@ const CheckPortfolio: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <input placeholder={tr('رقم الحساب', 'Account Number')} value={accountNumber} onChange={e => setAccountNumber(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm" />
-                            <input type="number" placeholder={tr('المبلغ', 'Amount')} value={amount} onChange={e => setAmount(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-black text-sm dir-ltr" required />
+                            <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={amount} onChange={e => setAmount(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-black text-sm dir-ltr" required />
                         </div>
                         <div className="grid grid-cols-1 gap-3">
                             <select value={contactId} onChange={e => setContactId(e.target.value)} className="w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm">

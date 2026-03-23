@@ -294,6 +294,7 @@ const ManufacturingManager: React.FC = () => {
                                 <label className="block text-xs font-black text-gray-500 mb-2 mr-1">{tr('الكمية الناتجة', 'Output Quantity')}</label>
                                 <input
                                     type="number"
+                                    inputMode="decimal"
                                     min="1"
                                     value={bomForm.outputQuantity}
                                     onChange={e => setBomForm({ ...bomForm, outputQuantity: Number(e.target.value) })}
@@ -328,6 +329,7 @@ const ManufacturingManager: React.FC = () => {
                                     <div className="flex items-center gap-2 w-full md:w-auto">
                                         <input
                                             type="number"
+                                            inputMode="decimal"
                                             placeholder={tr('الكمية', 'Quantity')}
                                             value={comp.quantity}
                                             onChange={e => handleUpdateComponent(comp.id, 'quantity', Number(e.target.value))}
@@ -361,6 +363,7 @@ const ManufacturingManager: React.FC = () => {
                                 <div className="relative">
                                     <input
                                         type="number"
+                                        inputMode="decimal"
                                         value={bomForm.laborCost}
                                         onChange={e => setBomForm({ ...bomForm, laborCost: Number(e.target.value) })}
                                         className="w-full p-4 pl-12 rounded-2xl bg-gray-50 border-2 border-transparent focus:bg-white focus:border-purple-500 font-bold text-gray-700 transition-all outline-none"
@@ -373,6 +376,7 @@ const ManufacturingManager: React.FC = () => {
                                 <div className="relative">
                                     <input
                                         type="number"
+                                        inputMode="decimal"
                                         value={bomForm.overheadCost}
                                         onChange={e => setBomForm({ ...bomForm, overheadCost: Number(e.target.value) })}
                                         className="w-full p-4 pl-12 rounded-2xl bg-gray-50 border-2 border-transparent focus:bg-white focus:border-purple-500 font-bold text-gray-700 transition-all outline-none"
@@ -571,6 +575,7 @@ const ManufacturingManager: React.FC = () => {
                             <label className="block text-xs font-black text-gray-500 mb-2 mr-1">{tr('الكمية المخططة', 'Planned Quantity')}</label>
                             <input
                                 type="number"
+                                inputMode="decimal"
                                 min="1"
                                 value={orderForm.plannedQuantity}
                                 onChange={e => setOrderForm({ ...orderForm, plannedQuantity: Number(e.target.value) })}

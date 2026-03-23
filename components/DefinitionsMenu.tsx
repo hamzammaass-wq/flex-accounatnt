@@ -49,6 +49,11 @@ import { applyAppTheme } from '../utils/appTheme';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
 import { buildWorkspaceSubscriptionQuote } from '../utils/subscriptionCommerce';
 import {
+  clearRuntimeErrorLog,
+  getRuntimeErrorLog,
+  RuntimeErrorEntry,
+} from '../utils/runtimeErrorMonitor';
+import {
   applyIntegritySafeFixes,
   IntegrityArea,
   IntegrityIssue,
@@ -470,6 +475,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [integritySeverityFilter, setIntegritySeverityFilter] = useState<'ALL' | IntegritySeverity>('ALL');
   const [integrityAreaFilter, setIntegrityAreaFilter] = useState<'ALL' | IntegrityArea>('ALL');
   const [selectedIntegrityIssueId, setSelectedIntegrityIssueId] = useState<string | null>(null);
+  const [runtimeErrorLog, setRuntimeErrorLog] = useState<RuntimeErrorEntry[]>([]);
 
   useEffect(() => {
     setPermissionDraft(clonePermissions(permissions));
@@ -518,6 +524,11 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   useEffect(() => {
     setBillingCompanyCountDraft(String(Math.max(1, companies.length + (workspaceRemainingCompanySlots > 0 ? 1 : 0))));
   }, [companies.length, workspaceRemainingCompanySlots]);
+
+  useEffect(() => {
+    if (mode !== 'BACKUP') return;
+    setRuntimeErrorLog(getRuntimeErrorLog());
+  }, [mode]);
 
   useEffect(() => {
     if (workspaceSubscription.offerCode) {
@@ -1244,6 +1255,53 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     } catch {
       setBackupStatus(tr('تعذر قراءة ملف النسخة المختار.', 'Could not read selected backup file.'));
     }
+  };
+
+  const kindLabel = (kind: RuntimeErrorEntry['kind']) => {
+    switch (kind) {
+      case 'window-error':
+        return tr('خطأ نافذة', 'Window error');
+      case 'unhandled-rejection':
+        return tr('رفض وعد غير معالج', 'Unhandled rejection');
+      case 'react-boundary':
+        return tr('انهيار واجهة React', 'React boundary crash');
+      case 'bootstrap':
+        return tr('خطأ تهيئة', 'Bootstrap error');
+      default:
+        return kind;
+    }
+  };
+
+  const handleRefreshRuntimeErrorLog = () => {
+    setRuntimeErrorLog(getRuntimeErrorLog());
+  };
+
+  const handleExportRuntimeErrorLog = () => {
+    const entries = getRuntimeErrorLog();
+    if (entries.length === 0) {
+      setBackupStatus(tr('لا يوجد سجل أخطاء لتصديره.', 'No runtime error log to export.'));
+      return;
+    }
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      app: 'aiflex-erp',
+      entries,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `aiflex-runtime-errors-${payload.exportedAt.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    setBackupStatus(tr('تم تصدير سجل الأخطاء بنجاح.', 'Runtime error log exported successfully.'));
+  };
+
+  const handleClearRuntimeErrorLog = () => {
+    clearRuntimeErrorLog();
+    setRuntimeErrorLog([]);
+    setBackupStatus(tr('تم مسح سجل أخطاء التشغيل.', 'Runtime error log has been cleared.'));
   };
 
   const handleSaveBackupSettings = () => {
@@ -3907,7 +3965,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1">{tr('حد تنبيه نقص المخزون العام (كمية)', 'Global low stock alert threshold (qty)')}</label>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 min={0}
                 step={1}
                 value={Number(localCompany.lowStockAlertQtyDefault) > 0 ? String(localCompany.lowStockAlertQtyDefault) : ''}
@@ -4161,7 +4219,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             <div>
               <label className="block text-xs font-bold text-gray-500 mb-1">{tr('عدد الأسطر أعلى الصفحة', 'Top blank lines')}</label>
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 min={0}
                 value={Number(localCompany.headerTopLines) > 0 ? String(localCompany.headerTopLines) : ''}
                 onChange={(e) => setLocalCompany({ ...localCompany, headerTopLines: Math.max(0, Number(e.target.value) || 0) })}
@@ -4439,6 +4497,59 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             <p className="text-[11px] text-gray-400 font-bold">{tr('لا توجد سجلات حالياً', 'No audit logs yet.')}</p>
           )}
         </div>
+      </div>
+
+      <div className="rounded-xl border border-rose-100 bg-rose-50/40 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-xs font-black text-rose-700">{tr('سجل أخطاء التشغيل', 'Runtime Error Log')}</p>
+          <span className="text-[11px] font-black text-rose-600">
+            {tr('عدد الأخطاء', 'Entries')}: {runtimeErrorLog.length}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleRefreshRuntimeErrorLog}
+            className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-[11px] font-black flex items-center gap-1"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            {tr('تحديث', 'Refresh')}
+          </button>
+          <button
+            type="button"
+            onClick={handleExportRuntimeErrorLog}
+            className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-[11px] font-black flex items-center gap-1"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {tr('تصدير JSON', 'Export JSON')}
+          </button>
+          <button
+            type="button"
+            onClick={handleClearRuntimeErrorLog}
+            className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white text-rose-700 text-[11px] font-black flex items-center gap-1"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {tr('مسح السجل', 'Clear log')}
+          </button>
+        </div>
+
+        {runtimeErrorLog.length > 0 ? (
+          <div className="space-y-1 max-h-44 overflow-y-auto rounded-lg border border-rose-100 bg-white p-2">
+            {[...runtimeErrorLog].slice(-12).reverse().map((entry) => (
+              <div key={entry.id} className="rounded-md border border-rose-50 p-2 text-[11px]">
+                <div className="font-black text-rose-700">{kindLabel(entry.kind)}</div>
+                <div className="font-bold text-gray-700 break-words">{entry.message}</div>
+                <div className="text-gray-500 font-bold mt-0.5">{new Date(entry.at).toLocaleString('en-GB')}</div>
+                {entry.source ? <div className="text-gray-400 font-bold break-all">{entry.source}</div> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-gray-500 font-bold">
+            {tr('لا توجد أخطاء تشغيل مسجلة حتى الآن.', 'No runtime errors have been recorded yet.')}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -14,12 +14,16 @@ interface PrintElementOptions {
   dir?: 'rtl' | 'ltr';
   lang?: string;
   autoCloseAfterPrint?: boolean;
+  pageOrientation?: 'portrait' | 'landscape';
 }
 
 interface PdfSnapshotOptions extends HtmlSnapshotOptions {
   padding?: number;
   backgroundColor?: string;
   canvasScale?: number;
+  orientation?: 'portrait' | 'landscape';
+  minRenderWidth?: number;
+  maxRenderWidth?: number;
 }
 
 interface WorkbookDownloadOptions {
@@ -370,6 +374,7 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
 
   const dir = options.dir || 'rtl';
   const lang = options.lang || (dir === 'rtl' ? 'ar' : 'en');
+  const pageOrientation = options.pageOrientation || 'portrait';
   const stylesMarkup = collectPrintStylesMarkup();
   const printWindow = window.open('', '_blank');
   if (!printWindow) return false;
@@ -430,21 +435,37 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         min-width: 0 !important;
         table-layout: fixed !important;
       }
-      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
-      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1) {
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(1),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(1) {
         width: 12% !important;
       }
-      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(2),
-      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(2) {
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(2),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(2) {
         width: 48% !important;
       }
-      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(3),
-      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(3),
-      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(4),
-      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(4),
-      .financial-reports-page.statement-report-active .statement-report-table th:nth-child(5),
-      .financial-reports-page.statement-report-active .statement-report-table td:nth-child(5) {
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(3),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(3),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(4),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(4),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(5),
+      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(5) {
         width: 13.33% !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(1),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(1) {
+        width: 11% !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(2),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(2) {
+        width: 53% !important;
+      }
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(3),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(3),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(4),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(4),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(5),
+      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(5) {
+        width: 12% !important;
       }
       .financial-reports-page.statement-report-active .statement-report-description,
       .financial-reports-page.statement-report-active .statement-operation-details,
@@ -490,6 +511,9 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         width: 100%;
         max-width: 1120px;
         margin: 0 auto;
+      }
+      .report-print-landscape {
+        max-width: none !important;
       }
       .report-print-header {
         margin-bottom: 18px;
@@ -546,10 +570,19 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-content table {
         width: 100% !important;
         min-width: 0 !important;
+        max-width: 100% !important;
         table-layout: auto !important;
         border-collapse: collapse !important;
         break-inside: auto !important;
         page-break-inside: auto !important;
+      }
+      .report-print-content .report-print-table--wide {
+        table-layout: fixed !important;
+      }
+      .report-print-content .report-print-table--dense th,
+      .report-print-content .report-print-table--dense td {
+        padding: 6px 7px !important;
+        font-size: 10px !important;
       }
       .report-print-content thead {
         display: table-header-group !important;
@@ -615,12 +648,17 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-content .flex {
         flex-wrap: wrap !important;
       }
-      .report-print-content > *,
-      .report-print-content tr,
-      .report-print-content .bg-white,
-      .report-print-content .report-print-highlight {
+      .report-print-content > *:not(.report-print-table-section),
+      .report-print-content .bg-white:not(.report-print-table-section),
+      .report-print-content .report-print-highlight:not(.report-print-table-section) {
         break-inside: avoid-page !important;
         page-break-inside: avoid !important;
+      }
+      .report-print-content .report-print-table-section,
+      .report-print-content .report-print-table-section *,
+      .report-print-content .report-print-table-section .bg-white {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
       }
       .report-print-content .report-print-table tr,
       .report-print-content .report-print-table td,
@@ -634,25 +672,192 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-statement .statement-report-table {
         table-layout: fixed !important;
       }
-      .report-print-statement .statement-report-table th:nth-child(1),
-      .report-print-statement .statement-report-table td:nth-child(1) {
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(1),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(1) {
         width: 12% !important;
       }
-      .report-print-statement .statement-report-table th:nth-child(2),
-      .report-print-statement .statement-report-table td:nth-child(2) {
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(2),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(2) {
         width: 48% !important;
       }
-      .report-print-statement .statement-report-table th:nth-child(3),
-      .report-print-statement .statement-report-table td:nth-child(3),
-      .report-print-statement .statement-report-table th:nth-child(4),
-      .report-print-statement .statement-report-table td:nth-child(4),
-      .report-print-statement .statement-report-table th:nth-child(5),
-      .report-print-statement .statement-report-table td:nth-child(5) {
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(3),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(3),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(4),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(4),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(5),
+      .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(5) {
         width: 13.33% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger th:nth-child(1),
+      .report-print-account-ledger .statement-report-table--ledger td:nth-child(1),
+      .report-print-customer-statement .statement-report-table--ledger th:nth-child(1),
+      .report-print-customer-statement .statement-report-table--ledger td:nth-child(1),
+      .report-print-supplier-statement .statement-report-table--ledger th:nth-child(1),
+      .report-print-supplier-statement .statement-report-table--ledger td:nth-child(1) {
+        width: 11% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger th:nth-child(2),
+      .report-print-account-ledger .statement-report-table--ledger td:nth-child(2),
+      .report-print-customer-statement .statement-report-table--ledger th:nth-child(2),
+      .report-print-customer-statement .statement-report-table--ledger td:nth-child(2),
+      .report-print-supplier-statement .statement-report-table--ledger th:nth-child(2),
+      .report-print-supplier-statement .statement-report-table--ledger td:nth-child(2) {
+        width: 53% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger th:nth-child(3),
+      .report-print-account-ledger .statement-report-table--ledger td:nth-child(3),
+      .report-print-account-ledger .statement-report-table--ledger th:nth-child(4),
+      .report-print-account-ledger .statement-report-table--ledger td:nth-child(4),
+      .report-print-account-ledger .statement-report-table--ledger th:nth-child(5),
+      .report-print-account-ledger .statement-report-table--ledger td:nth-child(5),
+      .report-print-customer-statement .statement-report-table--ledger th:nth-child(3),
+      .report-print-customer-statement .statement-report-table--ledger td:nth-child(3),
+      .report-print-customer-statement .statement-report-table--ledger th:nth-child(4),
+      .report-print-customer-statement .statement-report-table--ledger td:nth-child(4),
+      .report-print-customer-statement .statement-report-table--ledger th:nth-child(5),
+      .report-print-customer-statement .statement-report-table--ledger td:nth-child(5),
+      .report-print-supplier-statement .statement-report-table--ledger th:nth-child(3),
+      .report-print-supplier-statement .statement-report-table--ledger td:nth-child(3),
+      .report-print-supplier-statement .statement-report-table--ledger th:nth-child(4),
+      .report-print-supplier-statement .statement-report-table--ledger td:nth-child(4),
+      .report-print-supplier-statement .statement-report-table--ledger th:nth-child(5),
+      .report-print-supplier-statement .statement-report-table--ledger td:nth-child(5) {
+        width: 12% !important;
+      }
+      .report-print-purchases-list .report-table-purchases-list th:nth-child(1),
+      .report-print-purchases-list .report-table-purchases-list td:nth-child(1) {
+        width: 16% !important;
+      }
+      .report-print-purchases-list .report-table-purchases-list th:nth-child(2),
+      .report-print-purchases-list .report-table-purchases-list td:nth-child(2) {
+        width: 42% !important;
+      }
+      .report-print-purchases-list .report-table-purchases-list th:nth-child(3),
+      .report-print-purchases-list .report-table-purchases-list td:nth-child(3) {
+        width: 16% !important;
+      }
+      .report-print-purchases-list .report-table-purchases-list th:nth-child(4),
+      .report-print-purchases-list .report-table-purchases-list td:nth-child(4) {
+        width: 26% !important;
+      }
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item,
+      .report-print-purchase-price-variance .report-table-purchase-price-variance,
+      .report-print-supplier-analysis .report-table-supplier-analysis,
+      .report-print-import-expenses-detail .report-table-import-expense-invoices {
+        table-layout: fixed !important;
+      }
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(1),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(1) {
+        width: 20% !important;
+      }
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(2),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(2),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(3),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(3),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(4),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(4) {
+        width: 7.5% !important;
+      }
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(5),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(5),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(6),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(6),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(7),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(7),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(8),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(8),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(9),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(9) {
+        width: 9% !important;
+      }
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item th:nth-child(10),
+      .report-print-purchase-cost-by-item .report-table-purchase-cost-by-item td:nth-child(10) {
+        width: 12.5% !important;
+      }
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(1),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(1) {
+        width: 14% !important;
+      }
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(2),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(2) {
+        width: 18% !important;
+      }
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(3),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(3) {
+        width: 14% !important;
+      }
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(4),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(4),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(5),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(5),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(6),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(6),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(7),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(7),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(8),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(8),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance th:nth-child(9),
+      .report-print-purchase-price-variance .report-table-purchase-price-variance td:nth-child(9) {
+        width: 9% !important;
+      }
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(1),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(1) {
+        width: 18% !important;
+      }
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(2),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(2),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(3),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(3),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(4),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(4),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(5),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(5),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(6),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(6),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(7),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(7),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(8),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(8),
+      .report-print-supplier-analysis .report-table-supplier-analysis th:nth-child(9),
+      .report-print-supplier-analysis .report-table-supplier-analysis td:nth-child(9) {
+        width: 10.25% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(1),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(1) {
+        width: 12% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(2),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(2) {
+        width: 9% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(3),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(3) {
+        width: 14% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(4),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(4),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(5),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(5) {
+        width: 9% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(6),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(6),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(7),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(7) {
+        width: 14% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(8),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(8) {
+        width: 8% !important;
+      }
+      .report-print-import-expenses-detail .report-table-import-expense-invoices th:nth-child(9),
+      .report-print-import-expenses-detail .report-table-import-expense-invoices td:nth-child(9) {
+        width: 11% !important;
       }
       .dir-ltr { direction: ltr; }
       @media print {
         @page {
+          size: ${pageOrientation};
           margin: 10mm;
         }
         body {
@@ -713,7 +918,12 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   const padding = options.padding ?? 16;
   const backgroundColor = options.backgroundColor || '#ffffff';
   const clone = stripInteractiveElements(element);
-  const sourceWidth = Math.max(element.scrollWidth, Math.ceil(element.getBoundingClientRect().width), 720);
+  const minRenderWidth = Math.max(360, options.minRenderWidth ?? 720);
+  const orientation = options.orientation || 'portrait';
+  const defaultMaxRenderWidth = orientation === 'landscape' ? 1360 : 980;
+  const maxRenderWidth = Math.max(minRenderWidth, options.maxRenderWidth ?? defaultMaxRenderWidth);
+  const measuredWidth = Math.max(element.scrollWidth, Math.ceil(element.getBoundingClientRect().width), minRenderWidth);
+  const sourceWidth = Math.min(measuredWidth, maxRenderWidth);
   const host = document.createElement('div');
   const viewport = document.createElement('div');
 
@@ -758,7 +968,7 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     }
 
     const pdf = new jsPDF({
-      orientation: 'portrait',
+      orientation: options.orientation || 'portrait',
       unit: 'pt',
       format: 'a4',
       compress: true

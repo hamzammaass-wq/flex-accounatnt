@@ -802,6 +802,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   type="button"
                   onClick={handleGuestLogin}
                   disabled={authBusy || guestTrialExpired}
+                  data-testid="auth-guest-login"
                   className="w-full py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-700 font-bold text-sm hover:bg-slate-200 transition-all disabled:opacity-70"
                 >
                   {t('auth.guestLogin')}

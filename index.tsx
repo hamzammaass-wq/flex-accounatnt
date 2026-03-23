@@ -6,6 +6,7 @@ import './index.css';
 import { firebaseAuth } from './firebaseClient';
 import { forceEnglishDigits } from './utils/forceEnglishDigits';
 import { migrateLocalStorageTextData } from './utils/dataTextMigration';
+import { recordRuntimeError } from './utils/runtimeErrorMonitor';
 
 const BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
 const CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed|Unexpected token '<')/i;
@@ -94,6 +95,13 @@ class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, AppErrorBo
   }
 
   public componentDidCatch(error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error || 'Unknown render error'));
+    recordRuntimeError({
+      kind: 'react-boundary',
+      message: err.message,
+      stack: err.stack,
+      source: 'AppErrorBoundary'
+    });
     console.error('App crashed during render. Showing recovery screen.', error);
   }
 
@@ -148,6 +156,15 @@ const setupBootRecoveryHandlers = () => {
       const target = event.target as EventTarget | null;
       const isScriptLoadFailure = target instanceof HTMLScriptElement;
       const message = String(event.message || '');
+      const source = [event.filename, event.lineno, event.colno].filter(Boolean).join(':');
+
+      recordRuntimeError({
+        kind: 'window-error',
+        message: message || 'Window error',
+        stack: event.error instanceof Error ? event.error.stack : undefined,
+        source: source || (isScriptLoadFailure ? 'script-load' : 'window')
+      });
+
       if (isScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
         triggerBootRecoveryReload();
       }
@@ -158,6 +175,14 @@ const setupBootRecoveryHandlers = () => {
   window.addEventListener('unhandledrejection', (event) => {
     const reason = event.reason as { message?: string } | string | null | undefined;
     const message = typeof reason === 'string' ? reason : String(reason?.message || '');
+
+    recordRuntimeError({
+      kind: 'unhandled-rejection',
+      message: message || 'Unhandled promise rejection',
+      stack: reason && typeof reason === 'object' && 'stack' in reason ? String((reason as { stack?: unknown }).stack || '') : undefined,
+      source: 'window.unhandledrejection'
+    });
+
     if (CHUNK_LOAD_ERROR_PATTERN.test(message)) {
       event.preventDefault();
       triggerBootRecoveryReload();
@@ -169,12 +194,16 @@ const runSafeBootstrap = () => {
   try {
     migrateLocalStorageTextData();
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error || 'bootstrap migration failed'));
+    recordRuntimeError({ kind: 'bootstrap', message: err.message, stack: err.stack, source: 'migrateLocalStorageTextData' });
     console.warn('Skipping storage text migration due to a bootstrap error.', error);
   }
 
   try {
     forceEnglishDigits();
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error || 'bootstrap forceEnglishDigits failed'));
+    recordRuntimeError({ kind: 'bootstrap', message: err.message, stack: err.stack, source: 'forceEnglishDigits' });
     console.warn('Skipping forceEnglishDigits due to a bootstrap error.', error);
   }
 };

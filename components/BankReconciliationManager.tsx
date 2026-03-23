@@ -668,6 +668,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
             <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block mb-1">{tr('رصيد كشف البنك', 'Statement Ending Balance')}</label>
             <input
               type="number"
+              inputMode="decimal"
               value={statementBalance}
               onChange={e => setStatementBalance(e.target.value)}
               placeholder="0.00"

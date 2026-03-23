@@ -17,6 +17,7 @@ const targets = [
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const arabicMojibakePattern = /(ط§ظ|ظ„ط|طھظ|ظ…ط|ط±ظ|ظٹط|ط¨ظ|ظ†ط|ظپط|ط³ظ)/g;
 const latinMojibakePattern = /(Ã.|Ø.|Ù.|â.)/g;
+const questionMarkArabicPlaceholderPattern = /tr\(\s*['"][^'"\n]*\?{3,}[^'"\n]*['"]\s*,\s*['"][^'"\n]*[A-Za-z][^'"\n]*['"]\s*\)/g;
 const ignoreRelativePaths = new Set([
   path.join('utils', 'dataTextMigration.ts')
 ]);
@@ -53,9 +54,11 @@ files.forEach(filePath => {
     latinMojibakePattern.lastIndex = 0;
     const arabicHits = line.match(arabicMojibakePattern) || [];
     const latinHits = line.match(latinMojibakePattern) || [];
+    const placeholderHits = line.match(questionMarkArabicPlaceholderPattern) || [];
     const hasLatinCorruption = latinHits.length > 0;
     const hasArabicCorruption = arabicHits.length >= 2;
-    if (!hasLatinCorruption && !hasArabicCorruption) return;
+    const hasBrokenArabicPlaceholders = placeholderHits.length > 0;
+    if (!hasLatinCorruption && !hasArabicCorruption && !hasBrokenArabicPlaceholders) return;
     findings.push({
       file: relativePath,
       line: idx + 1,

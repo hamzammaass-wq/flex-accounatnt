@@ -66,6 +66,7 @@ const SETTINGS_OPTION_KEYS = [
   'dottedNumbers',
   'hideVoucherColumnInStatement',
   'printExpiryDate',
+  'importantAccountIds',
   'autoBackupEnabled',
   'autoBackupFrequency',
   'autoBackupPassword',

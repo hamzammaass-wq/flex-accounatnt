@@ -878,6 +878,7 @@ const ProductList: React.FC = () => {
                             <div className="flex items-center justify-center gap-1 px-1">
                                 <input 
                                     type="number" 
+                                  inputMode="decimal"
                                     value={editPrice} 
                                     onChange={(e) => setEditPrice(e.target.value)}
                                     className="w-full text-center font-black text-xs bg-white border border-blue-200 rounded-lg p-1 outline-none dir-ltr"

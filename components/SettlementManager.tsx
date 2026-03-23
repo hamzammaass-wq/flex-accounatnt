@@ -428,7 +428,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
 
                             <div className="space-y-1">
                                 <label className="text-[10px] text-gray-400 font-black uppercase tracking-widest px-1 block">{tr('الكمية الفعلية (الجرد)', 'Actual counted quantity')}</label>
-                                <input type="number" value={actualQty} onChange={e => setActualQty(e.target.value)} placeholder={tr('أدخل الكمية الموجودة فعلياً', 'Enter actual quantity')} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-sm font-black outline-none border border-gray-50 dir-ltr text-center focus:ring-2 ring-blue-100 transition-all" />
+                                <input type="number" inputMode="decimal" value={actualQty} onChange={e => setActualQty(e.target.value)} placeholder={tr('أدخل الكمية الموجودة فعلياً', 'Enter actual quantity')} className="w-full h-10 px-3 bg-gray-50 rounded-xl text-sm font-black outline-none border border-gray-50 dir-ltr text-center focus:ring-2 ring-blue-100 transition-all" />
                             </div>
 
                             {invProductId && (

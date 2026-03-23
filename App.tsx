@@ -837,7 +837,9 @@ const AppContent: React.FC = () => {
         showHandle={resolvedOverlayVariant === 'bottom-sheet'}
         keyboardAware
       >
-        {content}
+        <div data-testid={`overlay-${overlay}`}>
+          {content}
+        </div>
       </ResponsiveOverlay>
     );
   };
@@ -879,11 +881,11 @@ const AppContent: React.FC = () => {
                   className={`min-w-0 px-3 py-2 rounded-xl bg-white/95 backdrop-blur border border-gray-200 shadow-md flex items-center gap-2 ${showHeaderBackButton ? 'flex-1 max-w-[78vw] sm:max-w-[72vw]' : 'w-full'
                     }`}
                 >
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-indigo-100 bg-white p-1 shadow-sm">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-indigo-100 bg-white shadow-sm">
                     <img
                       src={companyLogoSrc}
                       alt={appLanguage === 'AR' ? 'شعار الشركة' : 'Company logo'}
-                      className="h-full w-full object-contain"
+                      className="h-full w-full object-cover"
                     />
                   </div>
                   <span className="text-[11px] font-black text-slate-700 truncate">{currentCompany?.name || companySettings.name}</span>
@@ -927,7 +929,9 @@ const AppContent: React.FC = () => {
           )}
 
           <Suspense fallback={<ScreenFallback />}>
-            {renderMainContent()}
+            <div data-testid={`app-main-tab-${activeTab}`}>
+              {renderMainContent()}
+            </div>
           </Suspense>
         </div>
         {companyMenuPanel}
@@ -942,6 +946,7 @@ const AppContent: React.FC = () => {
             label={t('nav.dashboard')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-dashboard"
           />
           <NavButton
             active={activeTab === 'treasury'}
@@ -950,6 +955,7 @@ const AppContent: React.FC = () => {
             label={t('nav.treasury')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-treasury"
           />
           <NavButton
             active={activeTab === 'hr'}
@@ -958,6 +964,7 @@ const AppContent: React.FC = () => {
             label={t('nav.hr')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-hr"
           />
           <NavButton
             active={activeTab === 'products'}
@@ -966,6 +973,7 @@ const AppContent: React.FC = () => {
             label={t('nav.products')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-products"
           />
           <NavButton
             active={activeTab === 'manufacturing'}
@@ -974,6 +982,7 @@ const AppContent: React.FC = () => {
             label={t('nav.manufacturing')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-manufacturing"
           />
           <NavButton
             active={activeTab === 'directory'}
@@ -982,6 +991,7 @@ const AppContent: React.FC = () => {
             label={t('nav.directory')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-directory"
           />
           <NavButton
             active={activeTab === 'definitions'}
@@ -990,6 +1000,7 @@ const AppContent: React.FC = () => {
             label={t('nav.system')}
             tablet={isTablet}
             mobile={isMobile}
+            testId="nav-definitions"
           />
         </nav>
       </div>
@@ -1012,11 +1023,13 @@ interface NavButtonProps {
   label: string;
   tablet?: boolean;
   mobile?: boolean;
+  testId?: string;
 }
 
-const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, tablet = false, mobile = false }) => (
+const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, tablet = false, mobile = false, testId }) => (
   <button
     onClick={onClick}
+    data-testid={testId}
     className={`flex flex-col items-center justify-center min-h-[44px] transition-all duration-200 px-1 py-1.5 rounded-lg ${mobile ? 'flex-1 min-w-0' : 'flex-1'
       } ${tablet ? 'gap-1.5 py-1' : 'gap-1'
       } ${active ? 'bg-slate-800 text-blue-400 scale-[1.03]' : 'text-gray-400 hover:bg-slate-800 hover:text-gray-200'}`}

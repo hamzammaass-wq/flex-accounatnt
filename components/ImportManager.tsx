@@ -533,7 +533,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                     <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-2">{tr('المبلغ المراد توزيعه (سيُقيد في حساب الطرف)', 'Amount to distribute (will be posted to party account)')}</label>
                                         <input 
-                                            type="number" 
+                                            type="number" inputMode="decimal" 
                                             value={expenseAmount} 
                                             onChange={e => setExpenseAmount(e.target.value)}
                                             placeholder="0.00" 
@@ -665,7 +665,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                                 <div className="text-end w-44">
                                                     {distributionMethod === 'MANUAL' ? (
                                                         <input 
-                                                            type="number"
+                                                            type="number" inputMode="decimal"
                                                             value={manualAllocations[item.key] || ''}
                                                             onChange={e => setManualAllocations(prev => ({ ...prev, [item.key]: e.target.value }))}
                                                             className="w-full p-2 bg-white rounded-lg border border-gray-200 text-xs font-black dir-ltr text-center outline-none focus:ring-2 ring-indigo-100"

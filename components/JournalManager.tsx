@@ -250,7 +250,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
   };
 
   return (
-    <div className="app-page journal-list-page animate-in fade-in duration-700 p-4 font-tajawal" dir={isEnglish ? 'ltr' : 'rtl'}>
+    <div className="app-page journal-list-page animate-in fade-in duration-700 p-4 font-tajawal" dir={isEnglish ? 'ltr' : 'rtl'} data-testid="journal-list-root">
       <header className="mb-8 flex justify-between items-start px-2">
         <div>
           <h1 className="text-3xl font-black text-gray-800 tracking-tight">{tr('قيود اليومية', 'Journal Entries')}</h1>
@@ -271,7 +271,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
           />
           <Search className="w-5 h-5 text-gray-400 absolute top-1/2 -translate-y-1/2 right-4 pointer-events-none" />
         </div>
-        <button onClick={onAddNew} className="bg-indigo-600 text-white p-4.5 rounded-[1.8rem] shadow-xl"><Plus size={20} /></button>
+        <button data-testid="journal-add-action" onClick={onAddNew} className="bg-indigo-600 text-white p-4.5 rounded-[1.8rem] shadow-xl"><Plus size={20} /></button>
       </div>
 
       {showFilters && (
@@ -293,12 +293,12 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
 
       <div className="space-y-5">
         {journalEntries.map((t) => (
-          <div key={t.id} onClick={() => setSelectedJournalId(t.id)} className="list-card bg-white p-6 rounded-[2.5rem] border border-gray-50 shadow-sm transition-all cursor-pointer">
+          <div key={t.id} onClick={() => setSelectedJournalId(t.id)} className="list-card bg-white p-6 rounded-[2.5rem] border border-gray-50 shadow-sm transition-all cursor-pointer" data-testid={`journal-entry-card-${t.id}`}>
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-4">
                 <div className="p-4 rounded-2xl bg-indigo-50 text-indigo-600"><FileText size={22} /></div>
                 <div>
-                  <h4 className="font-black text-gray-800 text-base">{t.description || tr('قيد يدوي', 'Manual entry')}</h4>
+                  <h4 className="font-black text-gray-800 text-base" data-testid={`journal-entry-description-${t.id}`}>{t.description || tr('قيد يدوي', 'Manual entry')}</h4>
                   <span className="text-[10px] font-black text-gray-400">{formatDate(t.date)}</span>
                 </div>
               </div>

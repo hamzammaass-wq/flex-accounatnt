@@ -2231,7 +2231,7 @@ const HRManager: React.FC = () => {
 
             setIsProcessing(false);
             alert(tr(
-                `?? ????? ???? ????? ????? (${successCount})${failedCount ? ` - ??? ${failedCount}` : ''}`,
+                `تم ترحيل دفعة المدفوعات بنجاح (${successCount})${failedCount ? ` - فشل ${failedCount}` : ''}`,
                 `Payment batch posted successfully (${successCount})${failedCount ? ` - failed ${failedCount}` : ''}`
             ));
         }, 250);
@@ -2540,7 +2540,7 @@ const HRManager: React.FC = () => {
                                                         : tr('مقفلة', 'Locked')}
                                         </span>
                                     </div>
-                                    <div className="text-[10px] font-bold text-gray-400">{run.periodStart} - {run.periodEnd} - {tr('??? ????????', 'Employees')}: {run.employeeIds.length}</div>
+                                    <div className="text-[10px] font-bold text-gray-400">{run.periodStart} - {run.periodEnd} - {tr('عدد الموظفين', 'Employees')}: {run.employeeIds.length}</div>
                                     <div className="text-[10px] font-bold text-gray-500 mt-1">{tr('الصافي', 'Net')}: <span className="dir-ltr text-indigo-600">{run.totals.net.toLocaleString()} {baseCurrency}</span></div>
                                 </button>
                             ))}
@@ -2555,7 +2555,7 @@ const HRManager: React.FC = () => {
                                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                                         <div>
                                             <div className="font-black text-sm text-gray-800 dir-ltr">{selectedPayrollRun.runNumber}</div>
-                                            <div className="text-[10px] font-bold text-gray-400">{selectedPayrollRun.periodStart} - {selectedPayrollRun.periodEnd} - {tr('????? ???????', 'Posting Date')}: {selectedPayrollRun.postingDate}</div>
+                                            <div className="text-[10px] font-bold text-gray-400">{selectedPayrollRun.periodStart} - {selectedPayrollRun.periodEnd} - {tr('تاريخ الترحيل', 'Posting Date')}: {selectedPayrollRun.postingDate}</div>
                                         </div>
                                         <div className="flex flex-wrap gap-2">
                                             {(selectedPayrollRun.status === 'DRAFT' || selectedPayrollRun.status === 'REVIEWED') && (
@@ -2903,7 +2903,7 @@ const HRManager: React.FC = () => {
                                                         {payBasis === 'COMMISSION' && (
                                                             <p className="text-[9px] font-black text-indigo-600 px-1">
                                                                 {tr(
-                                                                    `???? ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% ?? ???? ?????).`,
+                                                                    `ثابت ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% من قيمة العمل).`,
                                                                     `Fixed ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% of work value).`,
                                                                 )}
                                                             </p>
@@ -3132,8 +3132,8 @@ const HRManager: React.FC = () => {
                                                         {payBasis === 'MONTHLY_BY_HOURS'
                                                             ? ` (${row.hours}${tr('س', 'h')} / ${Math.max(1, (Number(emp.dailyWorkHours) || 8) * Math.max(1, monthlyWorkingDays || 30))}${tr('س', 'h')})`
                                                             : ''}
-                                                        {payBasis === 'DAILY' ? ` (${(workedDaysFromHours > 0 ? workedDaysFromHours : periodDays).toFixed(2)} ${tr('???', 'day')} x ${Number((emp as any).dailyRate || 0)})` : ''}
-                                                        {payBasis === 'WEEKLY' ? ` (${(((workedDaysFromHours > 0 ? workedDaysFromHours : periodDays) / 7)).toFixed(2)} ${tr('?????', 'week')} x ${Number((emp as any).weeklyRate || 0)})` : ''}
+                                                        {payBasis === 'DAILY' ? ` (${(workedDaysFromHours > 0 ? workedDaysFromHours : periodDays).toFixed(2)} ${tr('يوم', 'day')} x ${Number((emp as any).dailyRate || 0)})` : ''}
+                                                        {payBasis === 'WEEKLY' ? ` (${(((workedDaysFromHours > 0 ? workedDaysFromHours : periodDays) / 7)).toFixed(2)} ${tr('أسبوع', 'week')} x ${Number((emp as any).weeklyRate || 0)})` : ''}
                                                         {payBasis === 'MONTHLY_PRORATED' ? ` (${periodDays}/${monthlyWorkingDays})` : ''}
                                                         {payBasis === 'COMMISSION'
                                                             ? ` (${Number(emp.basicSalary || 0).toLocaleString()} + ${Number((emp as any).commissionRatePercent || 0)}% x ${Number(row.customBaseSalary || 0).toLocaleString()})`
@@ -3373,7 +3373,7 @@ const HRManager: React.FC = () => {
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-[10px] font-black text-gray-500 block mb-1.5">{tr('ساعات العمل اليومية', 'Daily Work Hours')}</label><input type="number" value={dailyHours} onChange={e => setDailyHours(e.target.value)} className="w-full p-3 bg-white rounded-xl font-black text-sm text-center border border-blue-200" placeholder="8" /></div>
+                                    <div><label className="text-[10px] font-black text-gray-500 block mb-1.5">{tr('ساعات العمل اليومية', 'Daily Work Hours')}</label><input type="number" inputMode="decimal" value={dailyHours} onChange={e => setDailyHours(e.target.value)} className="w-full p-3 bg-white rounded-xl font-black text-sm text-center border border-blue-200" placeholder="8" /></div>
                                     <div>
                                         <label className="text-[10px] font-black text-emerald-600 block mb-1.5">{getPayBasisInputLabel(employeePayBasis)}</label>
                                         <input
@@ -3431,8 +3431,8 @@ const HRManager: React.FC = () => {
                                     </span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-[10px] font-black text-gray-500 block mb-1.5">{tr('بدل سكن', 'Housing Allowance')}</label><input type="number" value={housing} onChange={e => setHousing(e.target.value)} className="w-full p-3 bg-white rounded-xl font-black text-xs text-center border border-gray-200" placeholder="0" /></div>
-                                    <div><label className="text-[10px] font-black text-gray-500 block mb-1.5">{tr('بدل نقل', 'Transport Allowance')}</label><input type="number" value={transport} onChange={e => setTransport(e.target.value)} className="w-full p-3 bg-white rounded-xl font-black text-xs text-center border border-gray-200" placeholder="0" /></div>
+                                    <div><label className="text-[10px] font-black text-gray-500 block mb-1.5">{tr('بدل سكن', 'Housing Allowance')}</label><input type="number" inputMode="decimal" value={housing} onChange={e => setHousing(e.target.value)} className="w-full p-3 bg-white rounded-xl font-black text-xs text-center border border-gray-200" placeholder="0" /></div>
+                                    <div><label className="text-[10px] font-black text-gray-500 block mb-1.5">{tr('بدل نقل', 'Transport Allowance')}</label><input type="number" inputMode="decimal" value={transport} onChange={e => setTransport(e.target.value)} className="w-full p-3 bg-white rounded-xl font-black text-xs text-center border border-gray-200" placeholder="0" /></div>
                                 </div>
                                 {!editingId && (
                                     <div>
@@ -3959,7 +3959,7 @@ const HRManager: React.FC = () => {
                                 </div>
                                 <div className="text-[11px] font-black text-indigo-700 bg-white border border-indigo-100 rounded-xl px-3 py-2">
                                     {tr(
-                                        `???? ????????: ?????? ${attendanceBatchPreview.matchBreakdown.code} - ?????? ${attendanceBatchPreview.matchBreakdown.name} - ???? ${attendanceBatchPreview.matchBreakdown.manual}`,
+                                        `مصدر المطابقة: بالرمز ${attendanceBatchPreview.matchBreakdown.code} - بالاسم ${attendanceBatchPreview.matchBreakdown.name} - يدوي ${attendanceBatchPreview.matchBreakdown.manual}`,
                                         `Match source: by code ${attendanceBatchPreview.matchBreakdown.code} - by name ${attendanceBatchPreview.matchBreakdown.name} - manual ${attendanceBatchPreview.matchBreakdown.manual}`
                                     )}
                                 </div>
@@ -4198,7 +4198,7 @@ const HRManager: React.FC = () => {
                             <div className="hidden md:block text-[10px] font-black text-gray-400">
                                 {getCompanyLeaveAccrualPolicy() === 'MONTHLY'
                                     ? tr(
-                                        `?? ????? ????????? ?????? (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} ???/???). ?????? ?????? ?????? ???? ????? ??????? ?? ????? ????? ?? ??? ??????.`,
+                                        `تم تفعيل سياسة الاستحقاق الشهري (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} يوم/شهر). الرصيد المتاح يُحتسب خلال السنة الحالية من العقد النشط أو ملف الموظف.`,
                                         `Monthly accrual is enabled (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} days/month). Available leave is earned within the current year from the active contract/employee profile.`
                                     )
                                     : tr(
@@ -4322,7 +4322,7 @@ const HRManager: React.FC = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="text-[10px] font-bold text-gray-400">{req.effectiveFrom} - {req.effectiveTo} - {tr('??? ??????', 'Days')}: {req.days}{postedCount ? ` - ${tr('???? ?????', 'Payroll posted')}: ${postedCount}` : ''}</div>
+                                            <div className="text-[10px] font-bold text-gray-400">{req.effectiveFrom} - {req.effectiveTo} - {tr('عدد الأيام', 'Days')}: {req.days}{postedCount ? ` - ${tr('تم الترحيل', 'Payroll posted')}: ${postedCount}` : ''}</div>
                                             {empLeaveBalance && (
                                                 <div className="text-[10px] font-black text-violet-600">
                                                     {tr('المتاح الحالي', 'Current available')}: <span className="dir-ltr">{empLeaveBalance.estimatedAnnualBalance.toLocaleString('en-US')}</span> {tr('يوم', 'days')}
@@ -4448,11 +4448,11 @@ const HRManager: React.FC = () => {
                                                     }`}>{getRecurringStatusLabel(item.status)}</span>
                                             </div>
                                             <div className="text-[10px] font-bold text-gray-400">
-                                                {emp?.name || tr('???? ?????', 'Deleted Employee')} - {item.effectiveFrom}{item.effectiveTo ? ` - ${item.effectiveTo}` : ''} - {tr('??????', 'Amount')}: {item.amount.toLocaleString()} {baseCurrency}
+                                                {emp?.name || tr('موظف محذوف', 'Deleted Employee')} - {item.effectiveFrom}{item.effectiveTo ? ` - ${item.effectiveTo}` : ''} - {tr('المبلغ', 'Amount')}: {item.amount.toLocaleString()} {baseCurrency}
                                             </div>
                                             <div className="text-[10px] font-bold text-gray-500">
                                                 {tr('التقدم', 'Progress')}: {progressText}
-                                                {account ? ` - ${tr('??????', 'Account')}: ${displayAccountName(account)}` : ''}
+                                                {account ? ` - ${tr('الحساب', 'Account')}: ${displayAccountName(account)}` : ''}
                                             </div>
                                             {item.notes && <div className="text-[11px] font-bold text-gray-600">{item.notes}</div>}
                                         </div>
@@ -6222,7 +6222,7 @@ const HRManager: React.FC = () => {
                                                 <div className="min-w-0">
                                                     <div className="text-xs font-black text-gray-800 truncate">{contract.title || contractsEmployee.position || tr('عقد موظف', 'Employee contract')}</div>
                                                     <div className="text-[10px] font-bold text-gray-500 mt-1">
-                                                        {contract.startDate} {contract.endDate ? ` - ${contract.endDate}` : ` - ${tr('?????', 'Open-ended')}`}
+                                                        {contract.startDate} {contract.endDate ? ` - ${contract.endDate}` : ` - ${tr('مفتوح', 'Open-ended')}`}
                                                     </div>
                                                     <div className="text-[10px] font-bold text-blue-600 mt-1">{formatSalarySnapshotSummary(contract)}</div>
                                                     <div className="text-[10px] font-bold text-violet-600 mt-1">
