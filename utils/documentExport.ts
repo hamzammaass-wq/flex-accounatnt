@@ -115,7 +115,7 @@ const shouldRemoveFormControl = (node: HTMLInputElement | HTMLTextAreaElement | 
 
 const stripInteractiveElements = (element: HTMLElement) => {
   const clone = element.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll('[data-document-actions], script, style, button').forEach(node => node.remove());
+  clone.querySelectorAll('[data-document-actions], script, button').forEach(node => node.remove());
   clone.querySelectorAll('input, textarea, select').forEach(node => {
     if (
       (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) &&
@@ -672,9 +672,29 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-statement .statement-report-table {
         table-layout: fixed !important;
       }
+      .report-print-statement .statement-report-table th,
+      .report-print-statement .statement-report-table td {
+        font-size: 13px !important;
+        line-height: 1.65 !important;
+        padding: 10px 9px !important;
+      }
+      .report-print-statement .statement-report-description {
+        font-size: 13px !important;
+        line-height: 1.75 !important;
+        font-weight: 700 !important;
+      }
+      /* Hide ultra-dense inline cards in PDF statement exports to keep rows readable and consistent. */
+      .report-print-statement .statement-operation-details,
+      .report-print-statement .statement-detail-grid,
+      .report-print-statement .statement-line-items,
+      .report-print-statement .statement-line-item-meta,
+      .report-print-statement .statement-detail-note,
+      .report-print-statement .statement-operation-badges {
+        display: none !important;
+      }
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(1),
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(1) {
-        width: 12% !important;
+        width: 13% !important;
       }
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(2),
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(2) {
@@ -686,7 +706,7 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(4),
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) th:nth-child(5),
       .report-print-statement .statement-report-table:not(.statement-report-table--ledger) td:nth-child(5) {
-        width: 13.33% !important;
+        width: 13% !important;
       }
       .report-print-account-ledger .statement-report-table--ledger th:nth-child(1),
       .report-print-account-ledger .statement-report-table--ledger td:nth-child(1),
@@ -910,6 +930,12 @@ const expandSnapshotLayout = (root: HTMLElement) => {
     node.style.maxHeight = 'none';
     node.style.minHeight = '0';
   });
+
+  root.querySelectorAll<HTMLElement>('table').forEach(node => {
+    node.style.width = '100%';
+    node.style.minWidth = '0';
+    node.style.maxWidth = '100%';
+  });
 };
 
 const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) => {
@@ -952,6 +978,26 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
 
   viewport.appendChild(clone);
   host.appendChild(viewport);
+
+  // Inject all document stylesheets + font declarations so html2canvas
+  // renders with the same fonts and layout rules as the live page.
+  const styleHost = document.createElement('div');
+  styleHost.style.display = 'none';
+  Array.from(document.head.querySelectorAll('style, link[rel="stylesheet"]')).forEach(node => {
+    styleHost.appendChild(node.cloneNode(true));
+  });
+  // Ensure Tajawal Arabic font is explicitly available to the snapshot host
+  const fontFace = document.createElement('style');
+  fontFace.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=block');
+    * { font-family: ${dir === 'rtl' ? "'Tajawal', Arial, sans-serif" : "'Segoe UI', Arial, sans-serif"}; }
+    .dir-ltr { direction: ltr; unicode-bidi: embed; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: ${dir === 'rtl' ? 'right' : 'left'}; vertical-align: top; font-size: 12px; line-height: 1.45; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+  `;
+  styleHost.appendChild(fontFace);
+  host.insertBefore(styleHost, viewport);
+
   document.body.appendChild(host);
 
   return { host, viewport, clone, backgroundColor, padding };
@@ -963,9 +1009,20 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
   const { host, viewport, clone, backgroundColor, padding } = prepareSnapshotHost(element, options);
 
   try {
+    // Force Arabic font (Tajawal) to be fully loaded before capturing.
+    // document.fonts.ready alone is insufficient with display=swap.
+    try {
+      await Promise.all([
+        document.fonts.load('400 16px Tajawal'),
+        document.fonts.load('700 16px Tajawal'),
+        document.fonts.load('900 16px Tajawal')
+      ]);
+    } catch { /* font API may not be available */ }
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
+    // Allow an extra frame for fonts to render in the offscreen host.
+    await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
     const pdf = new jsPDF({
       orientation: options.orientation || 'portrait',
@@ -979,7 +1036,9 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     const printableWidth = pageWidth - (margin * 2);
     const printableHeight = pageHeight - (margin * 2);
     const scale = options.canvasScale ?? Math.min(2, Math.max(window.devicePixelRatio || 1, 1.5));
-    const hostWidth = Math.ceil(host.scrollWidth);
+    // Use the bounded layout width for capture. scrollWidth can balloon when a child overflows,
+    // which shrinks statement reports dramatically inside the PDF.
+    const hostWidth = Math.ceil(host.getBoundingClientRect().width);
     const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1);
     const naturalSliceHeight = Math.floor(((printableHeight * hostWidth) / printableWidth) - (padding * 2));
     const maxSliceHeight = Math.max(960, Math.floor(1800 / Math.max(scale, 1)));

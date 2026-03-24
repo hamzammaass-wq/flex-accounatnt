@@ -735,7 +735,13 @@ const Directory: React.FC = () => {
             title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
             fileName: buildStatementPdfName(contact),
             dir: isEnglish ? 'ltr' : 'rtl',
-            lang: isEnglish ? 'en' : 'ar'
+            lang: isEnglish ? 'en' : 'ar',
+            orientation: 'landscape',
+            minRenderWidth: 980,
+            maxRenderWidth: 1220,
+            canvasScale: 2.0,
+            padding: 18,
+            backgroundColor: '#ffffff'
         });
     };
 
@@ -1473,39 +1479,39 @@ const Directory: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="p-4 grid grid-cols-2 gap-3 bg-white border-b border-gray-100">
+                                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white border-b border-gray-100">
                                     <EnglishDateInput
                                         value={stmtStartDate}
                                         onChange={setStmtStartDate}
-                                        className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-bold text-right outline-none"
+                                        className={`w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
                                         aria-label={tr('من تاريخ', 'From date')}
                                     />
                                     <EnglishDateInput
                                         value={stmtEndDate}
                                         onChange={setStmtEndDate}
-                                        className="w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-bold text-right outline-none"
+                                        className={`w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
                                         aria-label={tr('إلى تاريخ', 'To date')}
                                     />
                                 </div>
 
                                 <div ref={statementContentRef} className="flex-1 overflow-x-auto p-4">
-                                    <table className="w-full min-w-[max-content] text-sm border-collapse">
+                                    <table className="w-full min-w-max md:min-w-[680px] text-sm border-collapse" dir={isEnglish ? 'ltr' : 'rtl'}>
                                         <thead className="bg-slate-800 text-white rounded-t-xl">
                                             <tr>
-                                                <th className="p-3 text-right first:rounded-tr-xl text-[10px] font-black uppercase tracking-wider">{tr('التاريخ', 'Date')}</th>
-                                                <th className="p-3 text-right text-[10px] font-black uppercase tracking-wider">{tr('البيان', 'Description')}</th>
-                                                <th className="p-3 text-center text-[10px] font-black uppercase tracking-wider bg-white/10">{tr('مدين', 'Debit')}</th>
-                                                <th className="p-3 text-center text-[10px] font-black uppercase tracking-wider bg-white/10">{tr('دائن', 'Credit')}</th>
-                                                <th className="p-3 text-center last:rounded-tl-xl text-[10px] font-black uppercase tracking-wider">{tr('الرصيد', 'Balance')}</th>
+                                                <th className={`p-3 ${isEnglish ? 'text-left' : 'text-right'} first:rounded-tr-xl text-xs sm:text-[10px] font-black uppercase tracking-wider`}>{tr('التاريخ', 'Date')}</th>
+                                                <th className={`p-3 ${isEnglish ? 'text-left' : 'text-right'} text-xs sm:text-[10px] font-black uppercase tracking-wider`}>{tr('البيان', 'Description')}</th>
+                                                <th className="p-3 text-center text-xs sm:text-[10px] font-black uppercase tracking-wider bg-white/10">{tr('مدين', 'Debit')}</th>
+                                                <th className="p-3 text-center text-xs sm:text-[10px] font-black uppercase tracking-wider bg-white/10">{tr('دائن', 'Credit')}</th>
+                                                <th className="p-3 text-center last:rounded-tl-xl text-xs sm:text-[10px] font-black uppercase tracking-wider">{tr('الرصيد', 'Balance')}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                             <tr className="bg-amber-50/50 font-bold">
-                                                <td className="p-3 text-center text-xs">-</td>
-                                                <td className="p-3 text-xs">{tr('الرصيد الافتتاحي', 'Opening balance')}</td>
-                                                <td className="p-3 text-center text-xs">-</td>
-                                                <td className="p-3 text-center text-xs">-</td>
-                                                <td className="p-3 text-center font-black text-xs dir-ltr">{openingBalance.toLocaleString()}</td>
+                                                <td className="p-3 text-center text-xs sm:text-[10px]">-</td>
+                                                <td className="p-3 text-xs sm:text-[10px]" dir={isEnglish ? 'ltr' : 'rtl'}>{tr('الرصيد الافتتاحي', 'Opening balance')}</td>
+                                                <td className="p-3 text-center text-xs sm:text-[10px]">-</td>
+                                                <td className="p-3 text-center text-xs sm:text-[10px]">-</td>
+                                                <td className="p-3 text-center font-black text-xs sm:text-[10px] dir-ltr">{openingBalance.toLocaleString()}</td>
                                             </tr>
                                             {stmts.map(t => {
                                                 const invoice = t.invoiceId ? invoices.find(inv => inv.id === t.invoiceId) : null;
@@ -1523,21 +1529,21 @@ const Directory: React.FC = () => {
 
                                                 return (
                                                     <tr key={t.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="p-3 text-[10px] font-bold text-gray-500 whitespace-nowrap align-top">{formatDate(t.date)}</td>
-                                                        <td className="p-3 text-xs font-bold text-gray-700 align-top">
-                                                            <div>{t.description}</div>
+                                                        <td className="p-3 text-xs sm:text-[10px] font-bold text-gray-500 whitespace-nowrap align-top">{formatDate(t.date)}</td>
+                                                        <td className="p-3 text-xs font-bold text-gray-700 align-top" dir={isEnglish ? 'ltr' : 'rtl'}>
+                                                            <div className="break-words">{t.description}</div>
 
                                                             {/* Check Details */}
                                                             {checksInGroup.length > 0 && (
-                                                                <div className="mt-1.5 space-y-1">
+                                                                <div className="mt-2 space-y-2">
                                                                     {checksInGroup.map((relatedCheck: any, idx: number) => (
-                                                                        <div key={idx} className="p-1.5 bg-gray-50 border border-gray-100 rounded-lg text-[10px] text-gray-500 inline-block w-full">
-                                                                            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                                                                                <div><span className="font-black text-gray-700">{tr('رقم الشيك:', 'Check #:')}</span> {relatedCheck.checkNumber}</div>
-                                                                                <div><span className="font-black text-gray-700">{tr('البنك:', 'Bank:')}</span> {displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}</div>
-                                                                                {relatedCheck.accountNumber && <div><span className="font-black text-gray-700">{tr('الحساب:', 'Account:')}</span> {relatedCheck.accountNumber}</div>}
-                                                                                <div><span className="font-black text-gray-700">{tr('الاستحقاق:', 'Due:')}</span> {formatDate(relatedCheck.dueDate)}</div>
-                                                                                <div className="col-span-2 border-t border-gray-200 mt-1 pt-1 flex justify-between">
+                                                                        <div key={idx} className="p-2 bg-gray-50 border border-gray-100 rounded-lg text-xs text-gray-500 block w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                                                                                <div className="break-words"><span className="font-black text-gray-700">{tr('رقم الشيك:', 'Check #:')}</span> {relatedCheck.checkNumber}</div>
+                                                                                <div className="break-words"><span className="font-black text-gray-700">{tr('البنك:', 'Bank:')}</span> {displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}</div>
+                                                                                {relatedCheck.accountNumber && <div className="break-words"><span className="font-black text-gray-700">{tr('الحساب:', 'Account:')}</span> {relatedCheck.accountNumber}</div>}
+                                                                                <div className="break-words"><span className="font-black text-gray-700">{tr('الاستحقاق:', 'Due:')}</span> {formatDate(relatedCheck.dueDate)}</div>
+                                                                                <div className="col-span-full border-t border-gray-200 mt-1.5 pt-1.5 flex justify-between">
                                                                                     <span><span className="font-black text-emerald-600">{tr('المبلغ:', 'Amount:')}</span> <span className="dir-ltr font-bold text-gray-800">{relatedCheck.amount.toLocaleString()}</span></span>
                                                                                 </div>
                                                                             </div>
@@ -1548,9 +1554,9 @@ const Directory: React.FC = () => {
 
                                                             {/* Cash/Bank Details */}
                                                             {cashMethods.length > 0 && !invoice && (
-                                                                <div className="mt-1.5 text-[10px] text-gray-500 font-bold space-y-1">
+                                                                <div className="mt-2 text-xs text-gray-500 font-bold space-y-1.5" dir={isEnglish ? 'ltr' : 'rtl'}>
                                                                     {cashMethods.map((m: any, idx: number) => (
-                                                                        <div key={idx}>
+                                                                        <div key={idx} className="break-words">
                                                                             <span className="text-gray-400">{m.isReceipt ? tr('تم القبض في:', 'Received in:') : tr('تم الصرف من:', 'Paid from:')}</span> <span className="text-gray-700">{displayAccountName(m.account)}</span>
                                                                             {(m.amount !== t.debit && m.amount !== t.credit) && <span className="text-gray-400 font-normal"> ({m.amount.toLocaleString()})</span>}
                                                                         </div>
@@ -1560,9 +1566,9 @@ const Directory: React.FC = () => {
 
                                                             {/* Invoice Items */}
                                                             {invoice && (
-                                                                <div className="mt-2 text-[10px] text-gray-500">
-                                                                    <div className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 border-b border-dashed border-gray-200 pb-1 mb-1 font-black bg-gray-50/50 p-1 rounded-t-md">
-                                                                        <div>{tr('الصنف', 'Item')}</div>
+                                                                <div className="mt-2 text-xs text-gray-500" dir={isEnglish ? 'ltr' : 'rtl'}>
+                                                                    <div className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 border-b border-dashed border-gray-200 pb-1.5 mb-1.5 font-black bg-gray-50/50 p-1.5 rounded-t-md">
+                                                                        <div className="break-words">{tr('الصنف', 'Item')}</div>
                                                                         <div className="text-center">{tr('الكمية', 'Qty')}</div>
                                                                         <div className="text-center">{tr('السعر', 'Price')}</div>
                                                                         <div className="text-center">{tr('الإجمالي', 'Total')}</div>
@@ -1570,8 +1576,8 @@ const Directory: React.FC = () => {
                                                                     {invoice.items.map((item, idx) => {
                                                                         const product = products.find(p => p.id === item.productId);
                                                                         return (
-                                                                            <div key={idx} className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 py-1 px-1 hover:bg-gray-50 rounded-sm">
-                                                                                <div className="truncate">{item.description || displayProductName(product)}</div>
+                                                                            <div key={idx} className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 py-1.5 px-1 hover:bg-gray-50 rounded-sm">
+                                                                                <div className="break-words">{item.description || displayProductName(product)}</div>
                                                                                 <div className="text-center">{item.quantity}</div>
                                                                                 <div className="text-center">{item.unitPrice.toLocaleString()}</div>
                                                                                 <div className="text-center">{item.total.toLocaleString()}</div>
@@ -1581,9 +1587,9 @@ const Directory: React.FC = () => {
                                                                 </div>
                                                             )}
                                                         </td>
-                                                        <td className="p-3 text-center text-emerald-600 font-bold text-xs dir-ltr bg-emerald-50/30 align-top">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
-                                                        <td className="p-3 text-center text-rose-600 font-bold text-xs dir-ltr bg-rose-50/30 align-top">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
-                                                        <td className="p-3 text-center font-black text-xs dir-ltr align-top">{t.runningBalance.toLocaleString()}</td>
+                                                        <td className="p-3 text-center text-emerald-600 font-bold text-xs sm:text-[10px] dir-ltr bg-emerald-50/30 align-top">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
+                                                        <td className="p-3 text-center text-rose-600 font-bold text-xs sm:text-[10px] dir-ltr bg-rose-50/30 align-top">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                                        <td className="p-3 text-center font-black text-xs sm:text-[10px] dir-ltr align-top">{t.runningBalance.toLocaleString()}</td>
                                                     </tr>
                                                 );
                                             })}

@@ -1157,6 +1157,21 @@ const FinancialReports: React.FC = () => {
         return prefersLandscape;
     };
 
+    const simplifyStatementDescriptionsForPdf = (exportRoot: HTMLElement) => {
+        const statementCells = Array.from(exportRoot.querySelectorAll<HTMLElement>('.statement-report-description'));
+        statementCells.forEach(cell => {
+            const primary = cell.querySelector('div.font-bold')?.textContent?.trim() || '';
+            const fallback = (cell.textContent || '').trim();
+            const conciseText = primary || fallback;
+            cell.textContent = conciseText;
+            cell.style.whiteSpace = 'normal';
+            cell.style.wordBreak = 'break-word';
+            cell.style.overflowWrap = 'anywhere';
+            cell.style.fontWeight = '700';
+            cell.style.lineHeight = '1.6';
+        });
+    };
+
     const buildPrintableReportElement = (title: string) => {
         if (typeof document === 'undefined' || !activeReportRef.current) return null;
 
@@ -1210,7 +1225,7 @@ const FinancialReports: React.FC = () => {
             isStatementPrint ? 'report-print-statement' : ''
         ].filter(Boolean).join(' ');
 
-        Array.from(activeReportRef.current.children).forEach(child => {
+        Array.from<Element>(activeReportRef.current.children).forEach(child => {
             content.appendChild(child.cloneNode(true));
         });
 
@@ -1231,8 +1246,14 @@ const FinancialReports: React.FC = () => {
             }
         });
 
+        if (isStatementPrint) {
+            simplifyStatementDescriptionsForPdf(content);
+        }
+
         const prefersLandscape = normalizeReportTablesForExport(activeReportRef.current, content);
-        if (prefersLandscape) {
+        // Statement PDFs are denser and become unreadable in portrait; keep them landscape.
+        const forceLandscape = isStatementPrint;
+        if (prefersLandscape || forceLandscape) {
             wrapper.classList.add('report-print-landscape');
             wrapper.dataset.exportOrientation = 'landscape';
         } else {
@@ -1279,6 +1300,7 @@ const FinancialReports: React.FC = () => {
         const isStatementExport = activeReport === 'CUSTOMER_STATEMENT'
             || activeReport === 'SUPPLIER_STATEMENT'
             || activeReport === 'ACCOUNT_LEDGER';
+        const finalOrientation: 'portrait' | 'landscape' = isStatementExport ? 'landscape' : exportOrientation;
         return buildElementPdfFile(printableReport, {
             title: buildReportTitleWithPeriod(title),
             fileName: buildReportFileStem(title),
@@ -1286,14 +1308,16 @@ const FinancialReports: React.FC = () => {
             lang: isEnglish ? 'en' : 'ar',
             backgroundColor: '#ffffff',
             padding: 18,
-            canvasScale: exportOrientation === 'landscape'
-                ? (isStatementExport ? 1.55 : 1.45)
+            canvasScale: finalOrientation === 'landscape'
+                ? (isStatementExport ? 2.0 : 1.45)
                 : (isStatementExport ? 1.8 : 1.65),
-            orientation: exportOrientation,
-            minRenderWidth: isStatementExport ? 680 : 720,
-            maxRenderWidth: exportOrientation === 'landscape'
-                ? (isStatementExport ? 920 : 1280)
-                : (isStatementExport ? 800 : 980)
+            orientation: finalOrientation,
+            minRenderWidth: isStatementExport
+                ? (finalOrientation === 'landscape' ? 980 : 760)
+                : 720,
+            maxRenderWidth: finalOrientation === 'landscape'
+                ? (isStatementExport ? 1220 : 1280)
+                : (isStatementExport ? 900 : 980)
         });
     };
 
@@ -2074,77 +2098,6 @@ const FinancialReports: React.FC = () => {
                 || b.totalValueBase - a.totalValueBase
                 || a.description.localeCompare(b.description, isEnglish ? 'en' : 'ar')
             ));
-
-        if (false) return (
-            <div className="animate-in slide-in-from-bottom-4">
-                <ReportHeader title={tr('الميزانية العمومية', 'Balance Sheet')} />
-
-                <div className="space-y-6">
-                    <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
-                        <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-50">
-                            <h4 className="font-black text-gray-800">{tr('تفاصيل حسابات الميزانية العمومية', 'Balance sheet account details')}</h4>
-                            <span className="text-[10px] font-black text-gray-400">{tr('الحسابات التفصيلية فقط', 'Detailed accounts only')}</span>
-                        </div>
-
-                        <div className="space-y-4">
-                            {balanceSheetDetailSections.map(section => {
-                                const styles = accentStyles[section.accent];
-                                return (
-                                    <div key={section.key} className={`overflow-x-auto rounded-2xl border ${styles.border}`}>
-                                        <div className={`flex items-center justify-between px-4 py-3 ${styles.header}`}>
-                                            <h5 className="font-black">{section.title}</h5>
-                                            <span className={`dir-ltr text-sm font-black ${styles.total}`}>{formatValue(section.total)}</span>
-                                        </div>
-                                        <table className="w-full text-start min-w-[700px]">
-                                            <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
-                                                <tr>
-                                                    <th className="p-3">{tr('الحساب', 'Account')}</th>
-                                                    <th className="p-3 text-center">{tr('مدين', 'Debit')}</th>
-                                                    <th className="p-3 text-center">{tr('دائن', 'Credit')}</th>
-                                                    <th className="p-3 text-center">{tr('الرصيد', 'Balance')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-50">
-                                                {section.rows.map(acc => {
-                                                    const canOpenLedger = !acc.synthetic && accountById.has(acc.id);
-                                                    return (
-                                                        <tr
-                                                            key={acc.id}
-                                                            onDoubleClick={() => canOpenLedger && openAccountLedger(acc.id)}
-                                                            className={`text-xs transition-colors hover:bg-gray-50 ${canOpenLedger ? 'cursor-pointer' : ''}`}
-                                                        >
-                                                            <td className="p-3 font-bold text-gray-700">
-                                                                {displayAccountName(acc)} <span className="text-[9px] text-gray-400 font-normal">({acc.code})</span>
-                                                            </td>
-                                                            <td className="p-3 dir-ltr text-center font-bold text-gray-600">{formatValue(acc.debit)}</td>
-                                                            <td className="p-3 dir-ltr text-center font-bold text-gray-600">{formatValue(acc.credit)}</td>
-                                                            <td className={`p-3 dir-ltr text-center font-black ${styles.balance}`}>
-                                                                {formatValue(Math.abs(acc.net))} {getBalanceNature(acc.type, acc.net)}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                                {section.rows.length === 0 && (
-                                                    <tr>
-                                                        <td colSpan={4} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد حسابات تفصيلية في هذا القسم خلال الفترة المحددة', 'No detailed accounts in this section for the selected period')}</td>
-                                                    </tr>
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                );
-                            })}
-
-                            {balanceSheetDetailSections.length === 0 && (
-                                <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-xs font-bold text-gray-400">
-                                    {tr('لا توجد حركة حسابات خلال الفترة المحددة', 'No account movements in selected period')}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
 
         return (
             <div className="animate-in slide-in-from-bottom-4">
@@ -3427,7 +3380,7 @@ const FinancialReports: React.FC = () => {
         const totalEquityFinal = totalEquityRaw + periodNetProfit + financialData.priorProfit;
         const totalLiabAndEquity = totalLiabilities + totalEquityFinal;
 
-        const accountById = new Map(accounts.map(acc => [acc.id, acc]));
+        const accountById = new Map<string, Account>(accounts.map(acc => [acc.id, acc] as [string, Account]));
         const isUnderParent = (accountId: string, targetParentId: string) => {
             let current = accountById.get(accountId);
             while (current) {
