@@ -13,7 +13,7 @@ import {
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { buildHtmlStringPdfFile, downloadBlobFile, downloadWorkbookFile, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
 import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
 import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
 
@@ -730,8 +730,8 @@ const Directory: React.FC = () => {
     };
 
     const buildStatementPdfFile = async (contact: Contact) => {
-        await settleStatementSnapshot();
-        return buildElementPdfFile(statementExportRef.current, {
+        const html = buildStatementPrintHtml(contact, printCheckImagesInStatement);
+        return buildHtmlStringPdfFile(html, {
             title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
             fileName: buildStatementPdfName(contact),
             dir: isEnglish ? 'ltr' : 'rtl',

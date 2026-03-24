@@ -1034,3 +1034,143 @@ export const downloadElementAsPdf = async (element: HTMLElement | null, options:
   downloadBlobFile(file, file.name);
   return true;
 };
+
+/**
+ * Generates a PDF file from a complete HTML document string.
+ * The HTML is parsed, its styles are temporarily injected into the page,
+ * and the body content (excluding interactive action bars) is rendered
+ * off-screen via html2canvas, then packaged into a jsPDF document.
+ *
+ * This produces a cleaner PDF than capturing a live React DOM element
+ * because it uses the print-optimised HTML template which has explicit
+ * RTL direction, Arabic font declarations, and proper table layout.
+ */
+export const buildHtmlStringPdfFile = async (
+  htmlString: string,
+  options: PdfSnapshotOptions
+): Promise<File | null> => {
+  if (typeof window === 'undefined') return null;
+
+  const parser = new DOMParser();
+  const parsedDoc = parser.parseFromString(htmlString, 'text/html');
+
+  const dir = options.dir || parsedDoc.documentElement.getAttribute('dir') || 'rtl';
+  const lang = options.lang || parsedDoc.documentElement.getAttribute('lang') || (dir === 'rtl' ? 'ar' : 'en');
+  const padding = options.padding ?? 24;
+  const backgroundColor = options.backgroundColor || '#ffffff';
+  const orientation = options.orientation || 'portrait';
+  const defaultMaxRenderWidth = orientation === 'landscape' ? 1360 : 860;
+  const maxRenderWidth = options.maxRenderWidth ?? defaultMaxRenderWidth;
+
+  // Extract CSS from the parsed document <style> elements
+  const extractedStyles = Array.from(parsedDoc.head.querySelectorAll('style'))
+    .map(s => s.textContent || '')
+    .join('\n');
+
+  // Temporarily inject the extracted styles into the live document so that
+  // class-based rules (e.g. .statement-sheet) apply to the off-screen host.
+  const tempStyleEl = document.createElement('style');
+  tempStyleEl.textContent = extractedStyles;
+  document.head.appendChild(tempStyleEl);
+
+  // Strip interactive / non-print elements from the body copy
+  const bodyClone = parsedDoc.body.cloneNode(true) as HTMLElement;
+  bodyClone.querySelectorAll('.statement-actions, script, button').forEach(el => el.remove());
+
+  // Build the off-screen host
+  const host = document.createElement('div');
+  host.dir = dir;
+  host.lang = lang;
+  host.style.cssText = [
+    'position:fixed',
+    'left:-100000px',
+    'top:0',
+    'z-index:-1',
+    'pointer-events:none',
+    `background:${backgroundColor}`,
+    `padding:${padding}px`,
+    `width:${maxRenderWidth + padding * 2}px`,
+    'box-sizing:border-box',
+    'overflow:hidden',
+    `font-family:${dir === 'rtl' ? "'Tajawal','Cairo',sans-serif" : "'Segoe UI',Arial,sans-serif"}`,
+  ].join(';');
+
+  const content = document.createElement('div');
+  content.style.cssText = `width:${maxRenderWidth}px;box-sizing:border-box;position:relative;overflow:visible;`;
+  content.innerHTML = bodyClone.innerHTML;
+
+  host.appendChild(content);
+  document.body.appendChild(host);
+
+  try {
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    const pdf = new jsPDF({
+      orientation,
+      unit: 'pt',
+      format: 'a4',
+      compress: true,
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = Math.max(18, padding);
+    const printableWidth = pageWidth - margin * 2;
+    const printableHeight = pageHeight - margin * 2;
+    const scale = options.canvasScale ?? Math.min(2, Math.max(window.devicePixelRatio || 1, 1.5));
+    const hostWidth = Math.ceil(host.scrollWidth);
+    const totalHeight = Math.max(
+      Math.ceil(content.scrollHeight),
+      Math.ceil(content.getBoundingClientRect().height),
+      1
+    );
+    const naturalSliceHeight = Math.floor((printableHeight * hostWidth) / printableWidth - padding * 2);
+    const maxSliceHeight = Math.max(960, Math.floor(1800 / Math.max(scale, 1)));
+    const pageSliceHeight = Math.max(1, Math.min(naturalSliceHeight, maxSliceHeight));
+    let renderedHeight = 0;
+    let pageIndex = 0;
+
+    while (renderedHeight < totalHeight) {
+      const sliceHeight = Math.min(pageSliceHeight, totalHeight - renderedHeight);
+      host.style.height = `${sliceHeight + padding * 2}px`;
+      content.style.transform = `translateY(-${renderedHeight}px)`;
+      content.style.transformOrigin = 'top left';
+
+      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+
+      const canvas = await html2canvas(host, {
+        backgroundColor,
+        scale,
+        useCORS: true,
+        width: hostWidth,
+        height: Math.ceil(host.getBoundingClientRect().height),
+        windowWidth: hostWidth,
+        windowHeight: Math.ceil(host.getBoundingClientRect().height),
+        scrollX: 0,
+        scrollY: 0,
+      });
+
+      if (pageIndex > 0) {
+        pdf.addPage();
+      }
+
+      const imageWidth = printableWidth;
+      const imageHeight = (canvas.height * imageWidth) / canvas.width;
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imageWidth, imageHeight, undefined, 'FAST');
+
+      renderedHeight += sliceHeight;
+      pageIndex += 1;
+    }
+
+    content.style.transform = 'translateY(0)';
+
+    const fileName = options.fileName.endsWith('.pdf') ? options.fileName : `${options.fileName}.pdf`;
+    const blob = pdf.output('blob');
+    return new File([blob], sanitizeDownloadName(fileName), { type: 'application/pdf' });
+  } finally {
+    tempStyleEl.remove();
+    host.remove();
+  }
+};
