@@ -520,6 +520,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
         <div
             className={`app-page voucher-list-page px-3 py-3 font-tajawal sm:p-4 ${isEnglish ? 'text-left' : 'text-right'}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
+            data-testid={`voucher-manager-${type.toLowerCase()}`}
         >
             <section className="mb-3 rounded-[1.2rem] border border-slate-200/90 bg-white px-3 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.05)] sm:mb-4 sm:rounded-[1.8rem] sm:px-5 sm:py-4">
                 <div className="grid grid-cols-1 items-center gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-3">
@@ -589,6 +590,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                         <button
                             type="button"
                             onClick={onAddNew}
+                            data-testid="voucher-add-action"
                             className={`${theme.button} inline-flex items-center justify-center gap-1.5 rounded-[1rem] px-3 py-2.5 text-xs font-black text-white shadow-sm transition active:scale-[0.98] sm:gap-2 sm:rounded-[1.25rem] sm:px-4 sm:py-3 sm:text-sm`}
                         >
                             <Plus size={16} className="sm:h-[18px] sm:w-[18px]" />

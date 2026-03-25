@@ -171,6 +171,50 @@ const Directory: React.FC = () => {
         return check.imageUrl ? [check.imageUrl] : [];
     };
 
+    const buildStatementEntryPreview = (entry: any, contact: Contact, options?: { includeCheckImages?: boolean }) => {
+        const invoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
+        const subTransactions = Array.isArray(entry.subTransactions) && entry.subTransactions.length > 0
+            ? entry.subTransactions
+            : [entry];
+
+        const checkRows = subTransactions.flatMap((sub: any, index: number) => {
+            const relatedCheck = sub.checkId ? checks.find(c => c.id === sub.checkId) : null;
+            if (!relatedCheck) return [];
+
+            return [{
+                id: relatedCheck.id || `${entry.id || entry.voucherId || 'statement'}-check-${index}`,
+                checkNumber: relatedCheck.checkNumber || '-',
+                bankName: displayAccountName(
+                    relatedCheck.bankAccountId
+                        ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null
+                        : { id: '', name: relatedCheck.bankName }
+                ),
+                accountNumber: relatedCheck.accountNumber || '',
+                dueDate: formatDate(relatedCheck.dueDate) || '-',
+                amount: Number(relatedCheck.amount) || 0,
+                currency: relatedCheck.currency || entry.currency || baseCurrency,
+                imageUrls: options?.includeCheckImages ? getCheckImageUrls(relatedCheck) : []
+            }];
+        });
+
+        const paymentRows = invoice ? [] : subTransactions.flatMap((sub: any, index: number) => {
+            const { contraAccountId, isReceipt } = getPaymentLineMeta(sub, contact);
+            const account = accounts.find(a => a.id === contraAccountId);
+            if (!account) return [];
+
+            const showSplitAmount = sub.amount !== entry.debit && sub.amount !== entry.credit;
+            return [{
+                id: `${entry.id || entry.voucherId || 'statement'}-payment-${index}`,
+                label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                accountName: displayAccountName(account),
+                amount: showSplitAmount ? Number(sub.amount) || 0 : null,
+                currency: sub.currency || entry.currency || baseCurrency
+            }];
+        });
+
+        return { invoice, checkRows, paymentRows };
+    };
+
     const getTransactionDC = (t: typeof transactions[0], contact: Contact) => {
         const type = contact.type;
         const linkedAccountId = contact.currentAccountId || contact.linkedAccountId;
@@ -342,7 +386,7 @@ const Directory: React.FC = () => {
         return result;
     }, [filteredContacts]);
 
-    const buildStatementPrintHtml = (contact: Contact, includeCheckImages = false): string => {
+    const buildStatementPrintHtml = (contact: Contact, includeCheckImages = false, autoPrint = false): string => {
         const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
         const escapeAttr = (value: string) =>
             String(value || '')
@@ -370,88 +414,142 @@ const Directory: React.FC = () => {
         const printableStatements = statementDateAscending ? [...stmts] : [...stmts].reverse();
 
         const rows = printableStatements.map(t => {
-            const invoice = t.invoiceId ? invoices.find(inv => inv.id === t.invoiceId) : null;
-            let detailsHtml = '';
-            let paymentDetailsHtml = '';
-
-            if (t.subTransactions && t.subTransactions.length > 0) {
-                const details = t.subTransactions.map((sub: any) => {
-                    const relatedCheck = sub.checkId ? checks.find(c => c.id === sub.checkId) : null;
-                    if (relatedCheck) {
-                        const checkImages = includeCheckImages ? getCheckImageUrls(relatedCheck) : [];
-                        const checkImagesHtml = checkImages.length > 0
-                            ? `
-                            <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px;">
-                                ${checkImages.map((src, idx) => `
-                                    <div style="border:1px solid #d9d9d9; border-radius:6px; padding:3px; background:#fff;">
-                                        <img src="${escapeAttr(src)}" alt="${tr('صورة الشيك', 'Check image')} ${idx + 1}" style="display:block; width:170px; max-width:42vw; height:104px; object-fit:cover; border-radius:4px;" />
-                                    </div>
-                                `).join('')}
-                            </div>`
-                            : '';
-                        return `
-                        <div style="margin-top: 5px; font-size: 10px; color: #444; background: #f0f0f0; padding: 4px; border-radius: 4px; display: inline-block; width: 100%;">
-                            <strong>${tr('شيك:', 'Check:')}</strong> ${relatedCheck.checkNumber} | <strong>${displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}</strong> | ${formatDate(relatedCheck.dueDate)} | <strong>${formatPrintAmount(relatedCheck.amount, relatedCheck.currency)}</strong>
-                            ${checkImagesHtml}
-                        </div>`;
-                    }
-
-                    const { contraAccountId, isReceipt } = getPaymentLineMeta(sub, contact);
-                    const account = accounts.find(a => a.id === contraAccountId);
-                    if (account && !invoice) {
-                        const label = isReceipt ? tr('تم القبض في:', 'Received in:') : tr('تم الصرف من:', 'Paid from:');
-                        const amountStr = sub.amount !== t.debit && sub.amount !== t.credit ? ` (${formatPrintAmount(sub.amount, t.currency)})` : '';
-                        return `<div style="margin-top: 5px; font-size: 10px; color: #555;"><strong>${label}</strong> ${displayAccountName(account)}${amountStr}</div>`;
-                    }
-                    return '';
-                }).join('');
-                paymentDetailsHtml = details;
-            }
-
-            if (invoice) {
-                const itemsRows = invoice.items.map(item => {
-                    const product = products.find(p => p.id === item.productId);
-                    return `
-                        <tr>
-                            <td style="padding: 2px 4px; border-bottom: 1px solid #eee;">${item.description || displayProductName(product)}</td>
-                            <td style="padding: 2px 4px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
-                            <td style="padding: 2px 4px; border-bottom: 1px solid #eee; text-align: center;">${formatPrintAmount(item.unitPrice, invoice.currency)}</td>
-                            <td style="padding: 2px 4px; border-bottom: 1px solid #eee; text-align: center;">${formatPrintAmount(item.total, invoice.currency)}</td>
-                        </tr>
-                    `;
-                }).join('');
-
-                detailsHtml = `
-                    <div style="margin-top: 8px; border-top: 1px dashed #ddd; padding-top: 4px;">
-                        <table style="width: 100%; font-size: 9px; color: #555;">
+            const entryPreview = buildStatementEntryPreview(t, contact, { includeCheckImages });
+            const statementCheckDetailsHtml = entryPreview.checkRows.length > 0
+                ? `
+                    <div class="statement-entry-detail statement-entry-detail--checks">
+                        <div class="statement-entry-detail-title">${tr('تفاصيل الشيكات', 'Check details')}</div>
+                        <table class="statement-detail-table statement-detail-table--checks">
+                            <colgroup>
+                                <col style="width:18%" />
+                                <col style="width:28%" />
+                                <col style="width:18%" />
+                                <col style="width:16%" />
+                                <col style="width:20%" />
+                            </colgroup>
                             <thead>
-                                <tr style="background: #f9f9f9;">
-                                    <th style="text-align: right; padding: 2px;">${tr('الصنف', 'Item')}</th>
-                                    <th style="padding: 2px;">${tr('الكمية', 'Qty')}</th>
-                                    <th style="padding: 2px;">${tr('السعر', 'Price')}</th>
-                                    <th style="padding: 2px;">${tr('الإجمالي', 'Total')}</th>
+                                <tr>
+                                    <th>${tr('رقم الشيك', 'Check #')}</th>
+                                    <th>${tr('البنك', 'Bank')}</th>
+                                    <th>${tr('الحساب', 'Account')}</th>
+                                    <th>${tr('الاستحقاق', 'Due')}</th>
+                                    <th>${tr('المبلغ', 'Amount')}</th>
                                 </tr>
                             </thead>
-                            <tbody>${itemsRows}</tbody>
+                            <tbody>
+                                ${entryPreview.checkRows.map(checkRow => `
+                                    <tr>
+                                        <td>${escapeHtml(checkRow.checkNumber)}</td>
+                                        <td>${escapeHtml(checkRow.bankName)}</td>
+                                        <td>${escapeHtml(checkRow.accountNumber || '-')}</td>
+                                        <td class="statement-number-cell">${escapeHtml(checkRow.dueDate)}</td>
+                                        <td class="statement-number-cell">${escapeHtml(formatPrintAmount(checkRow.amount, checkRow.currency))}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
                         </table>
-                        ${(printExpiryDate && invoice.dueDate) ? `<div style="font-size:10px; color:#777; margin-top:4px;"><strong>${tr('تاريخ الاستحقاق', 'Expiry Date')}:</strong> ${formatDate(invoice.dueDate)}</div>` : ''}
+                        ${entryPreview.checkRows.some(checkRow => checkRow.imageUrls.length > 0)
+                            ? `
+                                <div class="statement-check-gallery">
+                                    ${entryPreview.checkRows.map((checkRow, checkIndex) => checkRow.imageUrls.map((src, imageIndex) => `
+                                        <div class="statement-check-image-frame">
+                                            <img src="${escapeAttr(src)}" alt="${escapeAttr(`${tr('صورة الشيك', 'Check image')} ${checkIndex + 1}-${imageIndex + 1}`)}" class="statement-check-image" />
+                                        </div>
+                                    `).join('')).join('')}
+                                </div>
+                            `
+                            : ''
+                        }
                     </div>
-                `;
-            }
+                `
+                : '';
+
+            const statementPaymentDetailsHtml = entryPreview.paymentRows.length > 0
+                ? `
+                    <div class="statement-entry-detail statement-entry-detail--payments">
+                        <div class="statement-entry-detail-title">${tr('تفاصيل السند', 'Voucher details')}</div>
+                        <table class="statement-detail-table statement-detail-table--payments">
+                            <colgroup>
+                                <col style="width:28%" />
+                                <col style="width:48%" />
+                                <col style="width:24%" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>${tr('الحركة', 'Movement')}</th>
+                                    <th>${tr('الحساب', 'Account')}</th>
+                                    <th>${tr('المبلغ', 'Amount')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${entryPreview.paymentRows.map(paymentRow => `
+                                    <tr>
+                                        <td>${escapeHtml(paymentRow.label)}</td>
+                                        <td>${escapeHtml(paymentRow.accountName)}</td>
+                                        <td class="statement-number-cell">${paymentRow.amount === null ? '-' : escapeHtml(formatPrintAmount(paymentRow.amount, paymentRow.currency))}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `
+                : '';
+
+            const statementInvoiceDetailsHtml = entryPreview.invoice
+                ? `
+                    <div class="statement-entry-detail statement-entry-detail--invoice">
+                        <div class="statement-entry-detail-title">${tr('تفاصيل الفاتورة', 'Invoice details')}</div>
+                        <table class="statement-detail-table statement-detail-table--invoice">
+                            <colgroup>
+                                <col style="width:52%" />
+                                <col style="width:12%" />
+                                <col style="width:16%" />
+                                <col style="width:20%" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>${tr('الصنف', 'Item')}</th>
+                                    <th>${tr('الكمية', 'Qty')}</th>
+                                    <th>${tr('السعر', 'Price')}</th>
+                                    <th>${tr('الإجمالي', 'Total')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${entryPreview.invoice.items.map(item => {
+                                    const product = products.find(p => p.id === item.productId);
+                                    return `
+                                        <tr>
+                                            <td>${escapeHtml(item.description || displayProductName(product))}</td>
+                                            <td class="statement-number-cell">${escapeHtml(formatPrintNumber(item.quantity))}</td>
+                                            <td class="statement-number-cell">${escapeHtml(formatPrintAmount(item.unitPrice, entryPreview.invoice?.currency))}</td>
+                                            <td class="statement-number-cell">${escapeHtml(formatPrintAmount(item.total, entryPreview.invoice?.currency))}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                        ${(printExpiryDate && entryPreview.invoice.dueDate)
+                            ? `<div class="statement-entry-detail-footer"><strong>${tr('تاريخ الاستحقاق', 'Expiry Date')}:</strong> <span class="statement-number-cell">${escapeHtml(formatDate(entryPreview.invoice.dueDate) || '-')}</span></div>`
+                            : ''
+                        }
+                    </div>
+                `
+                : '';
 
             return `
-            <tr>
-                <td style="text-align: center; vertical-align: top;">${formatDate(t.date)}</td>
-                ${!hideVoucherColumnInStatement ? `<td style="text-align: center; vertical-align: top;">${t.voucherId || '-'}</td>` : ''}
-                <td style="padding: 10px; vertical-align: top;">
-                    <div style="font-weight: bold;">${t.description}</div>
-                    ${paymentDetailsHtml}
-                    ${detailsHtml}
-                </td>
-                <td style="text-align:center; vertical-align: top;">${t.debit > 0 ? formatPrintAmount(t.debit, t.currency) : '-'}</td>
-                <td style="text-align:center; vertical-align: top;">${t.credit > 0 ? formatPrintAmount(t.credit, t.currency) : '-'}</td>
-                <td style="text-align:center; vertical-align: top; background:#f9f9f9;">${formatPrintAmount(t.runningBalance, t.currency)}</td>
-            </tr>
+                <tr>
+                    <td class="statement-main-date statement-number-cell">${escapeHtml(formatDate(t.date) || '-')}</td>
+                    ${!hideVoucherColumnInStatement ? `<td class="statement-main-voucher statement-number-cell">${escapeHtml(t.voucherId || '-')}</td>` : ''}
+                    <td class="statement-main-description">
+                        <div class="statement-main-description-text">${escapeHtml(t.description || '-')}</div>
+                        ${statementPaymentDetailsHtml}
+                        ${statementCheckDetailsHtml}
+                        ${statementInvoiceDetailsHtml}
+                    </td>
+                    <td class="statement-main-amount statement-number-cell">${t.debit > 0 ? escapeHtml(formatPrintAmount(t.debit, t.currency)) : '-'}</td>
+                    <td class="statement-main-amount statement-number-cell">${t.credit > 0 ? escapeHtml(formatPrintAmount(t.credit, t.currency)) : '-'}</td>
+                    <td class="statement-main-balance statement-number-cell">${escapeHtml(formatPrintAmount(t.runningBalance, t.currency))}</td>
+                </tr>
             `;
         }).join('');
 
@@ -468,13 +566,21 @@ const Directory: React.FC = () => {
   <title>${escapeHtml(statementTitle)}</title>
   <style>
     :root { --statement-body-pad: ${basePadding}px; }
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=block');
     * { box-sizing: border-box; }
     body {
-      font-family: 'Tajawal', sans-serif;
+      font-family: 'Cairo', 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
       margin: 0;
       padding: var(--statement-body-pad);
       background: #f8fafc;
       color: #111827;
+      line-height: 1.5;
+      letter-spacing: 0;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    table, th, td, h1, p, div, span, strong {
+      letter-spacing: 0 !important;
     }
     .statement-actions {
       position: sticky;
@@ -527,8 +633,175 @@ const Directory: React.FC = () => {
     }
     .statement-table-wrap {
       width: 100%;
-      overflow-x: auto;
+      overflow-x: hidden;
       margin-top: 10px;
+    }
+    .statement-number-cell {
+      direction: ltr;
+      unicode-bidi: embed;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .statement-main-table {
+      table-layout: fixed;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .statement-main-table th,
+    .statement-main-table td {
+      font-size: 11px;
+      line-height: 1.5;
+      padding: 7px 6px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      vertical-align: top;
+    }
+    .statement-main-table thead th {
+      background: #eef2ff;
+      color: #1e293b;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .statement-main-date,
+    .statement-main-voucher,
+    .statement-main-amount,
+    .statement-main-balance {
+      text-align: center;
+      font-size: 10px;
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+    .statement-main-date {
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+    .statement-main-description {
+      text-align: ${isEnglish ? 'left' : 'right'};
+    }
+    .statement-main-description-text {
+      font-weight: 800;
+      color: #0f172a;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+    .statement-main-balance {
+      background: #f8fafc;
+      font-weight: 800;
+    }
+    .statement-entry-detail {
+      margin-top: 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .statement-entry-detail-title {
+      padding: 7px 10px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #334155;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .statement-entry-detail--checks .statement-entry-detail-title {
+      background: #fff7ed;
+      color: #9a3412;
+      border-bottom-color: #fed7aa;
+    }
+    .statement-entry-detail--payments .statement-entry-detail-title {
+      background: #f8fafc;
+      color: #334155;
+    }
+    .statement-entry-detail--invoice .statement-entry-detail-title {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-bottom-color: #bfdbfe;
+    }
+    .statement-detail-table {
+      width: 100%;
+      min-width: 0;
+      table-layout: fixed;
+      border-collapse: collapse;
+    }
+    .statement-detail-table th,
+    .statement-detail-table td {
+      border: 1px solid #e2e8f0;
+      padding: 4px 5px;
+      font-size: 9px;
+      line-height: 1.35;
+      text-align: ${isEnglish ? 'left' : 'right'};
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .statement-detail-table thead th {
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 800;
+    }
+    .statement-entry-detail--checks .statement-detail-table thead th {
+      background: #fff7ed;
+      color: #9a3412;
+    }
+    .statement-entry-detail--invoice .statement-detail-table thead th {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .statement-detail-table th:not(:first-child),
+    .statement-detail-table td:not(:first-child) {
+      text-align: center;
+    }
+    .statement-entry-detail-footer {
+      padding: 7px 10px;
+      font-size: 10px;
+      color: #475569;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+    }
+    .statement-check-gallery {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 10px 10px;
+      background: #fff;
+      border-top: 1px solid #fed7aa;
+    }
+    .statement-check-image-frame {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 4px;
+      background: #fff;
+    }
+    .statement-check-image {
+      display: block;
+      width: 132px;
+      max-width: 28vw;
+      height: 82px;
+      object-fit: cover;
+      border-radius: 7px;
+    }
+    .statement-closing-summary {
+      width: 100%;
+      margin-top: 12px;
+      text-align: left;
+    }
+    .statement-closing-summary-label {
+      display: block;
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.4;
+    }
+    .statement-closing-summary-value {
+      display: inline-block;
+      margin-top: 2px;
+      color: #e11d48;
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1.2;
     }
     table {
       width: 100%;
@@ -557,6 +830,36 @@ const Directory: React.FC = () => {
       .statement-sheet { border-radius: 12px; padding: 10px; }
       .statement-title { font-size: 24px; }
       .statement-sub { font-size: 14px; }
+      .statement-main-table th,
+      .statement-main-table td {
+        font-size: 10px;
+        padding: 6px 4px;
+      }
+      .statement-main-date,
+      .statement-main-voucher,
+      .statement-main-amount,
+      .statement-main-balance {
+        font-size: 9px;
+      }
+      .statement-main-description-text {
+        font-size: 10px;
+      }
+      .statement-detail-table th,
+      .statement-detail-table td {
+        font-size: 8px;
+        padding: 4px;
+      }
+      .statement-closing-summary-label {
+        font-size: 9px;
+      }
+      .statement-closing-summary-value {
+        font-size: 16px;
+      }
+      .statement-check-image {
+        width: 108px;
+        max-width: 24vw;
+        height: 68px;
+      }
     }
     @media print {
       body {
@@ -582,6 +885,7 @@ const Directory: React.FC = () => {
     class="statement-actions"
     id="statement-actions"
     data-share-summary="${escapeAttr(shareSummary)}"
+    data-auto-print="${autoPrint ? 'true' : 'false'}"
     data-copy-success="${escapeAttr(tr('تم نسخ ملخص كشف الحساب. يمكنك مشاركته الآن.', 'Statement summary copied. You can share it now.'))}"
     data-share-failed="${escapeAttr(tr('تعذر فتح المشاركة. سيتم فتح الطباعة بدلًا من ذلك.', 'Could not open share sheet. Opening print instead.'))}"
   >
@@ -594,7 +898,15 @@ const Directory: React.FC = () => {
     <p class="statement-sub">${escapeHtml(statementPeriodText)}</p>
     ${printPersonalData ? `<p class="statement-sub">${tr('الهاتف', 'Phone')}: ${escapeHtml(contact.phone || '-')} ${contact.address ? `| ${tr('العنوان', 'Address')}: ${escapeHtml(contact.address)}` : ''}</p>` : ''}
     <div class="statement-table-wrap">
-      <table>
+      <table class="statement-main-table">
+        <colgroup>
+          <col style="width:${hideVoucherColumnInStatement ? '14%' : '12%'}" />
+          ${!hideVoucherColumnInStatement ? '<col style="width:10%" />' : ''}
+          <col style="width:${hideVoucherColumnInStatement ? '47%' : '40%'}" />
+          <col style="width:${hideVoucherColumnInStatement ? '10%' : '10%'}" />
+          <col style="width:${hideVoucherColumnInStatement ? '10%' : '10%'}" />
+          <col style="width:${hideVoucherColumnInStatement ? '19%' : '18%'}" />
+        </colgroup>
         <thead>
           <tr>
             <th>${tr('التاريخ', 'Date')}</th>
@@ -607,19 +919,27 @@ const Directory: React.FC = () => {
         </thead>
         <tbody>
           <tr>
-            <td>-</td>
-            ${!hideVoucherColumnInStatement ? '<td>-</td>' : ''}
-            <td>${tr('الرصيد الافتتاحي', 'Opening balance')}</td>
-            <td>-</td>
-            <td>-</td>
-            <td>${formatPrintAmount(openingBalance, baseCurrency)}</td>
+            <td class="statement-main-date statement-number-cell">-</td>
+            ${!hideVoucherColumnInStatement ? '<td class="statement-main-voucher statement-number-cell">-</td>' : ''}
+            <td class="statement-main-description"><div class="statement-main-description-text">${tr('الرصيد الافتتاحي', 'Opening balance')}</div></td>
+            <td class="statement-main-amount statement-number-cell">-</td>
+            <td class="statement-main-amount statement-number-cell">-</td>
+            <td class="statement-main-balance statement-number-cell">${formatPrintAmount(openingBalance, baseCurrency)}</td>
           </tr>
           ${rows}
         </tbody>
       </table>
     </div>
     ${statementFooterNote ? `<p style="margin-top:10px; color:#555;">${statementFooterNote}</p>` : ''}
-    ${(companySettings.showAccountBalanceUnderVoucher ?? false) ? `<p style="margin-top:8px; font-weight:700;">${tr('الرصيد الختامي', 'Closing Balance')}: ${formatPrintAmount(closingBalance, baseCurrency)}</p>` : ''}
+    ${(companySettings.showAccountBalanceUnderVoucher ?? false)
+      ? `
+        <div class="statement-closing-summary">
+          <span class="statement-closing-summary-label">${tr('الرصيد الختامي', 'Closing Balance')}</span>
+          <span class="statement-closing-summary-value statement-number-cell">${formatPrintAmount(closingBalance, baseCurrency)}</span>
+        </div>
+      `
+      : ''
+    }
   </div>
   <script>
     (() => {
@@ -628,8 +948,22 @@ const Directory: React.FC = () => {
       const shareBtn = document.getElementById('statement-share-btn');
       const actions = document.getElementById('statement-actions');
       const shareSummary = actions?.getAttribute('data-share-summary') || document.title;
+      const shouldAutoPrint = actions?.getAttribute('data-auto-print') === 'true';
       const copySuccess = actions?.getAttribute('data-copy-success') || 'Copied';
       const shareFailed = actions?.getAttribute('data-share-failed') || 'Share failed';
+      const waitForStatementFonts = async () => {
+        try {
+          if (document.fonts?.ready) {
+            await document.fonts.ready;
+          }
+        } catch (error) {
+          // Ignore font loading failures and continue with print fallback.
+        }
+      };
+      const triggerPrint = async () => {
+        await waitForStatementFonts();
+        window.print();
+      };
 
       closeBtn?.addEventListener('click', () => {
         window.close();
@@ -639,7 +973,9 @@ const Directory: React.FC = () => {
         }
       });
 
-      printBtn?.addEventListener('click', () => window.print());
+      printBtn?.addEventListener('click', () => {
+        void triggerPrint();
+      });
 
       shareBtn?.addEventListener('click', async () => {
         try {
@@ -656,8 +992,14 @@ const Directory: React.FC = () => {
           // Ignore and fallback to print.
         }
         alert(shareFailed);
-        window.print();
+        await triggerPrint();
       });
+
+      if (shouldAutoPrint) {
+        window.setTimeout(() => {
+          void triggerPrint();
+        }, 120);
+      }
     })();
     </script>
 </body>
@@ -924,11 +1266,7 @@ const Directory: React.FC = () => {
             alert(tr('تعذر فتح نافذة كشف الحساب.', 'Could not open statement window.'));
             return;
         }
-        targetWindow.document.open();
-        targetWindow.document.write(`<!doctype html><html><head><title>${tr('جاري تجهيز كشف الحساب', 'Preparing statement')}</title></head><body style="font-family:Arial,sans-serif;padding:24px;">${tr('جاري تجهيز كشف الحساب للطباعة...', 'Preparing statement for printing...')}</body></html>`);
-        targetWindow.document.close();
-        await settleStatementSnapshot();
-        const html = buildStatementPrintHtml(contact, printCheckImagesInStatement);
+        const html = buildStatementPrintHtml(contact, printCheckImagesInStatement, true);
         targetWindow.document.open();
         targetWindow.document.write(html);
         targetWindow.document.close();
@@ -1451,7 +1789,7 @@ const Directory: React.FC = () => {
                                 <div className="bg-slate-50 p-6 border-b border-gray-200 flex justify-between items-center gap-3">
                                     <div>
                                         <h2 className="text-xl font-black text-gray-800">{displayContactName(contact)}</h2>
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
+                                        <p className={`text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
                                         <DocumentActions
@@ -1479,117 +1817,182 @@ const Directory: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white border-b border-gray-100">
+                                <div className="p-3 sm:p-4 grid grid-cols-2 gap-2 sm:gap-3 bg-white border-b border-gray-100">
                                     <EnglishDateInput
                                         value={stmtStartDate}
                                         onChange={setStmtStartDate}
-                                        className={`w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
+                                        wrapperClassName="min-w-0"
+                                        className={`w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 pr-2.5 rounded-xl text-[11px] sm:text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
                                         aria-label={tr('من تاريخ', 'From date')}
                                     />
                                     <EnglishDateInput
                                         value={stmtEndDate}
                                         onChange={setStmtEndDate}
-                                        className={`w-full bg-gray-50 border border-gray-200 p-2.5 rounded-xl text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
+                                        wrapperClassName="min-w-0"
+                                        className={`w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 pr-2.5 rounded-xl text-[11px] sm:text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
                                         aria-label={tr('إلى تاريخ', 'To date')}
                                     />
                                 </div>
 
-                                <div ref={statementContentRef} className="flex-1 overflow-x-auto p-4">
-                                    <table className="w-full min-w-max md:min-w-[680px] text-sm border-collapse" dir={isEnglish ? 'ltr' : 'rtl'}>
+                                <div ref={statementContentRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4">
+                                    <table className="w-full min-w-0 max-w-full text-sm border-collapse table-fixed" dir={isEnglish ? 'ltr' : 'rtl'}>
+                                        <colgroup>
+                                            <col style={{ width: '17%' }} />
+                                            <col style={{ width: '42%' }} />
+                                            <col style={{ width: '11%' }} />
+                                            <col style={{ width: '11%' }} />
+                                            <col style={{ width: '19%' }} />
+                                        </colgroup>
                                         <thead className="bg-slate-800 text-white rounded-t-xl">
                                             <tr>
-                                                <th className={`p-3 ${isEnglish ? 'text-left' : 'text-right'} first:rounded-tr-xl text-xs sm:text-[10px] font-black uppercase tracking-wider`}>{tr('التاريخ', 'Date')}</th>
-                                                <th className={`p-3 ${isEnglish ? 'text-left' : 'text-right'} text-xs sm:text-[10px] font-black uppercase tracking-wider`}>{tr('البيان', 'Description')}</th>
-                                                <th className="p-3 text-center text-xs sm:text-[10px] font-black uppercase tracking-wider bg-white/10">{tr('مدين', 'Debit')}</th>
-                                                <th className="p-3 text-center text-xs sm:text-[10px] font-black uppercase tracking-wider bg-white/10">{tr('دائن', 'Credit')}</th>
-                                                <th className="p-3 text-center last:rounded-tl-xl text-xs sm:text-[10px] font-black uppercase tracking-wider">{tr('الرصيد', 'Balance')}</th>
+                                                <th className={`px-1.5 sm:px-2 py-3 whitespace-nowrap ${isEnglish ? 'text-left uppercase tracking-wider' : 'text-right tracking-normal leading-relaxed'} first:rounded-tr-xl text-[9px] sm:text-[10px] font-black`}>{tr('التاريخ', 'Date')}</th>
+                                                <th className={`px-3 py-3 ${isEnglish ? 'text-left uppercase tracking-wider' : 'text-right tracking-normal leading-relaxed'} text-[10px] sm:text-[10px] font-black`}>{tr('البيان', 'Description')}</th>
+                                                <th className={`px-2 py-3 text-center text-[10px] sm:text-[10px] font-black bg-white/10 ${isEnglish ? 'uppercase tracking-wider' : 'tracking-normal leading-relaxed'}`}>{tr('مدين', 'Debit')}</th>
+                                                <th className={`px-2 py-3 text-center text-[10px] sm:text-[10px] font-black bg-white/10 ${isEnglish ? 'uppercase tracking-wider' : 'tracking-normal leading-relaxed'}`}>{tr('دائن', 'Credit')}</th>
+                                                <th className={`px-2 py-3 text-center last:rounded-tl-xl text-[10px] sm:text-[10px] font-black ${isEnglish ? 'uppercase tracking-wider' : 'tracking-normal leading-relaxed'}`}>{tr('الرصيد', 'Balance')}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                             <tr className="bg-amber-50/50 font-bold">
-                                                <td className="p-3 text-center text-xs sm:text-[10px]">-</td>
-                                                <td className="p-3 text-xs sm:text-[10px]" dir={isEnglish ? 'ltr' : 'rtl'}>{tr('الرصيد الافتتاحي', 'Opening balance')}</td>
-                                                <td className="p-3 text-center text-xs sm:text-[10px]">-</td>
-                                                <td className="p-3 text-center text-xs sm:text-[10px]">-</td>
-                                                <td className="p-3 text-center font-black text-xs sm:text-[10px] dir-ltr">{openingBalance.toLocaleString()}</td>
+                                                <td className="px-1.5 sm:px-2 py-3 text-center text-[9px] sm:text-[10px] dir-ltr whitespace-nowrap">-</td>
+                                                <td className="px-3 py-3 text-[11px] sm:text-[10px] leading-6" dir={isEnglish ? 'ltr' : 'rtl'}>{tr('الرصيد الافتتاحي', 'Opening balance')}</td>
+                                                <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] dir-ltr">-</td>
+                                                <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] dir-ltr">-</td>
+                                                <td className="px-2 py-3 text-center font-black text-[10px] sm:text-[10px] dir-ltr">{openingBalance.toLocaleString()}</td>
                                             </tr>
                                             {stmts.map(t => {
-                                                const invoice = t.invoiceId ? invoices.find(inv => inv.id === t.invoiceId) : null;
-
-                                                // Helper to extract Checks and Payment Methods from subTransactions
-                                                const subTrans = t.subTransactions || [t];
-                                                const checksInGroup = subTrans.map((sub: any) => sub.checkId ? checks.find(c => c.id === sub.checkId) : null).filter((c: any) => c);
-
-                                                // Determine Non-Check Payment Methods (Cash/Bank)
-                                                const cashMethods = subTrans.filter((sub: any) => !sub.checkId).map((sub: any) => {
-                                                    const { contraAccountId, isReceipt } = getPaymentLineMeta(sub, contact);
-                                                    const account = accounts.find(a => a.id === contraAccountId);
-                                                    return { account, amount: sub.amount, isReceipt };
-                                                }).filter((m: any) => m.account);
+                                                const entryPreview = buildStatementEntryPreview(t, contact, { includeCheckImages: printCheckImagesInStatement });
+                                                const invoiceRows = entryPreview.invoice?.items || [];
 
                                                 return (
                                                     <tr key={t.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="p-3 text-xs sm:text-[10px] font-bold text-gray-500 whitespace-nowrap align-top">{formatDate(t.date)}</td>
-                                                        <td className="p-3 text-xs font-bold text-gray-700 align-top" dir={isEnglish ? 'ltr' : 'rtl'}>
-                                                            <div className="break-words">{t.description}</div>
+                                                        <td className="px-1.5 sm:px-2 py-3 text-[9px] sm:text-[10px] font-bold text-gray-500 whitespace-nowrap align-top dir-ltr">{formatDate(t.date) || '-'}</td>
+                                                        <td className="px-3 py-3 text-[11px] sm:text-[10px] font-bold text-gray-700 align-top" dir={isEnglish ? 'ltr' : 'rtl'}>
+                                                            <div className="break-words leading-6">{t.description}</div>
 
-                                                            {/* Check Details */}
-                                                            {checksInGroup.length > 0 && (
-                                                                <div className="mt-2 space-y-2">
-                                                                    {checksInGroup.map((relatedCheck: any, idx: number) => (
-                                                                        <div key={idx} className="p-2 bg-gray-50 border border-gray-100 rounded-lg text-xs text-gray-500 block w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
-                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                                                                                <div className="break-words"><span className="font-black text-gray-700">{tr('رقم الشيك:', 'Check #:')}</span> {relatedCheck.checkNumber}</div>
-                                                                                <div className="break-words"><span className="font-black text-gray-700">{tr('البنك:', 'Bank:')}</span> {displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}</div>
-                                                                                {relatedCheck.accountNumber && <div className="break-words"><span className="font-black text-gray-700">{tr('الحساب:', 'Account:')}</span> {relatedCheck.accountNumber}</div>}
-                                                                                <div className="break-words"><span className="font-black text-gray-700">{tr('الاستحقاق:', 'Due:')}</span> {formatDate(relatedCheck.dueDate)}</div>
-                                                                                <div className="col-span-full border-t border-gray-200 mt-1.5 pt-1.5 flex justify-between">
-                                                                                    <span><span className="font-black text-emerald-600">{tr('المبلغ:', 'Amount:')}</span> <span className="dir-ltr font-bold text-gray-800">{relatedCheck.amount.toLocaleString()}</span></span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
+                                                            {entryPreview.paymentRows.length > 0 && (
+                                                                <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70">
+                                                                    <div className={`px-2.5 py-1.5 text-[10px] font-black text-slate-700 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{tr('تفاصيل السند', 'Voucher details')}</div>
+                                                                    <table className="w-full table-fixed border-collapse text-[9px]">
+                                                                        <colgroup>
+                                                                            <col style={{ width: '28%' }} />
+                                                                            <col style={{ width: '48%' }} />
+                                                                            <col style={{ width: '24%' }} />
+                                                                        </colgroup>
+                                                                        <thead className="bg-slate-100 text-slate-600">
+                                                                            <tr>
+                                                                                <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحركة', 'Movement')}</th>
+                                                                                <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
+                                                                                <th className={`border border-slate-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="text-slate-600">
+                                                                            {entryPreview.paymentRows.map(paymentRow => (
+                                                                                <tr key={paymentRow.id}>
+                                                                                    <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{paymentRow.label}</td>
+                                                                                    <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{paymentRow.accountName}</td>
+                                                                                    <td className="border border-slate-200 px-2 py-1.5 text-center dir-ltr font-semibold">{paymentRow.amount === null ? '-' : paymentRow.amount.toLocaleString()}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
                                                                 </div>
                                                             )}
 
-                                                            {/* Cash/Bank Details */}
-                                                            {cashMethods.length > 0 && !invoice && (
-                                                                <div className="mt-2 text-xs text-gray-500 font-bold space-y-1.5" dir={isEnglish ? 'ltr' : 'rtl'}>
-                                                                    {cashMethods.map((m: any, idx: number) => (
-                                                                        <div key={idx} className="break-words">
-                                                                            <span className="text-gray-400">{m.isReceipt ? tr('تم القبض في:', 'Received in:') : tr('تم الصرف من:', 'Paid from:')}</span> <span className="text-gray-700">{displayAccountName(m.account)}</span>
-                                                                            {(m.amount !== t.debit && m.amount !== t.credit) && <span className="text-gray-400 font-normal"> ({m.amount.toLocaleString()})</span>}
-                                                                        </div>
-                                                                    ))}
+                                                            {entryPreview.checkRows.length > 0 && (
+                                                                <div className="mt-2 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60">
+                                                                    <div className={`px-2.5 py-1.5 text-[10px] font-black text-amber-700 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{tr('تفاصيل الشيكات', 'Check details')}</div>
+                                                                    <table className="w-full table-fixed border-collapse text-[9px]">
+                                                                        <colgroup>
+                                                                            <col style={{ width: '18%' }} />
+                                                                            <col style={{ width: '28%' }} />
+                                                                            <col style={{ width: '18%' }} />
+                                                                            <col style={{ width: '16%' }} />
+                                                                            <col style={{ width: '20%' }} />
+                                                                        </colgroup>
+                                                                        <thead className="bg-amber-100/70 text-amber-800">
+                                                                            <tr>
+                                                                                <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('رقم الشيك', 'Check #')}</th>
+                                                                                <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('البنك', 'Bank')}</th>
+                                                                                <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
+                                                                                <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الاستحقاق', 'Due')}</th>
+                                                                                <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="text-amber-900/80">
+                                                                            {entryPreview.checkRows.map(checkRow => (
+                                                                                <React.Fragment key={checkRow.id}>
+                                                                                    <tr>
+                                                                                        <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{checkRow.checkNumber}</td>
+                                                                                        <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{checkRow.bankName}</td>
+                                                                                        <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{checkRow.accountNumber || '-'}</td>
+                                                                                        <td className="border border-amber-200 px-2 py-1.5 text-center dir-ltr">{checkRow.dueDate}</td>
+                                                                                        <td className="border border-amber-200 px-2 py-1.5 text-center dir-ltr font-semibold">{checkRow.amount.toLocaleString()}</td>
+                                                                                    </tr>
+                                                                                    {checkRow.imageUrls.length > 0 && (
+                                                                                        <tr>
+                                                                                            <td colSpan={5} className="border border-amber-200 px-2 py-2">
+                                                                                                <div className="flex flex-wrap gap-2">
+                                                                                                    {checkRow.imageUrls.map((src, imageIndex) => (
+                                                                                                        <div key={`${checkRow.id}-image-${imageIndex}`} className="rounded-lg border border-amber-200 bg-white p-1">
+                                                                                                            <img src={src} alt={`${tr('صورة الشيك', 'Check image')} ${imageIndex + 1}`} className="h-20 w-28 sm:w-32 rounded-md object-cover" />
+                                                                                                        </div>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    )}
+                                                                                </React.Fragment>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
                                                                 </div>
                                                             )}
 
-                                                            {/* Invoice Items */}
-                                                            {invoice && (
-                                                                <div className="mt-2 text-xs text-gray-500" dir={isEnglish ? 'ltr' : 'rtl'}>
-                                                                    <div className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 border-b border-dashed border-gray-200 pb-1.5 mb-1.5 font-black bg-gray-50/50 p-1.5 rounded-t-md">
-                                                                        <div className="break-words">{tr('الصنف', 'Item')}</div>
-                                                                        <div className="text-center">{tr('الكمية', 'Qty')}</div>
-                                                                        <div className="text-center">{tr('السعر', 'Price')}</div>
-                                                                        <div className="text-center">{tr('الإجمالي', 'Total')}</div>
-                                                                    </div>
-                                                                    {invoice.items.map((item, idx) => {
-                                                                        const product = products.find(p => p.id === item.productId);
-                                                                        return (
-                                                                            <div key={idx} className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 py-1.5 px-1 hover:bg-gray-50 rounded-sm">
-                                                                                <div className="break-words">{item.description || displayProductName(product)}</div>
-                                                                                <div className="text-center">{item.quantity}</div>
-                                                                                <div className="text-center">{item.unitPrice.toLocaleString()}</div>
-                                                                                <div className="text-center">{item.total.toLocaleString()}</div>
-                                                                            </div>
-                                                                        );
-                                                                    })}
+                                                            {entryPreview.invoice && (
+                                                                <div className="mt-2 overflow-hidden rounded-xl border border-blue-200 bg-blue-50/60">
+                                                                    <div className={`px-2.5 py-1.5 text-[10px] font-black text-blue-700 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{tr('تفاصيل الفاتورة', 'Invoice details')}</div>
+                                                                    <table className="w-full table-fixed border-collapse text-[9px]">
+                                                                        <colgroup>
+                                                                            <col style={{ width: '52%' }} />
+                                                                            <col style={{ width: '12%' }} />
+                                                                            <col style={{ width: '16%' }} />
+                                                                            <col style={{ width: '20%' }} />
+                                                                        </colgroup>
+                                                                        <thead className="bg-blue-100/70 text-blue-800">
+                                                                            <tr>
+                                                                                <th className={`border border-blue-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الصنف', 'Item')}</th>
+                                                                                <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الكمية', 'Qty')}</th>
+                                                                                <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('السعر', 'Price')}</th>
+                                                                                <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الإجمالي', 'Total')}</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="text-slate-700">
+                                                                            {invoiceRows.map((item, idx) => {
+                                                                                const product = products.find(p => p.id === item.productId);
+                                                                                return (
+                                                                                    <tr key={item.id || `${t.id}-invoice-item-${idx}`}>
+                                                                                        <td className={`border border-blue-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{item.description || displayProductName(product)}</td>
+                                                                                        <td className="border border-blue-200 px-2 py-1.5 text-center dir-ltr">{item.quantity.toLocaleString()}</td>
+                                                                                        <td className="border border-blue-200 px-2 py-1.5 text-center dir-ltr">{item.unitPrice.toLocaleString()}</td>
+                                                                                        <td className="border border-blue-200 px-2 py-1.5 text-center dir-ltr font-semibold">{item.total.toLocaleString()}</td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
+                                                                        </tbody>
+                                                                    </table>
+                                                                    {printExpiryDate && entryPreview.invoice.dueDate && (
+                                                                        <div className={`border-t border-blue-200 bg-white/70 px-2.5 py-1.5 text-[10px] text-slate-600 ${isEnglish ? 'text-left' : 'text-right'}`}>
+                                                                            <span className="font-black">{tr('تاريخ الاستحقاق', 'Expiry Date')}:</span>{' '}
+                                                                            <span className="dir-ltr">{formatDate(entryPreview.invoice.dueDate)}</span>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </td>
-                                                        <td className="p-3 text-center text-emerald-600 font-bold text-xs sm:text-[10px] dir-ltr bg-emerald-50/30 align-top">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
-                                                        <td className="p-3 text-center text-rose-600 font-bold text-xs sm:text-[10px] dir-ltr bg-rose-50/30 align-top">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
-                                                        <td className="p-3 text-center font-black text-xs sm:text-[10px] dir-ltr align-top">{t.runningBalance.toLocaleString()}</td>
+                                                        <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] text-emerald-600 font-bold dir-ltr bg-emerald-50/30 align-top">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
+                                                        <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] text-rose-600 font-bold dir-ltr bg-rose-50/30 align-top">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                                        <td className="px-2 py-3 text-center font-black text-[10px] sm:text-[10px] dir-ltr align-top">{t.runningBalance.toLocaleString()}</td>
                                                     </tr>
                                                 );
                                             })}
@@ -1597,7 +2000,7 @@ const Directory: React.FC = () => {
                                     </table>
                                 </div>
 
-                                <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center gap-3">
+                                <div className="p-4 border-t border-gray-200 bg-gray-50 flex flex-col items-stretch gap-3">
                                     <div data-document-actions className="flex items-center gap-2 flex-wrap">
                                         <label className="inline-flex items-center gap-2 bg-white border border-gray-200 px-3 py-2 rounded-xl text-[11px] font-bold text-gray-600 cursor-pointer hover:bg-gray-100 transition-colors">
                                             <input
@@ -1609,8 +2012,8 @@ const Directory: React.FC = () => {
                                             <span>{tr('طباعة صور الشيكات مع الكشف', 'Print check images with statement')}</span>
                                         </label>
                                     </div>
-                                    <div className="text-left">
-                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{tr('الرصيد الختامي', 'Closing Balance')}</span>
+                                    <div className="w-full text-left">
+                                        <span className={`text-[10px] font-black text-gray-400 block ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('الرصيد الختامي', 'Closing Balance')}</span>
                                         <span className={`text-xl font-black dir-ltr ${closingBalance > 0 ? 'text-rose-600' : closingBalance < 0 ? 'text-emerald-600' : 'text-slate-800'}`}>{closingBalance.toLocaleString()}</span>
                                     </div>
                                 </div>

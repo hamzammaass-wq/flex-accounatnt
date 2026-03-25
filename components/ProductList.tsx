@@ -16,7 +16,7 @@ import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
 import { printProductBarcodeLabel } from '../utils/barcodeLabelPrint';
 import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayProductName, getDisplayUnitName } from '../utils/displayNames';
-import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
+import { buildNextItemCode, normalizeItemCode, resolveProductItemCodeMode } from '../utils/itemCode';
 import InventoryPricingManager from './InventoryPricingManager';
 import { openDrilldown } from '../utils/drilldown';
 import { getProductKind, isServiceProduct } from '../utils/productKind';
@@ -202,7 +202,7 @@ const ProductList: React.FC = () => {
       setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
       setBarcode(product.barcode || '');
       setItemCode(product.itemCode || '');
-      setItemCodeMode(product.itemCode ? 'MANUAL' : 'AUTO');
+      setItemCodeMode(resolveProductItemCodeMode(product));
       setShowForm(true);
   };
 
@@ -210,6 +210,11 @@ const ProductList: React.FC = () => {
     () => buildNextItemCode(products, editingProduct?.id),
     [products, editingProduct?.id]
   );
+  const persistedAutoItemCode = useMemo(
+    () => normalizeItemCode(editingProduct?.itemCode || ''),
+    [editingProduct?.itemCode]
+  );
+  const effectiveAutoItemCode = persistedAutoItemCode || autoItemCodePreview;
 
   const handleProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,9 +234,11 @@ const ProductList: React.FC = () => {
       : undefined;
     const normalizedExpiryDate = expiryDate.trim() || undefined;
     const manualItemCode = normalizeItemCode(itemCode);
-    const resolvedItemCode = itemCodeMode === 'AUTO'
-      ? autoItemCodePreview
-      : (manualItemCode || undefined);
+    const hasManualItemCode = itemCodeMode === 'MANUAL' && !!manualItemCode;
+    const resolvedItemCode = hasManualItemCode
+      ? manualItemCode
+      : effectiveAutoItemCode;
+    const resolvedItemCodeMode = hasManualItemCode ? 'MANUAL' : 'AUTO';
 
     const isItemCodeTaken = !!resolvedItemCode && products.some((product) =>
       product.id !== editingProduct?.id
@@ -268,6 +275,7 @@ const ProductList: React.FC = () => {
     const productData = {
       name,
       itemCode: resolvedItemCode,
+      itemCodeMode: resolvedItemCodeMode,
       category: groupId || (itemGroups[0]?.id || 'ig_other'),
       unitId: unitId || undefined,
       sellPrice: pricing.retailPrice,
@@ -540,7 +548,7 @@ const ProductList: React.FC = () => {
   const handleToggleNegativeStock = () => handleSetNegativeStock(!allowNegativeStock);
 
   return (
-    <div className={`app-page w-full max-w-[1680px] mx-auto overflow-x-hidden px-3 sm:px-4 lg:px-6 pb-[calc(var(--app-nav-height)+var(--app-safe-bottom)+0.75rem)] font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+    <div data-testid="product-list-root" className={`app-page w-full max-w-[1680px] mx-auto overflow-x-hidden px-3 sm:px-4 lg:px-6 pb-[calc(var(--app-nav-height)+var(--app-safe-bottom)+0.75rem)] font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
       <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between min-w-0">
         <div className="min-w-0">
            <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-tight break-words">{tr('المستودع', 'Inventory')}</h1>
@@ -562,6 +570,7 @@ const ProductList: React.FC = () => {
               </button>
               <button 
                   onClick={handleOpenAdd}
+                  data-testid="products-add-toggle"
                   className="bg-blue-600 text-white p-3 rounded-2xl shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-90"
               >
                   <Plus className="w-6 h-6" />
@@ -1047,8 +1056,8 @@ const ProductList: React.FC = () => {
 
                         {itemCodeMode === 'AUTO' ? (
                             <div className="rounded-xl border border-indigo-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{tr('سيتم توليده تلقائيًا', 'It will be generated automatically')}</span>
-                                <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{autoItemCodePreview}</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{tr('يبقى تلقائيًا حتى تدخل ترميزًا يدويًا', 'It stays automatic until you enter a manual code')}</span>
+                                <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{effectiveAutoItemCode}</span>
                             </div>
                         ) : (
                             <input
@@ -1061,7 +1070,7 @@ const ProductList: React.FC = () => {
                         )}
                         {itemCodeMode === 'MANUAL' && (
                             <p className="text-[10px] font-bold text-slate-400 px-1">
-                                {tr('اتركه فارغًا إذا كنت لا تريد ترميزًا للصنف.', 'Leave it blank if you do not want an item code.')}
+                                {tr('إذا تركته فارغًا سيبقى التوليد التلقائي لهذا الصنف.', 'Leave it blank to keep automatic generation for this item.')}
                             </p>
                         )}
                     </div>

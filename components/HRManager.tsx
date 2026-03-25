@@ -2352,7 +2352,7 @@ const HRManager: React.FC = () => {
         const selectedPayrollRunPaymentPreview = selectedPayrollRun ? getPayrollRunPaymentBatchPreview(selectedPayrollRun) : null;
 
         return (
-            <div className="space-y-3 sm:space-y-4 animate-in slide-in-from-bottom-4">
+            <div data-testid="hr-payroll-root" className="space-y-3 sm:space-y-4 animate-in slide-in-from-bottom-4">
                 <div className="bg-slate-900 p-3 sm:p-4 rounded-[1.5rem] sm:rounded-[2rem] text-white shadow-2xl relative overflow-hidden">
                     <div className="absolute right-0 top-0 opacity-10"><DollarSign size={110} /></div>
                     <div className="relative z-10">
@@ -2395,7 +2395,7 @@ const HRManager: React.FC = () => {
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">{tr('نطاق الاحتساب', 'Calculation Scope')}</label>
-                                    <select value={payrollFocusEmployeeId} onChange={e => setPayrollFocusEmployeeId(e.target.value)} className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all">
+                                    <select data-testid="hr-payroll-scope" value={payrollFocusEmployeeId} onChange={e => setPayrollFocusEmployeeId(e.target.value)} className="w-full h-10 px-2 bg-slate-800/50 border border-white/10 rounded-xl text-xs font-black outline-none text-white text-right focus:border-emerald-500/50 transition-all">
                                         <option value="" className="text-slate-800">{tr('جميع الموظفين', 'All Employees')}</option>
                                         {employees.map(emp => (
                                             <option key={emp.id} value={emp.id} className="text-slate-800">{emp.code} - {emp.name}</option>
@@ -2446,7 +2446,7 @@ const HRManager: React.FC = () => {
                         <div className="grid grid-cols-2 gap-2 mb-3">
                             <div className="space-y-1">
                                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-1">{tr('حساب الصرف (للدفع فقط)', 'Payment Account (for disbursement only)')}</label>
-                                <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full h-10 px-2 bg-white/10 border border-white/10 rounded-xl text-xs font-black outline-none focus:bg-white/20 transition-all">
+                                <select data-testid="hr-payroll-payment-account" value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full h-10 px-2 bg-white/10 border border-white/10 rounded-xl text-xs font-black outline-none focus:bg-white/20 transition-all">
                                     <option value="" className="text-slate-800">{tr('-- اختر الخزينة/البنك --', '-- Select Cash/Bank --')}</option>
                                     {accounts.filter(a => !a.isGroup && a.type === 'ASSET' && (a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root')).map(acc => (
                                         <option key={acc.id} value={acc.id} className="text-slate-800">{displayAccountName(acc)} ({acc.currency})</option>
@@ -2455,7 +2455,7 @@ const HRManager: React.FC = () => {
                             </div>
                             <div className="space-y-1">
                                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-1">{tr('حساب المصروف (للاستحقاق)', 'Expense Account (for accrual)')}</label>
-                                <select value={expenseAccountId} onChange={e => setExpenseAccountId(e.target.value)} className="w-full h-10 px-2 bg-white/10 border border-white/10 rounded-xl text-xs font-black outline-none focus:bg-white/20 transition-all text-emerald-400">
+                                <select data-testid="hr-payroll-expense-account" value={expenseAccountId} onChange={e => setExpenseAccountId(e.target.value)} className="w-full h-10 px-2 bg-white/10 border border-white/10 rounded-xl text-xs font-black outline-none focus:bg-white/20 transition-all text-emerald-400">
                                     <option value="" className="text-slate-800">{tr('-- اختر حساب المصروف --', '-- Select Expense Account --')}</option>
                                     {accounts.filter(a => !a.isGroup && a.type === 'EXPENSE').map(acc => (
                                         <option key={acc.id} value={acc.id} className="text-slate-800">{displayAccountName(acc)} ({acc.code})</option>
@@ -3230,6 +3230,7 @@ const HRManager: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <button
+                        data-testid="hr-payroll-accrual-all"
                         onClick={() => handlePayrollAccrualProcess(payrollEmployees)}
                         disabled={isProcessing || unaccruedEmployees.length === 0}
                         className={`py-4 rounded-[1.5rem] font-black text-white shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 ${unaccruedEmployees.length === 0 ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}
@@ -3239,6 +3240,7 @@ const HRManager: React.FC = () => {
                     </button>
 
                     <button
+                        data-testid="hr-payroll-payment-all"
                         onClick={() => handlePayrollPaymentProcess(payrollEmployees)}
                         disabled={isProcessing || !paymentAccountId}
                         className={`py-4 rounded-[1.5rem] font-black text-white shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 ${!paymentAccountId ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'}`}
@@ -3248,6 +3250,7 @@ const HRManager: React.FC = () => {
                     </button>
 
                     <button
+                        data-testid="hr-payroll-direct-all"
                         onClick={() => handlePayrollDirectPaymentProcess(payrollEmployees)}
                         disabled={isProcessing || !paymentAccountId || !expenseAccountId || directEligibleEmployees.length === 0}
                         className={`py-4 rounded-[1.5rem] font-black text-white shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 ${(!paymentAccountId || !expenseAccountId || directEligibleEmployees.length === 0) ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-200'}`}
@@ -3302,7 +3305,7 @@ const HRManager: React.FC = () => {
                         />
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" size={16} />
                     </div>
-                    <button onClick={() => setShowEmpForm(true)} className="bg-blue-600 text-white w-10 h-10 rounded-xl shadow-sm active:scale-90 transition-all flex items-center justify-center"><UserPlus size={18} /></button>
+                    <button data-testid="hr-add-employee" onClick={() => setShowEmpForm(true)} className="bg-blue-600 text-white w-10 h-10 rounded-xl shadow-sm active:scale-90 transition-all flex items-center justify-center"><UserPlus size={18} /></button>
                 </div>
 
                 <div className="grid grid-cols-3 gap-1.5">
@@ -3328,22 +3331,22 @@ const HRManager: React.FC = () => {
                 </div>
 
                 {showEmpForm && (
-                    <div className="bg-white p-6 rounded-[2.5rem] border border-blue-100 shadow-xl animate-in zoom-in-95 mx-1 mb-6">
+                    <div data-testid="hr-employee-form" className="bg-white p-6 rounded-[2.5rem] border border-blue-100 shadow-xl animate-in zoom-in-95 mx-1 mb-6">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="font-black text-gray-800 text-lg">{tr('بيانات الموظف', 'Employee Details')}</h3>
                             <button onClick={() => { resetEmpForm(); setShowEmpForm(false); }} className="text-gray-400"><X size={24} /></button>
                         </div>
                         <form onSubmit={handleEmployeeSubmit} className="space-y-4">
                             <div className="grid grid-cols-2 gap-3">
-                                <input value={name} onChange={e => setName(e.target.value)} placeholder={tr('اسم الموظف', 'Employee Name')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} required />
-                                <input value={code} onChange={e => setCode(e.target.value)} placeholder={tr('الرقم الوظيفي', 'Employee Code')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} required />
+                                <input data-testid="hr-employee-name" value={name} onChange={e => setName(e.target.value)} placeholder={tr('اسم الموظف', 'Employee Name')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} required />
+                                <input data-testid="hr-employee-code" value={code} onChange={e => setCode(e.target.value)} placeholder={tr('الرقم الوظيفي', 'Employee Code')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} required />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <select value={deptId} onChange={e => setDeptId(e.target.value)} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`}>
                                     <option value="">{tr('القسم...', 'Department...')}</option>
                                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
-                                <input value={position} onChange={e => setPosition(e.target.value)} placeholder={tr('المسمى الوظيفي', 'Job Title')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
+                                <input data-testid="hr-employee-position" value={position} onChange={e => setPosition(e.target.value)} placeholder={tr('المسمى الوظيفي', 'Job Title')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <input value={employeePhone} onChange={e => setEmployeePhone(e.target.value)} placeholder={tr('رقم الهاتف', 'Phone Number')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
@@ -3380,6 +3383,7 @@ const HRManager: React.FC = () => {
                                             type="text"
                                             inputMode="decimal"
                                             lang="en"
+                                            data-testid="hr-employee-basic-pay"
                                             value={
                                                 employeePayBasis === 'HOURLY' ? hourlyRate :
                                                     employeePayBasis === 'DAILY' ? dailyRate :
@@ -3451,7 +3455,7 @@ const HRManager: React.FC = () => {
                                     </div>
                                 )}
                             </div>
-                            <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all">{editingId ? tr('حفظ التعديلات', 'Save Changes') : tr('حفظ الموظف', 'Save Employee')}</button>
+                            <button data-testid="hr-employee-save" type="submit" className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all">{editingId ? tr('حفظ التعديلات', 'Save Changes') : tr('حفظ الموظف', 'Save Employee')}</button>
                         </form>
                     </div>
                 )}
@@ -4763,6 +4767,7 @@ const HRManager: React.FC = () => {
                                 key={card.id}
                                 type="button"
                                 onClick={() => setActiveEmployeeReport(card.id)}
+                                data-testid={`hr-report-card-${card.id.toLowerCase()}`}
                                 className="bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between text-right hover:shadow-md transition-all active:scale-[0.99] min-h-[66px]"
                             >
                                 <div className="flex-1">
@@ -4776,7 +4781,7 @@ const HRManager: React.FC = () => {
                 )}
 
                 {activeEmployeeReport === 'ATTENDANCE_SUMMARY' && (
-                    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+                    <div data-testid="hr-report-attendance-summary" className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
                         <div className="p-4 border-b border-gray-50 flex items-center gap-2">
                             <CalendarCheck size={16} className="text-purple-600" />
                             <h4 className="font-black text-sm text-gray-800">{tr('ملخص دوام الموظف', 'Employee Attendance Summary')}</h4>
@@ -4928,7 +4933,7 @@ const HRManager: React.FC = () => {
                 )}
 
                 {activeEmployeeReport === 'PAYROLL_STATEMENTS' && (
-                    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+                    <div data-testid="hr-report-payroll-statements" className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
                         <div className="p-4 border-b border-gray-50 flex items-center gap-2">
                             <Receipt size={16} className="text-emerald-600" />
                             <h4 className="font-black text-sm text-gray-800">{tr('تقرير كشوفات الرواتب', 'Payroll Statements Report')}</h4>
@@ -6302,18 +6307,22 @@ const HRManager: React.FC = () => {
     };
 
     return (
-        <div className={`app-page p-3 md:p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+        <div
+            data-testid="hr-manager-root"
+            className={`app-page p-3 md:p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`}
+            dir={isEnglish ? 'ltr' : 'rtl'}
+        >
             <header className="mb-3 flex justify-between items-center px-1">
                 <div className="p-3 rounded-2xl bg-white shadow-sm border border-gray-100 text-blue-600"><Users size={22} /></div>
                 <div><h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('شؤون الموظفين', 'Human Resources')}</h1><p className="text-gray-400 text-[10px] font-black mt-1 uppercase tracking-[0.2em]">{tr('إدارة الكادر البشري والرواتب', 'Manage workforce and payroll')}</p></div>
             </header>
             <div className="grid grid-cols-6 gap-1 p-1 bg-gray-100/60 backdrop-blur rounded-2xl mb-3 shadow-inner border border-gray-200/20">
-                <button onClick={() => setActiveTab('EMPLOYEES')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'EMPLOYEES' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}><Briefcase size={13} /><span>{tr('الموظفين', 'Employees')}</span></button>
-                <button onClick={() => setActiveTab('LEAVES')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'LEAVES' ? 'bg-white shadow-md text-violet-600' : 'text-gray-400'}`}><CalendarRange size={13} /><span>{tr('الإجازات', 'Leaves')}</span></button>
-                <button onClick={() => setActiveTab('DEDUCTIONS')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'DEDUCTIONS' ? 'bg-white shadow-md text-fuchsia-600' : 'text-gray-400'}`}><Wallet size={13} /><span>{tr('الخصومات', 'Deductions')}</span></button>
-                <button onClick={() => setActiveTab('ATTENDANCE')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'ATTENDANCE' ? 'bg-white shadow-md text-purple-600' : 'text-gray-400'}`}><CalendarCheck size={13} /><span>{tr('الحضور', 'Attendance')}</span></button>
-                <button onClick={() => setActiveTab('PAYROLL')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'PAYROLL' ? 'bg-white shadow-md text-emerald-600' : 'text-gray-400'}`}><DollarSign size={13} /><span>{tr('الرواتب', 'Payroll')}</span></button>
-                <button onClick={() => { setActiveTab('REPORTS'); setActiveEmployeeReport('MENU'); }} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'REPORTS' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-400'}`}><FileText size={13} /><span>{tr('التقارير', 'Reports')}</span></button>
+                <button data-testid="hr-tab-employees" onClick={() => setActiveTab('EMPLOYEES')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'EMPLOYEES' ? 'bg-white shadow-md text-blue-600' : 'text-gray-400'}`}><Briefcase size={13} /><span>{tr('الموظفين', 'Employees')}</span></button>
+                <button data-testid="hr-tab-leaves" onClick={() => setActiveTab('LEAVES')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'LEAVES' ? 'bg-white shadow-md text-violet-600' : 'text-gray-400'}`}><CalendarRange size={13} /><span>{tr('الإجازات', 'Leaves')}</span></button>
+                <button data-testid="hr-tab-deductions" onClick={() => setActiveTab('DEDUCTIONS')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'DEDUCTIONS' ? 'bg-white shadow-md text-fuchsia-600' : 'text-gray-400'}`}><Wallet size={13} /><span>{tr('الخصومات', 'Deductions')}</span></button>
+                <button data-testid="hr-tab-attendance" onClick={() => setActiveTab('ATTENDANCE')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'ATTENDANCE' ? 'bg-white shadow-md text-purple-600' : 'text-gray-400'}`}><CalendarCheck size={13} /><span>{tr('الحضور', 'Attendance')}</span></button>
+                <button data-testid="hr-tab-payroll" onClick={() => setActiveTab('PAYROLL')} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'PAYROLL' ? 'bg-white shadow-md text-emerald-600' : 'text-gray-400'}`}><DollarSign size={13} /><span>{tr('الرواتب', 'Payroll')}</span></button>
+                <button data-testid="hr-tab-reports" onClick={() => { setActiveTab('REPORTS'); setActiveEmployeeReport('MENU'); }} className={`min-w-0 px-1 py-2 flex flex-col sm:flex-row items-center justify-center gap-1 rounded-xl font-black text-[9px] sm:text-[10px] transition-all ${activeTab === 'REPORTS' ? 'bg-white shadow-md text-indigo-600' : 'text-gray-400'}`}><FileText size={13} /><span>{tr('التقارير', 'Reports')}</span></button>
             </div>
             {activeTab === 'EMPLOYEES' && renderEmployees()}
             {activeTab === 'LEAVES' && renderLeaves()}

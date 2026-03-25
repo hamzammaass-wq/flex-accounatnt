@@ -464,12 +464,17 @@ const AppContent: React.FC = () => {
     if (typeof window === 'undefined' || !currentUser) return;
     const url = new URL(window.location.href);
     const shouldOpenSubscription = url.searchParams.get('openSubscription') === '1';
+    const shouldOpenAccountDeletion = url.searchParams.get('openAccountDeletion') === '1';
     const billingState = url.searchParams.get('billing');
-    if (!shouldOpenSubscription && !billingState) return;
+    if (!shouldOpenSubscription && !shouldOpenAccountDeletion && !billingState) return;
 
-    handleNavigate('definitions', 'SUBSCRIPTION');
+    if (shouldOpenAccountDeletion) {
+      handleNavigate('definitions', 'ACCOUNT_DELETE');
+    } else {
+      handleNavigate('definitions', 'SUBSCRIPTION');
+    }
 
-    if (billingState) {
+    if (billingState || shouldOpenAccountDeletion) {
       window.setTimeout(() => {
         const cleanUrl = `${window.location.origin}${window.location.pathname}`;
         window.history.replaceState({}, document.title, cleanUrl);
@@ -482,7 +487,7 @@ const AppContent: React.FC = () => {
     if (typeof window === 'undefined') return;
 
     const url = new URL(window.location.href);
-    if (url.searchParams.get('openSubscription') === '1' || url.searchParams.get('billing')) {
+    if (url.searchParams.get('openSubscription') === '1' || url.searchParams.get('openAccountDeletion') === '1' || url.searchParams.get('billing')) {
       return;
     }
 

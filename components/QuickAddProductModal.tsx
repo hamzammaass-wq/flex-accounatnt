@@ -6,7 +6,7 @@ import { Product, ProductKind } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import EnglishDateInput from './EnglishDateInput';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
-import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
+import { buildNextItemCode, normalizeItemCode, resolveProductItemCodeMode } from '../utils/itemCode';
 import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayUnitName } from '../utils/displayNames';
 import { normalizeProductInventoryFields } from '../utils/productKind';
@@ -130,7 +130,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setGroupId(product.category || '');
     setUnitId(product.unitId || '');
     setItemCode(product.itemCode || '');
-    setItemCodeMode('AUTO');
+    setItemCodeMode(resolveProductItemCodeMode(product));
     setBarcode(product.barcode || '');
     setImageUrl(product.imageUrl || '');
     setBuyPrice(product.buyPrice !== undefined ? String(product.buyPrice) : '');
@@ -265,9 +265,11 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       : undefined;
     const normalizedExpiryDate = expiryDate.trim() || undefined;
     const manualItemCode = normalizeItemCode(itemCode);
-    const resolvedItemCode = itemCodeMode === 'AUTO'
-      ? effectiveAutoItemCode
-      : (manualItemCode || undefined);
+    const hasManualItemCode = itemCodeMode === 'MANUAL' && !!manualItemCode;
+    const resolvedItemCode = hasManualItemCode
+      ? manualItemCode
+      : effectiveAutoItemCode;
+    const resolvedItemCodeMode = hasManualItemCode ? 'MANUAL' : 'AUTO';
     const isItemCodeTaken = !!resolvedItemCode && products.some((existingProduct) =>
       existingProduct.id !== product?.id
       && normalizeItemCode(existingProduct.itemCode || '') === resolvedItemCode
@@ -308,6 +310,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       category: groupId || (itemGroups[0]?.id || 'ig_other'),
       unitId: unitId || undefined,
       itemCode: resolvedItemCode || undefined,
+      itemCodeMode: resolvedItemCodeMode,
       expiryDate: productKind === 'SERVICE' ? undefined : normalizedExpiryDate,
       expiryPeriodDays: productKind === 'SERVICE' ? undefined : normalizedExpiryPeriodDays,
       expiryAlertLeadDays: productKind === 'SERVICE' ? undefined : normalizedExpiryAlertLeadDays,
@@ -347,7 +350,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       backdropClassName="bg-black/70 backdrop-blur-md"
       panelClassName="bg-white rounded-[2rem] p-3 sm:p-4 shadow-2xl !overflow-hidden"
     >
-      <form onSubmit={handleSubmit} className="animate-in zoom-in-95 flex max-h-[calc(100dvh-2.5rem)] flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
+      <form data-testid="products-form" onSubmit={handleSubmit} className="animate-in zoom-in-95 flex max-h-[calc(100dvh-2.5rem)] flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
         <div className="flex justify-between items-center gap-3 mb-2.5">
           <h3 className="font-black text-gray-800 text-lg">{title}</h3>
           <button type="button" onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400">
@@ -363,6 +366,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               </label>
               <input
                 autoFocus
+                data-testid="products-form-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={tr('\u0645\u062b\u0627\u0644: \u0622\u064a\u0641\u0648\u0646 15 \u0628\u0631\u0648 \u0645\u0627\u0643\u0633', 'Example: iPhone 15 Pro Max')}
@@ -423,7 +427,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               {itemCodeMode === 'AUTO' ? (
                 <div className="rounded-xl border border-indigo-100 bg-white px-4 py-3 flex items-center justify-between gap-2">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    {tr('سيبقى تلقائيًا حتى تعدله يدويًا', 'Stays automatic until you edit it manually')}
+                    {tr('سيبقى تلقائيًا حتى تدخل ترميزًا يدويًا', 'Stays automatic until you enter a manual code')}
                   </span>
                   <span className="font-mono text-sm font-black text-indigo-700 dir-ltr">{effectiveAutoItemCode}</span>
                 </div>
@@ -439,7 +443,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
 
               {itemCodeMode === 'MANUAL' && (
                 <p className="text-[10px] font-bold text-slate-400 px-1">
-                  {tr('عند التعديل اليدوي فقط سيتوقف التوليد التلقائي لهذا الصنف.', 'Automatic generation stops only when you edit the code manually.')}
+                  {tr('إذا تركته فارغًا سيبقى التوليد التلقائي لهذا الصنف.', 'Leave it blank to keep automatic generation for this item.')}
                 </p>
               )}
             </div>
@@ -533,6 +537,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 type="text"
                 inputMode="decimal"
                 lang="en"
+                data-testid="products-form-buy-price"
                 value={buyPrice}
                 onChange={(e) => setBuyPrice(toEnglishDigits(e.target.value))}
                 className="w-full p-4 bg-rose-50/50 rounded-2xl border border-rose-100 outline-none font-black text-lg text-center dir-ltr text-rose-700 focus:bg-white focus:ring-4 focus:ring-rose-50 transition-all"
@@ -548,6 +553,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                 type="text"
                 inputMode="numeric"
                 lang="en"
+                data-testid="products-form-stock"
                 value={stock}
                 onChange={(e) => setStock(toEnglishDigits(e.target.value))}
                 disabled={productKind === 'SERVICE'}
@@ -698,6 +704,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                       type="text"
                       inputMode="decimal"
                       lang="en"
+                      data-testid="products-form-sell-price"
                       value={sellPrice}
                       onChange={(e) => setSellPrice(toEnglishDigits(e.target.value))}
                       className="w-full p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 outline-none font-black text-center dir-ltr text-emerald-700"
@@ -797,7 +804,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
         </div>
 
         <div className="pt-3 mt-4 border-t border-gray-100 bg-white">
-          <button type="submit" className="w-full min-h-[44px] py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-200 flex items-center justify-center gap-2">
+          <button data-testid="products-form-save" type="submit" className="w-full min-h-[44px] py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-200 flex items-center justify-center gap-2">
             <Check size={18} />
             {submitLabel}
           </button>

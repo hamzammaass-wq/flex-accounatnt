@@ -255,7 +255,11 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
     const directPostedTransfers = stockTransfers.filter(t => t.status === 'POSTED').length;
 
     return (
-        <div className="app-page w-full min-h-dvh bg-slate-50/50 overflow-x-hidden" dir={isEnglish ? 'ltr' : 'rtl'}>
+        <div
+            data-testid="warehouse-manager-root"
+            className="app-page w-full min-h-dvh bg-slate-50/50 overflow-x-hidden"
+            dir={isEnglish ? 'ltr' : 'rtl'}
+        >
             {/* Header Area */}
             <div className="bg-white px-3 py-3 shadow-sm border-b border-gray-100 sticky top-0 z-30">
                 {/* Title Row */}
@@ -284,6 +288,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as any)}
+                            data-testid={`warehouse-tab-${String(tab.id).toLowerCase()}`}
                             title={tab.label}
                             className={`relative flex-1 py-2 rounded-lg text-[9px] font-black transition-all flex flex-col items-center gap-0.5 z-10 ${activeTab === tab.id
                                 ? 'text-indigo-600'
@@ -334,35 +339,37 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                         {/* --- WAREHOUSES LIST --- */}
                         {activeTab === 'LIST' && (
                             <motion.div
+                                data-testid="warehouse-section-list"
                                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
                                 className="space-y-4"
                             >
-                                <button onClick={() => { setShowForm(!showForm); setIsEditing(null); setFormData({ name: '', location: '', manager: '' }); }} className="bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md hover:bg-slate-800 transition-all flex items-center justify-center gap-2 w-full">
+                                <button data-testid="warehouse-add-toggle" onClick={() => { setShowForm(!showForm); setIsEditing(null); setFormData({ name: '', location: '', manager: '' }); }} className="bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md hover:bg-slate-800 transition-all flex items-center justify-center gap-2 w-full">
                                     {showForm ? <X size={14} /> : <Plus size={14} />}
                                     {showForm ? tr('إلغاء', 'Cancel') : tr('إضافة مستودع جديد', 'Add New Warehouse')}
                                 </button>
 
                                 {showForm && (
                                     <motion.form
+                                        data-testid="warehouse-form"
                                         initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
                                         onSubmit={handleSubmitWarehouse} className="bg-white p-4 rounded-2xl shadow-lg border border-indigo-100"
                                     >
                                         <div className="space-y-3">
                                             <div>
                                                 <label className={labelClass}>{tr('اسم المستودع', 'Warehouse Name')}</label>
-                                                <input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder={tr('مثال: المستودع الرئيسي', 'Example: Main Warehouse')} className={inputClass} autoFocus />
+                                                <input data-testid="warehouse-form-name" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder={tr('مثال: المستودع الرئيسي', 'Example: Main Warehouse')} className={inputClass} autoFocus />
                                             </div>
                                             <div>
                                                 <label className={labelClass}>{tr('الموقع / العنوان', 'Location / Address')}</label>
-                                                <input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder={tr('مثال: الرياض - حي الملز', 'Example: Riyadh - Al Malaz')} className={inputClass} />
+                                                <input data-testid="warehouse-form-location" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder={tr('مثال: الرياض - حي الملز', 'Example: Riyadh - Al Malaz')} className={inputClass} />
                                             </div>
                                             <div>
                                                 <label className={labelClass}>{tr('أمين المستودع', 'Warehouse Keeper')}</label>
-                                                <input value={formData.manager} onChange={e => setFormData({ ...formData, manager: e.target.value })} placeholder={tr('المسؤول عن العهدة', 'Person in charge')} className={inputClass} />
+                                                <input data-testid="warehouse-form-manager" value={formData.manager} onChange={e => setFormData({ ...formData, manager: e.target.value })} placeholder={tr('المسؤول عن العهدة', 'Person in charge')} className={inputClass} />
                                             </div>
                                         </div>
                                         <div className="pt-3">
-                                            <button type="submit" className="w-full px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
+                                            <button data-testid="warehouse-form-save" type="submit" className="w-full px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
                                                 {isEditing ? tr('حفظ التعديلات', 'Save Changes') : tr('إنشاء المستودع', 'Create Warehouse')}
                                             </button>
                                         </div>
@@ -372,6 +379,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                 <div className="space-y-3">
                                     {filteredWarehouses.map((wh, idx) => (
                                         <motion.div
+                                            data-testid="warehouse-card"
                                             key={wh.id}
                                             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }}
                                             className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden"
@@ -417,6 +425,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                         {/* --- INVENTORY LIST --- */}
                         {activeTab === 'INVENTORY' && (
                             <motion.div
+                                data-testid="warehouse-section-inventory"
                                 initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
                                 className="space-y-6"
                             >
@@ -559,6 +568,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
                         {activeTab === 'BARCODE_OFFLINE' && (
                             <motion.div
+                                data-testid="warehouse-section-barcode-offline"
                                 initial={{ opacity: 0, x: -20 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 20 }}
@@ -570,6 +580,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                         {/* --- STOCK ADJUSTMENT --- */}
                         {activeTab === 'ADJUST' && (
                             <motion.div
+                                data-testid="warehouse-section-adjust"
                                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                             >
                                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
@@ -681,6 +692,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                         {/* --- STOCK TRANSFER --- */}
                         {activeTab === 'TRANSFER' && (
                             <motion.div
+                                data-testid="warehouse-section-transfer"
                                 initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
                                 className="space-y-4"
                             >
@@ -699,7 +711,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                         <div className="space-y-3 mb-4">
                                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                                 <label className="text-[10px] font-black text-rose-500 mb-2 block flex items-center gap-1"><div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div> {tr('من مستودع (المصدر)', 'From Warehouse (Source)')}</label>
-                                                <select value={transferData.fromId} onChange={e => setTransferData({ ...transferData, fromId: e.target.value })} className={inputClass + " bg-white"}>
+                                                <select data-testid="warehouse-transfer-from" value={transferData.fromId} onChange={e => setTransferData({ ...transferData, fromId: e.target.value })} className={inputClass + " bg-white"}>
                                                     <option value="">{tr('-- اختر المصدر --', '-- Select Source --')}</option>
                                                     {warehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
                                                 </select>
@@ -707,7 +719,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
                                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                                 <label className="text-[10px] font-black text-emerald-500 mb-2 block flex items-center gap-1"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div> {tr('إلى مستودع (الوجهة)', 'To Warehouse (Destination)')}</label>
-                                                <select value={transferData.toId} onChange={e => setTransferData({ ...transferData, toId: e.target.value })} className={inputClass + " bg-white"}>
+                                                <select data-testid="warehouse-transfer-to" value={transferData.toId} onChange={e => setTransferData({ ...transferData, toId: e.target.value })} className={inputClass + " bg-white"}>
                                                     <option value="">{tr('-- اختر الوجهة --', '-- Select Destination --')}</option>
                                                     {warehouses.map(w => <option key={w.id} value={w.id}>{displayWarehouseName(w)}</option>)}
                                                 </select>
@@ -718,19 +730,19 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                             <h4 className="font-black text-xs text-indigo-900 mb-3 flex items-center gap-1.5"><Package size={14} className="text-indigo-500" /> {tr('الأصناف المحولة', 'Transferred Items')}</h4>
 
                                             <div className="space-y-2 mb-3">
-                                                <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className={inputClass + " text-xs"}>
+                                                <select data-testid="warehouse-transfer-product" value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className={inputClass + " text-xs"}>
                                                     <option value="">{tr('-- اختر الصنف --', '-- Select Item --')}</option>
                                                     {stockProducts.map(p => <option key={p.id} value={p.id}>{displayProductName(p)} ({p.stock})</option>)}
                                                 </select>
                                                 <div className="flex gap-2">
-                                                    <input type="number" inputMode="decimal" value={transferQty} onChange={e => setTransferQty(e.target.value)} placeholder={tr('الكمية', 'Quantity')} className={inputClass + " text-center font-black flex-1"} />
-                                                    <button onClick={handleAddTransferItem} className="bg-indigo-600 text-white rounded-xl px-4 shadow-md shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center shrink-0">
+                                                    <input data-testid="warehouse-transfer-qty" type="number" inputMode="decimal" value={transferQty} onChange={e => setTransferQty(e.target.value)} placeholder={tr('الكمية', 'Quantity')} className={inputClass + " text-center font-black flex-1"} />
+                                                    <button data-testid="warehouse-transfer-add-item" onClick={handleAddTransferItem} className="bg-indigo-600 text-white rounded-xl px-4 shadow-md shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center shrink-0">
                                                         <Plus size={18} />
                                                     </button>
                                                 </div>
                                             </div>
 
-                                            <div className="space-y-2 bg-white p-2.5 rounded-xl min-h-[80px] border border-slate-100">
+                                            <div data-testid="warehouse-transfer-items" className="space-y-2 bg-white p-2.5 rounded-xl min-h-[80px] border border-slate-100">
                                                 <AnimatePresence>
                                                     {transferData.items.length === 0 ? (
                                                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-20 text-slate-300">
@@ -770,11 +782,11 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
                                         <div className="mb-3">
                                             <label className={labelClass}>{tr('ملاحظات', 'Notes')}</label>
-                                            <textarea value={transferData.notes} onChange={e => setTransferData({ ...transferData, notes: e.target.value })} placeholder={tr('ملاحظات...', 'Notes...')} className={inputClass + " min-h-[60px] resize-none"} />
+                                            <textarea data-testid="warehouse-transfer-notes" value={transferData.notes} onChange={e => setTransferData({ ...transferData, notes: e.target.value })} placeholder={tr('ملاحظات...', 'Notes...')} className={inputClass + " min-h-[60px] resize-none"} />
                                         </div>
 
                                         <div className="space-y-2">
-                                            <button onClick={handleSubmitTransfer} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-black text-sm shadow-lg shadow-indigo-200 transition-all active:scale-[0.99] flex items-center justify-center gap-2">
+                                            <button data-testid="warehouse-transfer-submit" onClick={handleSubmitTransfer} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-black text-sm shadow-lg shadow-indigo-200 transition-all active:scale-[0.99] flex items-center justify-center gap-2">
                                                 <CheckCircle2 size={16} />
                                                 {editingTransferId ? tr('حفظ التعديل وترحيل المناقلة', 'Save Edit and Post Transfer') : tr('ترحيل المناقلة مباشرة', 'Post Transfer Directly')}
                                             </button>
@@ -808,9 +820,9 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
                         {/* --- HISTORY --- */}
                         {activeTab === 'HISTORY' && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
+                            <motion.div data-testid="warehouse-section-history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
                                 {stockTransfers.length === 0 ? (
-                                    <div className="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                                    <div data-testid="warehouse-history-empty" className="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-sm">
                                         <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4">
                                             <History size={28} />
                                         </div>
@@ -819,6 +831,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                     </div>
                                 ) : stockTransfers.map((trf, i) => (
                                     <motion.div
+                                        data-testid="warehouse-history-entry"
                                         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
                                         key={trf.id}
                                         className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100"

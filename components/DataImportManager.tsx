@@ -7,6 +7,7 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { Account, Contact, Invoice, InvoiceItem, Product, TransactionType } from '../types';
 import { openAppNavigation, type AppNavigationTarget } from '../utils/appNavigation';
 import { areEntityNamesSimilar, buildSuggestedUniqueEntityName, normalizeEntityNameKey } from '../utils/entityNameMatching';
+import { normalizeItemCode } from '../utils/itemCode';
 
 type ImportEntity = 'CONTACTS' | 'PRODUCTS' | 'TRANSACTIONS' | 'INVOICES' | 'ACCOUNTS';
 type ImportMode = 'IMPORT' | 'DRY_RUN';
@@ -2725,6 +2726,10 @@ ${JSON.stringify(payload)}
       }
       const isManualMerge = Boolean(manualMergeTarget && manualMergeTarget.id !== autoMatched?.id);
       const productId = existing?.id || String(v(row, 'id') || '').trim() || `imp_product_${sanitizeImportKey(itemCode || barcode || name || rowNo) || rowNo}`;
+      const resolvedItemCode = isManualMerge ? existing?.itemCode || itemCode : itemCode;
+      const resolvedItemCodeMode = isManualMerge
+        ? (existing?.itemCodeMode === 'MANUAL' && !!normalizeItemCode(existing?.itemCode || '') ? 'MANUAL' : 'AUTO')
+        : (normalizeItemCode(resolvedItemCode || '') ? 'MANUAL' : 'AUTO');
       const payload: Product = {
         id: productId,
         name: isManualMerge ? existing?.name || name : name,
@@ -2733,7 +2738,8 @@ ${JSON.stringify(payload)}
         buyPrice: n(v(row, 'buyPrice'), 0),
         sellPrice: n(v(row, 'sellPrice'), 0),
         stock: n(v(row, 'stock', 'quantity'), 0),
-        itemCode: isManualMerge ? existing?.itemCode || itemCode : itemCode,
+        itemCode: resolvedItemCode,
+        itemCodeMode: resolvedItemCodeMode,
         barcode: isManualMerge ? existing?.barcode || barcode : barcode,
         expiryPeriodDays: (() => {
           const value = n(v(row, 'expiryPeriodDays'), 0);
@@ -2752,6 +2758,7 @@ ${JSON.stringify(payload)}
             sellPrice: payload.sellPrice,
             stock: payload.stock,
             itemCode: payload.itemCode,
+            itemCodeMode: payload.itemCodeMode,
             barcode: payload.barcode,
             expiryPeriodDays: payload.expiryPeriodDays,
             expiryDate: payload.expiryDate,
@@ -3243,7 +3250,7 @@ ${JSON.stringify(payload)}
         const item = preparedBackupReview.items.find(reviewItem => reviewItem.id === itemId);
         return item && preparedBackupTaskSelection[item.taskId] !== false;
       })
-    );
+    ) as Record<string, PreparedImportReviewSelection>;
     const missingMergeTarget = preparedBackupReview.items.find(item => {
       if (preparedBackupTaskSelection[item.taskId] === false) return false;
       const selection = filteredSelections[item.id];
@@ -3325,13 +3332,9 @@ ${JSON.stringify(payload)}
     setPostImportReviewActions([]);
     setError('');
     setBackupAnalysisError('');
-    const reviewActions = mode === 'IMPORT' ? buildPostImportReviewActions(tasks) : [];
+    const reviewActions: PostImportReviewAction[] = [];
 
     try {
-      if (mode === 'IMPORT' && tasks.some(task => taskHasOpeningBalanceColumns(task) && task.options?.importOpeningBalances)) {
-        ensureOpeningBalanceOffsetAccount();
-      }
-
       if (mode === 'DRY_RUN') {
         const dryRunSummary = await executePreparedTasks(tasks, mode);
         setSummary(dryRunSummary);
@@ -3360,13 +3363,8 @@ ${JSON.stringify(payload)}
       setPostImportReviewActions(reviewActions);
       setBackupAnalysisNote(tr(`اكتمل الاستيراد الذكي لنطاق ${scopeLabel}.`, `Smart import completed for scope ${scopeLabel}.`));
     } finally {
-      const requiresSecondPhase = mode === 'IMPORT' && tasks.some(task =>
-        task.entity === 'INVOICES' || task.entity === 'TRANSACTIONS' || task.options?.balancesOnly
-      );
-      if (!requiresSecondPhase) {
-        setImporting(false);
-        setRunningMode(null);
-      }
+      setImporting(false);
+      setRunningMode(null);
     }
   };
 
@@ -3441,7 +3439,7 @@ ${JSON.stringify(payload)}
   );
 
   return (
-    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
+    <div data-testid="data-import-root" className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
       <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
@@ -3453,18 +3451,20 @@ ${JSON.stringify(payload)}
               )}
             </p>
           </div>
-          <label className="px-3 py-2 rounded-xl bg-white border border-blue-200 text-blue-700 text-xs font-black cursor-pointer flex items-center gap-2">
+          <label data-testid="data-import-analyze-trigger" className="px-3 py-2 rounded-xl bg-white border border-blue-200 text-blue-700 text-xs font-black cursor-pointer flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4" />
             {backupAnalysisLoading ? tr('جارٍ التحليل...', 'Analyzing...') : tr('تحليل ملف خارجي', 'Analyze external file')}
             <input
               type="file"
               accept={BACKUP_ANALYSIS_ACCEPT_ATTR}
+              data-testid="data-import-analyze-input"
               className="hidden"
               onChange={async (e) => {
-                const f = e.target.files?.[0];
+                const input = e.currentTarget;
+                const f = input.files?.[0];
                 if (!f) return;
                 await analyzeBackupFile(f);
-                e.currentTarget.value = '';
+                input.value = '';
               }}
             />
           </label>
@@ -3503,7 +3503,7 @@ ${JSON.stringify(payload)}
                     {tr('اختر النطاق المناسب ليتم استيراد كل الجداول المطابقة مرة واحدة مع منع التكرار قدر الإمكان.', 'Choose the scope to import all matching datasets in one pass with duplicate protection where possible.')}
                   </div>
                 </div>
-                <span className="text-[11px] font-black text-blue-700 px-2 py-1 rounded-lg bg-blue-50 border border-blue-100">
+                <span data-testid="data-import-detected-datasets" className="text-[11px] font-black text-blue-700 px-2 py-1 rounded-lg bg-blue-50 border border-blue-100">
                   {tr('الجداول المكتشفة', 'Detected datasets')}: {backupCandidates.length}
                 </span>
               </div>
@@ -3528,6 +3528,7 @@ ${JSON.stringify(payload)}
                 <button
                   type="button"
                   onClick={() => runPreparedBackupImport('DRY_RUN')}
+                  data-testid="data-import-full-dry-run"
                   disabled={importing || backupAnalysisLoading}
                   className={`px-3 py-2.5 rounded-xl text-xs font-black border flex items-center justify-center gap-2 ${importing || backupAnalysisLoading ? 'bg-gray-100 border-gray-200 text-gray-400' : 'bg-white border-blue-200 text-blue-700 hover:bg-blue-50'}`}
                 >
@@ -3537,6 +3538,7 @@ ${JSON.stringify(payload)}
                 <button
                   type="button"
                   onClick={() => runPreparedBackupImport('IMPORT')}
+                  data-testid="data-import-review-import"
                   disabled={importing || backupAnalysisLoading}
                   className={`px-3 py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-2 ${importing || backupAnalysisLoading ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
                 >
@@ -3978,7 +3980,7 @@ ${JSON.stringify(payload)}
       )}
 
       {summary && (
-        <div className="rounded-2xl border border-gray-100 bg-slate-50 p-4 space-y-3">
+        <div data-testid="data-import-summary" className="rounded-2xl border border-gray-100 bg-slate-50 p-4 space-y-3">
           {summary.warnings.length > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700">
               {tr(`يوجد ${summary.warnings.length} تنبيه بخصوص أسماء متشابهة أو تحتاج مراجعة قبل الاعتماد النهائي.`, `There are ${summary.warnings.length} warnings about similar names that should be reviewed.`)}

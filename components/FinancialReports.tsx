@@ -25,8 +25,8 @@ type ReportType =
     | 'TRIAL_BALANCE' | 'INCOME_STATEMENT' | 'BALANCE_SHEET' | 'ACCOUNT_LEDGER'
     | 'CURRENCY_POSITIONS' | 'WORKING_CAPITAL' | 'STOCK_REMAINING' | 'LOW_STOCK_ALERTS' | 'ITEM_PROFIT'
     | 'DAILY_OPS' | 'DAILY_JOURNALS' | 'CASH_FLOW' | 'ACCOUNT_ACTIVITY'
-    | 'CAT_TOTALS' | 'CUSTOMER_PROFIT' | 'CUSTOMER_AGING' | 'CUSTOMER_STATEMENT' | 'SUPPLIER_AGING' | 'SUPPLIER_STATEMENT' | 'SALES_BY_ITEM' | 'PURCHASES_BY_ITEM'
-    | 'ITEM_MOVEMENT' | 'AVERAGE_COST_AUDIT' | 'CHECKS_IN' | 'CHECKS_OUT' | 'CHECKS_VAULT' | 'CHECKS_UNDER_COLLECTION_BANK' | 'CHECKS_MATURITY' | 'PURCHASES_LIST' | 'SALES_LIST'
+    | 'CUSTOMER_PROFIT' | 'CUSTOMER_AGING' | 'CUSTOMER_STATEMENT' | 'SUPPLIER_AGING' | 'SUPPLIER_STATEMENT' | 'SALES_BY_ITEM' | 'PURCHASES_BY_ITEM'
+    | 'ITEM_MOVEMENT' | 'AVERAGE_COST_AUDIT' | 'CHECKS_IN' | 'CHECKS_OUT' | 'CHECKS_ALL' | 'CHECKS_FORECAST' | 'CHECKS_POSITIONS' | 'CHECKS_VAULT' | 'CHECKS_UNDER_COLLECTION_BANK' | 'CHECKS_MATURITY' | 'PURCHASES_LIST' | 'SALES_LIST'
     | 'PURCHASES_COST_SUMMARY' | 'PURCHASE_COST_BY_ITEM' | 'PURCHASE_PRICE_VARIANCE' | 'SUPPLIER_ANALYSIS' | 'IMPORT_EXPENSES_DETAIL' | 'MANUAL_EXPENSE_LINES'
     | 'RECEIPTS_LIST' | 'PAYMENTS_LIST' | 'MANUFACTURING_COST' | 'LIABILITIES_REPORT'
     | 'ACCOUNTING_ANALYTICS' | 'FINANCIAL_RATIOS' | 'EQUITY_CHANGES' | 'FIXED_ASSETS_CHANGES' | 'INVENTORY_COUNT_LIST' | 'MANUAL_UNDEFINED_ITEMS'
@@ -126,6 +126,7 @@ const FinancialReports: React.FC = () => {
     const [manualExpenseSourceFilter, setManualExpenseSourceFilter] = useState<'ALL' | 'GENERAL' | 'IMPORT'>('ALL');
     const [manualExpenseBeneficiaryFilter, setManualExpenseBeneficiaryFilter] = useState('ALL');
     const [manualExpenseAccountFilter, setManualExpenseAccountFilter] = useState('ALL');
+    const [checkReportDateBasis, setCheckReportDateBasis] = useState<'ISSUE_DATE' | 'DUE_DATE'>('DUE_DATE');
     const resetReportDateRange = () => {
         setStartDate(currentFiscalYearRange.startDate);
         setEndDate(todayIso);
@@ -141,6 +142,146 @@ const FinancialReports: React.FC = () => {
         }
         resetReportDateRange();
         setActiveReport(report);
+    };
+
+    const checkReportFilterActive = activeReport === 'CHECKS_IN'
+        || activeReport === 'CHECKS_OUT'
+        || activeReport === 'CHECKS_ALL'
+        || activeReport === 'CHECKS_FORECAST'
+        || activeReport === 'CHECKS_POSITIONS'
+        || activeReport === 'CHECKS_VAULT'
+        || activeReport === 'CHECKS_UNDER_COLLECTION_BANK'
+        || activeReport === 'CHECKS_MATURITY';
+
+    const getCheckReportDateValue = (check: Pick<Check, 'dueDate' | 'issueDate'>) =>
+        checkReportDateBasis === 'ISSUE_DATE'
+            ? (check.issueDate || check.dueDate)
+            : check.dueDate;
+
+    const getCheckReportDateLabel = () =>
+        checkReportDateBasis === 'ISSUE_DATE'
+            ? tr('تاريخ الإصدار', 'Issue Date')
+            : tr('تاريخ الاستحقاق', 'Due Date');
+
+    const isCheckInSelectedReportRange = (check: Pick<Check, 'dueDate' | 'issueDate'>) => {
+        const reportDate = getCheckReportDateValue(check);
+        return Boolean(reportDate && reportDate >= startDate && reportDate <= endDate);
+    };
+
+    const compareChecksBySelectedReportDate = (a: Pick<Check, 'dueDate' | 'issueDate' | 'checkNumber'>, b: Pick<Check, 'dueDate' | 'issueDate' | 'checkNumber'>) => {
+        const bySelectedDate = getCheckReportDateValue(a).localeCompare(getCheckReportDateValue(b));
+        if (bySelectedDate !== 0) return bySelectedDate;
+        const byDueDate = a.dueDate.localeCompare(b.dueDate);
+        if (byDueDate !== 0) return byDueDate;
+        return a.checkNumber.localeCompare(b.checkNumber);
+    };
+
+    const getCheckStatusLabel = (status: Check['status']) => {
+        switch (status) {
+            case 'PENDING': return tr('قيد الانتظار', 'Pending');
+            case 'UNDER_COLLECTION': return tr('برسم التحصيل', 'Under Collection');
+            case 'CLEARED': return tr('تم التحصيل/الصرف', 'Cleared');
+            case 'BOUNCED': return tr('مرتجع', 'Bounced');
+            case 'ENDORSED': return tr('مجير', 'Endorsed');
+            case 'CANCELLED': return tr('ملغى', 'Cancelled');
+            default: return status;
+        }
+    };
+
+    const getCheckStatusBadgeClass = (status: Check['status']) => {
+        switch (status) {
+            case 'PENDING': return 'bg-amber-50 text-amber-700 border-amber-100';
+            case 'UNDER_COLLECTION': return 'bg-blue-50 text-blue-700 border-blue-100';
+            case 'CLEARED': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+            case 'BOUNCED': return 'bg-rose-50 text-rose-700 border-rose-100';
+            case 'ENDORSED': return 'bg-violet-50 text-violet-700 border-violet-100';
+            case 'CANCELLED': return 'bg-slate-100 text-slate-600 border-slate-200';
+            default: return 'bg-gray-50 text-gray-700 border-gray-100';
+        }
+    };
+
+    const getCheckTypeLabel = (type: Check['type']) => type === 'INCOMING'
+        ? tr('وارد', 'Incoming')
+        : tr('صادر', 'Outgoing');
+
+    const getCheckTypeBadgeClass = (type: Check['type']) => type === 'INCOMING'
+        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+        : 'bg-rose-50 text-rose-700 border-rose-100';
+
+    const getCheckPrimaryBankName = (check: Pick<Check, 'bankAccountId' | 'bankName'>) =>
+        displayAccountName(check.bankAccountId ? accounts.find(a => a.id === check.bankAccountId) || null : { id: '', name: check.bankName })
+        || check.bankName
+        || tr('بنك غير معروف', 'Unknown bank');
+
+    const getCheckDepositedBankName = (check: Pick<Check, 'depositedBankId'>) =>
+        check.depositedBankId
+            ? (displayAccountName(accounts.find(a => a.id === check.depositedBankId) || null) || tr('بنك غير معروف', 'Unknown bank'))
+            : tr('بدون بنك محدد', 'Unassigned bank');
+
+    const getCheckBankNumberValue = (check: Pick<Check, 'accountNumber'>) => {
+        const normalized = String(check.accountNumber || '').trim();
+        return normalized || tr('بدون رقم', 'No number');
+    };
+
+    const renderCheckSummaryStrip = (
+        check: Pick<Check, 'amount' | 'dueDate' | 'checkNumber' | 'accountNumber' | 'bankAccountId' | 'bankName'>,
+        options?: {
+            bankName?: string;
+            amountClassName?: string;
+            wrapperClassName?: string;
+            cellClassName?: string;
+        }
+    ) => {
+        const resolvedBankName = options?.bankName || getCheckPrimaryBankName(check);
+        const amountClassName = options?.amountClassName || 'dir-ltr text-left text-slate-800';
+        const baseCellClassName = options?.cellClassName || 'border-slate-100 bg-white/90';
+        const cells = [
+            {
+                key: 'due',
+                label: tr('الاستحقاق', 'Due'),
+                value: check.dueDate,
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'number',
+                label: tr('رقم الشيك', 'Check #'),
+                value: check.checkNumber,
+                valueClassName: 'dir-ltr text-left text-slate-900'
+            },
+            {
+                key: 'bank',
+                label: tr('البنك', 'Bank'),
+                value: resolvedBankName,
+                valueClassName: 'text-slate-700'
+            },
+            {
+                key: 'bank-number',
+                label: tr('رقم البنك', 'Bank No.'),
+                value: getCheckBankNumberValue(check),
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'amount',
+                label: tr('المبلغ', 'Amount'),
+                value: formatValue(check.amount),
+                valueClassName: amountClassName
+            }
+        ];
+
+        return (
+            <div className={`rounded-[1.35rem] border border-slate-100 bg-slate-50/70 p-1.5 ${options?.wrapperClassName || ''}`}>
+                <div className="grid grid-cols-[1.08fr_1.08fr_1.35fr_1.12fr_0.95fr] gap-1">
+                    {cells.map(cell => (
+                        <div key={cell.key} className={`min-w-0 rounded-xl border px-1.5 py-1.5 text-[10px] font-black leading-tight ${baseCellClassName}`}>
+                            <div className="flex items-center gap-1">
+                                <span className="shrink-0 text-[8.5px] text-slate-400">{cell.label}</span>
+                                <span className={`min-w-0 flex-1 truncate whitespace-nowrap ${cell.valueClassName}`}>{cell.value}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
     };
 
     useEffect(() => {
@@ -361,11 +502,39 @@ const FinancialReports: React.FC = () => {
             .map(id => accounts.find(acc => acc.id === id))
             .filter((acc): acc is Account => Boolean(acc));
 
+        const voucherDetailRows = tx.voucherId
+            ? voucherTransactions.map((line, index) => {
+                const debitIsControl = Boolean(line.debitAccountId && controlAccountIds.includes(line.debitAccountId));
+                const creditIsControl = Boolean(line.creditAccountId && controlAccountIds.includes(line.creditAccountId));
+                const nonControlDebitId = line.debitAccountId && !controlAccountIds.includes(line.debitAccountId) ? line.debitAccountId : '';
+                const nonControlCreditId = line.creditAccountId && !controlAccountIds.includes(line.creditAccountId) ? line.creditAccountId : '';
+                const oppositeAccountId = creditIsControl
+                    ? nonControlDebitId
+                    : debitIsControl
+                        ? nonControlCreditId
+                        : (nonControlDebitId || nonControlCreditId);
+                const oppositeAccount = oppositeAccountId ? accounts.find(acc => acc.id === oppositeAccountId) || null : null;
+                const label = creditIsControl
+                    ? tr('تم القبض في', 'Received in')
+                    : debitIsControl
+                        ? tr('تم الصرف من', 'Paid from')
+                        : (line.type === TransactionType.INCOME ? tr('قبض', 'Receipt') : tr('صرف', 'Payment'));
+
+                return {
+                    id: `${line.id || tx.id}-voucher-detail-${index}`,
+                    label,
+                    accountName: oppositeAccount ? displayAccountName(oppositeAccount) : tr('غير محدد', 'Unspecified'),
+                    amount: Number(line.amount || 0)
+                };
+            }).filter(row => row.amount > 0)
+            : [];
+
         const hasDetails = Boolean(
             tx.voucherId ||
             tx.invoiceId ||
             tx.category ||
             invoice ||
+            voucherDetailRows.length > 0 ||
             relatedChecks.length > 0 ||
             counterpartAccounts.length > 0
         );
@@ -373,8 +542,8 @@ const FinancialReports: React.FC = () => {
         if (!hasDetails) return null;
 
         return (
-            <div className="mt-2 space-y-2">
-                <div className="flex flex-wrap gap-1.5 text-[10px]">
+            <div className="statement-operation-details mt-2 space-y-2">
+                <div className="statement-operation-badges flex flex-wrap gap-1.5 text-[10px]">
                     {tx.voucherId && (
                         <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-black">
                             {tr('السند', 'Voucher')}: {tx.voucherId}
@@ -393,13 +562,84 @@ const FinancialReports: React.FC = () => {
                 </div>
 
                 {counterpartAccounts.length > 0 && (
-                    <div className="text-[10px] text-gray-500 font-bold">
+                    <div className="statement-detail-note rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2 text-[10px] font-bold text-slate-600 break-words">
                         <span className="text-gray-400">{tr('الحسابات المقابلة', 'Counter accounts')}:</span>{' '}
                         {counterpartAccounts.map(acc => displayAccountName(acc)).join(' • ')}
                     </div>
                 )}
 
+                {voucherDetailRows.length > 0 && (
+                    <div className="statement-inline-detail statement-inline-detail--voucher overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
+                        <div className={`statement-inline-detail-title statement-inline-detail-title--voucher px-2.5 py-1.5 text-[10px] font-black text-slate-700 ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>
+                            {tr('تفاصيل السند', 'Voucher details')}
+                        </div>
+                        <table className="statement-inline-table statement-inline-table--voucher w-full table-fixed border-collapse text-[9px]">
+                            <colgroup>
+                                <col style={{ width: '28%' }} />
+                                <col style={{ width: '48%' }} />
+                                <col style={{ width: '24%' }} />
+                            </colgroup>
+                            <thead className="bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحركة', 'Movement')}</th>
+                                    <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
+                                    <th className={`border border-slate-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-slate-700">
+                                {voucherDetailRows.map(row => (
+                                    <tr key={row.id}>
+                                        <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{row.label}</td>
+                                        <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{row.accountName}</td>
+                                        <td className="statement-inline-value border border-slate-200 px-2 py-1.5 text-center font-semibold">{formatPlainNumber(row.amount)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
                 {relatedChecks.length > 0 && (
+                    <div className="statement-inline-detail statement-inline-detail--checks overflow-hidden rounded-xl border border-amber-200 bg-amber-50/70">
+                        <div className={`statement-inline-detail-title statement-inline-detail-title--checks px-2.5 py-1.5 text-[10px] font-black text-amber-700 ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>
+                            {tr('تفاصيل الشيكات', 'Check details')}
+                        </div>
+                        <table className="statement-inline-table statement-inline-table--checks w-full table-fixed border-collapse text-[9px]">
+                            <colgroup>
+                                <col style={{ width: '18%' }} />
+                                <col style={{ width: '30%' }} />
+                                <col style={{ width: '18%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '18%' }} />
+                            </colgroup>
+                            <thead className="bg-amber-100/70 text-amber-800">
+                                <tr>
+                                    <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('رقم الشيك', 'Check #')}</th>
+                                    <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('البنك', 'Bank')}</th>
+                                    <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
+                                    <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الاستحقاق', 'Due')}</th>
+                                    <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-amber-900/90">
+                                {relatedChecks.map(check => {
+                                    const linkedBankAccount = check.bankAccountId ? accounts.find(acc => acc.id === check.bankAccountId) || null : null;
+                                    return (
+                                        <tr key={check.id}>
+                                            <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{check.checkNumber}</td>
+                                            <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{linkedBankAccount ? displayAccountName(linkedBankAccount) : check.bankName}</td>
+                                            <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{check.accountNumber || '-'}</td>
+                                            <td className="statement-inline-value border border-amber-200 px-2 py-1.5 text-center">{check.dueDate}</td>
+                                            <td className="statement-inline-value border border-amber-200 px-2 py-1.5 text-center font-semibold">{formatPlainNumber(check.amount)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {false && relatedChecks.length > 0 && (
                     <div className="space-y-1">
                         {relatedChecks.map(check => (
                             <div key={check.id} className="p-2 rounded-lg bg-gray-50 border border-gray-100 text-[10px] text-gray-600">
@@ -415,6 +655,49 @@ const FinancialReports: React.FC = () => {
                 )}
 
                 {invoice && (
+                    <div className="statement-inline-detail statement-inline-detail--invoice overflow-hidden rounded-xl border border-blue-200 bg-blue-50/70">
+                        <div className={`statement-inline-detail-title statement-inline-detail-title--invoice px-2.5 py-1.5 text-[10px] font-black text-blue-700 ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>
+                            {tr('تفاصيل الفاتورة', 'Invoice details')}
+                        </div>
+                        <table className="statement-inline-table statement-inline-table--invoice w-full table-fixed border-collapse text-[9px]">
+                            <colgroup>
+                                <col style={{ width: '52%' }} />
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '20%' }} />
+                            </colgroup>
+                            <thead className="bg-blue-100/70 text-blue-800">
+                                <tr>
+                                    <th className={`border border-blue-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الصنف', 'Item')}</th>
+                                    <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الكمية', 'Qty')}</th>
+                                    <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('السعر', 'Price')}</th>
+                                    <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الإجمالي', 'Total')}</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-slate-700">
+                                {invoice.items.map((item, index) => {
+                                    const product = products.find(p => p.id === item.productId);
+                                    return (
+                                        <tr key={item.id || `${invoice.id}-item-${index}`}>
+                                            <td className={`border border-blue-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{item.description || displayProductName(product)}</td>
+                                            <td className="statement-inline-value border border-blue-200 px-2 py-1.5 text-center">{formatPlainNumber(Number(item.quantity) || 0)}</td>
+                                            <td className="statement-inline-value border border-blue-200 px-2 py-1.5 text-center">{formatPlainNumber(Number(item.unitPrice) || 0)}</td>
+                                            <td className="statement-inline-value border border-blue-200 px-2 py-1.5 text-center font-semibold">{formatPlainNumber(Number(item.total) || 0)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                        {invoice.dueDate && (
+                            <div className={`statement-inline-detail-footer border-t border-blue-200 bg-white/70 px-2.5 py-1.5 text-[10px] text-slate-600 ${isEnglish ? 'text-left' : 'text-right'}`}>
+                                <span className="font-black">{tr('تاريخ الاستحقاق', 'Due date')}:</span>{' '}
+                                <span className="statement-inline-value">{invoice.dueDate}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {false && invoice && (
                     <div className="rounded-lg border border-gray-100 overflow-hidden">
                         <div className="grid grid-cols-[3fr_1fr_1fr_1fr] gap-2 p-2 text-[10px] font-black text-gray-500 bg-gray-50">
                             <div>{tr('الصنف', 'Item')}</div>
@@ -1040,9 +1323,9 @@ const FinancialReports: React.FC = () => {
         IMPORT_EXPENSES_DETAIL: 'report-print-import-expenses-detail'
     };
     const reportExportColumnPresets: Array<{ className: string; widths: string[] }> = [
-        { className: 'report-table-account-ledger', widths: ['11%', '53%', '12%', '12%', '12%'] },
-        { className: 'report-table-customer-statement', widths: ['11%', '53%', '12%', '12%', '12%'] },
-        { className: 'report-table-supplier-statement', widths: ['11%', '53%', '12%', '12%', '12%'] },
+        { className: 'report-table-account-ledger', widths: ['15%', '45%', '12%', '12%', '16%'] },
+        { className: 'report-table-customer-statement', widths: ['15%', '45%', '12%', '12%', '16%'] },
+        { className: 'report-table-supplier-statement', widths: ['15%', '45%', '12%', '12%', '16%'] },
         { className: 'report-table-purchases-list', widths: ['16%', '42%', '16%', '26%'] },
         { className: 'report-table-purchase-cost-by-item', widths: ['20%', '7.5%', '7.5%', '7.5%', '9%', '9%', '9%', '9%', '9%', '12.5%'] },
         { className: 'report-table-purchase-price-variance', widths: ['14%', '18%', '14%', '9%', '9%', '9%', '9%', '9%', '9%'] },
@@ -1552,6 +1835,38 @@ const FinancialReports: React.FC = () => {
                         </button>
                     ))}
                 </div>
+                {checkReportFilterActive && (
+                    <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50/70 p-1.5">
+                        <div className="mb-1 flex items-center gap-1.5 text-[9px] font-black text-amber-700">
+                            <ListFilter size={12} />
+                            <span>{tr('فلترة تقارير الشيكات حسب', 'Filter check reports by')}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => setCheckReportDateBasis('ISSUE_DATE')}
+                                className={`rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
+                                    checkReportDateBasis === 'ISSUE_DATE'
+                                        ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
+                                        : 'bg-transparent text-amber-600/80'
+                                }`}
+                            >
+                                {tr('تاريخ الإصدار', 'Issue Date')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCheckReportDateBasis('DUE_DATE')}
+                                className={`rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
+                                    checkReportDateBasis === 'DUE_DATE'
+                                        ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
+                                        : 'bg-transparent text-amber-600/80'
+                                }`}
+                            >
+                                {tr('تاريخ الاستحقاق', 'Due Date')}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -2649,13 +2964,41 @@ const FinancialReports: React.FC = () => {
 
     // --- 5. Checks Reports (Incoming & Outgoing) ---
     const renderChecksReport = (type: 'INCOMING' | 'OUTGOING') => {
-        const list = checks.filter(c => c.type === type && c.dueDate >= startDate && c.dueDate <= endDate);
+        const list = checks
+            .filter(c => c.type === type && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
+        const total = list.reduce((sum, c) => sum + (c.amount || 0), 0);
         return (
             <div className="animate-in slide-in-from-bottom-4">
                 <ReportHeader title={type === 'INCOMING' ? tr('الشيكات الواردة', 'Incoming Checks') : tr('الشيكات الصادرة', 'Outgoing Checks')} />
+                <div className="mb-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('عدد الشيكات', 'Checks Count')}</p>
+                        <p className={`text-sm font-black dir-ltr ${type === 'INCOMING' ? 'text-emerald-600' : 'text-rose-600'}`}>{list.length}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('الإجمالي', 'Total')}</p>
+                        <p className="text-sm font-black dir-ltr text-blue-700">{formatValue(total)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-amber-100 text-center col-span-2 md:col-span-1">
+                        <p className="text-[9px] text-amber-600 font-black">{tr('أساس التصفية', 'Filter Basis')}</p>
+                        <p className="text-sm font-black text-amber-700">{getCheckReportDateLabel()}</p>
+                    </div>
+                </div>
                 <div className="space-y-4">
                     {list.map(c => (
                         <div key={c.id} className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(c.type)}`}>
+                                    {getCheckTypeLabel(c.type)}
+                                </span>
+                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(c.status)}`}>
+                                    {getCheckStatusLabel(c.status)}
+                                </span>
+                            </div>
+                            {renderCheckSummaryStrip(c, {
+                                amountClassName: `dir-ltr text-left ${type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`
+                            })}
                             <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-4">
                                 <div className="flex items-start gap-4 min-w-0">
                                     <div className={`p-3 rounded-2xl ${type === 'INCOMING' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}><ListChecks size={22} /></div>
@@ -2669,11 +3012,21 @@ const FinancialReports: React.FC = () => {
                                 <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}><span className="block font-black text-base dir-ltr">{c.amount.toLocaleString()}</span><span className="text-[9px] text-gray-400 font-bold">{c.status}</span></div>
                             </div>
                             <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center pt-3 border-t border-gray-50 text-[10px] font-black text-gray-400 uppercase">
+                                <span className="flex items-center gap-1"><Calendar size={12} /> {tr('التاريخ', 'Date')}: {getCheckReportDateValue(c)}</span>
                                 <span className="flex items-center gap-1"><Calendar size={12} /> {tr('استحقاق', 'Due')}: {c.dueDate}</span>
                                 <span className="flex items-center gap-1"><User size={12} /> {displayContactName(contacts.find(con => con.id === c.contactId) || null) || tr('غير معروف', 'Unknown')}</span>
                             </div>
                         </div>
                     ))}
+                    {list.length === 0 && (
+                        <div className="bg-white p-8 rounded-[2rem] border border-dashed border-gray-200 text-center">
+                            <p className="text-xs font-bold text-gray-400">
+                                {type === 'INCOMING'
+                                    ? tr('لا توجد شيكات واردة مطابقة للفترة المحددة', 'No incoming checks matching the selected period')
+                                    : tr('لا توجد شيكات صادرة مطابقة للفترة المحددة', 'No outgoing checks matching the selected period')}
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -2794,8 +3147,11 @@ const FinancialReports: React.FC = () => {
                 { id: 'CASH_FLOW', label: tr('حركة الصندوق', 'Cash Flow'), icon: <Banknote size={16} /> },
                 { id: 'CHECKS_IN', label: tr('الشيكات الواردة', 'Incoming Checks'), icon: <ListChecks size={16} /> },
                 { id: 'CHECKS_OUT', label: tr('الشيكات الصادرة', 'Outgoing Checks'), icon: <ListChecks size={16} /> },
+                { id: 'CHECKS_ALL', label: tr('جميع الشيكات', 'All Checks'), icon: <ScrollText size={16} /> },
+                { id: 'CHECKS_FORECAST', label: tr('الالتزامات والتحصيلات القادمة', 'Upcoming Commitments & Collections'), icon: <ArrowRightLeft size={16} /> },
                 { id: 'CHECKS_VAULT', label: tr('الشيكات بالصندوق', 'Checks in Vault'), icon: <Wallet size={16} /> },
                 { id: 'CHECKS_UNDER_COLLECTION_BANK', label: tr('شيكات برسم التحصيل حسب البنك', 'Under-Collection Checks by Bank'), icon: <Building2 size={16} /> },
+                { id: 'CHECKS_POSITIONS', label: tr('المراكز الفعلية للشيكات', 'Actual Check Positions'), icon: <Wallet size={16} /> },
                 { id: 'CHECKS_MATURITY', label: tr('آجال استحقاق الشيكات', 'Checks Maturity Dates'), icon: <Calendar size={16} /> },
                 { id: 'CURRENCY_POSITIONS', label: tr('فروقات العملات', 'Currency Differences'), icon: <Globe size={16} /> },
                 { id: 'RECEIPTS_LIST', label: tr('سندات القبض', 'Receipt Vouchers'), icon: <ArrowDownLeft size={16} /> },
@@ -2986,8 +3342,8 @@ const FinancialReports: React.FC = () => {
     // --- 5-B. Checks In Vault (Incoming Pending) ---
     const renderChecksVault = () => {
         const list = checks
-            .filter(c => c.type === 'INCOMING' && c.status === 'PENDING' && c.dueDate >= startDate && c.dueDate <= endDate)
-            .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+            .filter(c => c.type === 'INCOMING' && c.status === 'PENDING' && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
 
         const total = list.reduce((sum, c) => sum + (c.amount || 0), 0);
 
@@ -3006,13 +3362,19 @@ const FinancialReports: React.FC = () => {
                 </div>
                 <div className="space-y-3">
                     {list.map(c => (
-                        <div key={c.id} className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex justify-between items-center">
+                        <div key={c.id} className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex flex-col gap-3">
+                            {renderCheckSummaryStrip(c, {
+                                amountClassName: 'dir-ltr text-left text-amber-700'
+                            })}
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl"><Wallet size={18} /></div>
                                 <div>
                                     <h4 className="font-black text-xs text-gray-800">#{c.checkNumber} - {displayAccountName(c.bankAccountId ? accounts.find(a => a.id === c.bankAccountId) || null : { id: '', name: c.bankName })}</h4>
                                     <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
                                         {displayContactName(contacts.find(con => con.id === c.contactId) || null) || tr('غير معروف', 'Unknown')}
+                                    </p>
+                                    <p className="text-[9px] text-amber-600 font-black mt-1">
+                                        {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(c)}</span>
                                     </p>
                                 </div>
                             </div>
@@ -3035,8 +3397,8 @@ const FinancialReports: React.FC = () => {
     // --- 5-C. Checks Under Collection By Bank ---
     const renderChecksUnderCollectionByBank = () => {
         const underCollection = checks
-            .filter(c => c.type === 'INCOMING' && c.status === 'UNDER_COLLECTION' && c.dueDate >= startDate && c.dueDate <= endDate)
-            .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+            .filter(c => c.type === 'INCOMING' && c.status === 'UNDER_COLLECTION' && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
 
         const grouped = underCollection.reduce((acc, check) => {
             const key = check.depositedBankId || 'UNASSIGNED';
@@ -3085,10 +3447,15 @@ const FinancialReports: React.FC = () => {
                             </div>
                             <div className="divide-y divide-gray-50">
                                 {group.list.map(c => (
-                                    <div key={c.id} className="p-3 flex justify-between items-center text-xs">
+                                    <div key={c.id} className="p-3 space-y-3 text-xs">
+                                        {renderCheckSummaryStrip(c, {
+                                            bankName: group.bankName,
+                                            amountClassName: 'dir-ltr text-left text-blue-700'
+                                        })}
                                         <div className="min-w-0">
                                             <p className="font-black text-gray-700 truncate">#{c.checkNumber} - {displayAccountName(c.bankAccountId ? accounts.find(a => a.id === c.bankAccountId) || null : { id: '', name: c.bankName })}</p>
                                             <p className="text-[9px] text-gray-400 font-bold truncate">{displayContactName(contacts.find(con => con.id === c.contactId) || null) || tr('غير معروف', 'Unknown')}</p>
+                                            <p className="text-[9px] text-amber-600 font-black truncate">{getCheckReportDateLabel()}: {getCheckReportDateValue(c)}</p>
                                         </div>
                                         <div className="text-left">
                                             <p className="font-black dir-ltr text-gray-800">{formatValue(c.amount)}</p>
@@ -3125,7 +3492,7 @@ const FinancialReports: React.FC = () => {
         };
 
         const maturityRows = checks
-            .filter(c => (c.status === 'PENDING' || c.status === 'UNDER_COLLECTION') && c.dueDate >= startDate && c.dueDate <= endDate)
+            .filter(c => (c.status === 'PENDING' || c.status === 'UNDER_COLLECTION') && isCheckInSelectedReportRange(c))
             .map(check => {
                 const due = new Date(check.dueDate);
                 due.setHours(0, 0, 0, 0);
@@ -3200,6 +3567,10 @@ const FinancialReports: React.FC = () => {
                     <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
                         <p className="text-[9px] text-gray-400 font-black">{tr('إجمالي المبلغ', 'Total Amount')}</p>
                         <p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(summary.totalAmount)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-amber-100 text-center col-span-2 md:col-span-4">
+                        <p className="text-[9px] text-amber-600 font-black">{tr('أساس التصفية الحالي', 'Current Filter Basis')}</p>
+                        <p className="text-sm font-black text-amber-700">{getCheckReportDateLabel()}</p>
                     </div>
                 </div>
 
@@ -3279,8 +3650,11 @@ const FinancialReports: React.FC = () => {
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-3">{tr('رقم الشيك', 'Check Number')}</th>
+                                <th className="p-3">{tr('البنك', 'Bank')}</th>
+                                <th className="p-3">{tr('رقم البنك', 'Bank No.')}</th>
                                 <th className="p-3">{tr('النوع', 'Type')}</th>
                                 <th className="p-3">{tr('الطرف', 'Party')}</th>
+                                <th className="p-3 text-center">{tr('التاريخ المعتمد', 'Selected Date')}</th>
                                 <th className="p-3 text-center">{tr('تاريخ الاستحقاق', 'Due Date')}</th>
                                 <th className="p-3 text-center">{tr('الحالة', 'Status')}</th>
                                 <th className="p-3 text-center">{tr('المبلغ', 'Amount')}</th>
@@ -3290,8 +3664,11 @@ const FinancialReports: React.FC = () => {
                             {maturityRows.map(row => (
                                 <tr key={row.id} className="hover:bg-gray-50">
                                     <td className="p-3 font-bold text-gray-700">#{row.checkNumber}</td>
+                                    <td className="p-3">{getCheckPrimaryBankName(row)}</td>
+                                    <td className="p-3 dir-ltr">{getCheckBankNumberValue(row)}</td>
                                     <td className="p-3">{row.type === 'INCOMING' ? tr('وارد', 'Incoming') : tr('صادر', 'Outgoing')}</td>
                                     <td className="p-3">{displayContactName(contacts.find(c => c.id === row.contactId) || null) || tr('غير معروف', 'Unknown')}</td>
+                                    <td className="p-3 text-center dir-ltr">{getCheckReportDateValue(row)}</td>
                                     <td className="p-3 text-center">{row.dueDate}</td>
                                     <td className="p-3 text-center">
                                         {row.alertLevel === 'OVERDUE' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-rose-50 text-rose-600">{tr('متأخر', 'Overdue')} {Math.abs(row.daysToDue)} {tr('يوم', 'day')}</span>}
@@ -3300,14 +3677,366 @@ const FinancialReports: React.FC = () => {
                                     </td>
                                     <td className="p-3 text-center dir-ltr font-black">{formatValue(row.amount)}</td>
                                 </tr>
-                            ))}
-                            {maturityRows.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد شيكات مطابقة للفترة المحددة', 'No checks matching the selected period')}</td>
-                                </tr>
-                            )}
-                        </tbody>
+                                ))}
+                                {maturityRows.length === 0 && (
+                                    <tr>
+                                        <td colSpan={9} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد شيكات مطابقة للفترة المحددة', 'No checks matching the selected period')}</td>
+                                    </tr>
+                                )}
+                            </tbody>
                     </table>
+                </div>
+            </div>
+        );
+    };
+
+    const renderAllChecksReport = () => {
+        const list = checks
+            .filter(isCheckInSelectedReportRange)
+            .sort(compareChecksBySelectedReportDate);
+
+        const totals = list.reduce((sum, check) => ({
+            count: sum.count + 1,
+            amount: sum.amount + check.amount,
+            incomingCount: sum.incomingCount + (check.type === 'INCOMING' ? 1 : 0),
+            incomingAmount: sum.incomingAmount + (check.type === 'INCOMING' ? check.amount : 0),
+            outgoingCount: sum.outgoingCount + (check.type === 'OUTGOING' ? 1 : 0),
+            outgoingAmount: sum.outgoingAmount + (check.type === 'OUTGOING' ? check.amount : 0)
+        }), { count: 0, amount: 0, incomingCount: 0, incomingAmount: 0, outgoingCount: 0, outgoingAmount: 0 });
+
+        return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('جميع الشيكات', 'All Checks')} />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center">
+                        <p className="text-[9px] text-gray-400 font-black">{tr('عدد الشيكات', 'Checks Count')}</p>
+                        <p className="text-sm font-black dir-ltr text-slate-800">{totals.count}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-emerald-100 text-center">
+                        <p className="text-[9px] text-emerald-600 font-black">{tr('الواردة', 'Incoming')}</p>
+                        <p className="text-sm font-black dir-ltr text-emerald-700">{formatValue(totals.incomingAmount)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-rose-100 text-center">
+                        <p className="text-[9px] text-rose-600 font-black">{tr('الصادرة', 'Outgoing')}</p>
+                        <p className="text-sm font-black dir-ltr text-rose-700">{formatValue(totals.outgoingAmount)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-amber-100 text-center">
+                        <p className="text-[9px] text-amber-600 font-black">{tr('أساس التصفية', 'Filter Basis')}</p>
+                        <p className="text-sm font-black text-amber-700">{getCheckReportDateLabel()}</p>
+                    </div>
+                </div>
+                <div className="space-y-3">
+                    {list.map(check => {
+                        const locationLabel = check.type === 'INCOMING'
+                            ? (check.status === 'UNDER_COLLECTION' ? getCheckDepositedBankName(check) : tr('بالصندوق', 'In vault'))
+                            : getCheckPrimaryBankName(check);
+
+                        return (
+                            <div key={check.id} className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(check.type)}`}>
+                                                {getCheckTypeLabel(check.type)}
+                                            </span>
+                                            <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(check.status)}`}>
+                                                {getCheckStatusLabel(check.status)}
+                                            </span>
+                                        </div>
+                                        <div className="mt-3">
+                                            {renderCheckSummaryStrip(check, {
+                                                amountClassName: `dir-ltr text-left ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`
+                                            })}
+                                        </div>
+                                        <h4 className="mt-2 font-black text-sm text-gray-800 break-words">#{check.checkNumber}</h4>
+                                        <p className="text-[10px] font-bold text-gray-500 mt-1 break-words">{getCheckPrimaryBankName(check)}</p>
+                                        <p className="text-[10px] font-bold text-gray-400 break-words">
+                                            {displayContactName(contacts.find(c => c.id === check.contactId) || null) || tr('غير معروف', 'Unknown')}
+                                        </p>
+                                    </div>
+                                    <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}>
+                                        <p className={`font-black text-base dir-ltr ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`}>{formatValue(check.amount)}</p>
+                                        <p className="text-[9px] font-bold text-gray-400">{getCheckReportDateLabel()}: {getCheckReportDateValue(check)}</p>
+                                    </div>
+                                </div>
+                                <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500">
+                                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                                        <span className="text-gray-400">{tr('تاريخ الاستحقاق', 'Due Date')}:</span> <span className="dir-ltr">{check.dueDate}</span>
+                                    </div>
+                                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                                        <span className="text-gray-400">{tr('تاريخ الإصدار', 'Issue Date')}:</span> <span className="dir-ltr">{check.issueDate}</span>
+                                    </div>
+                                    <div className="col-span-2 rounded-xl bg-blue-50/70 px-3 py-2 text-blue-700">
+                                        <span className="text-blue-500">{tr('الموقع/الحساب', 'Location / Account')}:</span> {locationLabel}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                    {list.length === 0 && (
+                        <div className="bg-white p-8 rounded-[2rem] border border-dashed border-gray-200 text-center">
+                            <p className="text-xs font-bold text-gray-400">{tr('لا توجد شيكات مطابقة للفترة المحددة', 'No checks matching the selected period')}</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const renderChecksForecastReport = () => {
+        const incomingActive = checks
+            .filter(c => c.type === 'INCOMING' && (c.status === 'PENDING' || c.status === 'UNDER_COLLECTION') && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
+        const outgoingPending = checks
+            .filter(c => c.type === 'OUTGOING' && c.status === 'PENDING' && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
+
+        const rows = [
+            ...incomingActive.map(check => ({
+                kind: 'COLLECTION' as const,
+                check,
+                location: check.status === 'UNDER_COLLECTION' ? getCheckDepositedBankName(check) : tr('بالصندوق', 'In vault')
+            })),
+            ...outgoingPending.map(check => ({
+                kind: 'COMMITMENT' as const,
+                check,
+                location: getCheckPrimaryBankName(check)
+            }))
+        ].sort((a, b) => {
+            const byDate = getCheckReportDateValue(a.check).localeCompare(getCheckReportDateValue(b.check));
+            if (byDate !== 0) return byDate;
+            if (a.kind !== b.kind) return a.kind === 'COLLECTION' ? -1 : 1;
+            return compareChecksBySelectedReportDate(a.check, b.check);
+        });
+
+        const totals = rows.reduce((sum, row) => ({
+            collections: sum.collections + (row.kind === 'COLLECTION' ? row.check.amount : 0),
+            commitments: sum.commitments + (row.kind === 'COMMITMENT' ? row.check.amount : 0),
+            vaultCollections: sum.vaultCollections + (row.kind === 'COLLECTION' && row.check.status === 'PENDING' ? row.check.amount : 0),
+            underCollection: sum.underCollection + (row.kind === 'COLLECTION' && row.check.status === 'UNDER_COLLECTION' ? row.check.amount : 0)
+        }), { collections: 0, commitments: 0, vaultCollections: 0, underCollection: 0 });
+
+        return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('الالتزامات والتحصيلات القادمة', 'Upcoming Commitments & Collections')} />
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-2xl border border-emerald-100 text-center">
+                        <p className="text-[9px] text-emerald-600 font-black">{tr('التحصيلات القادمة', 'Upcoming Collections')}</p>
+                        <p className="text-sm font-black dir-ltr text-emerald-700">{formatValue(totals.collections)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center">
+                        <p className="text-[9px] text-blue-600 font-black">{tr('برسم التحصيل', 'Under Collection')}</p>
+                        <p className="text-sm font-black dir-ltr text-blue-700">{formatValue(totals.underCollection)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-amber-100 text-center">
+                        <p className="text-[9px] text-amber-600 font-black">{tr('بالصندوق', 'In Vault')}</p>
+                        <p className="text-sm font-black dir-ltr text-amber-700">{formatValue(totals.vaultCollections)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-rose-100 text-center">
+                        <p className="text-[9px] text-rose-600 font-black">{tr('الالتزامات القادمة', 'Upcoming Commitments')}</p>
+                        <p className="text-sm font-black dir-ltr text-rose-700">{formatValue(totals.commitments)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-slate-100 text-center">
+                        <p className="text-[9px] text-slate-500 font-black">{tr('صافي المتوقع', 'Net Expected')}</p>
+                        <p className={`text-sm font-black dir-ltr ${totals.collections - totals.commitments >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {formatValue(totals.collections - totals.commitments)}
+                        </p>
+                    </div>
+                </div>
+                <div className="space-y-3">
+                    {rows.map(row => (
+                        <div key={`${row.kind}-${row.check.id}`} className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${
+                                            row.kind === 'COLLECTION'
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                                : 'bg-rose-50 text-rose-700 border-rose-100'
+                                        }`}>
+                                            {row.kind === 'COLLECTION' ? tr('تحصيل قادم', 'Upcoming Collection') : tr('التزام قادم', 'Upcoming Commitment')}
+                                        </span>
+                                        <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(row.check.status)}`}>
+                                            {getCheckStatusLabel(row.check.status)}
+                                        </span>
+                                    </div>
+                                    <div className="mt-3">
+                                        {renderCheckSummaryStrip(row.check, {
+                                            amountClassName: `dir-ltr text-left ${row.kind === 'COLLECTION' ? 'text-emerald-700' : 'text-rose-700'}`
+                                        })}
+                                    </div>
+                                    <h4 className="mt-2 font-black text-sm text-gray-800 break-words">#{row.check.checkNumber}</h4>
+                                    <p className="text-[10px] font-bold text-gray-500 mt-1 break-words">{getCheckPrimaryBankName(row.check)}</p>
+                                    <p className="text-[10px] font-bold text-gray-400 break-words">
+                                        {displayContactName(contacts.find(c => c.id === row.check.contactId) || null) || tr('غير معروف', 'Unknown')}
+                                    </p>
+                                </div>
+                                <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}>
+                                    <p className={`font-black text-base dir-ltr ${row.kind === 'COLLECTION' ? 'text-emerald-700' : 'text-rose-700'}`}>{formatValue(row.check.amount)}</p>
+                                    <p className="text-[9px] font-bold text-gray-400">{getCheckReportDateLabel()}: {getCheckReportDateValue(row.check)}</p>
+                                </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500">
+                                <div className="rounded-xl bg-gray-50 px-3 py-2">
+                                    <span className="text-gray-400">{tr('تاريخ الاستحقاق', 'Due Date')}:</span> <span className="dir-ltr">{row.check.dueDate}</span>
+                                </div>
+                                <div className="rounded-xl bg-gray-50 px-3 py-2">
+                                    <span className="text-gray-400">{tr('الموقع', 'Location')}:</span> {row.location}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    {rows.length === 0 && (
+                        <div className="bg-white p-8 rounded-[2rem] border border-dashed border-gray-200 text-center">
+                            <p className="text-xs font-bold text-gray-400">{tr('لا توجد التزامات أو تحصيلات شيكات ضمن الفترة المحددة', 'No check commitments or collections within the selected period')}</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const renderChecksPositionsReport = () => {
+        const vaultChecks = checks
+            .filter(c => c.type === 'INCOMING' && c.status === 'PENDING' && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
+        const underCollectionChecks = checks
+            .filter(c => c.type === 'INCOMING' && c.status === 'UNDER_COLLECTION' && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
+        const outgoingChecks = checks
+            .filter(c => c.type === 'OUTGOING' && c.status === 'PENDING' && isCheckInSelectedReportRange(c))
+            .sort(compareChecksBySelectedReportDate);
+
+        type PositionGroup = {
+            id: string;
+            title: string;
+            subtitle: string;
+            tone: 'amber' | 'blue' | 'rose';
+            items: Check[];
+            total: number;
+        };
+
+        const positionGroups: PositionGroup[] = [];
+
+        if (vaultChecks.length > 0) {
+            positionGroups.push({
+                id: 'vault',
+                title: tr('الصندوق', 'Vault'),
+                subtitle: tr('شيكات واردة قيد الانتظار', 'Pending incoming checks'),
+                tone: 'amber',
+                items: vaultChecks,
+                total: vaultChecks.reduce((sum, check) => sum + check.amount, 0)
+            });
+        }
+
+        const underCollectionGroups = Object.entries(
+            underCollectionChecks.reduce((acc, check) => {
+                const key = check.depositedBankId || 'UNASSIGNED';
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(check);
+                return acc;
+            }, {} as Record<string, Check[]>)
+        ).map(([groupId, items]) => ({
+            id: `under-${groupId}`,
+            title: groupId === 'UNASSIGNED' ? tr('بدون بنك محدد', 'Unassigned bank') : getCheckDepositedBankName(items[0]),
+            subtitle: tr('شيكات برسم التحصيل', 'Under-collection checks'),
+            tone: 'blue' as const,
+            items: (items as Check[]).sort(compareChecksBySelectedReportDate),
+            total: (items as Check[]).reduce((sum, check) => sum + check.amount, 0)
+        }));
+
+        const outgoingGroups = Object.entries(
+            outgoingChecks.reduce((acc, check) => {
+                const key = check.bankAccountId || check.bankName || 'UNASSIGNED';
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(check);
+                return acc;
+            }, {} as Record<string, Check[]>)
+        ).map(([groupId, items]) => ({
+            id: `outgoing-${groupId}`,
+            title: getCheckPrimaryBankName(items[0]),
+            subtitle: tr('شيكات برسم الدفع', 'Outgoing payment checks'),
+            tone: 'rose' as const,
+            items: (items as Check[]).sort(compareChecksBySelectedReportDate),
+            total: (items as Check[]).reduce((sum, check) => sum + check.amount, 0)
+        }));
+
+        positionGroups.push(...underCollectionGroups, ...outgoingGroups);
+
+        const totals = {
+            vault: vaultChecks.reduce((sum, check) => sum + check.amount, 0),
+            underCollection: underCollectionChecks.reduce((sum, check) => sum + check.amount, 0),
+            outgoing: outgoingChecks.reduce((sum, check) => sum + check.amount, 0)
+        };
+
+        const toneClasses = {
+            amber: 'border-amber-100 bg-amber-50/40 text-amber-700',
+            blue: 'border-blue-100 bg-blue-50/40 text-blue-700',
+            rose: 'border-rose-100 bg-rose-50/40 text-rose-700'
+        } as const;
+
+        return (
+            <div className="animate-in slide-in-from-bottom-4">
+                <ReportHeader title={tr('المراكز الفعلية للشيكات', 'Actual Check Positions')} />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-2xl border border-amber-100 text-center">
+                        <p className="text-[9px] text-amber-600 font-black">{tr('بالصندوق', 'In Vault')}</p>
+                        <p className="text-sm font-black dir-ltr text-amber-700">{formatValue(totals.vault)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center">
+                        <p className="text-[9px] text-blue-600 font-black">{tr('برسم التحصيل', 'Under Collection')}</p>
+                        <p className="text-sm font-black dir-ltr text-blue-700">{formatValue(totals.underCollection)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-rose-100 text-center">
+                        <p className="text-[9px] text-rose-600 font-black">{tr('برسم الدفع', 'Payment Commitments')}</p>
+                        <p className="text-sm font-black dir-ltr text-rose-700">{formatValue(totals.outgoing)}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-slate-100 text-center">
+                        <p className="text-[9px] text-slate-500 font-black">{tr('أساس التصفية', 'Filter Basis')}</p>
+                        <p className="text-sm font-black text-slate-700">{getCheckReportDateLabel()}</p>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    {positionGroups.map(group => (
+                        <div key={group.id} className={`rounded-[2rem] border shadow-sm ${toneClasses[group.tone]}`}>
+                            <div className="flex items-center justify-between gap-3 border-b border-white/80 px-4 py-3">
+                                <div>
+                                    <h4 className="font-black text-sm">{group.title}</h4>
+                                    <p className="text-[9px] font-black opacity-70">{group.subtitle}</p>
+                                </div>
+                                <div className={`${isEnglish ? 'text-left' : 'text-right'}`}>
+                                    <p className="font-black text-sm dir-ltr">{formatValue(group.total)}</p>
+                                    <p className="text-[9px] font-black opacity-70">{group.items.length} {tr('شيك', 'check')}</p>
+                                </div>
+                            </div>
+                            <div className="divide-y divide-white/80 bg-white/70">
+                                {group.items.map(check => (
+                                    <div key={check.id} className="px-4 py-3 text-xs space-y-3">
+                                        {renderCheckSummaryStrip(check, {
+                                            amountClassName: `dir-ltr text-left ${group.tone === 'rose' ? 'text-rose-700' : group.tone === 'blue' ? 'text-blue-700' : 'text-amber-700'}`,
+                                            bankName: getCheckPrimaryBankName(check)
+                                        })}
+                                        <div className="min-w-0">
+                                            <p className="font-black text-gray-800 break-words">#{check.checkNumber} - {displayContactName(contacts.find(c => c.id === check.contactId) || null) || tr('غير معروف', 'Unknown')}</p>
+                                            <p className="text-[10px] font-bold text-gray-500 break-words">{getCheckPrimaryBankName(check)}</p>
+                                            <p className="text-[9px] font-black text-gray-400">{getCheckReportDateLabel()}: {getCheckReportDateValue(check)} • {tr('استحقاق', 'Due')}: {check.dueDate}</p>
+                                        </div>
+                                        <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}>
+                                            <p className={`font-black dir-ltr ${group.tone === 'rose' ? 'text-rose-700' : group.tone === 'blue' ? 'text-blue-700' : 'text-amber-700'}`}>{formatValue(check.amount)}</p>
+                                            <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(check.status)}`}>
+                                                {getCheckStatusLabel(check.status)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                    {positionGroups.length === 0 && (
+                        <div className="bg-white p-8 rounded-[2rem] border border-dashed border-gray-200 text-center">
+                            <p className="text-xs font-bold text-gray-400">{tr('لا توجد مراكز شيكات فعلية ضمن الفترة المحددة', 'No actual check positions in the selected period')}</p>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -5563,8 +6292,15 @@ const FinancialReports: React.FC = () => {
                     <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('دائن', 'Credit')}</p><p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(totalCredit)}</p></div>
                     <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className="text-sm font-black dir-ltr text-blue-700">{formatValue(closingBalance)}</p></div>
                 </div>
-                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-x-auto">
+                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
                     <table className="statement-report-table statement-report-table--ledger report-table-customer-statement w-full text-start table-fixed min-w-0 md:min-w-[760px]">
+                        <colgroup>
+                            <col style={{ width: '15%' }} />
+                            <col style={{ width: '45%' }} />
+                            <col style={{ width: '12%' }} />
+                            <col style={{ width: '12%' }} />
+                            <col style={{ width: '16%' }} />
+                        </colgroup>
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
@@ -5576,7 +6312,7 @@ const FinancialReports: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-[11px] sm:text-xs">
                             <tr className="bg-amber-50/50">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{startDate}</td>
+                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
                                 <td className="p-2 md:p-3 font-bold text-gray-600 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
                                 <td className="p-2 md:p-3 text-center">-</td>
                                 <td className="p-2 md:p-3 text-center">-</td>
@@ -5587,7 +6323,7 @@ const FinancialReports: React.FC = () => {
                                     <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{e.date}</td>
                                     <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
                                         <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(e.tx)}</div>
-                                        {renderStatementLedgerDetails(e.tx, receivableAccountIds)}
+                                        {renderStatementOperationDetails(e.tx, receivableAccountIds)}
                                     </td>
                                     <td className="p-2 md:p-3 text-center dir-ltr text-rose-600">{e.debit > 0 ? formatValue(e.debit) : '-'}</td>
                                     <td className="p-2 md:p-3 text-center dir-ltr text-emerald-600">{e.credit > 0 ? formatValue(e.credit) : '-'}</td>
@@ -5831,8 +6567,15 @@ const FinancialReports: React.FC = () => {
                     <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('دائن', 'Credit')}</p><p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(totalCredit)}</p></div>
                     <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className="text-sm font-black dir-ltr text-blue-700">{formatValue(closingBalance)}</p></div>
                 </div>
-                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-x-auto">
+                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
                     <table className="statement-report-table statement-report-table--ledger report-table-supplier-statement w-full text-start table-fixed min-w-0 md:min-w-[760px]">
+                        <colgroup>
+                            <col style={{ width: '15%' }} />
+                            <col style={{ width: '45%' }} />
+                            <col style={{ width: '12%' }} />
+                            <col style={{ width: '12%' }} />
+                            <col style={{ width: '16%' }} />
+                        </colgroup>
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
@@ -5844,7 +6587,7 @@ const FinancialReports: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-[11px] sm:text-xs">
                             <tr className="bg-amber-50/50">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{startDate}</td>
+                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
                                 <td className="p-2 md:p-3 font-bold text-gray-600 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
                                 <td className="p-2 md:p-3 text-center">-</td>
                                 <td className="p-2 md:p-3 text-center">-</td>
@@ -5855,7 +6598,7 @@ const FinancialReports: React.FC = () => {
                                     <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{e.date}</td>
                                     <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
                                         <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(e.tx)}</div>
-                                        {renderStatementLedgerDetails(e.tx, payableAccountIds)}
+                                        {renderStatementOperationDetails(e.tx, payableAccountIds)}
                                     </td>
                                     <td className="p-2 md:p-3 text-center dir-ltr text-rose-600">{e.debit > 0 ? formatValue(e.debit) : '-'}</td>
                                     <td className="p-2 md:p-3 text-center dir-ltr text-emerald-600">{e.credit > 0 ? formatValue(e.credit) : '-'}</td>
@@ -6024,8 +6767,15 @@ const FinancialReports: React.FC = () => {
                         {accounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                     </select>
                 </div>
-                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-x-auto">
+                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
                     <table className="statement-report-table statement-report-table--ledger report-table-account-ledger w-full text-start table-fixed min-w-0 md:min-w-[760px]">
+                        <colgroup>
+                            <col style={{ width: '15%' }} />
+                            <col style={{ width: '45%' }} />
+                            <col style={{ width: '12%' }} />
+                            <col style={{ width: '12%' }} />
+                            <col style={{ width: '16%' }} />
+                        </colgroup>
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
@@ -6037,7 +6787,7 @@ const FinancialReports: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                             <tr className="text-xs bg-blue-50/40">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{startDate}</td>
+                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
                                 <td className="p-2 md:p-3 font-black text-gray-700 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
                                 <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
                                 <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
@@ -6050,7 +6800,7 @@ const FinancialReports: React.FC = () => {
                                     <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{tx.date}</td>
                                     <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
                                         <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(tx)}</div>
-                                        {renderStatementLedgerDetails(tx, [acc.id])}
+                                        {renderStatementOperationDetails(tx, [acc.id])}
                                     </td>
                                     <td className="p-2 md:p-3 dir-ltr text-center text-emerald-600">{debit > 0 ? formatValue(debit) : '-'}</td>
                                     <td className="p-2 md:p-3 dir-ltr text-center text-rose-600">{credit > 0 ? formatValue(credit) : '-'}</td>
@@ -6658,6 +7408,8 @@ const FinancialReports: React.FC = () => {
             case 'CASH_FLOW': return renderCashFlow();
             case 'CHECKS_IN': return renderChecksReport('INCOMING');
             case 'CHECKS_OUT': return renderChecksReport('OUTGOING');
+            case 'CHECKS_ALL': return renderAllChecksReport();
+            case 'CHECKS_FORECAST': return renderChecksForecastReport();
             case 'WORKING_CAPITAL': return renderWorkingCapital();
             case 'TRIAL_BALANCE': return renderTrialBalance();
             case 'INCOME_STATEMENT': return renderIncomeStatement();
@@ -6692,6 +7444,7 @@ const FinancialReports: React.FC = () => {
             case 'MANUFACTURING_COST': return renderManufacturingCostReport();
             case 'CHECKS_VAULT': return renderChecksVault();
             case 'CHECKS_UNDER_COLLECTION_BANK': return renderChecksUnderCollectionByBank();
+            case 'CHECKS_POSITIONS': return renderChecksPositionsReport();
             case 'CHECKS_MATURITY': return renderChecksMaturity();
             default: return renderMenu();
         }

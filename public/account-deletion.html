@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>حذف الحساب | AIFLEX Smart Accountant</title>
+    <style>
+      :root {
+        --bg: #fff7f8;
+        --card: #ffffff;
+        --ink: #1a2032;
+        --muted: #667189;
+        --line: #ead7dd;
+        --accent: #e11d48;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        background: linear-gradient(180deg, #fff1f2 0%, var(--bg) 100%);
+        color: var(--ink);
+      }
+      .wrap {
+        width: min(900px, calc(100% - 32px));
+        margin: 32px auto;
+      }
+      .hero, .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        box-shadow: 0 14px 32px rgba(24, 24, 31, 0.05);
+      }
+      .hero { padding: 28px; }
+      .card { padding: 22px; margin-top: 16px; }
+      h1, h2 { margin: 0 0 12px; }
+      h1 { font-size: 32px; }
+      h2 { font-size: 18px; }
+      p, li {
+        font-size: 15px;
+        line-height: 1.9;
+        color: var(--muted);
+      }
+      ul { margin: 0; padding-inline-start: 18px; }
+      .pill {
+        display: inline-flex;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: #ffe4e6;
+        color: var(--accent);
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 20px;
+      }
+      .actions a {
+        text-decoration: none;
+        padding: 12px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        color: var(--ink);
+        font-weight: 700;
+        background: #fff;
+      }
+      .actions a.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .en {
+        direction: ltr;
+        text-align: left;
+      }
+      .note {
+        margin-top: 16px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        font-size: 14px;
+        line-height: 1.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <span class="pill">Account Deletion</span>
+        <h1>حذف الحساب</h1>
+        <p>
+          إذا كنت تريد حذف حساب الدخول الخاص بتطبيق المحاسب الذكي، يمكنك بدء العملية مباشرة من داخل التطبيق.
+          تم إعداد هذه الصفحة لتوضيح الخطوات العامة وما الذي يتم حذفه عند تنفيذ العملية.
+        </p>
+        <div class="actions">
+          <a class="primary" href="/?openAccountDeletion=1">فتح شاشة حذف الحساب داخل التطبيق</a>
+          <a href="/privacy-policy.html">سياسة الخصوصية العامة</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>الخطوات</h2>
+        <ul>
+          <li>سجّل الدخول إلى التطبيق بالحساب الذي تريد حذفه.</li>
+          <li>افتح: الإعدادات ثم حذف الحساب.</li>
+          <li>أكّد العملية، ثم أعد التحقق من الهوية إذا طلب التطبيق ذلك.</li>
+          <li>بعد الإكمال سيتم حذف حساب الدخول ومسح بيانات الجلسة المحلية من الجهاز الحالي.</li>
+        </ul>
+        <div class="note">
+          إذا فقدت الوصول للحساب، ابدأ أولًا باستعادة كلمة المرور من شاشة الدخول، ثم عد إلى التطبيق وافتح شاشة حذف الحساب.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>ما الذي يُحذف؟</h2>
+        <ul>
+          <li>حساب الدخول المرتبط بالمستخدم في التطبيق.</li>
+          <li>بيانات الجلسة المحلية والربط المحلي على هذا الجهاز.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>ما الذي قد يبقى؟</h2>
+        <ul>
+          <li>السجلات المحاسبية وبيانات الشركات المشتركة قد تظل خاضعة لسياسة المؤسسة والنسخ الاحتياطية.</li>
+          <li>الملفات أو التقارير التي تم تصديرها مسبقًا خارج التطبيق لا تُحذف تلقائيًا من جهازك.</li>
+        </ul>
+      </section>
+
+      <section class="card en">
+        <h2>Account Deletion Summary</h2>
+        <p>
+          To delete your AIFLEX Smart Accountant sign-in account, sign in, open Settings, then
+          open the account deletion screen. The app may ask you to re-verify your identity before
+          deleting the account and clearing the local session on the current device.
+        </p>
+      </section>
+    </div>
+  </body>
+</html>

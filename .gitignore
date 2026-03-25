@@ -36,6 +36,7 @@ ios/App/release.xcconfig
 
 # Temporary QA/debug artifacts
 qa-output/
+artifacts/
 firebase-debug.log
 tserrors.txt
 .tmp_*

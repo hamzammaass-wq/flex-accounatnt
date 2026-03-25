@@ -317,6 +317,7 @@ interface SearchableContactSelectProps {
     autoFocus?: boolean;
     className?: string;
     inputClassName?: string;
+    inputTestId?: string;
 }
 
 const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
@@ -336,7 +337,8 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
     isEnglish,
     autoFocus = false,
     className = '',
-    inputClassName = ''
+    inputClassName = '',
+    inputTestId
 }) => {
     const [query, setQuery] = useState(selectedLabel);
     const [isOpen, setIsOpen] = useState(false);
@@ -443,6 +445,7 @@ const SearchableContactSelect: React.FC<SearchableContactSelectProps> = ({
                 placeholder={placeholder}
                 autoComplete="off"
                 data-enter-skip="true"
+                data-testid={inputTestId}
                 className={`searchable-contact-trigger ${inputClassName} ${inputPaddingClass}`}
             />
             <button
@@ -894,7 +897,9 @@ const QuickAddProductModalLegacy: React.FC<{ onClose: () => void; onSave: (produ
         const normalizedExpiryPeriodDays = Number.isFinite(parsedExpiryPeriodDays) && parsedExpiryPeriodDays > 0
             ? parsedExpiryPeriodDays
             : undefined;
-        const resolvedItemCode = normalizeItemCode(itemCode) || autoItemCodePreview;
+        const manualItemCode = normalizeItemCode(itemCode);
+        const resolvedItemCode = manualItemCode || autoItemCodePreview;
+        const resolvedItemCodeMode = manualItemCode ? 'MANUAL' : 'AUTO';
         const isItemCodeTaken = products.some((product) =>
             normalizeItemCode(product.itemCode || '') === resolvedItemCode
         );
@@ -908,6 +913,7 @@ const QuickAddProductModalLegacy: React.FC<{ onClose: () => void; onSave: (produ
             id,
             name: name.trim(),
             itemCode: resolvedItemCode || undefined,
+            itemCodeMode: resolvedItemCodeMode,
             expiryPeriodDays: normalizedExpiryPeriodDays,
             imageUrl: imageUrl || undefined,
             sellPrice: normalizedPrice,
@@ -2538,6 +2544,7 @@ const InvoiceScreen: React.FC<{
             dir={isEnglish ? 'ltr' : 'rtl'}
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
+            data-testid="invoice-form-root"
         >
             <div className="invoice-mobile-top-shell sticky top-2 z-30 space-y-3 rounded-2xl bg-gray-50/95 pb-1 backdrop-blur">
             {/* 1. Header Navigation Bar */}
@@ -2769,7 +2776,7 @@ const InvoiceScreen: React.FC<{
                                 <button type="button" onClick={() => setPaymentType('CASH')} className={`flex-1 py-1.5 text-[12px] font-black rounded-lg transition-all ${paymentType === 'CASH' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
                                     {tr('نقدي', 'Cash')}
                                 </button>
-                                <button type="button" onClick={() => setPaymentType('CREDIT')} className={`flex-1 py-1.5 text-[12px] font-black rounded-lg transition-all ${paymentType === 'CREDIT' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>
+                                <button type="button" onClick={() => setPaymentType('CREDIT')} data-testid="invoice-payment-credit" className={`flex-1 py-1.5 text-[12px] font-black rounded-lg transition-all ${paymentType === 'CREDIT' ? 'bg-white shadow text-orange-600' : 'text-gray-500'}`}>
                                     {tr('آجل', 'Credit')}
                                 </button>
                             </>
@@ -2790,6 +2797,7 @@ const InvoiceScreen: React.FC<{
                                         refreshStockShortageDialog(items, { warehouseIdOverride: nextWarehouseId });
                                     }
                                 }}
+                                data-testid="invoice-warehouse-select"
                                 className="w-full appearance-none rounded-xl border border-gray-100 bg-gray-50 py-2 px-3 pl-8 pr-8 text-[12px] font-black focus:border-indigo-300 focus:outline-none"
                             >
                                 <option value="">{tr('المستودع', 'Warehouse')}</option>
@@ -2801,7 +2809,7 @@ const InvoiceScreen: React.FC<{
 
                     {!isQuotation && paymentType === 'CASH' && (
                         <div className="relative min-w-0">
-                            <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} className="w-full text-[12px] font-black bg-blue-50/30 border border-blue-100 text-blue-700 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-blue-300">
+                            <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} data-testid="invoice-payment-account" className="w-full text-[12px] font-black bg-blue-50/30 border border-blue-100 text-blue-700 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-blue-300">
                                 <option value="">{tr('الصندوق/البنك', 'Cash/Bank')}</option>
                                 {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                             </select>
@@ -2856,6 +2864,7 @@ const InvoiceScreen: React.FC<{
                             autoFocus={Boolean(initialDraft?.autoFocusContact)}
                             className="w-full"
                             inputClassName={`w-full bg-gray-50 border border-gray-100 rounded-xl py-2 px-3 text-[12px] font-black text-gray-700 outline-none focus:ring-1 focus:ring-indigo-300 ${isEnglish ? 'pl-9 pr-9' : 'pr-9 pl-9'}`}
+                            inputTestId="invoice-contact-input"
                         />
                         <button type="button" onClick={() => { setQuickContactInitialName(''); setShowQuickContact(true); }} className="invoice-contact-add-btn h-10 w-10 border border-slate-200 bg-white text-gray-600 rounded-xl active:bg-gray-100 transition-colors z-20 hover:text-indigo-600 flex items-center justify-center shrink-0">
                             <UserPlus size={14} />
@@ -2877,6 +2886,7 @@ const InvoiceScreen: React.FC<{
                             value={notes}
                             onChange={e => setNotes(e.target.value)}
                             placeholder={tr('التفاصيل / الملاحظات', 'Details / notes')}
+                            data-testid="invoice-notes-input"
                             className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-[12px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-right'}`}
                         />
                     </div>
@@ -2887,6 +2897,7 @@ const InvoiceScreen: React.FC<{
                             value={invoiceNumber}
                             onChange={e => setInvoiceNumber(e.target.value.toUpperCase())}
                             placeholder={tr('رقم الفاتورة', 'Invoice number')}
+                            data-testid="invoice-number-input"
                             className={`w-full rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-[12px] font-black text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200 dir-ltr ${isEnglish ? 'pl-9 pr-3 text-left' : 'pr-9 pl-3 text-left'}`}
                         />
                     </div>
@@ -2930,6 +2941,7 @@ const InvoiceScreen: React.FC<{
                             placeholder={(isExpenseVoucherManualOnly || isManualItem)
                                 ? tr('وصف البند اليدوي...', 'Manual item desc...')
                                 : tr('أدخل إسم الصنف أو الباركود', 'Enter item name or barcode')}
+                            data-testid="invoice-item-search"
                             className={`w-full h-10 text-sm font-black bg-white border border-transparent shadow-inner rounded-xl appearance-none focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all ${isEnglish ? 'px-3 text-left' : 'px-3 text-right'}`}
                         />
                     </div>
@@ -3175,6 +3187,7 @@ const InvoiceScreen: React.FC<{
                                         <select
                                             value={effectiveTaxMode}
                                             onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
+                                            data-testid="invoice-tax-mode"
                                             className={`w-full appearance-none rounded-lg border border-slate-700 bg-slate-800/95 py-1 text-[9px] font-black text-white outline-none transition-colors focus:border-indigo-400 ${isEnglish ? 'pl-2 pr-6 text-left' : 'pr-2 pl-6 text-right'}`}
                                         >
                                             {(['INCLUSIVE', 'EXCLUSIVE', 'NONE'] as InvoiceTaxMode[]).map((modeOption) => (
@@ -3196,13 +3209,14 @@ const InvoiceScreen: React.FC<{
                     {/* Final Total row */}
                     <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
                         <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
-                        <span className="min-w-0 text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white">{totals.total.toLocaleString()}</span>
+                        <span data-testid="invoice-final-total" className="min-w-0 text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white">{totals.total.toLocaleString()}</span>
                     </div>
                 </div>
 
                 {/* Action Buttons */}
                 <button
                     onClick={handleSubmit}
+                    data-testid="invoice-submit-action"
                     className={`hidden w-full py-2.5 rounded-xl font-black text-[13px] shadow-[0_4px_20px_rgba(0,0,0,0.3)] md:flex items-center justify-center gap-2 active:scale-95 transition-transform ${isQuotation ? 'bg-amber-600' : (isReturn || isPurchaseReturn) ? 'bg-rose-600' : 'bg-indigo-600'} text-white`}
                 >
                     <CheckCircle2 size={16} />
@@ -4626,6 +4640,7 @@ const VoucherScreen: React.FC<{
                             actionButtonClassName="text-blue-500 hover:text-blue-600"
                             isEnglish={isEnglish}
                             inputClassName={`${voucherPrimaryInputClass} !py-3`}
+                            inputTestId="voucher-contact-input"
                         />
                     </div>
 
@@ -4638,6 +4653,7 @@ const VoucherScreen: React.FC<{
                             value={description}
                             onChange={e => setDescription(e.target.value)}
                             placeholder={tr('البيان / ملاحظات السند...', 'Voucher description / notes...')}
+                            data-testid="voucher-description-input"
                             className={`${voucherPrimaryInputClass} ${isEnglish ? 'pl-4 pr-11' : 'pr-4 pl-11'}`}
                         />
                     </div>
@@ -4758,7 +4774,7 @@ const VoucherScreen: React.FC<{
             <div className={voucherSectionClass}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <h3 className={voucherSectionTitleClass}>{tr('المدفوعات النقدية / التحويل', 'Cash / Transfer Lines')}</h3>
-                    <button type="button" onClick={addCashLine} className={cashSectionActionClass}>
+                    <button type="button" onClick={addCashLine} data-testid="voucher-add-cash-line" className={cashSectionActionClass}>
                         {tr('+ إضافة', '+ Add')}
                     </button>
                 </div>
@@ -4777,6 +4793,7 @@ const VoucherScreen: React.FC<{
                                         <select
                                             value={line.accountId}
                                             onChange={e => updateCashLine(line.id, 'accountId', e.target.value)}
+                                            data-testid={`voucher-cash-line-${idx + 1}-account`}
                                             className={`${sheetInputClass} ${isEnglish ? 'text-left' : 'text-right'}`}
                                         >
                                             <option value="">{tr('الصندوق / البنك', 'Cash / Bank')}</option>
@@ -4794,6 +4811,7 @@ const VoucherScreen: React.FC<{
                                                 value={line.amount}
                                                 onChange={e => updateCashLine(line.id, 'amount', e.target.value)}
                                                 onBlur={e => notifyAmountAdded(e.target.value)}
+                                                data-testid={`voucher-cash-line-${idx + 1}-amount`}
                                                 className={`${sheetInputClass} min-w-0 flex-1 text-center dir-ltr`}
                                             />
                                             <button
@@ -5006,7 +5024,7 @@ const VoucherScreen: React.FC<{
                         <span className="text-[2rem] font-black leading-none text-slate-800 dir-ltr">{totalAmountDisplay}</span>
                     </div>
                 </div>
-                <button type="button" onClick={handleSubmit} className="hidden w-full rounded-[1.2rem] bg-[#2f63f2] py-4 font-black text-white shadow-[0_18px_32px_-18px_rgba(47,99,242,0.88)] transition-all hover:bg-[#2557ea] active:scale-[0.99] md:block">
+                <button type="button" onClick={handleSubmit} data-testid="voucher-submit-action" className="hidden w-full rounded-[1.2rem] bg-[#2f63f2] py-4 font-black text-white shadow-[0_18px_32px_-18px_rgba(47,99,242,0.88)] transition-all hover:bg-[#2557ea] active:scale-[0.99] md:block">
                     {initialVoucherId ? tr('تحديث وترحيل السند', 'Update & Post Voucher') : tr('ترحيل السند', 'Post Voucher')}
                 </button>
             </div>

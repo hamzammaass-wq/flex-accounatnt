@@ -135,6 +135,7 @@ export interface ItemGroup {
 }
 
 export type ProductKind = 'STOCK' | 'SERVICE';
+export type ItemCodeMode = 'AUTO' | 'MANUAL';
 
 export type ContactType = 'CUSTOMER' | 'SUPPLIER' | 'PARTNER' | 'EMPLOYEE';
 export type ContactPreferredPriceTier = 'RETAIL' | 'WHOLESALE';
@@ -344,6 +345,7 @@ export interface Product {
   stock: number;
   barcode?: string;
   itemCode?: string;
+  itemCodeMode?: ItemCodeMode;
   expiryPeriodDays?: number;
   expiryAlertLeadDays?: number; // Per-item warning threshold (days before expiry)
   lowStockAlertQty?: number; // Per-item low stock warning threshold (quantity)
@@ -491,6 +493,7 @@ export interface Product {
   warehouseStock?: { warehouseId: string; quantity: number }[]; // Breakdown by warehouse
   barcode?: string;
   itemCode?: string;
+  itemCodeMode?: ItemCodeMode;
   expiryPeriodDays?: number;
   expiryAlertLeadDays?: number;
   lowStockAlertQty?: number;

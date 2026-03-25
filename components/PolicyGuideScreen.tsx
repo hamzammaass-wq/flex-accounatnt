@@ -48,10 +48,10 @@ const CONTENT: Record<
         items: [
           'تُحفظ بياناتك محليًا ضمن مساحة العمل مع مزامنة احتياطية حسب إعدادات النسخ الاحتياطي.',
           'تلتزم الشركة بعدم مشاركة أي بيانات جهات غير مصرح بها ضمن نفس المؤسسة.',
-          'يمكنك حذف البيانات من إعدادات النسخ الاحتياطي أو طلب الإغلاق يدويًا.'
+          'يمكنك حذف حساب الدخول من الإعدادات > حذف الحساب، أو استخدام صفحة حذف الحساب العامة إذا احتجت ذلك.'
         ],
         detailsAr: 'البيانات الحساسة (الفواتير، العملاء، الحركات) يجب إدارتها من حساب مسؤول.',
-        detailsEn: 'Sensitive data (invoices, customers, transactions) should be managed by an admin account.'
+        detailsEn: 'Sensitive data (invoices, customers, transactions) should be managed by an admin account. Sign-in account deletion is available from Settings > Delete Account.'
       },
       {
         headingAr: '3) المسؤولية',

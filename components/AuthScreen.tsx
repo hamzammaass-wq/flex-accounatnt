@@ -30,6 +30,7 @@ const PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY = 'al_mohaseb_pending_guest_delete
 const SIGNUP_COMPANY_NAME_KEY = 'al_mohaseb_signup_company_name';
 const SIGNUP_INTENT_KEY = 'al_mohaseb_signup_intent';
 const INITIAL_SETUP_PENDING_KEY = 'al_mohaseb_initial_setup_pending';
+const ACCOUNT_DELETED_NOTICE_KEY = 'al_mohaseb_account_deleted_notice';
 const SIGNUP_INTENT_REGISTER = 'REGISTER';
 const AUTH_SCREEN_LOGO_URL = authScreenLogo;
 
@@ -272,6 +273,15 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const deletedNotice = safeStorageGet(ACCOUNT_DELETED_NOTICE_KEY);
+    if (deletedNotice !== '1') return;
+    setInfoMessage(appLanguage === 'AR'
+      ? 'تم حذف الحساب من هذا الجهاز بنجاح. يمكنك تسجيل الدخول بحساب آخر في أي وقت.'
+      : 'The account was deleted successfully from this device. You can sign in with another account at any time.');
+    safeStorageRemove(ACCOUNT_DELETED_NOTICE_KEY);
+  }, [appLanguage]);
 
   useEffect(() => {
     if (!guestTrialExpired) return;
@@ -824,6 +834,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   className="underline hover:text-slate-700 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'دليل الاستخدام' : 'Usage Guide'}
+                </button>
+                <span className="mx-2 text-slate-400">|</span>
+                <button
+                  type="button"
+                  onClick={() => window.open('/account-deletion.html', '_blank', 'noopener,noreferrer')}
+                  className="underline hover:text-slate-700 transition-colors"
+                >
+                  {appLanguage === 'AR' ? 'حذف الحساب' : 'Account Deletion'}
                 </button>
               </div>
 

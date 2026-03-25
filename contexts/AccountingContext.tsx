@@ -1444,10 +1444,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   ];
 
   const initialProducts: Product[] = [
-    { id: 'p1', name: 'جهاز كمبيوتر محمول i7', itemCode: 'ITM-001', buyPrice: 2500, sellPrice: 3200, stock: 15, category: 'ig_electronics', barcode: '628100000001' },
-    { id: 'p2', name: 'شاشة LED 27 بوصة', itemCode: 'ITM-002', buyPrice: 450, sellPrice: 650, stock: 24, category: 'ig_electronics', barcode: '628100000002' },
-    { id: 'p3', name: 'طابعة ليزر ملونة', itemCode: 'ITM-003', buyPrice: 800, sellPrice: 1100, stock: 8, category: 'ig_electronics', barcode: '628100000003' },
-    { id: 'p4', name: 'كرسي مكتب مريح', itemCode: 'ITM-004', buyPrice: 300, sellPrice: 450, stock: 12, category: 'ig_furniture', barcode: '628100000004' },
+    { id: 'p1', name: 'جهاز كمبيوتر محمول i7', itemCode: 'ITM-001', itemCodeMode: 'AUTO', buyPrice: 2500, sellPrice: 3200, stock: 15, category: 'ig_electronics', barcode: '628100000001' },
+    { id: 'p2', name: 'شاشة LED 27 بوصة', itemCode: 'ITM-002', itemCodeMode: 'AUTO', buyPrice: 450, sellPrice: 650, stock: 24, category: 'ig_electronics', barcode: '628100000002' },
+    { id: 'p3', name: 'طابعة ليزر ملونة', itemCode: 'ITM-003', itemCodeMode: 'AUTO', buyPrice: 800, sellPrice: 1100, stock: 8, category: 'ig_electronics', barcode: '628100000003' },
+    { id: 'p4', name: 'كرسي مكتب مريح', itemCode: 'ITM-004', itemCodeMode: 'AUTO', buyPrice: 300, sellPrice: 450, stock: 12, category: 'ig_furniture', barcode: '628100000004' },
   ];
 
   const initialContacts: Contact[] = [

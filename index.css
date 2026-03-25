@@ -129,6 +129,36 @@
   gap: 0.5rem;
 }
 
+.statement-inline-detail {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.statement-inline-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.statement-inline-table th,
+.statement-inline-table td {
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.statement-inline-value {
+  direction: ltr;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.statement-inline-detail-footer {
+  line-height: 1.45;
+}
+
 .financial-reports-page.statement-report-active .overflow-x-auto:has(table) {
   overflow-x: auto;
 }
@@ -557,35 +587,123 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   }
 
   .financial-reports-page.statement-report-active {
-    overflow-x: visible !important;
+    overflow-x: hidden !important;
+    padding-inline: 0.55rem !important;
   }
 
-  .financial-reports-page.statement-report-active .overflow-x-auto:has(table) {
-    overflow-x: auto !important;
+  .financial-reports-page.statement-report-active .overflow-x-auto:has(.statement-report-table),
+  .financial-reports-page.statement-report-active .overflow-x-auto:has(table.statement-report-table) {
+    overflow-x: hidden !important;
   }
 
-  .financial-reports-page.statement-report-active table {
-    min-width: 760px !important;
-    width: 760px !important;
-    table-layout: auto !important;
+  .financial-reports-page.statement-report-active .statement-report-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
   }
 
-  .financial-reports-page.statement-report-active table th,
-  .financial-reports-page.statement-report-active table td {
-    padding: 0.45rem 0.35rem !important;
-    font-size: 10px !important;
+  .financial-reports-page.statement-report-active .statement-report-table th,
+  .financial-reports-page.statement-report-active .statement-report-table td {
+    padding: 0.4rem 0.22rem !important;
+    font-size: 9px !important;
     line-height: 1.45 !important;
     white-space: normal !important;
     overflow-wrap: anywhere !important;
-    word-break: normal !important;
+    word-break: break-word !important;
+    vertical-align: top !important;
   }
 
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1) {
+    width: 15% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(2),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(2) {
+    width: 45% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(3),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(3),
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(4),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(4),
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(5),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(5) {
+    width: 12% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(5),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(5) {
+    width: 16% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1),
   .financial-reports-page.statement-report-active .statement-ledger-date,
   .financial-reports-page.statement-report-active .statement-ledger-amount {
     white-space: nowrap !important;
+    font-size: 8.5px !important;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
   }
 
-  .financial-reports-page.statement-report-active .statement-detail-grid {
+  .financial-reports-page.statement-report-active .statement-report-description,
+  .financial-reports-page.statement-report-active .statement-operation-details,
+  .financial-reports-page.statement-report-active .statement-detail-card,
+  .financial-reports-page.statement-report-active .statement-detail-note,
+  .financial-reports-page.statement-report-active .statement-line-items,
+  .financial-reports-page.statement-report-active .statement-line-items > * {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-operation-badges > * {
+    max-width: 100% !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-line-item-meta {
+    display: grid !important;
+    gap: 0.2rem !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-detail,
+  .financial-reports-page.statement-report-active .statement-inline-table,
+  .financial-reports-page.statement-report-active .statement-inline-table th,
+  .financial-reports-page.statement-report-active .statement-inline-table td {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table th,
+  .financial-reports-page.statement-report-active .statement-inline-table td {
+    padding: 0.36rem 0.3rem !important;
+    font-size: 8.7px !important;
+    line-height: 1.4 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    vertical-align: top !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-value {
+    white-space: nowrap !important;
+    font-size: 8.6px !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-detail-title,
+  .financial-reports-page.statement-report-active .statement-inline-detail-footer {
+    font-size: 9px !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-detail-grid,
+  .financial-reports-page.statement-report-active .statement-line-item-meta {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 

@@ -186,7 +186,11 @@ const runBrowserCriticalFlow = async (page, url) => {
     await guestButton.first().click();
   }
 
-  await waitForSelectorWithRetry(page, '[data-testid="app-main-tab-dashboard"]', 45000);
+  await waitForSelectorWithRetry(
+    page,
+    '[data-testid="app-main-tab-dashboard"], [data-testid="app-main-tab-definitions"]',
+    45000
+  );
 
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent('smart-account:app-navigation', { detail: { tab: 'sales' } }));
@@ -195,6 +199,11 @@ const runBrowserCriticalFlow = async (page, url) => {
   await waitForSelectorWithRetry(page, '[data-testid="app-main-tab-sales"]', 20000);
   await clickWithRetry(page, '[data-testid="sales-add-action"]', 20000);
   await waitForSelectorWithRetry(page, '[data-testid="overlay-add-sales"]', 20000);
+  await withRetries('close sales overlay', async () => {
+    const backButton = page.getByRole('button', { name: /Back|رجوع/i }).first();
+    await backButton.click({ timeout: 20000 });
+    await page.waitForSelector('[data-testid="overlay-add-sales"]', { state: 'hidden', timeout: 20000 });
+  });
 
   await page.evaluate(() => {
     window.dispatchEvent(new CustomEvent('smart-account:app-navigation', { detail: { tab: 'reports' } }));

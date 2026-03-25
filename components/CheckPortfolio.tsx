@@ -41,6 +41,8 @@ const CheckPortfolio: React.FC = () => {
     const [quickFilter, setQuickFilter] = useState<'ALL' | 'DEPOSITED' | 'ENDORSED' | 'BOUNCED' | 'DUE_TODAY'>('ALL');
     const [showForm, setShowForm] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [dueDateFilterFrom, setDueDateFilterFrom] = useState('');
+    const [dueDateFilterTo, setDueDateFilterTo] = useState('');
 
     const [showClearModal, setShowClearModal] = useState<string | null>(null);
     const [clearAccountId, setClearAccountId] = useState('');
@@ -185,30 +187,60 @@ const CheckPortfolio: React.FC = () => {
         return { incomingPending, outgoingPending, underCollection, bouncedAmount, bouncedPaidCount, bouncedUnpaidCount };
     }, [checks]);
 
-    const filteredChecks = checks.filter(c => {
-        const matchesSearch =
-            c.checkNumber.includes(searchTerm) ||
-            c.bankName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            displayBankName(c.bankName, c.bankAccountId).toLowerCase().includes(searchTerm.toLowerCase()) ||
-            getContactName(c.contactId).toLowerCase().includes(searchTerm.toLowerCase());
+    const normalizedDueDateFilter = useMemo(() => {
+        const start = dueDateFilterFrom.trim();
+        const end = dueDateFilterTo.trim();
+        if (start && end && start > end) {
+            return { start: end, end: start };
+        }
+        return { start, end };
+    }, [dueDateFilterFrom, dueDateFilterTo]);
 
-        if (!matchesSearch) return false;
+    const hasDueDateFilter = Boolean(dueDateFilterFrom || dueDateFilterTo);
 
-        if (activeTab === 'VAULT') return c.type === 'INCOMING' && c.status === 'PENDING';
-        if (activeTab === 'OUTGOING') return c.type === 'OUTGOING' && c.status === 'PENDING';
-        if (activeTab === 'UNDER_COLLECTION') return c.status === 'UNDER_COLLECTION';
-        if (activeTab === 'ENDORSED') return c.status === 'ENDORSED';
-        if (activeTab === 'BOUNCED') return c.status === 'BOUNCED';
-        if (activeTab === 'ARCHIVE') return true;
-        return ['CLEARED', 'BOUNCED', 'CANCELLED'].includes(c.status);
-    }).filter(c => {
-        if (quickFilter === 'ALL') return true;
-        if (quickFilter === 'DEPOSITED') return Boolean(c.depositedBankId);
-        if (quickFilter === 'ENDORSED') return c.status === 'ENDORSED' || Boolean(c.endorseeContactId || c.endorseeName);
-        if (quickFilter === 'BOUNCED') return c.status === 'BOUNCED';
-        if (quickFilter === 'DUE_TODAY') return c.dueDate === todayIso && c.status !== 'CANCELLED';
-        return true;
-    });
+    const filteredChecks = useMemo(() => {
+        const searchNeedle = searchTerm.trim().toLowerCase();
+
+        return checks
+            .filter(c => {
+                const matchesSearch = !searchNeedle
+                    || c.checkNumber.toLowerCase().includes(searchNeedle)
+                    || c.bankName.toLowerCase().includes(searchNeedle)
+                    || displayBankName(c.bankName, c.bankAccountId).toLowerCase().includes(searchNeedle)
+                    || getContactName(c.contactId).toLowerCase().includes(searchNeedle);
+
+                if (!matchesSearch) return false;
+                if (normalizedDueDateFilter.start && (!c.dueDate || c.dueDate < normalizedDueDateFilter.start)) return false;
+                if (normalizedDueDateFilter.end && (!c.dueDate || c.dueDate > normalizedDueDateFilter.end)) return false;
+
+                if (activeTab === 'VAULT') return c.type === 'INCOMING' && c.status === 'PENDING';
+                if (activeTab === 'OUTGOING') return c.type === 'OUTGOING' && c.status === 'PENDING';
+                if (activeTab === 'UNDER_COLLECTION') return c.status === 'UNDER_COLLECTION';
+                if (activeTab === 'ENDORSED') return c.status === 'ENDORSED';
+                if (activeTab === 'BOUNCED') return c.status === 'BOUNCED';
+                if (activeTab === 'ARCHIVE') return true;
+                return ['CLEARED', 'BOUNCED', 'CANCELLED'].includes(c.status);
+            })
+            .filter(c => {
+                if (quickFilter === 'ALL') return true;
+                if (quickFilter === 'DEPOSITED') return Boolean(c.depositedBankId);
+                if (quickFilter === 'ENDORSED') return c.status === 'ENDORSED' || Boolean(c.endorseeContactId || c.endorseeName);
+                if (quickFilter === 'BOUNCED') return c.status === 'BOUNCED';
+                if (quickFilter === 'DUE_TODAY') return c.dueDate === todayIso && c.status !== 'CANCELLED';
+                return true;
+            });
+    }, [
+        checks,
+        searchTerm,
+        activeTab,
+        quickFilter,
+        todayIso,
+        normalizedDueDateFilter.start,
+        normalizedDueDateFilter.end,
+        accounts,
+        contacts,
+        isEnglish
+    ]);
 
     const financialAccounts = useMemo(() => {
         return accounts.filter(a => !a.isGroup && (a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root'));
@@ -268,6 +300,11 @@ const CheckPortfolio: React.FC = () => {
         setIssueDate(new Date().toISOString().split('T')[0]);
         setContactId('');
         setNotes('');
+    };
+
+    const clearDueDateFilter = () => {
+        setDueDateFilterFrom('');
+        setDueDateFilterTo('');
     };
 
     const handleAddCheck = (e: React.FormEvent) => {
@@ -800,6 +837,56 @@ const CheckPortfolio: React.FC = () => {
                 </div>
             </header>
 
+            <div className="mb-3 rounded-2xl border border-gray-100 bg-white p-2.5 shadow-sm">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="inline-flex items-center gap-1.5 text-[10px] font-black text-gray-500">
+                        <Calendar size={12} className="text-blue-500" />
+                        <span>{tr('تصفية حسب تاريخ الاستحقاق', 'Filter by due date')}</span>
+                    </div>
+                    {hasDueDateFilter && (
+                        <button
+                            type="button"
+                            onClick={clearDueDateFilter}
+                            className="inline-flex items-center gap-1 rounded-lg border border-gray-100 bg-gray-50 px-2 py-1 text-[9px] font-black text-gray-500"
+                        >
+                            <X size={10} />
+                            {tr('مسح التاريخ', 'Clear dates')}
+                        </button>
+                    )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                    <label className="min-w-0">
+                        <span className="mb-1 block text-[9px] font-black text-gray-400">{tr('من تاريخ', 'From date')}</span>
+                        <EnglishDateInput
+                            value={dueDateFilterFrom}
+                            onChange={setDueDateFilterFrom}
+                            displayFormat="YMD"
+                            wrapperClassName="min-w-0"
+                            className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[11px] font-black outline-none"
+                            aria-label={tr('من تاريخ الاستحقاق', 'From due date')}
+                        />
+                    </label>
+                    <label className="min-w-0">
+                        <span className="mb-1 block text-[9px] font-black text-gray-400">{tr('إلى تاريخ', 'To date')}</span>
+                        <EnglishDateInput
+                            value={dueDateFilterTo}
+                            onChange={setDueDateFilterTo}
+                            displayFormat="YMD"
+                            wrapperClassName="min-w-0"
+                            className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[11px] font-black outline-none"
+                            aria-label={tr('إلى تاريخ الاستحقاق', 'To due date')}
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onClick={clearDueDateFilter}
+                        className="col-span-2 h-10 rounded-xl border border-blue-100 bg-blue-50 px-3 text-[10px] font-black text-blue-700 transition-colors hover:bg-blue-100 sm:col-span-1"
+                    >
+                        {tr('كل التواريخ', 'All dates')}
+                    </button>
+                </div>
+            </div>
+
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
                 <div className="bg-white p-2.5 rounded-xl border border-emerald-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest block mb-1">{tr('واردة', 'Incoming')}</span>
@@ -902,6 +989,11 @@ const CheckPortfolio: React.FC = () => {
                 ))}
                 <div className="col-span-3 sm:col-span-6 text-[9px] font-bold text-gray-400 px-1 pt-1">
                     {filteredChecks.length} {tr('شيك', 'check(s)')}
+                    {hasDueDateFilter && (
+                        <span className="mr-1 text-blue-500">
+                            • {tr('حسب تاريخ الاستحقاق', 'filtered by due date')}
+                        </span>
+                    )}
                 </div>
             </div>
 

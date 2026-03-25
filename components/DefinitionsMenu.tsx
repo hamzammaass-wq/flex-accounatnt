@@ -41,6 +41,7 @@ import BarcodeDevicesManager from './BarcodeDevicesManager';
 import DeviceHubManager from './DeviceHubManager';
 import EnglishDateInput from './EnglishDateInput';
 import PolicyGuideScreen from './PolicyGuideScreen';
+import AccountDeletionScreen from './AccountDeletionScreen';
 import { useAccounting } from '../contexts/AccountingContext';
 import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
 import { normalizeAppLanguage, translate } from '../utils/i18n';
@@ -108,6 +109,7 @@ export type SettingsMode =
   | 'SUBSCRIPTION'
   | 'SUBSCRIPTION_REPORTS'
   | 'POLICY'
+  | 'ACCOUNT_DELETE'
   | 'USAGE_GUIDE'
   | 'COMPANY'
   | 'OPENING_BALANCES'
@@ -4881,6 +4883,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'SUBSCRIPTION': return renderSubscriptionForm();
       case 'SUBSCRIPTION_REPORTS': return renderSubscriptionReports();
       case 'POLICY': return <PolicyGuideScreen mode="POLICY" language={appLanguage} onBack={() => setMode('MENU')} />;
+      case 'ACCOUNT_DELETE': return <AccountDeletionScreen language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'USAGE_GUIDE': return <PolicyGuideScreen mode="USAGE_GUIDE" language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'COMPANY': return renderCompanyForm();
       case 'OPENING_BALANCES': return <OpeningBalancesManager />;
@@ -5004,6 +5007,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 <MenuItem icon={<Wrench className="w-6 h-6" />} title={tr('قارئ البصمة', 'Fingerprint Reader')} desc={tr('تعريف أجهزة البصمة والرفع المباشر/اليدوي لسجلات الحضور', 'Configure fingerprint devices and direct/manual attendance uploads')} color="indigo" rtl={rtl} onClick={() => setMode('FINGERPRINT_READERS')} />
                 <MenuItem icon={<BookOpen className="w-6 h-6" />} title={tr('دليل الاستخدام', 'Usage Guide')} desc={tr('خطوات سريعة لبدء الاستخدام وإعداد الخيارات الأساسية', 'Quick steps to start using the app and configure core options')} color="purple" rtl={rtl} onClick={() => setMode('USAGE_GUIDE')} />
                 <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سياسة الخصوصية', 'Privacy Policy')} desc={tr('شروط الاستخدام وسياسة حماية البيانات الخاصة بالتطبيق', 'Usage terms and data privacy policy for the app')} color="rose" rtl={rtl} onClick={() => setMode('POLICY')} />
+                <MenuItem icon={<Trash2 className="w-6 h-6" />} title={tr('حذف الحساب', 'Delete Account')} desc={tr('حذف حساب الدخول من داخل التطبيق وفتح روابط الحذف والخصوصية العامة', 'Delete the sign-in account inside the app and open the public deletion/privacy links')} color="rose" rtl={rtl} onClick={() => setMode('ACCOUNT_DELETE')} />
                 {subscriptionAdminEnabled && (
                   <MenuItem icon={<Cloud className="w-6 h-6" />} title={tr('تقارير الاشتراكات', 'Subscription Reports')} desc={tr('عرض الشركات السحابية والأجهزة المرتبطة والأكواد المستخدمة والمنتهية', 'View cloud companies, bound devices, and used or expired codes')} color="purple" rtl={rtl} onClick={() => setMode('SUBSCRIPTION_REPORTS')} />
                 )}

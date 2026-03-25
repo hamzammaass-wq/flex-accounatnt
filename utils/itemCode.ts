@@ -1,10 +1,17 @@
-import type { Product } from '../types';
+import type { ItemCodeMode, Product } from '../types';
 import { toEnglishDigits } from './forceEnglishDigits';
 
 export const ITEM_CODE_PREFIX = 'ITM-';
 
 export const normalizeItemCode = (value: string): string =>
   toEnglishDigits(String(value || '').trim()).toUpperCase();
+
+export const resolveProductItemCodeMode = (
+  product?: Pick<Product, 'itemCode' | 'itemCodeMode'> | null
+): ItemCodeMode =>
+  product?.itemCodeMode === 'MANUAL' && !!normalizeItemCode(product.itemCode || '')
+    ? 'MANUAL'
+    : 'AUTO';
 
 export const buildNextItemCode = (products: Product[], excludeId?: string): string => {
   let maxSequence = 0;

@@ -382,7 +382,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
   };
 
   return (
-        <div className="app-page purchase-list-page animate-in fade-in duration-500 p-4" dir={isEnglish ? 'ltr' : 'rtl'}>
+        <div className="app-page purchase-list-page animate-in fade-in duration-500 p-4" dir={isEnglish ? 'ltr' : 'rtl'} data-testid="purchase-list-root">
           <header className="mb-5 flex justify-between items-start">
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl sm:text-3xl font-black text-gray-800 tracking-tight">{tr('المشتريات', 'Purchases')}</h1>
@@ -390,6 +390,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
             </div>
             <button
               onClick={handleAdd}
+              data-testid="purchase-add-action"
               className={`text-white p-3 rounded-2xl shadow-xl transition-all active:scale-90 shrink-0 ms-2 ${activeTab === 'RETURNS' ? 'bg-rose-600 shadow-rose-100 hover:bg-rose-700' : 'bg-purple-600 shadow-purple-100 hover:bg-purple-700'}`}
             >
               <Plus className="w-6 h-6" />
