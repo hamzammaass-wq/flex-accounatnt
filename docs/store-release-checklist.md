@@ -4,6 +4,7 @@
 
 - Publish a public privacy policy URL.
 - Publish a public account deletion URL.
+- Verify the public account deletion page can submit an external deletion request and returns a request ID.
 - Verify in-app account deletion works for Email/Password and Google sign-in.
 - Prepare App Store `Privacy Policy URL` and Google Play `App access` details.
 - Prepare review credentials if the app requires sign-in for review.

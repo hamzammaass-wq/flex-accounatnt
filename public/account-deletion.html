@@ -12,51 +12,113 @@
         --muted: #667189;
         --line: #ead7dd;
         --accent: #e11d48;
+        --accent-soft: #ffe4e6;
+        --ok-bg: #ecfdf5;
+        --ok-ink: #166534;
+        --warn-bg: #fff7ed;
+        --warn-ink: #9a3412;
+        --shadow: 0 14px 32px rgba(24, 24, 31, 0.05);
       }
-      * { box-sizing: border-box; }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
         font-family: "Segoe UI", Tahoma, Arial, sans-serif;
         background: linear-gradient(180deg, #fff1f2 0%, var(--bg) 100%);
         color: var(--ink);
       }
+
       .wrap {
-        width: min(900px, calc(100% - 32px));
-        margin: 32px auto;
+        width: min(980px, calc(100% - 28px));
+        margin: 24px auto 40px;
       }
-      .hero, .card {
+
+      .hero,
+      .card {
         background: var(--card);
         border: 1px solid var(--line);
         border-radius: 28px;
-        box-shadow: 0 14px 32px rgba(24, 24, 31, 0.05);
+        box-shadow: var(--shadow);
       }
-      .hero { padding: 28px; }
-      .card { padding: 22px; margin-top: 16px; }
-      h1, h2 { margin: 0 0 12px; }
-      h1 { font-size: 32px; }
-      h2 { font-size: 18px; }
-      p, li {
+
+      .hero {
+        padding: 28px;
+      }
+
+      .card {
+        padding: 22px;
+        margin-top: 16px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0 0 12px;
+      }
+
+      h1 {
+        font-size: 32px;
+      }
+
+      h2 {
+        font-size: 18px;
+      }
+
+      h3 {
         font-size: 15px;
-        line-height: 1.9;
+      }
+
+      p,
+      li,
+      label,
+      input,
+      select,
+      textarea,
+      button {
+        font-size: 15px;
+        line-height: 1.85;
+      }
+
+      p,
+      li,
+      .muted {
         color: var(--muted);
       }
-      ul { margin: 0; padding-inline-start: 18px; }
+
+      ul {
+        margin: 0;
+        padding-inline-start: 18px;
+      }
+
       .pill {
         display: inline-flex;
         padding: 8px 12px;
         border-radius: 999px;
-        background: #ffe4e6;
+        background: var(--accent-soft);
         color: var(--accent);
         font-weight: 700;
         font-size: 12px;
       }
+
       .actions {
         display: flex;
         gap: 12px;
         flex-wrap: wrap;
         margin-top: 20px;
       }
-      .actions a {
+
+      .actions a,
+      .btn {
         text-decoration: none;
         padding: 12px 16px;
         border-radius: 16px;
@@ -64,24 +126,184 @@
         color: var(--ink);
         font-weight: 700;
         background: #fff;
+        cursor: pointer;
       }
-      .actions a.primary {
+
+      .actions a.primary,
+      .btn.primary {
         background: var(--accent);
         border-color: var(--accent);
         color: #fff;
       }
+
+      .btn[disabled] {
+        opacity: 0.7;
+        cursor: wait;
+      }
+
+      .note,
+      .status {
+        margin-top: 16px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        font-size: 14px;
+      }
+
+      .note {
+        background: #eff6ff;
+        color: #1e3a8a;
+      }
+
+      .status {
+        display: none;
+        border: 1px solid transparent;
+      }
+
+      .status.show {
+        display: block;
+      }
+
+      .status.ok {
+        background: var(--ok-bg);
+        color: var(--ok-ink);
+        border-color: #bbf7d0;
+      }
+
+      .status.warn {
+        background: var(--warn-bg);
+        color: var(--warn-ink);
+        border-color: #fed7aa;
+      }
+
+      .stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field.full {
+        grid-column: 1 / -1;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 16px;
+        padding: 12px 14px;
+        color: var(--ink);
+        outline: none;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: #fb7185;
+        box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.08);
+      }
+
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+      }
+
+      .checkbox {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #fff9fa;
+      }
+
+      .checkbox input {
+        width: 18px;
+        height: 18px;
+        margin-top: 5px;
+        padding: 0;
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .meta-box {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px;
+        background: #fffafa;
+      }
+
+      .meta-box strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--ink);
+      }
+
+      .request-id {
+        display: inline-block;
+        direction: ltr;
+        text-align: left;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
+        padding: 5px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.8);
+      }
+
       .en {
         direction: ltr;
         text-align: left;
       }
-      .note {
-        margin-top: 16px;
-        padding: 14px 16px;
-        border-radius: 18px;
-        background: #eff6ff;
-        color: #1e3a8a;
-        font-size: 14px;
-        line-height: 1.8;
+
+      .hidden-honeypot {
+        position: absolute;
+        inline-size: 1px;
+        block-size: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+      }
+
+      @media (max-width: 780px) {
+        .wrap {
+          width: min(100% - 18px, 100%);
+          margin: 12px auto 22px;
+        }
+
+        .hero,
+        .card {
+          border-radius: 20px;
+        }
+
+        .hero,
+        .card {
+          padding: 18px;
+        }
+
+        .grid,
+        .field-grid,
+        .meta-grid {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          font-size: 26px;
+        }
       }
     </style>
   </head>
@@ -91,52 +313,206 @@
         <span class="pill">Account Deletion</span>
         <h1>حذف الحساب</h1>
         <p>
-          إذا كنت تريد حذف حساب الدخول الخاص بتطبيق المحاسب الذكي، يمكنك بدء العملية مباشرة من داخل التطبيق.
-          تم إعداد هذه الصفحة لتوضيح الخطوات العامة وما الذي يتم حذفه عند تنفيذ العملية.
+          إذا أردت حذف حساب الدخول المرتبط بتطبيق المحاسب الذكي، يمكنك تنفيذ الحذف من داخل التطبيق،
+          أو إرسال طلب حذف خارجي من هذه الصفحة إذا لم تعد قادرًا على الوصول إلى الحساب.
         </p>
         <div class="actions">
           <a class="primary" href="/?openAccountDeletion=1">فتح شاشة حذف الحساب داخل التطبيق</a>
           <a href="/privacy-policy.html">سياسة الخصوصية العامة</a>
         </div>
-      </section>
-
-      <section class="card">
-        <h2>الخطوات</h2>
-        <ul>
-          <li>سجّل الدخول إلى التطبيق بالحساب الذي تريد حذفه.</li>
-          <li>افتح: الإعدادات ثم حذف الحساب.</li>
-          <li>أكّد العملية، ثم أعد التحقق من الهوية إذا طلب التطبيق ذلك.</li>
-          <li>بعد الإكمال سيتم حذف حساب الدخول ومسح بيانات الجلسة المحلية من الجهاز الحالي.</li>
-        </ul>
         <div class="note">
-          إذا فقدت الوصول للحساب، ابدأ أولًا باستعادة كلمة المرور من شاشة الدخول، ثم عد إلى التطبيق وافتح شاشة حذف الحساب.
+          هذه الصفحة توفر الآن نموذج طلب حذف خارجي فعلي. بعد الإرسال سيظهر لك رقم طلب يمكنك الاحتفاظ به للمراجعة.
         </div>
       </section>
 
-      <section class="card">
-        <h2>ما الذي يُحذف؟</h2>
-        <ul>
-          <li>حساب الدخول المرتبط بالمستخدم في التطبيق.</li>
-          <li>بيانات الجلسة المحلية والربط المحلي على هذا الجهاز.</li>
-        </ul>
-      </section>
+      <section class="grid">
+        <section class="card">
+          <h2>إرسال طلب حذف خارجي</h2>
+          <p class="muted">
+            استخدم هذا النموذج إذا فقدت الوصول إلى التطبيق أو أردت تسجيل طلب رسمي لحذف الحساب المرتبط ببريدك الإلكتروني.
+          </p>
 
-      <section class="card">
-        <h2>ما الذي قد يبقى؟</h2>
-        <ul>
-          <li>السجلات المحاسبية وبيانات الشركات المشتركة قد تظل خاضعة لسياسة المؤسسة والنسخ الاحتياطية.</li>
-          <li>الملفات أو التقارير التي تم تصديرها مسبقًا خارج التطبيق لا تُحذف تلقائيًا من جهازك.</li>
-        </ul>
+          <div id="requestStatus" class="status" role="status" aria-live="polite"></div>
+
+          <form id="deletionRequestForm" class="stack">
+            <div class="field-grid">
+              <div class="field">
+                <label for="fullName">الاسم الكامل</label>
+                <input id="fullName" name="fullName" type="text" maxlength="120" required />
+              </div>
+              <div class="field">
+                <label for="email">البريد الإلكتروني المرتبط بالحساب</label>
+                <input id="email" name="email" type="email" maxlength="190" required />
+              </div>
+              <div class="field">
+                <label for="signInMethod">طريقة الدخول</label>
+                <select id="signInMethod" name="signInMethod">
+                  <option value="EMAIL_PASSWORD">بريد إلكتروني وكلمة مرور</option>
+                  <option value="GOOGLE">Google</option>
+                  <option value="APPLE">Apple</option>
+                  <option value="MICROSOFT">Microsoft</option>
+                  <option value="UNKNOWN">غير متأكد</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="companyName">اسم الشركة أو مساحة العمل</label>
+                <input id="companyName" name="companyName" type="text" maxlength="160" />
+              </div>
+              <div class="field full">
+                <label for="phone">رقم هاتف للتواصل عند الحاجة</label>
+                <input id="phone" name="phone" type="text" maxlength="40" />
+              </div>
+              <div class="field full">
+                <label for="note">ملاحظات إضافية</label>
+                <textarea id="note" name="note" maxlength="2000" placeholder="مثال: فقدت الوصول إلى البريد، أو أريد حذف الحساب المرتبط بهذه الشركة."></textarea>
+              </div>
+            </div>
+
+            <div class="hidden-honeypot" aria-hidden="true">
+              <label for="website">Website</label>
+              <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+            </div>
+
+            <label class="checkbox">
+              <input id="confirmDeletion" name="confirmDeletion" type="checkbox" required />
+              <span>
+                أؤكد أنني صاحب الحساب أو مخوّل بطلب حذف هذا الحساب، وأن البريد الإلكتروني المذكور أعلاه هو الحساب المطلوب حذفه.
+              </span>
+            </label>
+
+            <div class="actions">
+              <button id="submitBtn" class="btn primary" type="submit">إرسال طلب الحذف</button>
+              <a href="/?openAccountDeletion=1">أفضّل تنفيذ الحذف من داخل التطبيق</a>
+            </div>
+          </form>
+        </section>
+
+        <section class="stack">
+          <section class="card">
+            <h2>ما الذي يحدث بعد الإرسال؟</h2>
+            <div class="meta-grid">
+              <div class="meta-box">
+                <strong>1. تسجيل الطلب</strong>
+                <span class="muted">يتم حفظ الطلب كمرجع رسمي للمراجعة والمتابعة.</span>
+              </div>
+              <div class="meta-box">
+                <strong>2. التحقق من الهوية</strong>
+                <span class="muted">قد يلزم التأكد من ملكية الحساب قبل تنفيذ الحذف النهائي.</span>
+              </div>
+              <div class="meta-box">
+                <strong>3. حذف حساب الدخول</strong>
+                <span class="muted">الهدف هو حذف حساب الدخول المرتبط بالمستخدم داخل التطبيق.</span>
+              </div>
+              <div class="meta-box">
+                <strong>4. الاحتفاظ برقم الطلب</strong>
+                <span class="muted">احفظ رقم الطلب الذي سيظهر لك بعد الإرسال لاستخدامه في أي متابعة لاحقة.</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>ما الذي يُحذف؟</h2>
+            <ul>
+              <li>حساب الدخول المرتبط بالمستخدم داخل التطبيق.</li>
+              <li>بيانات الجلسة المحلية والربط المحلي على هذا الجهاز عند تنفيذ الحذف من داخل التطبيق.</li>
+            </ul>
+          </section>
+
+          <section class="card">
+            <h2>ما الذي قد يبقى؟</h2>
+            <ul>
+              <li>السجلات المحاسبية وبيانات الشركات المشتركة قد تظل خاضعة لسياسة المؤسسة والنسخ الاحتياطية.</li>
+              <li>الملفات أو التقارير التي تم تصديرها مسبقًا خارج التطبيق لا تُحذف تلقائيًا من جهازك.</li>
+            </ul>
+          </section>
+        </section>
       </section>
 
       <section class="card en">
-        <h2>Account Deletion Summary</h2>
+        <h2>External Account Deletion Request</h2>
         <p>
-          To delete your AIFLEX Smart Accountant sign-in account, sign in, open Settings, then
-          open the account deletion screen. The app may ask you to re-verify your identity before
-          deleting the account and clearing the local session on the current device.
+          This page includes a live public request form for account deletion. If you can still access
+          the app, the preferred option is to sign in and delete the account from inside the app.
+          If you cannot access the account anymore, submit the external request form and keep the
+          generated request ID for follow-up.
         </p>
       </section>
     </div>
+
+    <script>
+      (function () {
+        var form = document.getElementById('deletionRequestForm');
+        var submitBtn = document.getElementById('submitBtn');
+        var statusBox = document.getElementById('requestStatus');
+
+        if (!form || !submitBtn || !statusBox) return;
+
+        function showStatus(type, message, requestId) {
+          statusBox.className = 'status show ' + type;
+          statusBox.innerHTML = requestId
+            ? message + '<div style="margin-top:8px">رقم الطلب: <span class="request-id">' + requestId + '</span></div>'
+            : message;
+        }
+
+        form.addEventListener('submit', async function (event) {
+          event.preventDefault();
+
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'جارٍ إرسال الطلب...';
+          statusBox.className = 'status';
+          statusBox.textContent = '';
+
+          var payload = {
+            fullName: form.fullName.value,
+            email: form.email.value,
+            signInMethod: form.signInMethod.value,
+            companyName: form.companyName.value,
+            phone: form.phone.value,
+            note: form.note.value,
+            confirmDeletion: form.confirmDeletion.checked,
+            website: form.website.value
+          };
+
+          try {
+            var response = await fetch('/api/account-deletion-request', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            });
+
+            var result = {};
+            try {
+              result = await response.json();
+            } catch (error) {
+              result = {};
+            }
+
+            if (!response.ok || !result.ok) {
+              var errorCode = String(result.error || '');
+              var message = 'تعذر إرسال الطلب الآن. حاول مرة أخرى بعد قليل.';
+              if (errorCode === 'FULL_NAME_REQUIRED') message = 'يرجى إدخال الاسم الكامل.';
+              if (errorCode === 'VALID_EMAIL_REQUIRED') message = 'يرجى إدخال بريد إلكتروني صحيح للحساب.';
+              if (errorCode === 'CONFIRMATION_REQUIRED') message = 'يرجى تأكيد أنك صاحب الحساب أو مخوّل بطلب حذفه.';
+              showStatus('warn', message);
+              return;
+            }
+
+            form.reset();
+            showStatus(
+              'ok',
+              'تم إرسال طلب حذف الحساب بنجاح. احتفظ برقم الطلب التالي للمتابعة إذا لزم الأمر.',
+              result.requestId || ''
+            );
+          } catch (error) {
+            showStatus('warn', 'تعذر إرسال الطلب بسبب مشكلة اتصال. تحقق من الشبكة ثم حاول مجددًا.');
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'إرسال طلب الحذف';
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

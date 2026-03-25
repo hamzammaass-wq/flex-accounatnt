@@ -16,7 +16,8 @@ const COLLECTIONS = {
   workspaceSubscriptions: 'workspace_subscriptions',
   companySubscriptions: 'company_subscriptions',
   billingEvents: 'billing_events',
-  billingCheckoutRequests: 'billing_checkout_requests'
+  billingCheckoutRequests: 'billing_checkout_requests',
+  accountDeletionRequests: 'account_deletion_requests'
 };
 
 setGlobalOptions({ region: FUNCTIONS_REGION, maxInstances: 10 });
@@ -80,6 +81,48 @@ const safeJson = (value) => {
   } catch {
     return null;
   }
+};
+
+const normalizeText = (value, maxLength = 160) => {
+  const normalized = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+  return normalized.slice(0, maxLength);
+};
+
+const normalizeMultilineText = (value, maxLength = 2000) => {
+  const normalized = String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+  if (!normalized) return '';
+  return normalized.slice(0, maxLength);
+};
+
+const normalizeEmail = (value) => normalizeText(value, 190).toLowerCase();
+
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+const parseBoolean = (value) => {
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'on' || normalized === 'yes';
+};
+
+const getClientIp = (req) => {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').trim();
+  if (forwardedFor) {
+    return forwardedFor.split(',')[0].trim();
+  }
+  return String(req.ip || '').trim();
+};
+
+const applyPublicApiCors = (res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  res.set('Access-Control-Max-Age', '3600');
 };
 
 const extractGooglePushEnvelope = (body) => {
@@ -401,5 +444,96 @@ export const googlePlaySubscriptionNotifications = onRequest(async (req, res) =>
       errorMessage: String(error?.message || error || 'RTDN processing failed')
     }, { merge: true });
     res.status(500).json({ received: false, error: 'RTDN processing failed' });
+  }
+});
+
+export const submitAccountDeletionRequest = onRequest(async (req, res) => {
+  applyPublicApiCors(res);
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ ok: false, error: 'Method Not Allowed' });
+    return;
+  }
+
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const honeypot = normalizeText(body.website, 120);
+    if (honeypot) {
+      res.json({ ok: true, accepted: true });
+      return;
+    }
+
+    const fullName = normalizeText(body.fullName, 120);
+    const email = normalizeEmail(body.email);
+    const companyName = normalizeText(body.companyName, 160);
+    const signInMethodRaw = normalizeText(body.signInMethod, 40).toUpperCase();
+    const signInMethod = (
+      signInMethodRaw === 'GOOGLE'
+      || signInMethodRaw === 'EMAIL_PASSWORD'
+      || signInMethodRaw === 'EMAIL'
+      || signInMethodRaw === 'APPLE'
+      || signInMethodRaw === 'MICROSOFT'
+    ) ? signInMethodRaw : 'UNKNOWN';
+    const phone = normalizeText(body.phone, 40);
+    const note = normalizeMultilineText(body.note, 2000);
+    const confirmDeletion = parseBoolean(body.confirmDeletion);
+
+    if (!fullName) {
+      res.status(400).json({ ok: false, error: 'FULL_NAME_REQUIRED' });
+      return;
+    }
+
+    if (!email || !isValidEmail(email)) {
+      res.status(400).json({ ok: false, error: 'VALID_EMAIL_REQUIRED' });
+      return;
+    }
+
+    if (!confirmDeletion) {
+      res.status(400).json({ ok: false, error: 'CONFIRMATION_REQUIRED' });
+      return;
+    }
+
+    const createdAt = nowIso();
+    const clientIp = getClientIp(req);
+    const requestRef = await db.collection(COLLECTIONS.accountDeletionRequests).add({
+      fullName,
+      email,
+      companyName: companyName || null,
+      signInMethod,
+      phone: phone || null,
+      note: note || null,
+      confirmDeletion: true,
+      status: 'NEW',
+      channel: 'PUBLIC_WEB_FORM',
+      createdAt,
+      updatedAt: createdAt,
+      requestLocale: normalizeText(req.headers['accept-language'], 120) || null,
+      userAgent: normalizeText(req.headers['user-agent'], 500) || null,
+      referrer: normalizeText(req.headers.referer || req.headers.referrer, 500) || null,
+      clientIp: clientIp || null
+    });
+
+    logger.info('Account deletion request submitted', {
+      requestId: requestRef.id,
+      email,
+      signInMethod
+    });
+
+    res.status(200).json({
+      ok: true,
+      accepted: true,
+      requestId: requestRef.id
+    });
+  } catch (error) {
+    logger.error('submitAccountDeletionRequest failed', error);
+    res.status(500).json({
+      ok: false,
+      error: 'INTERNAL_ERROR'
+    });
   }
 });
