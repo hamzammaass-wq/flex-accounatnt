@@ -185,6 +185,7 @@ export interface Employee {
   bankName?: string;
   iban?: string;
   phone?: string;
+  employmentEndDate?: string;
 }
 
 export type EmployeePayBasis =

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
-import { CheckStatus, CheckType, TransactionType } from '../types';
+import { Check, CheckStatus, CheckType, TransactionType } from '../types';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
@@ -92,6 +92,160 @@ const CheckPortfolio: React.FC = () => {
         const normalized = String(value || '').trim().replace(/\s+/g, ' ');
         if (!normalized) return '';
         return normalized.length > 90 ? `${normalized.slice(0, 90)}...` : normalized;
+    };
+    const formatMoney = (value: number, currency = baseCurrency) => {
+        try {
+            return new Intl.NumberFormat(isEnglish ? 'en-US' : 'ar-SA-u-nu-latn', {
+                style: 'currency',
+                currency,
+                maximumFractionDigits: 2
+            }).format(value);
+        } catch {
+            return `${value.toLocaleString()} ${currency}`;
+        }
+    };
+    const getCheckEntryLabel = (check: Pick<Check, 'type'>) =>
+        check.type === 'INCOMING' ? tr('قبض', 'Receipt') : tr('صرف', 'Payment');
+    const getCheckBankNumberValue = (check: Pick<Check, 'accountNumber'>) => {
+        const normalized = String(check.accountNumber || '').trim();
+        return normalized || tr('بدون رقم', 'No number');
+    };
+    const getCheckPartyName = (check: Pick<Check, 'type' | 'status' | 'contactId' | 'originalContactId' | 'endorseeContactId' | 'endorseeName'>) => {
+        if (check.status === 'ENDORSED') {
+            const endorsedContactName = check.endorseeContactId ? getContactName(check.endorseeContactId) : '';
+            const endorsedName = endorsedContactName || String(check.endorseeName || '').trim();
+            if (endorsedName) return endorsedName;
+        }
+        const targetContactId = check.type === 'INCOMING' ? (check.originalContactId || check.contactId) : check.contactId;
+        return getContactName(targetContactId);
+    };
+    const getCheckLocationLabel = (check: Pick<Check, 'type' | 'status' | 'depositedBankId' | 'bankAccountId' | 'bankName' | 'endorseeContactId' | 'endorseeName'>) => {
+        if (check.status === 'ENDORSED') {
+            const endorsedContactName = check.endorseeContactId ? getContactName(check.endorseeContactId) : '';
+            const endorsedName = endorsedContactName || String(check.endorseeName || '').trim();
+            return endorsedName
+                ? `${tr('مجير إلى', 'Endorsed to')} ${endorsedName}`
+                : tr('مجير', 'Endorsed');
+        }
+        if (check.type === 'INCOMING') {
+            if (check.status === 'UNDER_COLLECTION' || (check.status !== 'PENDING' && check.depositedBankId)) {
+                return check.depositedBankId ? getAccountNameById(check.depositedBankId) : tr('بدون بنك محدد', 'Unassigned bank');
+            }
+            if (check.status === 'PENDING') return tr('بالصندوق', 'In vault');
+            if (check.status === 'BOUNCED') return tr('شيك مرتجع', 'Bounced check');
+            if (check.status === 'CANCELLED') return tr('ملغى', 'Cancelled');
+            return tr('تم التحصيل', 'Collected');
+        }
+        if (check.bankAccountId) return getAccountNameById(check.bankAccountId);
+        const fallbackBankName = String(displayBankName(check.bankName, check.bankAccountId) || '').trim();
+        if (fallbackBankName) return fallbackBankName;
+        if (check.status === 'CANCELLED') return tr('ملغى', 'Cancelled');
+        return tr('بدون حساب محدد', 'No linked account');
+    };
+    const renderCheckDetailsStrip = (
+        check: Pick<Check, 'amount' | 'currency' | 'dueDate' | 'issueDate' | 'checkNumber' | 'accountNumber' | 'bankAccountId' | 'bankName' | 'type' | 'status' | 'contactId' | 'originalContactId' | 'depositedBankId' | 'endorseeContactId' | 'endorseeName'>,
+        options?: {
+            amountClassName?: string;
+            wrapperClassName?: string;
+            cellClassName?: string;
+            bankName?: string;
+            partyName?: string;
+            locationLabel?: string;
+        }
+    ) => {
+        const resolvedBankName = String(options?.bankName || displayBankName(check.bankName, check.bankAccountId) || '').trim() || tr('بنك غير معروف', 'Unknown bank');
+        const resolvedPartyName = options?.partyName || getCheckPartyName(check);
+        const resolvedLocationLabel = options?.locationLabel || getCheckLocationLabel(check);
+        const amountClassName = options?.amountClassName || `dir-ltr text-left ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`;
+        const baseCellClassName = options?.cellClassName || 'border-slate-100 bg-white/90';
+        const partyContactId = check.status === 'ENDORSED'
+            ? (check.endorseeContactId || check.contactId)
+            : (check.type === 'INCOMING' ? (check.originalContactId || check.contactId) : check.contactId);
+        const locationAccountId = check.type === 'INCOMING' ? check.depositedBankId : check.bankAccountId;
+        const cells = [
+            {
+                key: 'check',
+                label: tr('شيك', 'Check'),
+                value: getCheckEntryLabel(check),
+                valueClassName: check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'
+            },
+            {
+                key: 'number',
+                label: tr('رقم الشيك', 'Check #'),
+                value: `#${check.checkNumber}`,
+                valueClassName: 'dir-ltr text-left text-slate-900'
+            },
+            {
+                key: 'bank',
+                label: tr('البنك', 'Bank'),
+                value: resolvedBankName,
+                valueClassName: 'text-slate-800 break-words',
+                onDoubleClick: check.bankAccountId ? () => openAccountLedger(check.bankAccountId) : undefined,
+                title: check.bankAccountId ? tr('اضغط مرتين لفتح حركة الحساب البنكي', 'Double-click to open bank account ledger') : undefined
+            },
+            {
+                key: 'bank-number',
+                label: tr('رقم البنك', 'Bank No.'),
+                value: getCheckBankNumberValue(check),
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'amount',
+                label: tr('المبلغ', 'Amount'),
+                value: formatMoney(check.amount, check.currency || baseCurrency),
+                valueClassName: amountClassName
+            },
+            {
+                key: 'party',
+                label: tr('الجهة', 'Party'),
+                value: resolvedPartyName,
+                valueClassName: 'text-slate-800 break-words',
+                onDoubleClick: partyContactId ? () => openContactStatement(partyContactId) : undefined,
+                title: partyContactId ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined
+            },
+            {
+                key: 'due-date',
+                label: tr('تاريخ الاستحقاق', 'Due Date'),
+                value: check.dueDate || '-',
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'issue-date',
+                label: tr('تاريخ الإصدار', 'Issue Date'),
+                value: check.issueDate || '-',
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'location',
+                label: tr('الموقع/الحساب', 'Location / Account'),
+                value: resolvedLocationLabel,
+                valueClassName: 'text-slate-800 break-words',
+                onDoubleClick: locationAccountId ? () => openAccountLedger(locationAccountId) : undefined,
+                title: locationAccountId ? tr('اضغط مرتين لفتح حركة الحساب', 'Double-click to open account ledger') : undefined
+            }
+        ];
+
+        return (
+            <div className={`check-summary-strip rounded-[1.35rem] border border-slate-100 bg-slate-50/80 p-1.5 ${options?.wrapperClassName || ''}`}>
+                <div className="check-summary-strip__viewport">
+                    <div className="check-summary-strip__canvas">
+                        <div className="check-summary-strip__grid">
+                            {cells.map(cell => (
+                                <div
+                                    key={cell.key}
+                                    onDoubleClick={cell.onDoubleClick}
+                                    title={cell.title}
+                                    className={`check-summary-strip__cell check-summary-strip__cell--${cell.key} min-w-0 rounded-xl border px-2.5 py-2 text-[10px] font-black leading-tight ${baseCellClassName} ${cell.onDoubleClick ? 'cursor-pointer hover:border-blue-200 hover:bg-blue-50/70 transition-colors' : ''}`}
+                                >
+                                    <div className="text-[8.5px] text-slate-400">{cell.label}</div>
+                                    <div className={`mt-1 text-[10.5px] leading-5 ${cell.valueClassName}`}>{cell.value}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     const getCheckImageUrls = (check: { imageUrls?: string[]; imageUrl?: string }) => {
@@ -1005,57 +1159,51 @@ const CheckPortfolio: React.FC = () => {
                     const compactNote = getCompactNote(check.description);
                     return (
                         <div key={check.id} className={`bg-white p-3 rounded-xl border shadow-sm animate-in slide-in-from-bottom-2 ${isOverdue ? 'border-rose-100' : 'border-gray-100'}`}>
-                            <div className="flex justify-between items-start mb-2.5">
+                            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                                 <div className="flex items-center gap-2.5 min-w-0">
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${check.type === 'INCOMING' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
                                         <Banknote size={18} />
                                     </div>
                                     <div className="min-w-0">
-                                        <h4
-                                            className={`font-black text-gray-800 text-xs truncate ${check.bankAccountId ? 'cursor-pointer hover:text-blue-600' : ''}`}
-                                            onDoubleClick={() => openAccountLedger(check.bankAccountId)}
-                                            title={check.bankAccountId ? tr('اضغط مرتين لفتح حركة الحساب البنكي', 'Double-click to open bank account ledger') : undefined}
-                                        >
-                                            #{check.checkNumber} - {displayBankName(check.bankName, check.bankAccountId)}
+                                        <h4 className="font-black text-gray-800 text-xs">
+                                            {check.type === 'INCOMING' ? tr('شيك قبض', 'Receipt check') : tr('شيك صرف', 'Payment check')}
                                         </h4>
-                                        {check.accountNumber && <p className="text-[10px] font-bold text-gray-400 mt-0.5 dir-ltr">{check.accountNumber}</p>}
-                                        <p
-                                            className={`text-[10px] font-bold text-gray-400 mt-0.5 truncate ${check.contactId ? 'cursor-pointer hover:text-emerald-600' : ''}`}
-                                            onDoubleClick={() => openContactStatement(check.contactId)}
-                                            title={check.contactId ? tr('اضغط مرتين لفتح كشف الطرف', 'Double-click to open contact statement') : undefined}
-                                        >
-                                            {getContactName(check.contactId)}
+                                        <p className={`text-[10px] font-bold mt-0.5 ${isOverdue ? 'text-rose-500' : 'text-gray-400'}`}>
+                                            {tr('تاريخ الاستحقاق', 'Due Date')}: <span className="dir-ltr">{check.dueDate}</span>
                                         </p>
-                                        <div className="flex items-center gap-1 mt-1 flex-wrap">
-                                            <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border ${getStatusStyle(check.status)}`}>
-                                                {getStatusLabel(check.status)}
-                                            </span>
-                                            {check.type === 'INCOMING'
-                                                ? <span className="text-[8px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-black border border-emerald-100">{tr('وارد', 'Incoming')}</span>
-                                                : <span className="text-[8px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md font-black border border-rose-100">{tr('صادر', 'Outgoing')}</span>}
-                                            {checkImages.length > 0 && (
-                                                <span className="text-[8px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-black border border-indigo-100 inline-flex items-center gap-1">
-                                                    <ImageIcon size={10} />
-                                                    {checkImages.length}
-                                                </span>
-                                            )}
-                                            {check.status === 'BOUNCED' && (
-                                                <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border ${getBounceSettlementStyle(check)}`}>
-                                                    {getBounceSettlementLabel(check)}
-                                                </span>
-                                            )}
-                                        </div>
                                     </div>
                                 </div>
-                                <div className="text-end">
-                                    <span className={`block font-black text-sm dir-ltr ${check.type === 'INCOMING' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {check.amount.toLocaleString()}
+                                <div className="flex items-center gap-1 flex-wrap justify-end">
+                                    <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border ${getStatusStyle(check.status)}`}>
+                                        {getStatusLabel(check.status)}
                                     </span>
-                                    <div className={`flex items-center gap-1 text-[8px] font-bold mt-1 ${isOverdue ? 'text-rose-500' : 'text-gray-400'}`}>
-                                        <Calendar size={10} />
-                                        {check.dueDate}
-                                    </div>
+                                    {check.type === 'INCOMING'
+                                        ? <span className="text-[8px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-black border border-emerald-100">{tr('وارد', 'Incoming')}</span>
+                                        : <span className="text-[8px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md font-black border border-rose-100">{tr('صادر', 'Outgoing')}</span>}
+                                    {checkImages.length > 0 && (
+                                        <span className="text-[8px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-black border border-indigo-100 inline-flex items-center gap-1">
+                                            <ImageIcon size={10} />
+                                            {checkImages.length}
+                                        </span>
+                                    )}
+                                    {check.status === 'BOUNCED' && (
+                                        <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border ${getBounceSettlementStyle(check)}`}>
+                                            {getBounceSettlementLabel(check)}
+                                        </span>
+                                    )}
+                                    {isOverdue && (
+                                        <span className="text-[8px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md font-black border border-rose-100 inline-flex items-center gap-1">
+                                            <Calendar size={10} />
+                                            {tr('متأخر', 'Overdue')}
+                                        </span>
+                                    )}
                                 </div>
+                            </div>
+                            <div className="mb-2.5">
+                                {renderCheckDetailsStrip(check, {
+                                    amountClassName: `dir-ltr text-left ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`,
+                                    wrapperClassName: isOverdue ? 'border-rose-100 bg-rose-50/60' : ''
+                                })}
                             </div>
 
                             {compactNote && (
@@ -1363,12 +1511,7 @@ const CheckPortfolio: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm space-y-2">
                                         <h4 className="text-xs font-black text-gray-700">{tr('ملخص الشيك', 'Check Summary')}</h4>
-                                        <div className="grid grid-cols-2 gap-2 text-[11px]">
-                                            <div className="bg-gray-50 rounded-xl p-2"><span className="text-gray-400 font-bold block">{tr('المبلغ', 'Amount')}</span><span className="font-black dir-ltr">{check.amount.toLocaleString()} {check.currency}</span></div>
-                                            <div className="bg-gray-50 rounded-xl p-2"><span className="text-gray-400 font-bold block">{tr('الاستحقاق', 'Due Date')}</span><span className="font-black dir-ltr">{check.dueDate}</span></div>
-                                            <div className="bg-gray-50 rounded-xl p-2"><span className="text-gray-400 font-bold block">{tr('تاريخ الإصدار', 'Issue Date')}</span><span className="font-black dir-ltr">{check.issueDate}</span></div>
-                                            <div className="bg-gray-50 rounded-xl p-2"><span className="text-gray-400 font-bold block">{tr('رقم الحساب', 'Account Number')}</span><span className="font-black dir-ltr">{check.accountNumber || '-'}</span></div>
-                                        </div>
+                                        {renderCheckDetailsStrip(check)}
                                         {false && check.description && (
                                             <div className="bg-gray-50 rounded-xl p-3 text-[11px]">
                                                 <span className="text-gray-400 font-bold block mb-1">{tr('ملاحظات', 'Notes')}</span>

@@ -146,6 +146,8 @@
 .statement-inline-table td {
   vertical-align: top;
   line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .statement-inline-value {
@@ -157,6 +159,131 @@
 
 .statement-inline-detail-footer {
   line-height: 1.45;
+}
+
+.directory-statement-sheet {
+  max-width: 100%;
+}
+
+.directory-statement-header {
+  row-gap: 0.75rem;
+}
+
+.directory-statement-toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.directory-statement-content {
+  overscroll-behavior: contain;
+}
+
+.statement-mobile-viewport {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+.statement-mobile-canvas {
+  min-width: 100%;
+}
+
+.employee-report-table-shell,
+.employee-report-table {
+  width: 100%;
+}
+
+.check-summary-strip__viewport {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+.check-summary-strip__canvas {
+  width: 100%;
+  min-width: 0;
+}
+
+.check-summary-strip__grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.check-summary-strip__cell {
+  min-width: 0;
+}
+
+.check-summary-strip__cell--bank,
+.check-summary-strip__cell--party,
+.check-summary-strip__cell--location {
+  grid-column: span 2 / span 2;
+}
+
+.directory-statement-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.directory-statement-table th,
+.directory-statement-table td {
+  overflow-wrap: break-word;
+  word-break: normal;
+  vertical-align: top;
+}
+
+.directory-statement-description {
+  text-align: inherit;
+}
+
+.directory-statement-description-text {
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.directory-statement-inline-detail {
+  display: inline-block;
+  vertical-align: top;
+  width: min(100%, 18rem);
+  max-width: 100%;
+}
+
+.directory-statement-inline-detail.statement-inline-detail--voucher {
+  width: min(100%, 17rem);
+}
+
+.directory-statement-inline-detail.statement-inline-detail--checks {
+  width: min(100%, 18.75rem);
+}
+
+.directory-statement-inline-detail.statement-inline-detail--invoice {
+  width: min(100%, 15.75rem);
+}
+
+.directory-statement-inline-title {
+  font-size: 8px !important;
+  line-height: 1.35 !important;
+}
+
+.directory-statement-detail-table th,
+.directory-statement-detail-table td {
+  padding: 0.26rem 0.28rem !important;
+  font-size: 8px !important;
+  line-height: 1.3 !important;
+}
+
+.directory-statement-detail-table .statement-inline-value {
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+  word-break: keep-all !important;
+  font-size: 7.85px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.directory-statement-footer {
+  row-gap: 0.65rem;
 }
 
 .financial-reports-page.statement-report-active .overflow-x-auto:has(table) {
@@ -638,6 +765,33 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     width: 16% !important;
   }
 
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(1),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(1) {
+    width: 14% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(2),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(2) {
+    width: 13% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(3),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(3) {
+    width: 31% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(4),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(4),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(5),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(5) {
+    width: 12% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(6),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(6) {
+    width: 18% !important;
+  }
+
   .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
   .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1),
   .financial-reports-page.statement-report-active .statement-ledger-date,
@@ -646,6 +800,14 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     font-size: 8.5px !important;
     letter-spacing: -0.01em;
     font-variant-numeric: tabular-nums;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(2),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(2),
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(2),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(2) {
+    white-space: nowrap !important;
+    font-variant-numeric: tabular-nums !important;
   }
 
   .financial-reports-page.statement-report-active .statement-report-description,
@@ -695,6 +857,10 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .financial-reports-page.statement-report-active .statement-inline-value {
     white-space: nowrap !important;
     font-size: 8.6px !important;
+    overflow-wrap: normal !important;
+    word-break: keep-all !important;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums !important;
   }
 
   .financial-reports-page.statement-report-active .statement-inline-detail-title,
@@ -702,9 +868,265 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     font-size: 9px !important;
   }
 
+  .financial-reports-page.statement-report-active .statement-inline-detail--invoice {
+    border-radius: 0.9rem !important;
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.98) 100%) !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice colgroup,
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice thead {
+    display: none !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice tbody {
+    display: grid !important;
+    gap: 0.4rem !important;
+    padding: 0.38rem !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-row--invoice {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.28rem !important;
+    border: 1px solid rgba(147, 197, 253, 0.72) !important;
+    border-radius: 0.75rem !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    padding: 0.32rem !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice td {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.1rem !important;
+    justify-content: center !important;
+    min-width: 0 !important;
+    border: 0 !important;
+    border-radius: 0.5rem !important;
+    background: rgba(219, 234, 254, 0.55) !important;
+    padding: 0.32rem !important;
+    text-align: center !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice td::before {
+    content: attr(data-label);
+    font-size: 7px !important;
+    line-height: 1.15 !important;
+    font-weight: 900 !important;
+    color: #64748b !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-invoice-item {
+    grid-column: 1 / -1 !important;
+    align-items: flex-start !important;
+    text-align: start !important;
+    background: rgba(191, 219, 254, 0.62) !important;
+    font-size: 8.4px !important;
+    line-height: 1.35 !important;
+    font-weight: 700 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-invoice-item::before {
+    color: #1d4ed8 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-invoice-metric {
+    align-items: center !important;
+    font-size: 8.15px !important;
+    line-height: 1.25 !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+
   .financial-reports-page.statement-report-active .statement-detail-grid,
   .financial-reports-page.statement-report-active .statement-line-item-meta {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .directory-statement-header {
+    padding: 0.85rem 0.9rem !important;
+    align-items: flex-start !important;
+  }
+
+  .directory-statement-toolbar {
+    gap: 0.4rem !important;
+  }
+
+  .directory-statement-toolbar button {
+    min-width: 0 !important;
+  }
+
+  .directory-statement-filters {
+    padding: 0.6rem !important;
+    gap: 0.45rem !important;
+  }
+
+  .directory-statement-content {
+    padding: 0.55rem !important;
+    overflow-x: auto !important;
+  }
+
+  .directory-statement-table th {
+    padding: 0.48rem 0.3rem !important;
+    font-size: 8.4px !important;
+    line-height: 1.3 !important;
+  }
+
+  .directory-statement-table td {
+    padding: 0.48rem 0.32rem !important;
+    font-size: 8.8px !important;
+    line-height: 1.34 !important;
+  }
+
+  .directory-statement-table th:nth-child(1),
+  .directory-statement-table td:nth-child(1) {
+    width: 14% !important;
+  }
+
+  .directory-statement-table th:nth-child(2),
+  .directory-statement-table td:nth-child(2) {
+    width: 48% !important;
+  }
+
+  .directory-statement-table th:nth-child(3),
+  .directory-statement-table td:nth-child(3),
+  .directory-statement-table th:nth-child(4),
+  .directory-statement-table td:nth-child(4) {
+    width: 10% !important;
+  }
+
+  .directory-statement-table th:nth-child(5),
+  .directory-statement-table td:nth-child(5) {
+    width: 18% !important;
+  }
+
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(1),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(1) {
+    width: 14% !important;
+  }
+
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(2),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(2) {
+    width: 13% !important;
+  }
+
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(3),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(3) {
+    width: 31% !important;
+  }
+
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(4),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(4),
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(5),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(5) {
+    width: 11% !important;
+  }
+
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(6),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(6) {
+    width: 20% !important;
+  }
+
+  .directory-statement-description,
+  .directory-statement-description-text {
+    font-size: 8.9px !important;
+    line-height: 1.42 !important;
+  }
+
+  .directory-statement-inline-detail {
+    width: 100% !important;
+    margin-top: 0.35rem !important;
+  }
+
+  .directory-statement-inline-detail.statement-inline-detail--checks {
+    width: 100% !important;
+  }
+
+  .directory-statement-inline-title {
+    font-size: 7.4px !important;
+    padding: 0.32rem 0.45rem !important;
+  }
+
+  .directory-statement-detail-table th,
+  .directory-statement-detail-table td {
+    padding: 0.3rem 0.3rem !important;
+    font-size: 7.6px !important;
+    line-height: 1.26 !important;
+  }
+
+  .directory-statement-detail-table .statement-inline-value {
+    font-size: 7.3px !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice colgroup,
+  .directory-statement-sheet .statement-inline-table--invoice thead {
+    display: none !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice tbody {
+    display: grid !important;
+    gap: 0.24rem !important;
+    padding: 0.24rem !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-row--invoice {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.18rem !important;
+    border: 1px solid rgba(147, 197, 253, 0.75) !important;
+    border-radius: 0.58rem !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    padding: 0.2rem !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice td {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.05rem !important;
+    justify-content: center !important;
+    min-width: 0 !important;
+    border: 0 !important;
+    border-radius: 0.4rem !important;
+    background: rgba(219, 234, 254, 0.58) !important;
+    padding: 0.2rem !important;
+    text-align: center !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice td::before {
+    content: attr(data-label);
+    font-size: 6px !important;
+    line-height: 1.1 !important;
+    font-weight: 900 !important;
+    color: #64748b !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-invoice-item {
+    grid-column: 1 / -1 !important;
+    align-items: flex-start !important;
+    text-align: start !important;
+    background: rgba(191, 219, 254, 0.64) !important;
+    font-size: 7.1px !important;
+    line-height: 1.28 !important;
+    font-weight: 700 !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-invoice-item::before {
+    color: #1d4ed8 !important;
+  }
+
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-invoice-metric {
+    align-items: center !important;
+    font-size: 6.8px !important;
+    line-height: 1.15 !important;
+    font-variant-numeric: tabular-nums !important;
   }
 
   /* Ensure all inputs/selects/textarea/buttons don't overflow */
@@ -1082,6 +1504,302 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .voucher-list-page .list-card {
     border-radius: 0.95rem !important;
     padding: 0 !important;
+  }
+
+  /* Preserve statement readability on phones by keeping the statement wide enough
+     to read and allowing horizontal panning where needed. */
+  .financial-reports-page.statement-report-active .overflow-x-auto:has(.statement-report-table),
+  .financial-reports-page.statement-report-active .overflow-x-auto:has(table.statement-report-table),
+  .statement-mobile-viewport,
+  .directory-statement-content {
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .statement-mobile-canvas {
+    width: fit-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
+  }
+
+  .statement-mobile-canvas .directory-statement-table,
+  .statement-mobile-canvas .statement-report-table {
+    width: max-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    table-layout: fixed !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table th,
+  .financial-reports-page.statement-report-active .statement-report-table td,
+  .directory-statement-table th,
+  .directory-statement-table td {
+    padding: 0.42rem 0.28rem !important;
+    font-size: 9.4px !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+    vertical-align: top !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
+  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(2),
+  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(2),
+  .directory-statement-table th:nth-child(1),
+  .directory-statement-table td:nth-child(1),
+  .directory-statement-table.directory-statement-table--with-voucher th:nth-child(2),
+  .directory-statement-table.directory-statement-table--with-voucher td:nth-child(2) {
+    white-space: nowrap !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+
+  .directory-statement-description,
+  .directory-statement-description-text,
+  .financial-reports-page.statement-report-active .statement-report-description {
+    font-size: 9.4px !important;
+    line-height: 1.45 !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+  }
+
+  .directory-statement-inline-detail,
+  .financial-reports-page.statement-report-active .statement-inline-detail {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .directory-statement-inline-title,
+  .financial-reports-page.statement-report-active .statement-inline-detail-title,
+  .financial-reports-page.statement-report-active .statement-inline-detail-footer {
+    font-size: 8.8px !important;
+    line-height: 1.35 !important;
+  }
+
+  .directory-statement-detail-table th,
+  .directory-statement-detail-table td,
+  .financial-reports-page.statement-report-active .statement-inline-table th,
+  .financial-reports-page.statement-report-active .statement-inline-table td {
+    padding: 0.28rem 0.3rem !important;
+    font-size: 8.8px !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+    vertical-align: top !important;
+  }
+
+  .directory-statement-detail-table .statement-inline-value,
+  .financial-reports-page.statement-report-active .statement-inline-value {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: keep-all !important;
+    font-size: 8.75px !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice,
+  .directory-statement-sheet .statement-inline-table--invoice {
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice colgroup,
+  .directory-statement-sheet .statement-inline-table--invoice colgroup {
+    display: table-column-group !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice thead,
+  .directory-statement-sheet .statement-inline-table--invoice thead {
+    display: table-header-group !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice tbody,
+  .directory-statement-sheet .statement-inline-table--invoice tbody {
+    display: table-row-group !important;
+    gap: 0 !important;
+    padding: 0 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-row--invoice,
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-row--invoice {
+    display: table-row !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice td,
+  .directory-statement-sheet .statement-inline-table--invoice td {
+    display: table-cell !important;
+    gap: 0 !important;
+    justify-content: initial !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    text-align: inherit !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice td::before,
+  .directory-statement-sheet .statement-inline-table--invoice td::before {
+    content: none !important;
+    display: none !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-invoice-item,
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-invoice-item {
+    grid-column: auto !important;
+    align-items: initial !important;
+    text-align: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    font-weight: 700 !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-inline-table--invoice .statement-inline-invoice-metric,
+  .directory-statement-sheet .statement-inline-table--invoice .statement-inline-invoice-metric {
+    align-items: center !important;
+    font-size: 8.75px !important;
+    line-height: 1.3 !important;
+  }
+
+  .check-summary-strip__viewport {
+    overflow-x: visible;
+  }
+
+  .check-summary-strip__canvas {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .check-summary-strip__grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.2rem;
+  }
+
+  .check-summary-strip__cell {
+    padding: 0.34rem 0.36rem !important;
+  }
+
+  .check-summary-strip__cell > div:first-child {
+    font-size: 7px !important;
+    line-height: 1.15 !important;
+  }
+
+  .check-summary-strip__cell > div:last-child {
+    margin-top: 0.2rem !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+  }
+
+  .employee-reports-page .employee-report-table-shell {
+    overflow-x: visible !important;
+  }
+
+  .employee-reports-page .employee-report-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  .employee-reports-page .employee-report-table thead {
+    display: none !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody {
+    display: block !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody tr {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.42rem !important;
+    margin: 0.55rem !important;
+    padding: 0.72rem !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 0.95rem !important;
+    background: #fff !important;
+    box-shadow: 0 10px 22px -22px rgba(15, 23, 42, 0.35);
+  }
+
+  .employee-reports-page .employee-report-table tbody td {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    gap: 0.18rem !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    text-align: start !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody td::before {
+    content: attr(data-label);
+    font-size: 7px !important;
+    line-height: 1.15 !important;
+    font-weight: 900 !important;
+    color: #94a3b8 !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody td[colspan] {
+    display: block !important;
+    padding: 0.3rem !important;
+    text-align: center !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody td[colspan]::before {
+    content: none !important;
+    display: none !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody td .dir-ltr,
+  .employee-reports-page .employee-report-table tbody td.dir-ltr {
+    text-align: left !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody td button,
+  .employee-reports-page .employee-report-table tbody td input {
+    width: 100% !important;
+  }
+
+  .employee-reports-page .employee-report-table tbody td input {
+    min-height: 2.45rem !important;
+  }
+
+  .employee-reports-page .employee-report-table--attendance-summary tbody td:first-child,
+  .employee-reports-page .employee-report-table--payroll tbody td:first-child,
+  .employee-reports-page .employee-report-table--unpaid-accruals tbody td:first-child,
+  .employee-reports-page .employee-report-table--advance-balance tbody td:first-child,
+  .employee-reports-page .employee-report-table--payroll tbody td:last-child,
+  .employee-reports-page .employee-report-table--unpaid-accruals tbody td:last-child,
+  .employee-reports-page .employee-report-table--advance-balance tbody td:last-child,
+  .employee-reports-page .employee-report-table--daily-attendance tbody td:nth-child(2),
+  .employee-reports-page .employee-report-table--daily-attendance tbody td:nth-child(9),
+  .employee-reports-page .employee-report-table--advance-movements tbody td:nth-child(2),
+  .employee-reports-page .employee-report-table--advance-movements tbody td:nth-child(4) {
+    grid-column: 1 / -1 !important;
+  }
+
+  .employee-reports-page .employee-report-table--daily-attendance tbody td:nth-child(8) span,
+  .employee-reports-page .employee-report-table--advance-movements tbody td:nth-child(3) span {
+    width: 100%;
+    text-align: center;
   }
 }
 
@@ -1556,5 +2274,732 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
     color: #0f172a;
     background: #fff;
     visibility: visible !important;
+  }
+}
+
+@media print {
+  .statement-classic-sheet {
+    border-radius: 0 !important;
+    border: 1px solid #111827 !important;
+    box-shadow: none !important;
+  }
+
+  .statement-classic-header {
+    padding: 12px 14px 10px !important;
+  }
+
+  .statement-classic-title {
+    font-size: 22px !important;
+  }
+
+  .statement-classic-table--paper {
+    min-width: 100% !important;
+  }
+
+  .statement-classic-fill-row td {
+    height: 140px !important;
+  }
+
+  .statement-classic-check-image {
+    width: 96px !important;
+    height: 60px !important;
+  }
+
+  .statement-classic-table th,
+  .statement-classic-table td,
+  .statement-classic-inline-table th,
+  .statement-classic-inline-table td {
+    color: #111827 !important;
+  }
+
+  .statement-classic-table th,
+  .statement-classic-table td {
+    font-size: 11px !important;
+    padding: 0.45rem 0.35rem !important;
+  }
+
+  .directory-statement-table.statement-classic-table--paper th,
+  .directory-statement-table.statement-classic-table--paper td {
+    font-size: 11px !important;
+    padding: 0.45rem 0.35rem !important;
+  }
+
+  .statement-report-table.statement-classic-table--paper th,
+  .statement-report-table.statement-classic-table--paper td {
+    font-size: 11px !important;
+    padding: 0.45rem 0.35rem !important;
+  }
+
+  .statement-classic-inline-table th,
+  .statement-classic-inline-table td {
+    font-size: 9px !important;
+  }
+
+  .statement-classic-company-name {
+    font-size: 14px !important;
+  }
+
+  .statement-classic-fill-row td {
+    height: 40px !important;
+  }
+}
+.statement-classic-sheet {
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  background: #fff;
+}
+
+.statement-classic-header {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.2rem 1.35rem 0.95rem;
+  border-bottom: 1px solid #111827;
+}
+
+.statement-classic-title-block {
+  text-align: center;
+}
+
+.statement-classic-title {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 900;
+  color: #111827;
+}
+
+.statement-classic-subtitle {
+  display: none;
+}
+
+.statement-classic-company-name {
+  margin: 0.25rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #374151;
+  text-align: center;
+}
+
+.statement-classic-identity-row,
+.statement-classic-meta-row,
+.statement-classic-footer-bar,
+.statement-classic-footer-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.statement-classic-identity-row--paper {
+  min-height: 2.1rem;
+}
+
+.statement-classic-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: #111827;
+}
+
+.statement-classic-identity--party,
+.statement-classic-identity--phone {
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+.statement-classic-company-phone {
+  font-size: 0.82rem;
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.statement-classic-identity-label,
+.statement-classic-footer-label,
+.statement-classic-detail-label {
+  color: #374151;
+  font-weight: 900;
+}
+
+.statement-classic-identity-value {
+  color: #111827;
+  font-weight: 900;
+}
+
+.statement-classic-meta-row {
+  padding-top: 0.7rem;
+  border-top: 1px dashed #9ca3af;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.statement-classic-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.statement-classic-table--paper {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.statement-classic-table th,
+.statement-classic-table td {
+  border: 1px solid #374151;
+  background: #fff;
+  color: #111827;
+  padding: 0.58rem 0.48rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.statement-classic-table thead th {
+  background: #f3f4f6;
+  text-align: center;
+  font-weight: 900;
+}
+
+.statement-classic-document-cell {
+  text-align: center;
+}
+
+.statement-classic-document-wrap {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.16rem;
+  width: 100%;
+}
+
+.statement-classic-document-label {
+  font-weight: 900;
+  color: #111827;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.statement-classic-document-number {
+  display: block;
+  font-weight: 800;
+  color: #374151;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.statement-classic-description {
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+}
+
+.statement-classic-primary {
+  font-weight: 900;
+  color: #111827;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.statement-classic-secondary {
+  margin-top: 0.16rem;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+
+.statement-classic-placeholder,
+.statement-classic-date-cell,
+.statement-classic-doc-cell,
+.statement-classic-amount-cell,
+.statement-classic-balance-cell,
+.statement-classic-notes-cell,
+.statement-classic-empty-row td {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.statement-classic-row--opening td {
+  background: #fafaf9;
+  font-weight: 800;
+}
+
+.statement-classic-row--invoice td {
+  background: #e5e7eb;
+}
+
+.statement-classic-fill-row td {
+  height: 4.5rem;
+  background: #fff;
+}
+
+.statement-classic-detail-row td {
+  background: #fff;
+  padding: 0;
+}
+
+.statement-classic-detail-block,
+.statement-classic-detail-meta-list {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.statement-classic-detail-cell {
+  padding: 0 !important;
+  background: #fff !important;
+}
+
+.statement-classic-note-line {
+  padding: 0.55rem 0.7rem;
+  border-top: 1px solid #d1d5db;
+  font-size: 0.78rem;
+  line-height: 1.75;
+  color: #374151;
+}
+
+.statement-classic-detail-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: #1f2937;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid #d1d5db;
+}
+
+.statement-classic-detail-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.25rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid #9ca3af;
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 800;
+}
+
+.statement-classic-inline-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  max-width: 100%;
+}
+
+.statement-classic-inline-table th,
+.statement-classic-inline-table td {
+  border: 1px solid #6b7280;
+  padding: 0.38rem 0.42rem;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  background: #fff;
+  color: #111827;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.statement-classic-inline-table thead th {
+  background: #eceff3;
+  font-weight: 900;
+}
+
+.statement-classic-inline-table thead th:nth-child(1) {
+  font-size: 0.64rem;
+  line-height: 1.25;
+  padding-inline: 0.18rem;
+}
+
+.statement-classic-inline-table thead th:nth-child(2),
+.statement-classic-inline-table thead th:nth-child(3),
+.statement-classic-inline-table thead th:nth-child(4) {
+  white-space: nowrap;
+  font-size: 0.61rem;
+  letter-spacing: -0.01em;
+  padding-inline: 0.16rem;
+}
+
+.statement-classic-inline-table td:nth-child(1) {
+  font-size: 0.63rem;
+  line-height: 1.28;
+  padding-inline: 0.18rem;
+}
+
+.statement-classic-inline-table td:nth-child(2),
+.statement-classic-inline-table td:nth-child(3),
+.statement-classic-inline-table td:nth-child(4) {
+  font-size: 0.65rem;
+}
+
+.statement-classic-inline-summary-row td {
+  background: #f3f4f6;
+  font-weight: 800;
+}
+
+.statement-classic-inline-summary-label {
+  font-weight: 900;
+}
+
+.statement-classic-voucher-account {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.statement-classic-voucher-account-name {
+  font-weight: 700;
+  color: #111827;
+}
+
+.statement-classic-voucher-check-meta {
+  display: grid;
+  gap: 0.08rem;
+  font-size: 0.58rem;
+  line-height: 1.28;
+  color: #6b7280;
+}
+
+.statement-classic-voucher-check-meta-label {
+  color: #4b5563;
+  font-weight: 800;
+}
+
+.statement-classic-inline-table--voucher thead th:nth-child(1),
+.statement-classic-inline-table--voucher td:nth-child(1) {
+  width: 24%;
+  text-align: center;
+  font-size: 0.66rem;
+}
+
+.statement-classic-inline-table--voucher thead th:nth-child(2),
+.statement-classic-inline-table--voucher td:nth-child(2) {
+  width: 50%;
+}
+
+.statement-classic-inline-table--voucher thead th:nth-child(3),
+.statement-classic-inline-table--voucher td:nth-child(3) {
+  width: 26%;
+  text-align: center;
+  font-size: 0.66rem;
+}
+
+.statement-classic-check-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.65rem 0.7rem;
+  border-bottom: 1px solid #d1d5db;
+  background: #fff;
+}
+
+.statement-classic-check-frame {
+  border: 1px solid #d1d5db;
+  padding: 0.2rem;
+  background: #fff;
+}
+
+.statement-classic-check-image {
+  display: block;
+  width: 7rem;
+  height: 4.5rem;
+  object-fit: cover;
+}
+
+.statement-classic-footer {
+  display: none;
+}
+
+.statement-classic-note-panel {
+  padding: 0.9rem 1.35rem 1.15rem;
+  border-top: 1px solid #111827;
+  background: #fff;
+}
+
+.statement-classic-summary-table {
+  border-top: none !important;
+}
+
+.statement-classic-summary-inline-row td {
+  background: #f3f4f6;
+}
+
+.statement-classic-summary-inline-cell {
+  text-align: center;
+  font-weight: 900;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.statement-classic-summary-row td {
+  background: #fafaf9;
+}
+
+.statement-classic-summary-label-cell {
+  font-weight: 900;
+  color: #111827;
+}
+
+.statement-classic-summary-value-cell {
+  text-align: center;
+  font-weight: 900;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.statement-classic-summary-row--final td {
+  background: #f3f4f6;
+}
+
+.statement-classic-summary-stack {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 14rem;
+}
+
+.statement-classic-footer-row {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #111827;
+}
+
+.statement-classic-footer-row--final {
+  padding-top: 0.25rem;
+  margin-top: 0.1rem;
+  border-top: 1px solid #d1d5db;
+}
+
+.statement-classic-footer-value {
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
+  color: #111827;
+}
+
+.statement-classic-page-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #4b5563;
+}
+
+.statement-classic-page-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.statement-classic-page-meta-label {
+  color: #6b7280;
+  font-weight: 800;
+}
+
+.statement-classic-note {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: #4b5563;
+}
+
+@media print {
+  .statement-classic-footer {
+    display: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .statement-classic-header {
+    padding: 0.95rem 0.85rem 0.8rem;
+  }
+
+  .statement-classic-title {
+    font-size: 1.18rem;
+  }
+
+  .statement-classic-identity-row {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .statement-classic-meta-row,
+  .statement-classic-footer-bar,
+  .statement-classic-footer-row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .statement-classic-fill-row td {
+    height: 2.75rem;
+  }
+
+  .statement-classic-identity--party,
+  .statement-classic-identity--phone {
+    font-size: 0.82rem;
+  }
+
+  .statement-classic-meta-row {
+    gap: 0.4rem;
+    font-size: 0.66rem;
+  }
+
+  .statement-classic-footer {
+    padding: 0.75rem 0.85rem 0.9rem;
+  }
+}
+
+.statement-classic-sheet .statement-mobile-viewport {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.statement-classic-sheet .statement-mobile-canvas {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.statement-mobile-canvas .statement-classic-table--paper,
+.financial-reports-page.statement-report-active .statement-classic-table--paper,
+.directory-statement-table.statement-classic-table--paper {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+}
+
+.financial-reports-page.statement-report-active .statement-classic-table--paper th,
+.financial-reports-page.statement-report-active .statement-classic-table--paper td,
+.directory-statement-table.statement-classic-table--paper th,
+.directory-statement-table.statement-classic-table--paper td {
+  padding: 0.4rem 0.28rem !important;
+  font-size: 9.3px !important;
+  line-height: 1.45 !important;
+  vertical-align: top !important;
+}
+
+.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(1),
+.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(1),
+.directory-statement-table.statement-classic-table--paper th:nth-child(1),
+.directory-statement-table.statement-classic-table--paper td:nth-child(1) {
+  width: 12% !important;
+}
+
+.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(2),
+.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(2),
+.directory-statement-table.statement-classic-table--paper th:nth-child(2),
+.directory-statement-table.statement-classic-table--paper td:nth-child(2) {
+  width: 13% !important;
+}
+
+.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(3),
+.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(3),
+.directory-statement-table.statement-classic-table--paper th:nth-child(3),
+.directory-statement-table.statement-classic-table--paper td:nth-child(3) {
+  width: 41% !important;
+}
+
+.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(4),
+.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(4),
+.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(5),
+.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(5),
+.directory-statement-table.statement-classic-table--paper th:nth-child(4),
+.directory-statement-table.statement-classic-table--paper td:nth-child(4),
+.directory-statement-table.statement-classic-table--paper th:nth-child(5),
+.directory-statement-table.statement-classic-table--paper td:nth-child(5) {
+  width: 11% !important;
+}
+
+.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(6),
+.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(6),
+.directory-statement-table.statement-classic-table--paper th:nth-child(6),
+.directory-statement-table.statement-classic-table--paper td:nth-child(6) {
+  width: 12% !important;
+}
+
+@media (max-width: 640px) {
+  .statement-classic-sheet .statement-mobile-viewport {
+    overflow-x: hidden;
+  }
+
+  .statement-mobile-canvas .statement-classic-table--paper,
+  .financial-reports-page.statement-report-active .statement-classic-table--paper,
+  .directory-statement-table.statement-classic-table--paper {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .financial-reports-page.statement-report-active .statement-classic-table--paper th,
+  .financial-reports-page.statement-report-active .statement-classic-table--paper td,
+  .directory-statement-table.statement-classic-table--paper th,
+  .directory-statement-table.statement-classic-table--paper td {
+    padding: 0.28rem 0.18rem !important;
+    font-size: 8.15px !important;
+    line-height: 1.3 !important;
+  }
+
+  .statement-classic-inline-table th,
+  .statement-classic-inline-table td {
+    padding: 0.22rem 0.16rem !important;
+    font-size: 7.75px !important;
+    line-height: 1.25 !important;
+  }
+
+  .statement-classic-inline-table thead th:nth-child(2),
+  .statement-classic-inline-table thead th:nth-child(3),
+  .statement-classic-inline-table thead th:nth-child(4) {
+    font-size: 6.05px !important;
+    white-space: nowrap !important;
+    letter-spacing: -0.02em !important;
+    padding-inline: 0.05rem !important;
+  }
+
+  .statement-classic-inline-table thead th:nth-child(1) {
+    font-size: 6.2px !important;
+    line-height: 1.2 !important;
+    padding-inline: 0.08rem !important;
+  }
+
+  .statement-classic-inline-table td:nth-child(1) {
+    font-size: 6.15px !important;
+    line-height: 1.2 !important;
+    padding-inline: 0.08rem !important;
+  }
+
+  .statement-classic-inline-table td:nth-child(2),
+  .statement-classic-inline-table td:nth-child(3),
+  .statement-classic-inline-table td:nth-child(4) {
+    font-size: 6.55px !important;
+  }
+
+  .statement-classic-inline-table--voucher thead th:nth-child(1),
+  .statement-classic-inline-table--voucher thead th:nth-child(2),
+  .statement-classic-inline-table--voucher thead th:nth-child(3),
+  .statement-classic-inline-table--voucher td:nth-child(1),
+  .statement-classic-inline-table--voucher td:nth-child(2),
+  .statement-classic-inline-table--voucher td:nth-child(3) {
+    font-size: 6.55px !important;
+    line-height: 1.22 !important;
+    padding-inline: 0.08rem !important;
+  }
+
+  .statement-classic-voucher-check-meta {
+    font-size: 5.95px !important;
+    line-height: 1.18 !important;
+  }
+
+  .statement-classic-document-number,
+  .statement-classic-secondary,
+  .statement-classic-note-line {
+    font-size: 7.7px !important;
+    line-height: 1.25 !important;
   }
 }

@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
-import { Account, AccountType, TransactionType, Product, Invoice, Check, Transaction, ImportExpenseDistribution } from '../types';
+import { Account, AccountType, TransactionType, Product, Invoice, Check, Transaction, ImportExpenseDistribution, Contact } from '../types';
 import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
@@ -105,6 +105,10 @@ const FinancialReports: React.FC = () => {
     const { transactions, accounts, baseCurrency, products, invoices, contacts, fixedAssets, currencies, checks, boms, warehouses, companySettings, importExpenseDistributions } = useAccounting();
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
+    const hideVoucherColumnInStatement = companySettings.hideVoucherColumnInStatement ?? false;
+    const printStatementAllCurrencies = companySettings.printStatementAllCurrencies ?? false;
+    const statementDateAscending = companySettings.statementDateAscending ?? true;
+    const dottedNumbers = companySettings.dottedNumbers ?? false;
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayContactName = (contact?: { id: string; name: string } | null) => getDisplayContactName(contact || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) => getDisplayProductName(product || undefined, isEnglish);
@@ -222,37 +226,79 @@ const FinancialReports: React.FC = () => {
         const normalized = String(check.accountNumber || '').trim();
         return normalized || tr('بدون رقم', 'No number');
     };
+    const getCheckEntryLabel = (check: Pick<Check, 'type'>) =>
+        check.type === 'INCOMING' ? tr('قبض', 'Receipt') : tr('صرف', 'Payment');
+    const getCheckPartyName = (check: Pick<Check, 'type' | 'status' | 'contactId' | 'originalContactId' | 'endorseeContactId' | 'endorseeName'>) => {
+        if (check.status === 'ENDORSED') {
+            const endorsedContactName = check.endorseeContactId
+                ? (displayContactName(contacts.find(c => c.id === check.endorseeContactId) || null) || '')
+                : '';
+            const endorsedName = endorsedContactName || String(check.endorseeName || '').trim();
+            if (endorsedName) return endorsedName;
+        }
+        const partyId = check.type === 'INCOMING' ? (check.originalContactId || check.contactId) : check.contactId;
+        return displayContactName(contacts.find(c => c.id === partyId) || null) || tr('غير معروف', 'Unknown');
+    };
+    const getCheckLocationLabel = (check: Pick<Check, 'type' | 'status' | 'depositedBankId' | 'bankAccountId' | 'bankName' | 'endorseeContactId' | 'endorseeName'>) => {
+        if (check.status === 'ENDORSED') {
+            const endorsedContactName = check.endorseeContactId
+                ? (displayContactName(contacts.find(c => c.id === check.endorseeContactId) || null) || '')
+                : '';
+            const endorsedName = endorsedContactName || String(check.endorseeName || '').trim();
+            return endorsedName
+                ? `${tr('مجير إلى', 'Endorsed to')} ${endorsedName}`
+                : tr('مجير', 'Endorsed');
+        }
+        if (check.type === 'INCOMING') {
+            if (check.status === 'UNDER_COLLECTION' || (check.status !== 'PENDING' && check.depositedBankId)) {
+                return check.depositedBankId ? getCheckDepositedBankName(check) : tr('بدون بنك محدد', 'Unassigned bank');
+            }
+            if (check.status === 'PENDING') return tr('بالصندوق', 'In vault');
+            if (check.status === 'BOUNCED') return tr('شيك مرتجع', 'Bounced check');
+            if (check.status === 'CANCELLED') return tr('ملغى', 'Cancelled');
+            return tr('تم التحصيل', 'Collected');
+        }
+        if (check.status === 'CANCELLED' && !check.bankAccountId && !check.bankName) {
+            return tr('ملغى', 'Cancelled');
+        }
+        return getCheckPrimaryBankName(check);
+    };
 
     const renderCheckSummaryStrip = (
-        check: Pick<Check, 'amount' | 'dueDate' | 'checkNumber' | 'accountNumber' | 'bankAccountId' | 'bankName'>,
+        check: Pick<Check, 'amount' | 'dueDate' | 'issueDate' | 'checkNumber' | 'accountNumber' | 'bankAccountId' | 'bankName' | 'type' | 'status' | 'contactId' | 'originalContactId' | 'depositedBankId' | 'endorseeContactId' | 'endorseeName'>,
         options?: {
             bankName?: string;
             amountClassName?: string;
             wrapperClassName?: string;
             cellClassName?: string;
+            partyName?: string;
+            locationLabel?: string;
+            checkLabel?: string;
         }
     ) => {
         const resolvedBankName = options?.bankName || getCheckPrimaryBankName(check);
+        const resolvedPartyName = options?.partyName || getCheckPartyName(check);
+        const resolvedLocationLabel = options?.locationLabel || getCheckLocationLabel(check);
         const amountClassName = options?.amountClassName || 'dir-ltr text-left text-slate-800';
         const baseCellClassName = options?.cellClassName || 'border-slate-100 bg-white/90';
         const cells = [
             {
-                key: 'due',
-                label: tr('الاستحقاق', 'Due'),
-                value: check.dueDate,
-                valueClassName: 'dir-ltr text-left text-slate-700'
+                key: 'check',
+                label: tr('شيك', 'Check'),
+                value: options?.checkLabel || getCheckEntryLabel(check),
+                valueClassName: check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'
             },
             {
                 key: 'number',
                 label: tr('رقم الشيك', 'Check #'),
-                value: check.checkNumber,
+                value: `#${check.checkNumber}`,
                 valueClassName: 'dir-ltr text-left text-slate-900'
             },
             {
                 key: 'bank',
                 label: tr('البنك', 'Bank'),
                 value: resolvedBankName,
-                valueClassName: 'text-slate-700'
+                valueClassName: 'text-slate-800 break-words'
             },
             {
                 key: 'bank-number',
@@ -265,20 +311,46 @@ const FinancialReports: React.FC = () => {
                 label: tr('المبلغ', 'Amount'),
                 value: formatValue(check.amount),
                 valueClassName: amountClassName
+            },
+            {
+                key: 'party',
+                label: tr('الجهة', 'Party'),
+                value: resolvedPartyName,
+                valueClassName: 'text-slate-800 break-words'
+            },
+            {
+                key: 'due-date',
+                label: tr('تاريخ الاستحقاق', 'Due Date'),
+                value: check.dueDate || '-',
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'issue-date',
+                label: tr('تاريخ الإصدار', 'Issue Date'),
+                value: check.issueDate || '-',
+                valueClassName: 'dir-ltr text-left text-slate-700'
+            },
+            {
+                key: 'location',
+                label: tr('الموقع/الحساب', 'Location / Account'),
+                value: resolvedLocationLabel,
+                valueClassName: 'text-slate-800 break-words'
             }
         ];
 
         return (
-            <div className={`rounded-[1.35rem] border border-slate-100 bg-slate-50/70 p-1.5 ${options?.wrapperClassName || ''}`}>
-                <div className="grid grid-cols-[1.08fr_1.08fr_1.35fr_1.12fr_0.95fr] gap-1">
-                    {cells.map(cell => (
-                        <div key={cell.key} className={`min-w-0 rounded-xl border px-1.5 py-1.5 text-[10px] font-black leading-tight ${baseCellClassName}`}>
-                            <div className="flex items-center gap-1">
-                                <span className="shrink-0 text-[8.5px] text-slate-400">{cell.label}</span>
-                                <span className={`min-w-0 flex-1 truncate whitespace-nowrap ${cell.valueClassName}`}>{cell.value}</span>
-                            </div>
+            <div className={`check-summary-strip rounded-[1.35rem] border border-slate-100 bg-slate-50/70 p-1.5 ${options?.wrapperClassName || ''}`}>
+                <div className="check-summary-strip__viewport">
+                    <div className="check-summary-strip__canvas">
+                        <div className="check-summary-strip__grid">
+                            {cells.map(cell => (
+                                <div key={cell.key} className={`check-summary-strip__cell check-summary-strip__cell--${cell.key} min-w-0 rounded-xl border px-2.5 py-2 text-[10px] font-black leading-tight ${baseCellClassName}`}>
+                                    <div className="text-[8.5px] text-slate-400">{cell.label}</div>
+                                    <div className={`mt-1 text-[10.5px] leading-5 ${cell.valueClassName}`}>{cell.value}</div>
+                                </div>
+                            ))}
                         </div>
-                    ))}
+                    </div>
                 </div>
             </div>
         );
@@ -414,6 +486,1171 @@ const FinancialReports: React.FC = () => {
         const match = value.match(prefixPattern);
         return match?.[1] ? String(match[1]).trim() : '';
     };
+
+    const getStatementDocumentNumber = (tx?: Pick<Transaction, 'voucherId' | 'invoiceId'> | null) => {
+        if (!tx) return '-';
+        const voucherId = String(tx.voucherId || '').trim();
+        if (voucherId) return voucherId;
+
+        const linkedInvoice = tx.invoiceId ? invoices.find(inv => inv.id === tx.invoiceId) : undefined;
+        if (linkedInvoice?.invoiceNumber) {
+            return linkedInvoice.invoiceNumber;
+        }
+
+        return '-';
+    };
+
+    const renderStatementIdentityPanel = (
+        title: string,
+        subjectName: string,
+        metaItems: Array<{ label: string; value: string; numeric?: boolean }>
+    ) => (
+        <div className="bg-white p-4 rounded-[1.8rem] border border-gray-100 shadow-sm mb-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                <div className="min-w-0">
+                    <p className={`text-[10px] font-black text-slate-400 ${isEnglish ? 'uppercase tracking-[0.22em]' : 'tracking-normal leading-relaxed'}`}>{title}</p>
+                    <h3 className="mt-2 text-base sm:text-lg font-black text-slate-800 break-words">{subjectName}</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-2 min-w-0 sm:grid-cols-2 xl:min-w-[28rem] xl:max-w-[44rem]">
+                    {metaItems.map((item, index) => (
+                        <div key={`${item.label}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                            <span className={`block text-[9px] font-black text-slate-400 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{item.label}</span>
+                            <span className={`mt-1 block text-sm font-black text-slate-700 break-words ${item.numeric ? 'dir-ltr text-left' : ''}`}>{item.value}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+
+    type StatementPartnerEntry = {
+        id: string;
+        tx: Transaction;
+        date: string;
+        debit: number;
+        credit: number;
+        balance: number;
+    };
+
+    type ClassicStatementDetails = {
+        invoice?: Invoice;
+        counterpartAccounts: Account[];
+        relatedChecks: Check[];
+        voucherDetailRows: {
+            id: string;
+            label: string;
+            accountName: string;
+            amount: number;
+            checkMeta: {
+                checkNumber: string;
+                bankName: string;
+                dueDate: string;
+            } | null;
+        }[];
+    };
+
+    const formatClassicStatementDate = (value?: string) => {
+        if (!value) return '-';
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return value;
+        return parsed.toLocaleDateString('en-GB');
+    };
+
+    const getStatementBalanceColumnLabel = () => {
+        return tr('الرصيد', 'Balance');
+    };
+
+    const buildClassicStatementDetails = (tx: Transaction, controlAccountIds: string[]): ClassicStatementDetails => {
+        const invoice = tx.invoiceId ? invoices.find(inv => inv.id === tx.invoiceId) : undefined;
+        const voucherTransactions = tx.voucherId
+            ? transactions.filter(line => line.voucherId === tx.voucherId)
+            : [tx];
+
+        const counterpartAccountIds = Array.from(new Set(
+            voucherTransactions
+                .flatMap(line => [line.debitAccountId, line.creditAccountId])
+                .filter((id): id is string => Boolean(id && !controlAccountIds.includes(id)))
+        ));
+
+        const counterpartAccounts = counterpartAccountIds
+            .map(id => accounts.find(acc => acc.id === id))
+            .filter((acc): acc is Account => Boolean(acc));
+
+        const checkIds = Array.from(new Set(
+            voucherTransactions
+                .map(line => line.checkId)
+                .filter((id): id is string => Boolean(id))
+        ));
+
+        const relatedChecks = checkIds
+            .map(id => checks.find(check => check.id === id))
+            .filter((check): check is Check => Boolean(check));
+
+        const voucherDetailRows = tx.voucherId
+            ? voucherTransactions.map((line, index) => {
+                const debitIsControl = Boolean(line.debitAccountId && controlAccountIds.includes(line.debitAccountId));
+                const creditIsControl = Boolean(line.creditAccountId && controlAccountIds.includes(line.creditAccountId));
+                const nonControlDebitId = line.debitAccountId && !controlAccountIds.includes(line.debitAccountId) ? line.debitAccountId : '';
+                const nonControlCreditId = line.creditAccountId && !controlAccountIds.includes(line.creditAccountId) ? line.creditAccountId : '';
+                const oppositeAccountId = creditIsControl
+                    ? nonControlDebitId
+                    : debitIsControl
+                        ? nonControlCreditId
+                        : (nonControlDebitId || nonControlCreditId);
+                const oppositeAccount = oppositeAccountId ? accounts.find(acc => acc.id === oppositeAccountId) || null : null;
+                const relatedCheck = line.checkId ? checks.find(check => check.id === line.checkId) || null : null;
+                const label = creditIsControl
+                    ? tr('تم القبض في', 'Received in')
+                    : debitIsControl
+                        ? tr('تم الصرف من', 'Paid from')
+                        : (line.type === TransactionType.INCOME ? tr('قبض', 'Receipt') : tr('صرف', 'Payment'));
+
+                return {
+                    id: `${line.id || tx.id}-classic-voucher-detail-${index}`,
+                    label,
+                    accountName: oppositeAccount ? displayAccountName(oppositeAccount) : tr('غير محدد', 'Unspecified'),
+                    amount: Number(line.amount || 0),
+                    checkMeta: relatedCheck ? {
+                        checkNumber: relatedCheck.checkNumber || '-',
+                        bankName: displayAccountName(
+                            relatedCheck.bankAccountId
+                                ? accounts.find(acc => acc.id === relatedCheck.bankAccountId) || null
+                                : { id: '', name: relatedCheck.bankName }
+                        ) || relatedCheck.bankName || '-',
+                        dueDate: formatClassicStatementDate(relatedCheck.dueDate)
+                    } : null
+                };
+            }).filter(row => row.amount > 0)
+            : [];
+
+        return { invoice, counterpartAccounts, relatedChecks, voucherDetailRows };
+    };
+
+    const getClassicStatementNotes = (details: ClassicStatementDetails) => {
+        const value = details.counterpartAccounts
+            .map(account => displayAccountName(account))
+            .filter(Boolean)
+            .join(' - ');
+        return value || '-';
+    };
+
+    const getClassicStatementDocumentLabel = (tx: Transaction, details: ClassicStatementDetails) => {
+        const rawDescription = String(tx.description || '').trim().toLowerCase();
+        const hasBankAccount = details.counterpartAccounts.some(account => account.type === 'ASSET' && /bank|بنك/i.test(account.name || ''));
+
+        switch (tx.category) {
+            case 'sales_invoice':
+                return tr('مبيعات', 'Sales');
+            case 'sales_return':
+                return tr('مردود مبيعات', 'Sales Return');
+            case 'purchase_invoice':
+                return tr('مشتريات', 'Purchases');
+            case 'purchase_return':
+                return tr('مردود مشتريات', 'Purchase Return');
+            case 'receipt':
+                return tr('قبض', 'Receipt');
+            case 'payment':
+                return hasBankAccount || /bank|بنك/.test(rawDescription)
+                    ? tr('قيد بنكي', 'Bank Entry')
+                    : tr('صرف', 'Payment');
+            case 'returned_check':
+            case 'returned_checks':
+            case 'check_return':
+                return tr('بدل شيك راجع', 'Returned Check');
+            default:
+                break;
+        }
+
+        if (details.relatedChecks.length > 0) {
+            return tr('قبض', 'Receipt');
+        }
+
+        if (hasBankAccount || /bank|بنك/.test(rawDescription)) {
+            return tr('قيد بنكي', 'Bank Entry');
+        }
+
+        return tr('قيد', 'Entry');
+    };
+
+    const getClassicStatementDescriptionText = (tx: Transaction, details: ClassicStatementDetails) => {
+        const normalizedDescription = normalizeStatementDescriptionText(tx.description);
+        const docLabel = getClassicStatementDocumentLabel(tx, details);
+        if (normalizedDescription && normalizedDescription !== docLabel) {
+            return normalizedDescription;
+        }
+
+        const notes = getClassicStatementNotes(details);
+        if (notes !== '-') {
+            return notes;
+        }
+
+        return tr('بدون بيان', 'No description');
+    };
+
+    const renderClassicStatementInlineDetails = (tx: Transaction, details: ClassicStatementDetails, mainDescription: string) => {
+        const { invoice, relatedChecks, voucherDetailRows } = details;
+        const standaloneChecks = voucherDetailRows.length > 0 ? [] : relatedChecks;
+        const notesText = getClassicStatementNotes(details);
+        const showNotesLine = !voucherDetailRows.length && notesText !== '-' && notesText !== mainDescription;
+        if (!invoice?.items?.length && !standaloneChecks.length && !voucherDetailRows.length && !showNotesLine) return null;
+
+        return (
+            <div className="statement-classic-detail-block">
+                {standaloneChecks.length > 0 && (
+                    <div className="statement-classic-detail-meta-list">
+                        {standaloneChecks.map(check => {
+                            const linkedBankAccount = check.bankAccountId ? accounts.find(acc => acc.id === check.bankAccountId) || null : null;
+                            return (
+                                <div key={check.id} className="statement-classic-detail-line statement-classic-detail-line--check">
+                                    <span className="statement-classic-detail-label">{tr('شيك', 'Check')}</span>
+                                    <span className="statement-classic-detail-pill statement-inline-value">{check.checkNumber || '-'}</span>
+                                    <span>{tr('البنك', 'Bank')}: {linkedBankAccount ? displayAccountName(linkedBankAccount) : (check.bankName || '-')}</span>
+                                    <span className="dir-ltr">{tr('الاستحقاق', 'Due')}: {formatClassicStatementDate(check.dueDate)}</span>
+                                    <span className="statement-inline-value">{formatPlainNumber(check.amount)}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {voucherDetailRows.length > 0 && (
+                    <table className="statement-classic-inline-table statement-classic-inline-table--voucher w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                        <colgroup>
+                            <col style={{ width: '24%' }} />
+                            <col style={{ width: '50%' }} />
+                            <col style={{ width: '26%' }} />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th className="text-center">{tr('العملية', 'Action')}</th>
+                                <th className="text-start">{tr('الحساب', 'Account')}</th>
+                                <th className="text-center">{tr('المبلغ', 'Amount')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {voucherDetailRows.map(row => (
+                                <tr key={row.id}>
+                                    <td className="text-center">{row.label}</td>
+                                    <td>
+                                        <div className="statement-classic-voucher-account">
+                                            <div className="statement-classic-voucher-account-name">{row.accountName}</div>
+                                            {row.checkMeta && (
+                                                <div className="statement-classic-voucher-check-meta">
+                                                    <div>
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('شيك', 'Check')}:</span>{' '}
+                                                        <span className="statement-inline-value">{row.checkMeta.checkNumber}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('البنك', 'Bank')}:</span>{' '}
+                                                        <span>{row.checkMeta.bankName}</span>
+                                                    </div>
+                                                    <div className="dir-ltr">
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('الاستحقاق', 'Due')}:</span>{' '}
+                                                        <span>{row.checkMeta.dueDate}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="text-center dir-ltr font-black">{formatPlainNumber(row.amount)}</td>
+                                </tr>
+                            ))}
+                            <tr className="statement-classic-inline-summary-row">
+                                <td className="statement-classic-inline-summary-label text-center">{tr('الإجمالي', 'Total')}</td>
+                                <td className="text-center statement-classic-placeholder">-</td>
+                                <td className="text-center dir-ltr font-black">{formatPlainNumber(voucherDetailRows.reduce((sum, row) => sum + row.amount, 0))}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
+
+                {invoice && invoice.items.length > 0 && (
+                    <table className="statement-classic-inline-table w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                        <colgroup>
+                            <col style={{ width: '39%' }} />
+                            <col style={{ width: '17%' }} />
+                            <col style={{ width: '18%' }} />
+                            <col style={{ width: '26%' }} />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th className="text-start">{tr('اسم الصنف', 'Item')}</th>
+                                <th className="text-center">{tr('الكمية', 'Qty')}</th>
+                                <th className="text-center">{tr('السعر', 'Price')}</th>
+                                <th className="text-center">{tr('إجمالي', 'Total')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {invoice.items.map((item, index) => {
+                                const product = products.find(p => p.id === item.productId);
+                                return (
+                                    <tr key={item.id || `${invoice.id}-classic-item-${index}`}>
+                                        <td>{item.description || displayProductName(product) || ((product as any)?.itemCode || (product as any)?.barcode || '-')}</td>
+                                        <td className="text-center dir-ltr">{formatPlainNumber(Number(item.quantity) || 0)}</td>
+                                        <td className="text-center dir-ltr">{formatPlainNumber(Number(item.unitPrice) || 0)}</td>
+                                        <td className="text-center dir-ltr font-black">{formatPlainNumber(Number(item.total) || 0)}</td>
+                                    </tr>
+                                );
+                            })}
+                            <tr className="statement-classic-inline-summary-row">
+                                <td className="statement-classic-inline-summary-label">{tr('المجموع', 'Total')}</td>
+                                <td className="text-center dir-ltr">{tr('خصم:', 'Discount:')} {formatPlainNumber(Number(invoice.discountAmount) || 0)}</td>
+                                <td className="text-center statement-classic-placeholder">-</td>
+                                <td className="text-center dir-ltr font-black">{formatPlainNumber(Number(invoice.totalAmount) || 0)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
+
+                {showNotesLine && (
+                    <div className="statement-classic-note-line">{notesText}</div>
+                )}
+            </div>
+        );
+    };
+
+    const renderClassicPartnerStatement = ({
+        statementKind,
+        reportTableClassName,
+        subjectName,
+        phone,
+        controlAccountIds,
+        openingBalance,
+        totalDebit,
+        totalCredit,
+        closingBalance,
+        entries
+    }: {
+        statementKind: string;
+        reportTableClassName: string;
+        subjectName: string;
+        phone?: string | null;
+        controlAccountIds: string[];
+        openingBalance: number;
+        totalDebit: number;
+        totalCredit: number;
+        closingBalance: number;
+        entries: StatementPartnerEntry[];
+    }) => {
+        const phoneValue = String(phone || '').trim();
+        const footerNote = String(companySettings.statementFooterNote || '').trim();
+        const openingRowDate = startDate ? formatClassicStatementDate(startDate) : '-';
+        const companyName = String(companySettings.name || '').trim();
+        const companyPhone = String(companySettings.phone || '').trim();
+
+        return (
+            <div className="statement-classic-sheet bg-white rounded-[1.75rem] border border-gray-200 shadow-sm overflow-hidden">
+                <div className="statement-classic-header">
+                    <div className="statement-classic-title-block">
+                        <h3 className="statement-classic-title">{tr('كشف حساب', 'Statement of Account')}</h3>
+                        {companyName && (
+                            <p className="statement-classic-company-name">{companyName}{companyPhone ? <span className="statement-classic-company-phone dir-ltr"> | {companyPhone}</span> : null}</p>
+                        )}
+                    </div>
+
+                    <div className="statement-classic-identity-row statement-classic-identity-row--paper">
+                        <div className="statement-classic-identity statement-classic-identity--party">
+                            <span className="statement-classic-identity-label">{tr('حضرة السيد', 'To')}</span>
+                            <span className="statement-classic-identity-value">{subjectName}</span>
+                        </div>
+                        <div className="statement-classic-identity statement-classic-identity--phone">
+                            <span className={`statement-classic-identity-value statement-inline-value ${phoneValue ? '' : 'statement-classic-placeholder'}`}>{phoneValue ? `( ${phoneValue} )` : '( - )'}</span>
+                            <span className="statement-classic-identity-label">{tr('تلفون', 'Phone')}</span>
+                        </div>
+                    </div>
+
+                    <div className="statement-classic-meta-row">
+                        <span>{statementKind}</span>
+                        <span>
+                            {tr('الفترة', 'Period')}: <span className="statement-inline-value">{startDate}</span> - <span className="statement-inline-value">{endDate}</span>
+                        </span>
+                        <span>
+                            {tr('العملة', 'Currency')}: <span className="statement-inline-value">{reportCurrency}</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div className="statement-mobile-viewport">
+                    <div className="statement-mobile-canvas">
+                        <table
+                            dir={isEnglish ? 'ltr' : 'rtl'}
+                            className={`statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper ${reportTableClassName} w-full text-start table-fixed min-w-0 max-w-full`}
+                        >
+                            <colgroup>
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '13%' }} />
+                                <col style={{ width: '41%' }} />
+                                <col style={{ width: '11%' }} />
+                                <col style={{ width: '11%' }} />
+                                <col style={{ width: '12%' }} />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>{tr('التاريخ', 'Date')}</th>
+                                    <th>{tr('المستند', 'Document')}</th>
+                                    <th>{tr('البيان', 'Description')}</th>
+                                    <th>{tr('مدين', 'Debit')}</th>
+                                    <th>{tr('دائن', 'Credit')}</th>
+                                    <th>{getStatementBalanceColumnLabel()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr className="statement-classic-row statement-classic-row--opening">
+                                    <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
+                                    <td className="statement-classic-document-cell"></td>
+                                    <td className="statement-classic-description">{tr('رصيد منقول', 'Balance B/F')}</td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-balance-cell dir-ltr">{formatValue(openingBalance)}</td>
+                                </tr>
+
+                                {entries.map(entry => {
+                                    const details = buildClassicStatementDetails(entry.tx, controlAccountIds);
+                                    const documentLabel = getClassicStatementDocumentLabel(entry.tx, details);
+                                    const descriptionText = getClassicStatementDescriptionText(entry.tx, details);
+                                    const inlineDetails = renderClassicStatementInlineDetails(entry.tx, details, descriptionText);
+                                    const documentNumber = hideVoucherColumnInStatement ? '' : getStatementDocumentNumber(entry.tx);
+
+                                    return (
+                                        <React.Fragment key={entry.id}>
+                                            <tr className={`statement-classic-row ${entry.tx.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
+                                                <td className="statement-classic-date-cell dir-ltr">{formatClassicStatementDate(entry.date)}</td>
+                                                <td className="statement-classic-document-cell">
+                                                    <div className="statement-classic-document-wrap">
+                                                        <span className="statement-classic-document-label">{documentLabel}</span>
+                                                        <span className="statement-classic-document-number dir-ltr">{documentNumber || ''}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="statement-report-description statement-classic-description">
+                                                    <div className="statement-classic-primary">{descriptionText}</div>
+                                                </td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{entry.debit > 0 ? formatValue(entry.debit) : '-'}</td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{entry.credit > 0 ? formatValue(entry.credit) : '-'}</td>
+                                                <td className="statement-classic-balance-cell dir-ltr">{formatValue(entry.balance)}</td>
+                                            </tr>
+                                            {inlineDetails && (
+                                                <tr className="statement-classic-detail-row">
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-detail-cell">{inlineDetails}</td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+
+                                {entries.length === 0 && (
+                                    <tr className="statement-classic-empty-row">
+                                        <td colSpan={6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                    </tr>
+                                )}
+
+                                <tr className="statement-classic-summary-inline-row">
+                                    <td></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalDebit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalCredit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(closingBalance)}</td>
+                                </tr>
+                                <tr className="statement-classic-fill-row">
+                                    <td colSpan={6}></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {footerNote && (
+                    <div className="statement-classic-note-panel">
+                        <div className="statement-classic-note">{footerNote}</div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+    type UnifiedStatementGroupedTransaction = Transaction & {
+        debit: number;
+        credit: number;
+        subTransactions: Transaction[];
+        runningBalance?: number;
+    };
+
+    type UnifiedClassicStatementPreview = {
+        invoice: Invoice | null;
+        checkRows: {
+            id: string;
+            checkNumber: string;
+            bankName: string;
+            accountNumber: string;
+            dueDate: string;
+            amount: number;
+            currency: string;
+        }[];
+        paymentRows: {
+            id: string;
+            label: string;
+            accountName: string;
+            amount: number;
+            currency: string;
+            checkMeta: {
+                checkNumber: string;
+                bankName: string;
+                dueDate: string;
+            } | null;
+        }[];
+    };
+
+    type UnifiedClassicStatementRow = {
+        id: string;
+        entry: UnifiedStatementGroupedTransaction;
+        preview: UnifiedClassicStatementPreview;
+        dateText: string;
+        documentNumber: string;
+        primaryDescription: string;
+        secondaryDescription: string;
+        debit: number;
+        credit: number;
+        balance: number;
+    };
+
+    const formatUnifiedStatementFigure = (value: number, fractionDigits = 2) => {
+        const normalized = Number(value || 0).toLocaleString('en-US', {
+            minimumFractionDigits: fractionDigits,
+            maximumFractionDigits: fractionDigits,
+            useGrouping: false
+        });
+        return dottedNumbers ? normalized.replace(/,/g, '.') : normalized;
+    };
+
+    const getUnifiedStatementLineMeta = (line: Transaction, contact: Contact) => {
+        if (contact.type === 'CUSTOMER') {
+            return { contraAccountId: line.debitAccountId, isReceipt: true };
+        }
+        if (contact.type === 'SUPPLIER' || contact.type === 'EMPLOYEE') {
+            return { contraAccountId: line.creditAccountId, isReceipt: false };
+        }
+        const partnerCurrentAccountId = contact.currentAccountId || contact.linkedAccountId;
+        if (partnerCurrentAccountId) {
+            if (line.creditAccountId === partnerCurrentAccountId) {
+                return { contraAccountId: line.debitAccountId, isReceipt: true };
+            }
+            if (line.debitAccountId === partnerCurrentAccountId) {
+                return { contraAccountId: line.creditAccountId, isReceipt: false };
+            }
+        }
+        const inferredReceipt = line.type === TransactionType.INCOME;
+        return {
+            contraAccountId: inferredReceipt ? line.debitAccountId : line.creditAccountId,
+            isReceipt: inferredReceipt
+        };
+    };
+
+    const getUnifiedStatementTransactionDC = (tx: Transaction, contact: Contact) => {
+        const type = contact.type;
+        const linkedAccountId = contact.currentAccountId || contact.linkedAccountId;
+        let debit = 0;
+        let credit = 0;
+
+        if (type === 'PARTNER' && linkedAccountId) {
+            if (tx.debitAccountId === linkedAccountId) debit = tx.amount;
+            if (tx.creditAccountId === linkedAccountId) credit = tx.amount;
+            if (debit > 0 || credit > 0) return { debit, credit };
+        }
+
+        if (tx.invoiceId) {
+            const invoice = invoices.find(item => item.id === tx.invoiceId);
+            if (invoice) {
+                if (type === 'CUSTOMER') {
+                    if (invoice.type === TransactionType.INCOME) debit = tx.amount;
+                    else credit = tx.amount;
+                } else if (type === 'PARTNER') {
+                    if (invoice.type === TransactionType.INCOME) credit = tx.amount;
+                    else debit = tx.amount;
+                } else {
+                    if (invoice.type === TransactionType.EXPENSE) credit = tx.amount;
+                    else debit = tx.amount;
+                }
+                return { debit, credit };
+            }
+        }
+
+        if (tx.category === 'journal' || tx.debitAccountId || tx.creditAccountId) {
+            const debitAccId = tx.debitAccountId || '';
+            const creditAccId = tx.creditAccountId || '';
+
+            if (type === 'CUSTOMER') {
+                if (debitAccId.includes('receivable')) debit = tx.amount;
+                else if (creditAccId.includes('receivable')) credit = tx.amount;
+            } else if (type === 'PARTNER') {
+                if (linkedAccountId) {
+                    if (debitAccId === linkedAccountId) debit = tx.amount;
+                    else if (creditAccId === linkedAccountId) credit = tx.amount;
+                } else {
+                    if (debitAccId.includes('capital') || debitAccId.includes('equity')) debit = tx.amount;
+                    else if (creditAccId.includes('capital') || creditAccId.includes('equity')) credit = tx.amount;
+                }
+            } else {
+                if (creditAccId.includes('payable')) credit = tx.amount;
+                else if (debitAccId.includes('payable')) debit = tx.amount;
+            }
+
+            if (debit > 0 || credit > 0) return { debit, credit };
+        }
+
+        if (tx.category === 'employee_payment_received') {
+            credit = tx.amount;
+            return { debit, credit };
+        }
+
+        if (type === 'CUSTOMER') {
+            if (tx.type === TransactionType.INCOME) {
+                if (tx.category === 'sales_invoice') debit = tx.amount;
+                else credit = tx.amount;
+            } else {
+                credit = tx.amount;
+            }
+        } else if (type === 'PARTNER') {
+            if (tx.type === TransactionType.INCOME) credit = tx.amount;
+            else if (tx.type === TransactionType.EXPENSE) debit = tx.amount;
+        } else {
+            if (tx.type === TransactionType.EXPENSE) {
+                if (tx.category === 'purchase_invoice' || tx.category === 'expense') credit = tx.amount;
+                else debit = tx.amount;
+            } else {
+                debit = tx.amount;
+            }
+        }
+
+        return { debit, credit };
+    };
+
+    const getUnifiedPartnerStatementData = (contact: Contact, rangeStart?: string, rangeEnd?: string) => {
+        const rawTransactions = transactions.filter(tx => tx.contactId === contact.id);
+        const groupedMap = new Map<string, UnifiedStatementGroupedTransaction>();
+        const groupedList: UnifiedStatementGroupedTransaction[] = [];
+
+        rawTransactions.forEach(tx => {
+            const { debit, credit } = getUnifiedStatementTransactionDC(tx, contact);
+            const key = tx.voucherId || tx.id;
+
+            if (!groupedMap.has(key)) {
+                const group: UnifiedStatementGroupedTransaction = {
+                    ...tx,
+                    debit,
+                    credit,
+                    subTransactions: [tx]
+                };
+                groupedMap.set(key, group);
+                groupedList.push(group);
+                return;
+            }
+
+            const group = groupedMap.get(key) as UnifiedStatementGroupedTransaction;
+            group.debit += debit;
+            group.credit += credit;
+            group.subTransactions.push(tx);
+        });
+
+        groupedList.sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime());
+
+        let openingBalance = 0;
+        const periodTransactions: UnifiedStatementGroupedTransaction[] = [];
+        const startDateObj = rangeStart ? new Date(rangeStart) : null;
+        const endDateObj = rangeEnd ? new Date(rangeEnd) : null;
+        if (endDateObj) endDateObj.setHours(23, 59, 59, 999);
+
+        groupedList.forEach(tx => {
+            const net = contact.type === 'CUSTOMER' ? (tx.debit - tx.credit) : (tx.credit - tx.debit);
+            const txDate = new Date(tx.date);
+
+            if (startDateObj && !Number.isNaN(startDateObj.getTime()) && txDate < startDateObj) {
+                openingBalance += net;
+                return;
+            }
+
+            if (!endDateObj || Number.isNaN(endDateObj.getTime()) || txDate <= endDateObj) {
+                if (tx.debit > 0 || tx.credit > 0 || tx.subTransactions.length > 0) {
+                    periodTransactions.push(tx);
+                }
+            }
+        });
+
+        let currentBalance = openingBalance;
+        const transactionsWithBalance = periodTransactions.map(tx => {
+            const net = contact.type === 'CUSTOMER' ? (tx.debit - tx.credit) : (tx.credit - tx.debit);
+            currentBalance += net;
+            return { ...tx, runningBalance: currentBalance };
+        });
+
+        return {
+            openingBalance,
+            transactions: transactionsWithBalance,
+            closingBalance: currentBalance
+        };
+    };
+
+    const buildUnifiedClassicStatementPreview = (
+        entry: UnifiedStatementGroupedTransaction,
+        contact: Contact
+    ): UnifiedClassicStatementPreview => {
+        const invoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
+        const subTransactions = Array.isArray(entry.subTransactions) && entry.subTransactions.length > 0
+            ? entry.subTransactions
+            : [entry];
+
+        const checkRows = subTransactions.flatMap((sub, index) => {
+            const relatedCheck = sub.checkId ? checks.find(check => check.id === sub.checkId) || null : null;
+            if (!relatedCheck) return [];
+
+            return [{
+                id: relatedCheck.id || `${entry.id || entry.voucherId || 'statement'}-check-${index}`,
+                checkNumber: relatedCheck.checkNumber || '-',
+                bankName: displayAccountName(
+                    relatedCheck.bankAccountId
+                        ? accounts.find(account => account.id === relatedCheck.bankAccountId) || null
+                        : { id: '', name: relatedCheck.bankName }
+                ),
+                accountNumber: relatedCheck.accountNumber || '',
+                dueDate: formatClassicStatementDate(relatedCheck.dueDate) || '-',
+                amount: Number(relatedCheck.amount) || 0,
+                currency: relatedCheck.currency || entry.currency || baseCurrency
+            }];
+        });
+
+        const paymentRows = invoice ? [] : subTransactions.flatMap((sub, index) => {
+            const { contraAccountId, isReceipt } = getUnifiedStatementLineMeta(sub, contact);
+            const account = accounts.find(item => item.id === contraAccountId) || null;
+            if (!account) return [];
+            const relatedCheck = sub.checkId ? checks.find(check => check.id === sub.checkId) || null : null;
+
+            return [{
+                id: `${entry.id || entry.voucherId || 'statement'}-payment-${index}`,
+                label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                accountName: displayAccountName(account),
+                amount: Number(sub.amount ?? (sub as any).debit ?? (sub as any).credit ?? entry.amount ?? entry.debit ?? entry.credit ?? 0) || 0,
+                currency: sub.currency || entry.currency || baseCurrency,
+                checkMeta: relatedCheck ? {
+                    checkNumber: relatedCheck.checkNumber || '-',
+                    bankName: displayAccountName(
+                        relatedCheck.bankAccountId
+                            ? accounts.find(item => item.id === relatedCheck.bankAccountId) || null
+                            : { id: '', name: relatedCheck.bankName }
+                    ) || relatedCheck.bankName || '-',
+                    dueDate: formatClassicStatementDate(relatedCheck.dueDate) || '-'
+                } : null
+            }];
+        });
+
+        return { invoice, checkRows, paymentRows };
+    };
+
+    const getUnifiedClassicStatementDocumentLabel = (
+        entry: UnifiedStatementGroupedTransaction,
+        preview: UnifiedClassicStatementPreview
+    ) => {
+        const rawDescription = String(entry.description || '').trim().toLowerCase();
+        const hasBankAccount = preview.paymentRows.some(row => /bank|بنك/i.test(String(row.accountName || '')));
+
+        switch (entry.category) {
+            case 'sales_invoice': return tr('مبيعات', 'Sales');
+            case 'sales_return': return tr('مردود مبيعات', 'Sales Return');
+            case 'purchase_invoice': return tr('مشتريات', 'Purchases');
+            case 'purchase_return': return tr('مردود مشتريات', 'Purchase Return');
+            case 'receipt': return tr('قبض', 'Receipt');
+            case 'payment':
+                return hasBankAccount || /bank|بنك/.test(rawDescription)
+                    ? tr('قيد بنكي', 'Bank Entry')
+                    : tr('صرف', 'Payment');
+            case 'returned_check':
+            case 'returned_checks':
+            case 'check_return':
+                return tr('بدل شيك راجع', 'Returned Check');
+            default:
+                break;
+        }
+
+        if (preview.checkRows.length > 0) return tr('قبض', 'Receipt');
+        if (hasBankAccount || /bank|بنك/.test(rawDescription)) return tr('قيد بنكي', 'Bank Entry');
+        return tr('قيد', 'Entry');
+    };
+
+    const getUnifiedClassicStatementDescriptionText = (
+        entry: UnifiedStatementGroupedTransaction,
+        preview: UnifiedClassicStatementPreview
+    ) => {
+        const rawDescription = String(entry.description || '').trim();
+        const documentLabel = getUnifiedClassicStatementDocumentLabel(entry, preview);
+        if (rawDescription && rawDescription !== documentLabel) {
+            return rawDescription;
+        }
+
+        const paymentNames = preview.paymentRows.map(row => row.accountName).filter(Boolean).join(' - ');
+        if (paymentNames) return paymentNames;
+
+        if (preview.invoice?.notes?.trim()) return preview.invoice.notes.trim();
+
+        return tr('بدون بيان', 'No description');
+    };
+
+    const buildUnifiedClassicStatementRows = (
+        contact: Contact,
+        entries: UnifiedStatementGroupedTransaction[]
+    ): UnifiedClassicStatementRow[] => {
+        const printableEntries = statementDateAscending ? [...entries] : [...entries].reverse();
+        return printableEntries.map((entry): UnifiedClassicStatementRow => {
+            const preview = buildUnifiedClassicStatementPreview(entry, contact);
+            const primaryDescription = getUnifiedClassicStatementDocumentLabel(entry, preview);
+            const secondaryDescription = getUnifiedClassicStatementDescriptionText(entry, preview);
+
+            return {
+                id: entry.id,
+                entry,
+                preview,
+                dateText: formatClassicStatementDate(entry.date) || entry.date || '-',
+                documentNumber: hideVoucherColumnInStatement ? '' : getStatementDocumentNumber(entry),
+                primaryDescription,
+                secondaryDescription,
+                debit: Number(entry.debit) || 0,
+                credit: Number(entry.credit) || 0,
+                balance: Number(entry.runningBalance) || 0
+            };
+        });
+    };
+
+    const renderUnifiedClassicStatementInlineDetails = (
+        preview: UnifiedClassicStatementPreview,
+        mainDescription: string
+    ) => {
+        const notesText = String(preview.invoice?.notes || '').trim();
+        const paymentRows = preview.paymentRows.filter(row => row.amount > 0 || row.accountName);
+        const standaloneCheckRows = paymentRows.length > 0 ? [] : preview.checkRows;
+        const paymentTotal = paymentRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+        const formatVoucherAmount = (value: number, currency?: string) => {
+            const formatted = formatUnifiedStatementFigure(value);
+            return printStatementAllCurrencies ? `${formatted} ${currency || baseCurrency}` : formatted;
+        };
+        const showNotesLine = Boolean(notesText && notesText !== mainDescription);
+        if (!preview.invoice?.items?.length && !standaloneCheckRows.length && !paymentRows.length && !showNotesLine) return null;
+
+        return (
+            <div className="statement-classic-detail-block">
+                {standaloneCheckRows.length > 0 && (
+                    <div className="statement-classic-detail-meta-list">
+                        {standaloneCheckRows.map(check => (
+                            <div key={check.id} className="statement-classic-detail-line statement-classic-detail-line--check">
+                                <span className="statement-classic-detail-label">{tr('شيك', 'Check')}</span>
+                                <span className="statement-classic-detail-pill statement-inline-value">{check.checkNumber || '-'}</span>
+                                <span>{tr('البنك', 'Bank')}: {check.bankName || '-'}</span>
+                                <span className="dir-ltr">{tr('الاستحقاق', 'Due')}: {check.dueDate || '-'}</span>
+                                <span className="statement-inline-value">{formatUnifiedStatementFigure(check.amount)}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {paymentRows.length > 0 && (
+                    <table className="statement-classic-inline-table statement-classic-inline-table--voucher w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                        <colgroup>
+                            <col style={{ width: '24%' }} />
+                            <col style={{ width: '50%' }} />
+                            <col style={{ width: '26%' }} />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th className="text-center">{tr('العملية', 'Action')}</th>
+                                <th className="text-start">{tr('الحساب', 'Account')}</th>
+                                <th className="text-center">{tr('المبلغ', 'Amount')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paymentRows.map(row => (
+                                <tr key={row.id}>
+                                    <td className="text-center">{row.label}</td>
+                                    <td>
+                                        <div className="statement-classic-voucher-account">
+                                            <div className="statement-classic-voucher-account-name">{row.accountName || '-'}</div>
+                                            {row.checkMeta && (
+                                                <div className="statement-classic-voucher-check-meta">
+                                                    <div>
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('شيك', 'Check')}:</span>{' '}
+                                                        <span className="statement-inline-value">{row.checkMeta.checkNumber}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('البنك', 'Bank')}:</span>{' '}
+                                                        <span>{row.checkMeta.bankName}</span>
+                                                    </div>
+                                                    <div className="dir-ltr">
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('الاستحقاق', 'Due')}:</span>{' '}
+                                                        <span>{row.checkMeta.dueDate}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="text-center dir-ltr font-black">{formatVoucherAmount(row.amount, row.currency)}</td>
+                                </tr>
+                            ))}
+                            <tr className="statement-classic-inline-summary-row">
+                                <td className="statement-classic-inline-summary-label text-center">{tr('الإجمالي', 'Total')}</td>
+                                <td className="text-center statement-classic-placeholder">-</td>
+                                <td className="text-center dir-ltr font-black">{formatVoucherAmount(paymentTotal, paymentRows[0]?.currency)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
+
+                {preview.invoice && preview.invoice.items.length > 0 && (
+                    <table className="statement-classic-inline-table w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                        <colgroup>
+                            <col style={{ width: '39%' }} />
+                            <col style={{ width: '17%' }} />
+                            <col style={{ width: '18%' }} />
+                            <col style={{ width: '26%' }} />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th className="text-start">{tr('اسم الصنف', 'Item')}</th>
+                                <th className="text-center">{tr('الكمية', 'Qty')}</th>
+                                <th className="text-center">{tr('السعر', 'Price')}</th>
+                                <th className="text-center">{tr('إجمالي', 'Total')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {preview.invoice.items.map((item, index) => {
+                                const product = products.find(p => p.id === item.productId);
+                                return (
+                                    <tr key={item.id || `${preview.invoice?.id || 'statement'}-item-${index}`}>
+                                        <td>{item.description || displayProductName(product) || ((product as any)?.itemCode || (product as any)?.barcode || '-')}</td>
+                                        <td className="text-center dir-ltr">{formatUnifiedStatementFigure(Number(item.quantity) || 0, 2)}</td>
+                                        <td className="text-center dir-ltr">{formatUnifiedStatementFigure(Number(item.unitPrice) || 0, 3)}</td>
+                                        <td className="text-center dir-ltr font-black">{formatUnifiedStatementFigure(Number(item.total) || 0)}</td>
+                                    </tr>
+                                );
+                            })}
+                            <tr className="statement-classic-inline-summary-row">
+                                <td className="statement-classic-inline-summary-label">{tr('المجموع', 'Total')}</td>
+                                <td className="text-center dir-ltr">{tr('خصم:', 'Discount:')} {formatUnifiedStatementFigure(Number(preview.invoice.discountAmount) || 0)}</td>
+                                <td className="text-center statement-classic-placeholder">-</td>
+                                <td className="text-center dir-ltr font-black">{formatUnifiedStatementFigure(Number(preview.invoice.totalAmount) || 0)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
+
+                {showNotesLine && <div className="statement-classic-note-line">{notesText}</div>}
+            </div>
+        );
+    };
+
+    const renderUnifiedPartnerStatement = ({
+        statementKind,
+        reportTableClassName,
+        contact,
+        openingBalance,
+        closingBalance,
+        entries
+    }: {
+        statementKind: string;
+        reportTableClassName: string;
+        contact: Contact;
+        openingBalance: number;
+        closingBalance: number;
+        entries: UnifiedStatementGroupedTransaction[];
+    }) => {
+        const rows = buildUnifiedClassicStatementRows(contact, entries);
+        const totalDebit = rows.reduce((sum, row) => sum + row.debit, 0);
+        const totalCredit = rows.reduce((sum, row) => sum + row.credit, 0);
+        const phoneValue = String(contact.phone || '').trim();
+        const footerNote = String(companySettings.statementFooterNote || '').trim();
+        const openingRowDate = startDate ? (formatClassicStatementDate(startDate) || startDate) : '-';
+        const companyName = String(companySettings.name || '').trim();
+        const companyPhone = String(companySettings.phone || '').trim();
+
+        return (
+            <div className="statement-classic-sheet directory-statement-classic bg-white rounded-[1.75rem] border border-gray-200 shadow-sm overflow-hidden">
+                <div className="statement-classic-header">
+                    <div className="statement-classic-title-block">
+                        <h3 className="statement-classic-title">{tr('كشف حساب', 'Statement of Account')}</h3>
+                        {companyName && (
+                            <p className="statement-classic-company-name">{companyName}{companyPhone ? <span className="statement-classic-company-phone dir-ltr"> | {companyPhone}</span> : null}</p>
+                        )}
+                    </div>
+
+                    <div className="statement-classic-identity-row statement-classic-identity-row--paper">
+                        <div className="statement-classic-identity statement-classic-identity--party">
+                            <span className="statement-classic-identity-label">{tr('حضرة السيد', 'To')}</span>
+                            <span className="statement-classic-identity-value">{displayContactName(contact)}</span>
+                        </div>
+                        <div className="statement-classic-identity statement-classic-identity--phone">
+                            <span className={`statement-classic-identity-value statement-inline-value ${phoneValue ? '' : 'statement-classic-placeholder'}`}>{phoneValue ? `( ${phoneValue} )` : '( - )'}</span>
+                            <span className="statement-classic-identity-label">{tr('تلفون', 'Phone')}</span>
+                        </div>
+                    </div>
+
+                    <div className="statement-classic-meta-row">
+                        <span>{statementKind}</span>
+                        <span>{tr('الفترة', 'Period')}: <span className="statement-inline-value">{startDate}</span> - <span className="statement-inline-value">{endDate}</span></span>
+                        <span>{tr('العملة', 'Currency')}: <span className="statement-inline-value">{baseCurrency}</span></span>
+                    </div>
+                </div>
+
+                <div className="statement-mobile-viewport">
+                    <div className="statement-mobile-canvas">
+                        <table
+                            dir={isEnglish ? 'ltr' : 'rtl'}
+                            className={`directory-statement-table statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper ${reportTableClassName} w-full text-start table-fixed min-w-0 max-w-full`}
+                        >
+                            <colgroup>
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '13%' }} />
+                                <col style={{ width: '41%' }} />
+                                <col style={{ width: '11%' }} />
+                                <col style={{ width: '11%' }} />
+                                <col style={{ width: '12%' }} />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>{tr('التاريخ', 'Date')}</th>
+                                    <th>{tr('المستند', 'Document')}</th>
+                                    <th>{tr('البيان', 'Description')}</th>
+                                    <th>{tr('مدين', 'Debit')}</th>
+                                    <th>{tr('دائن', 'Credit')}</th>
+                                    <th>{getStatementBalanceColumnLabel()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr className="statement-classic-row statement-classic-row--opening">
+                                    <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
+                                    <td className="statement-classic-document-cell"></td>
+                                    <td className="statement-classic-description">{tr('رصيد منقول', 'Balance B/F')}</td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-balance-cell dir-ltr">{formatUnifiedStatementFigure(openingBalance)}</td>
+                                </tr>
+
+                                {rows.map(row => {
+                                    const detailBlock = renderUnifiedClassicStatementInlineDetails(row.preview, row.secondaryDescription);
+                                    return (
+                                        <React.Fragment key={row.id}>
+                                            <tr className={`statement-classic-row ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
+                                                <td className="statement-classic-date-cell dir-ltr">{row.dateText}</td>
+                                                <td className="statement-classic-document-cell">
+                                                    <div className="statement-classic-document-wrap">
+                                                        <span className="statement-classic-document-label">{row.primaryDescription}</span>
+                                                        <span className="statement-classic-document-number dir-ltr">{row.documentNumber}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="statement-report-description statement-classic-description">
+                                                    <div className="statement-classic-primary">{row.secondaryDescription}</div>
+                                                </td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{row.debit > 0 ? formatUnifiedStatementFigure(row.debit) : '-'}</td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{row.credit > 0 ? formatUnifiedStatementFigure(row.credit) : '-'}</td>
+                                                <td className="statement-classic-balance-cell dir-ltr">{formatUnifiedStatementFigure(row.balance)}</td>
+                                            </tr>
+                                            {detailBlock && (
+                                                <tr className="statement-classic-detail-row">
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-detail-cell">{detailBlock}</td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+
+                                {rows.length === 0 && (
+                                    <tr className="statement-classic-empty-row">
+                                        <td colSpan={6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                    </tr>
+                                )}
+
+                                <tr className="statement-classic-summary-inline-row">
+                                    <td></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatUnifiedStatementFigure(totalDebit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatUnifiedStatementFigure(totalCredit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatUnifiedStatementFigure(closingBalance)}</td>
+                                </tr>
+                                <tr className="statement-classic-fill-row">
+                                    <td colSpan={6}></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {footerNote && (
+                    <div className="statement-classic-note-panel">
+                        <div className="statement-classic-note">{footerNote}</div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderStatementReportShell = ({
+        contact,
+        selectorLabel,
+        selectorValue,
+        onSelectorChange,
+        selectorOptions,
+        statementContent
+    }: {
+        contact: Contact;
+        selectorLabel: string;
+        selectorValue: string;
+        onSelectorChange: (value: string) => void;
+        selectorOptions: Contact[];
+        statementContent: React.ReactNode;
+    }) => (
+        <div className="directory-statement-sheet bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+            <div className="directory-statement-header bg-slate-50 p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center gap-3">
+                <div>
+                    <h2 className="text-lg sm:text-xl font-black text-gray-800 break-words">{displayContactName(contact)}</h2>
+                    <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>
+                        {tr('كشف حساب تفصيلي', 'Detailed Statement')}
+                    </p>
+                </div>
+            </div>
+
+            <div className="directory-statement-filters p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 bg-white border-b border-gray-100">
+                <select
+                    value={selectorValue}
+                    onChange={e => onSelectorChange(e.target.value)}
+                    className="w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 px-3 rounded-xl text-[11px] sm:text-xs font-bold outline-none"
+                    aria-label={selectorLabel}
+                >
+                    {selectorOptions.map(item => <option key={item.id} value={item.id}>{displayContactName(item)}</option>)}
+                </select>
+                <EnglishDateInput
+                    value={startDate}
+                    onChange={setStartDate}
+                    wrapperClassName="min-w-0"
+                    className={`w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 pr-2.5 rounded-xl text-[11px] sm:text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
+                    aria-label={tr('من تاريخ', 'From date')}
+                />
+                <EnglishDateInput
+                    value={endDate}
+                    onChange={setEndDate}
+                    wrapperClassName="min-w-0"
+                    className={`w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 pr-2.5 rounded-xl text-[11px] sm:text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
+                    aria-label={tr('إلى تاريخ', 'To date')}
+                />
+            </div>
+
+            <div className="directory-statement-content p-2.5 sm:p-4">
+                {statementContent}
+            </div>
+        </div>
+    );
 
     const buildStatementPrimaryDescription = (tx: Transaction) => {
         const rawDescription = String(tx.description || '').trim();
@@ -573,29 +1810,15 @@ const FinancialReports: React.FC = () => {
                         <div className={`statement-inline-detail-title statement-inline-detail-title--voucher px-2.5 py-1.5 text-[10px] font-black text-slate-700 ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>
                             {tr('تفاصيل السند', 'Voucher details')}
                         </div>
-                        <table className="statement-inline-table statement-inline-table--voucher w-full table-fixed border-collapse text-[9px]">
-                            <colgroup>
-                                <col style={{ width: '28%' }} />
-                                <col style={{ width: '48%' }} />
-                                <col style={{ width: '24%' }} />
-                            </colgroup>
-                            <thead className="bg-slate-100 text-slate-600">
-                                <tr>
-                                    <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحركة', 'Movement')}</th>
-                                    <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
-                                    <th className={`border border-slate-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-slate-700">
-                                {voucherDetailRows.map(row => (
-                                    <tr key={row.id}>
-                                        <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{row.label}</td>
-                                        <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{row.accountName}</td>
-                                        <td className="statement-inline-value border border-slate-200 px-2 py-1.5 text-center font-semibold">{formatPlainNumber(row.amount)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        <div className="divide-y divide-slate-200/70">
+                            {voucherDetailRows.map(row => (
+                                <div key={row.id} className="px-2.5 py-1.5 text-[10px] text-slate-700 flex flex-wrap items-center gap-2">
+                                    <span className="font-black">{row.label}:</span>
+                                    <span className="font-semibold break-words">{row.accountName}</span>
+                                    <span className="ms-auto dir-ltr font-black">{formatPlainNumber(row.amount)}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
@@ -604,38 +1827,24 @@ const FinancialReports: React.FC = () => {
                         <div className={`statement-inline-detail-title statement-inline-detail-title--checks px-2.5 py-1.5 text-[10px] font-black text-amber-700 ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>
                             {tr('تفاصيل الشيكات', 'Check details')}
                         </div>
-                        <table className="statement-inline-table statement-inline-table--checks w-full table-fixed border-collapse text-[9px]">
-                            <colgroup>
-                                <col style={{ width: '18%' }} />
-                                <col style={{ width: '30%' }} />
-                                <col style={{ width: '18%' }} />
-                                <col style={{ width: '16%' }} />
-                                <col style={{ width: '18%' }} />
-                            </colgroup>
-                            <thead className="bg-amber-100/70 text-amber-800">
-                                <tr>
-                                    <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('رقم الشيك', 'Check #')}</th>
-                                    <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('البنك', 'Bank')}</th>
-                                    <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
-                                    <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الاستحقاق', 'Due')}</th>
-                                    <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-amber-900/90">
-                                {relatedChecks.map(check => {
-                                    const linkedBankAccount = check.bankAccountId ? accounts.find(acc => acc.id === check.bankAccountId) || null : null;
-                                    return (
-                                        <tr key={check.id}>
-                                            <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{check.checkNumber}</td>
-                                            <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{linkedBankAccount ? displayAccountName(linkedBankAccount) : check.bankName}</td>
-                                            <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{check.accountNumber || '-'}</td>
-                                            <td className="statement-inline-value border border-amber-200 px-2 py-1.5 text-center">{check.dueDate}</td>
-                                            <td className="statement-inline-value border border-amber-200 px-2 py-1.5 text-center font-semibold">{formatPlainNumber(check.amount)}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                        <div className="space-y-2 p-2">
+                            {relatedChecks.map(check => {
+                                const linkedBankAccount = check.bankAccountId ? accounts.find(acc => acc.id === check.bankAccountId) || null : null;
+                                return (
+                                    <div key={check.id} className="rounded-lg border border-amber-200 bg-white p-2">
+                                        <div className="flex items-center justify-between gap-2 text-[10px]">
+                                            <span className="font-black text-amber-800">{tr('شيك', 'Check')} #{check.checkNumber}</span>
+                                            <span className="font-black text-amber-900 dir-ltr">{formatPlainNumber(check.amount)}</span>
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-amber-900/80">
+                                            <span>{tr('البنك', 'Bank')}: {linkedBankAccount ? displayAccountName(linkedBankAccount) : check.bankName}</span>
+                                            <span>{tr('الحساب', 'Account')}: {check.accountNumber || '-'}</span>
+                                            <span className="dir-ltr">{tr('الاستحقاق', 'Due')}: {check.dueDate}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
 
@@ -659,35 +1868,20 @@ const FinancialReports: React.FC = () => {
                         <div className={`statement-inline-detail-title statement-inline-detail-title--invoice px-2.5 py-1.5 text-[10px] font-black text-blue-700 ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>
                             {tr('تفاصيل الفاتورة', 'Invoice details')}
                         </div>
-                        <table className="statement-inline-table statement-inline-table--invoice w-full table-fixed border-collapse text-[9px]">
-                            <colgroup>
-                                <col style={{ width: '52%' }} />
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '16%' }} />
-                                <col style={{ width: '20%' }} />
-                            </colgroup>
-                            <thead className="bg-blue-100/70 text-blue-800">
-                                <tr>
-                                    <th className={`border border-blue-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الصنف', 'Item')}</th>
-                                    <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الكمية', 'Qty')}</th>
-                                    <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('السعر', 'Price')}</th>
-                                    <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الإجمالي', 'Total')}</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-slate-700">
-                                {invoice.items.map((item, index) => {
-                                    const product = products.find(p => p.id === item.productId);
-                                    return (
-                                        <tr key={item.id || `${invoice.id}-item-${index}`}>
-                                            <td className={`border border-blue-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{item.description || displayProductName(product)}</td>
-                                            <td className="statement-inline-value border border-blue-200 px-2 py-1.5 text-center">{formatPlainNumber(Number(item.quantity) || 0)}</td>
-                                            <td className="statement-inline-value border border-blue-200 px-2 py-1.5 text-center">{formatPlainNumber(Number(item.unitPrice) || 0)}</td>
-                                            <td className="statement-inline-value border border-blue-200 px-2 py-1.5 text-center font-semibold">{formatPlainNumber(Number(item.total) || 0)}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                        <div className="divide-y divide-blue-200/70">
+                            {invoice.items.map((item, index) => {
+                                const product = products.find(p => p.id === item.productId);
+                                return (
+                                    <div key={item.id || `${invoice.id}-item-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-2.5 py-1.5 text-[10px]">
+                                        <span className={`font-black text-slate-700 truncate ${isEnglish ? 'text-left' : 'text-right'}`}>
+                                            {item.description || displayProductName(product)}
+                                        </span>
+                                        <span className="dir-ltr text-slate-600 whitespace-nowrap">{formatPlainNumber(Number(item.quantity) || 0)} × {formatPlainNumber(Number(item.unitPrice) || 0)}</span>
+                                        <span className="dir-ltr font-black text-blue-800 whitespace-nowrap">{formatPlainNumber(Number(item.total) || 0)}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
                         {invoice.dueDate && (
                             <div className={`statement-inline-detail-footer border-t border-blue-200 bg-white/70 px-2.5 py-1.5 text-[10px] text-slate-600 ${isEnglish ? 'text-left' : 'text-right'}`}>
                                 <span className="font-black">{tr('تاريخ الاستحقاق', 'Due date')}:</span>{' '}
@@ -1322,10 +2516,20 @@ const FinancialReports: React.FC = () => {
         SUPPLIER_ANALYSIS: 'report-print-supplier-analysis',
         IMPORT_EXPENSES_DETAIL: 'report-print-import-expenses-detail'
     };
+
+    const getActiveClassicStatementSheet = () => {
+        if (typeof document === 'undefined' || !activeReportRef.current) return null;
+        if (activeReport !== 'CUSTOMER_STATEMENT' && activeReport !== 'SUPPLIER_STATEMENT') return null;
+        const statementSheet = activeReportRef.current.querySelector('.statement-classic-sheet');
+        return statementSheet instanceof HTMLElement ? statementSheet : null;
+    };
+    const statementExportWidths = hideVoucherColumnInStatement
+        ? ['15%', '45%', '12%', '12%', '16%']
+        : ['14%', '13%', '31%', '12%', '12%', '18%'];
     const reportExportColumnPresets: Array<{ className: string; widths: string[] }> = [
-        { className: 'report-table-account-ledger', widths: ['15%', '45%', '12%', '12%', '16%'] },
-        { className: 'report-table-customer-statement', widths: ['15%', '45%', '12%', '12%', '16%'] },
-        { className: 'report-table-supplier-statement', widths: ['15%', '45%', '12%', '12%', '16%'] },
+        { className: 'report-table-account-ledger', widths: statementExportWidths },
+        { className: 'report-table-customer-statement', widths: statementExportWidths },
+        { className: 'report-table-supplier-statement', widths: statementExportWidths },
         { className: 'report-table-purchases-list', widths: ['16%', '42%', '16%', '26%'] },
         { className: 'report-table-purchase-cost-by-item', widths: ['20%', '7.5%', '7.5%', '7.5%', '9%', '9%', '9%', '9%', '9%', '12.5%'] },
         { className: 'report-table-purchase-price-variance', widths: ['14%', '18%', '14%', '9%', '9%', '9%', '9%', '9%', '9%'] },
@@ -1458,6 +2662,7 @@ const FinancialReports: React.FC = () => {
     const buildPrintableReportElement = (title: string) => {
         if (typeof document === 'undefined' || !activeReportRef.current) return null;
 
+        const classicStatementSheet = getActiveClassicStatementSheet();
         const isStatementPrint =
             activeReport === 'CUSTOMER_STATEMENT'
             || activeReport === 'SUPPLIER_STATEMENT'
@@ -1508,9 +2713,13 @@ const FinancialReports: React.FC = () => {
             isStatementPrint ? 'report-print-statement' : ''
         ].filter(Boolean).join(' ');
 
-        Array.from<Element>(activeReportRef.current.children).forEach(child => {
-            content.appendChild(child.cloneNode(true));
-        });
+        if (classicStatementSheet) {
+            content.appendChild(classicStatementSheet.cloneNode(true));
+        } else {
+            Array.from<Element>(activeReportRef.current.children).forEach(child => {
+                content.appendChild(child.cloneNode(true));
+            });
+        }
 
         content.querySelectorAll('.report-header').forEach(node => node.remove());
         content.querySelectorAll<HTMLElement>('[class*="bg-gradient"]').forEach(node => {
@@ -1529,13 +2738,10 @@ const FinancialReports: React.FC = () => {
             }
         });
 
-        if (isStatementPrint) {
-            simplifyStatementDescriptionsForPdf(content);
-        }
-
-        const prefersLandscape = normalizeReportTablesForExport(activeReportRef.current, content);
+        const exportSource = classicStatementSheet || activeReportRef.current;
+        const prefersLandscape = normalizeReportTablesForExport(exportSource, content);
         // Statement PDFs are denser and become unreadable in portrait; keep them landscape.
-        const forceLandscape = isStatementPrint;
+        const forceLandscape = isStatementPrint && !classicStatementSheet;
         if (prefersLandscape || forceLandscape) {
             wrapper.classList.add('report-print-landscape');
             wrapper.dataset.exportOrientation = 'landscape';
@@ -1578,6 +2784,19 @@ const FinancialReports: React.FC = () => {
 
     const buildActiveReportPdfFile = async (title: string) => {
         await settleActiveReportSnapshot();
+        const classicStatementSheet = getActiveClassicStatementSheet();
+        if (classicStatementSheet) {
+            return buildElementPdfFile(classicStatementSheet, {
+                title: buildReportTitleWithPeriod(title),
+                fileName: buildReportFileStem(title),
+                dir: isEnglish ? 'ltr' : 'rtl',
+                lang: isEnglish ? 'en' : 'ar',
+                backgroundColor: '#ffffff',
+                padding: 14,
+                canvasScale: 2,
+                orientation: 'portrait'
+            });
+        }
         const printableReport = buildPrintableReportElement(title);
         const exportOrientation = printableReport?.dataset.exportOrientation === 'landscape' ? 'landscape' : 'portrait';
         const isStatementExport = activeReport === 'CUSTOMER_STATEMENT'
@@ -1701,14 +2920,34 @@ const FinancialReports: React.FC = () => {
     };
 
     const handlePrintActiveReport = async (title: string) => {
+        const targetWindow = window.open('', '_blank');
+        if (!targetWindow) {
+            alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
+            return;
+        }
         await settleActiveReportSnapshot();
+        const classicStatementSheet = getActiveClassicStatementSheet();
+        if (classicStatementSheet) {
+            const success = printElementContent(classicStatementSheet, {
+                title: buildReportTitleWithPeriod(title),
+                dir: isEnglish ? 'ltr' : 'rtl',
+                lang: isEnglish ? 'en' : 'ar',
+                pageOrientation: 'portrait',
+                targetWindow
+            });
+            if (!success) {
+                alert(tr('تعذر فتح نافذة طباعة التقرير.', 'Could not open the report print window.'));
+            }
+            return;
+        }
         const printableReport = buildPrintableReportElement(title);
         const pageOrientation = printableReport?.dataset.exportOrientation === 'landscape' ? 'landscape' : 'portrait';
         const success = printElementContent(printableReport, {
             title: buildReportTitleWithPeriod(title),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar',
-            pageOrientation
+            pageOrientation,
+            targetWindow
         });
         if (!success) {
             alert(tr('تعذر فتح نافذة طباعة التقرير.', 'Could not open the report print window.'));
@@ -2987,35 +4226,23 @@ const FinancialReports: React.FC = () => {
                 </div>
                 <div className="space-y-4">
                     {list.map(c => (
-                        <div key={c.id} className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
-                            <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(c.type)}`}>
-                                    {getCheckTypeLabel(c.type)}
-                                </span>
-                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(c.status)}`}>
-                                    {getCheckStatusLabel(c.status)}
+                        <div key={c.id} className="bg-white p-4 rounded-[2rem] border border-gray-50 shadow-sm space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(c.type)}`}>
+                                        {getCheckTypeLabel(c.type)}
+                                    </span>
+                                    <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(c.status)}`}>
+                                        {getCheckStatusLabel(c.status)}
+                                    </span>
+                                </div>
+                                <span className="text-[10px] font-black text-gray-400">
+                                    {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(c)}</span>
                                 </span>
                             </div>
                             {renderCheckSummaryStrip(c, {
                                 amountClassName: `dir-ltr text-left ${type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`
                             })}
-                            <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-4">
-                                <div className="flex items-start gap-4 min-w-0">
-                                    <div className={`p-3 rounded-2xl ${type === 'INCOMING' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}><ListChecks size={22} /></div>
-                                    <div className="min-w-0">
-                                        <h4 className="font-black text-gray-800 break-words">{tr('شيك رقم', 'Check #')} {c.checkNumber}</h4>
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1 break-words">
-                                            {displayAccountName(c.bankAccountId ? accounts.find(a => a.id === c.bankAccountId) || null : { id: '', name: c.bankName })}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}><span className="block font-black text-base dir-ltr">{c.amount.toLocaleString()}</span><span className="text-[9px] text-gray-400 font-bold">{c.status}</span></div>
-                            </div>
-                            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center pt-3 border-t border-gray-50 text-[10px] font-black text-gray-400 uppercase">
-                                <span className="flex items-center gap-1"><Calendar size={12} /> {tr('التاريخ', 'Date')}: {getCheckReportDateValue(c)}</span>
-                                <span className="flex items-center gap-1"><Calendar size={12} /> {tr('استحقاق', 'Due')}: {c.dueDate}</span>
-                                <span className="flex items-center gap-1"><User size={12} /> {displayContactName(contacts.find(con => con.id === c.contactId) || null) || tr('غير معروف', 'Unknown')}</span>
-                            </div>
                         </div>
                     ))}
                     {list.length === 0 && (
@@ -3362,26 +4589,24 @@ const FinancialReports: React.FC = () => {
                 </div>
                 <div className="space-y-3">
                     {list.map(c => (
-                        <div key={c.id} className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex flex-col gap-3">
-                            {renderCheckSummaryStrip(c, {
-                                amountClassName: 'dir-ltr text-left text-amber-700'
-                            })}
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl"><Wallet size={18} /></div>
-                                <div>
-                                    <h4 className="font-black text-xs text-gray-800">#{c.checkNumber} - {displayAccountName(c.bankAccountId ? accounts.find(a => a.id === c.bankAccountId) || null : { id: '', name: c.bankName })}</h4>
-                                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
-                                        {displayContactName(contacts.find(con => con.id === c.contactId) || null) || tr('غير معروف', 'Unknown')}
-                                    </p>
-                                    <p className="text-[9px] text-amber-600 font-black mt-1">
-                                        {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(c)}</span>
-                                    </p>
+                        <div key={c.id} className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2 py-1 text-[9px] font-black text-amber-700">
+                                        {tr('بالصندوق', 'In vault')}
+                                    </span>
+                                    <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(c.status)}`}>
+                                        {getCheckStatusLabel(c.status)}
+                                    </span>
                                 </div>
+                                <span className="text-[10px] font-black text-gray-400">
+                                    {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(c)}</span>
+                                </span>
                             </div>
-                            <div className="text-left">
-                                <p className="font-black text-sm dir-ltr text-gray-800">{formatValue(c.amount)}</p>
-                                <p className="text-[9px] text-gray-400 font-bold">{c.dueDate}</p>
-                            </div>
+                            {renderCheckSummaryStrip(c, {
+                                amountClassName: 'dir-ltr text-left text-amber-700',
+                                locationLabel: tr('بالصندوق', 'In vault')
+                            })}
                         </div>
                     ))}
                     {list.length === 0 && (
@@ -3448,19 +4673,23 @@ const FinancialReports: React.FC = () => {
                             <div className="divide-y divide-gray-50">
                                 {group.list.map(c => (
                                     <div key={c.id} className="p-3 space-y-3 text-xs">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[9px] font-black text-blue-700">
+                                                    {tr('برسم التحصيل', 'Under collection')}
+                                                </span>
+                                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(c.status)}`}>
+                                                    {getCheckStatusLabel(c.status)}
+                                                </span>
+                                            </div>
+                                            <span className="text-[10px] font-black text-gray-400">
+                                                {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(c)}</span>
+                                            </span>
+                                        </div>
                                         {renderCheckSummaryStrip(c, {
-                                            bankName: group.bankName,
-                                            amountClassName: 'dir-ltr text-left text-blue-700'
+                                            amountClassName: 'dir-ltr text-left text-blue-700',
+                                            locationLabel: group.bankName
                                         })}
-                                        <div className="min-w-0">
-                                            <p className="font-black text-gray-700 truncate">#{c.checkNumber} - {displayAccountName(c.bankAccountId ? accounts.find(a => a.id === c.bankAccountId) || null : { id: '', name: c.bankName })}</p>
-                                            <p className="text-[9px] text-gray-400 font-bold truncate">{displayContactName(contacts.find(con => con.id === c.contactId) || null) || tr('غير معروف', 'Unknown')}</p>
-                                            <p className="text-[9px] text-amber-600 font-black truncate">{getCheckReportDateLabel()}: {getCheckReportDateValue(c)}</p>
-                                        </div>
-                                        <div className="text-left">
-                                            <p className="font-black dir-ltr text-gray-800">{formatValue(c.amount)}</p>
-                                            <p className="text-[9px] text-gray-400 font-bold">{c.dueDate}</p>
-                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -3646,41 +4875,43 @@ const FinancialReports: React.FC = () => {
                     <div className="px-4 py-3 border-b border-gray-50">
                         <h4 className="font-black text-sm text-gray-800">{tr('تفاصيل الاستحقاقات', 'Maturity Details')}</h4>
                     </div>
-                    <table className="w-full text-start min-w-[760px]">
+                    <table className="w-full text-start min-w-[1080px]">
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
+                                <th className="p-3">{tr('شيك', 'Check')}</th>
                                 <th className="p-3">{tr('رقم الشيك', 'Check Number')}</th>
                                 <th className="p-3">{tr('البنك', 'Bank')}</th>
                                 <th className="p-3">{tr('رقم البنك', 'Bank No.')}</th>
-                                <th className="p-3">{tr('النوع', 'Type')}</th>
-                                <th className="p-3">{tr('الطرف', 'Party')}</th>
-                                <th className="p-3 text-center">{tr('التاريخ المعتمد', 'Selected Date')}</th>
-                                <th className="p-3 text-center">{tr('تاريخ الاستحقاق', 'Due Date')}</th>
-                                <th className="p-3 text-center">{tr('الحالة', 'Status')}</th>
                                 <th className="p-3 text-center">{tr('المبلغ', 'Amount')}</th>
+                                <th className="p-3">{tr('الجهة', 'Party')}</th>
+                                <th className="p-3 text-center">{tr('تاريخ الاستحقاق', 'Due Date')}</th>
+                                <th className="p-3 text-center">{tr('تاريخ الإصدار', 'Issue Date')}</th>
+                                <th className="p-3">{tr('الموقع/الحساب', 'Location / Account')}</th>
+                                <th className="p-3 text-center">{tr('الحالة', 'Status')}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-xs">
                             {maturityRows.map(row => (
                                 <tr key={row.id} className="hover:bg-gray-50">
+                                    <td className={`p-3 font-black ${row.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`}>{getCheckEntryLabel(row)}</td>
                                     <td className="p-3 font-bold text-gray-700">#{row.checkNumber}</td>
                                     <td className="p-3">{getCheckPrimaryBankName(row)}</td>
                                     <td className="p-3 dir-ltr">{getCheckBankNumberValue(row)}</td>
-                                    <td className="p-3">{row.type === 'INCOMING' ? tr('وارد', 'Incoming') : tr('صادر', 'Outgoing')}</td>
-                                    <td className="p-3">{displayContactName(contacts.find(c => c.id === row.contactId) || null) || tr('غير معروف', 'Unknown')}</td>
-                                    <td className="p-3 text-center dir-ltr">{getCheckReportDateValue(row)}</td>
-                                    <td className="p-3 text-center">{row.dueDate}</td>
+                                    <td className="p-3 text-center dir-ltr font-black">{formatValue(row.amount)}</td>
+                                    <td className="p-3">{getCheckPartyName(row)}</td>
+                                    <td className="p-3 text-center dir-ltr">{row.dueDate}</td>
+                                    <td className="p-3 text-center dir-ltr">{row.issueDate}</td>
+                                    <td className="p-3">{getCheckLocationLabel(row)}</td>
                                     <td className="p-3 text-center">
                                         {row.alertLevel === 'OVERDUE' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-rose-50 text-rose-600">{tr('متأخر', 'Overdue')} {Math.abs(row.daysToDue)} {tr('يوم', 'day')}</span>}
                                         {row.alertLevel === 'SOON' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-amber-50 text-amber-600">{tr('قريب', 'Soon')} {row.daysToDue} {tr('يوم', 'day')}</span>}
                                         {row.alertLevel === 'NORMAL' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-600">{tr('مستقبلي', 'Future')}</span>}
                                     </td>
-                                    <td className="p-3 text-center dir-ltr font-black">{formatValue(row.amount)}</td>
                                 </tr>
                                 ))}
                                 {maturityRows.length === 0 && (
                                     <tr>
-                                        <td colSpan={9} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد شيكات مطابقة للفترة المحددة', 'No checks matching the selected period')}</td>
+                                        <td colSpan={10} className="p-4 text-center text-xs font-bold text-gray-400">{tr('لا توجد شيكات مطابقة للفترة المحددة', 'No checks matching the selected period')}</td>
                                     </tr>
                                 )}
                             </tbody>
@@ -3732,44 +4963,24 @@ const FinancialReports: React.FC = () => {
                             : getCheckPrimaryBankName(check);
 
                         return (
-                            <div key={check.id} className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                            <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(check.type)}`}>
-                                                {getCheckTypeLabel(check.type)}
-                                            </span>
-                                            <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(check.status)}`}>
-                                                {getCheckStatusLabel(check.status)}
-                                            </span>
-                                        </div>
-                                        <div className="mt-3">
-                                            {renderCheckSummaryStrip(check, {
-                                                amountClassName: `dir-ltr text-left ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`
-                                            })}
-                                        </div>
-                                        <h4 className="mt-2 font-black text-sm text-gray-800 break-words">#{check.checkNumber}</h4>
-                                        <p className="text-[10px] font-bold text-gray-500 mt-1 break-words">{getCheckPrimaryBankName(check)}</p>
-                                        <p className="text-[10px] font-bold text-gray-400 break-words">
-                                            {displayContactName(contacts.find(c => c.id === check.contactId) || null) || tr('غير معروف', 'Unknown')}
-                                        </p>
+                            <div key={check.id} className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(check.type)}`}>
+                                            {getCheckTypeLabel(check.type)}
+                                        </span>
+                                        <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(check.status)}`}>
+                                            {getCheckStatusLabel(check.status)}
+                                        </span>
                                     </div>
-                                    <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}>
-                                        <p className={`font-black text-base dir-ltr ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`}>{formatValue(check.amount)}</p>
-                                        <p className="text-[9px] font-bold text-gray-400">{getCheckReportDateLabel()}: {getCheckReportDateValue(check)}</p>
-                                    </div>
+                                    <span className="text-[10px] font-black text-gray-400">
+                                        {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(check)}</span>
+                                    </span>
                                 </div>
-                                <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500">
-                                    <div className="rounded-xl bg-gray-50 px-3 py-2">
-                                        <span className="text-gray-400">{tr('تاريخ الاستحقاق', 'Due Date')}:</span> <span className="dir-ltr">{check.dueDate}</span>
-                                    </div>
-                                    <div className="rounded-xl bg-gray-50 px-3 py-2">
-                                        <span className="text-gray-400">{tr('تاريخ الإصدار', 'Issue Date')}:</span> <span className="dir-ltr">{check.issueDate}</span>
-                                    </div>
-                                    <div className="col-span-2 rounded-xl bg-blue-50/70 px-3 py-2 text-blue-700">
-                                        <span className="text-blue-500">{tr('الموقع/الحساب', 'Location / Account')}:</span> {locationLabel}
-                                    </div>
-                                </div>
+                                {renderCheckSummaryStrip(check, {
+                                    amountClassName: `dir-ltr text-left ${check.type === 'INCOMING' ? 'text-emerald-700' : 'text-rose-700'}`,
+                                    locationLabel
+                                })}
                             </div>
                         );
                     })}
@@ -3845,45 +5056,28 @@ const FinancialReports: React.FC = () => {
                 </div>
                 <div className="space-y-3">
                     {rows.map(row => (
-                        <div key={`${row.kind}-${row.check.id}`} className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${
-                                            row.kind === 'COLLECTION'
-                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                                : 'bg-rose-50 text-rose-700 border-rose-100'
-                                        }`}>
-                                            {row.kind === 'COLLECTION' ? tr('تحصيل قادم', 'Upcoming Collection') : tr('التزام قادم', 'Upcoming Commitment')}
-                                        </span>
-                                        <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(row.check.status)}`}>
-                                            {getCheckStatusLabel(row.check.status)}
-                                        </span>
-                                    </div>
-                                    <div className="mt-3">
-                                        {renderCheckSummaryStrip(row.check, {
-                                            amountClassName: `dir-ltr text-left ${row.kind === 'COLLECTION' ? 'text-emerald-700' : 'text-rose-700'}`
-                                        })}
-                                    </div>
-                                    <h4 className="mt-2 font-black text-sm text-gray-800 break-words">#{row.check.checkNumber}</h4>
-                                    <p className="text-[10px] font-bold text-gray-500 mt-1 break-words">{getCheckPrimaryBankName(row.check)}</p>
-                                    <p className="text-[10px] font-bold text-gray-400 break-words">
-                                        {displayContactName(contacts.find(c => c.id === row.check.contactId) || null) || tr('غير معروف', 'Unknown')}
-                                    </p>
+                        <div key={`${row.kind}-${row.check.id}`} className="bg-white p-4 rounded-[2rem] border border-gray-100 shadow-sm space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${
+                                        row.kind === 'COLLECTION'
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                            : 'bg-rose-50 text-rose-700 border-rose-100'
+                                    }`}>
+                                        {row.kind === 'COLLECTION' ? tr('تحصيل قادم', 'Upcoming Collection') : tr('التزام قادم', 'Upcoming Commitment')}
+                                    </span>
+                                    <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(row.check.status)}`}>
+                                        {getCheckStatusLabel(row.check.status)}
+                                    </span>
                                 </div>
-                                <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}>
-                                    <p className={`font-black text-base dir-ltr ${row.kind === 'COLLECTION' ? 'text-emerald-700' : 'text-rose-700'}`}>{formatValue(row.check.amount)}</p>
-                                    <p className="text-[9px] font-bold text-gray-400">{getCheckReportDateLabel()}: {getCheckReportDateValue(row.check)}</p>
-                                </div>
+                                <span className="text-[10px] font-black text-gray-400">
+                                    {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(row.check)}</span>
+                                </span>
                             </div>
-                            <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-bold text-gray-500">
-                                <div className="rounded-xl bg-gray-50 px-3 py-2">
-                                    <span className="text-gray-400">{tr('تاريخ الاستحقاق', 'Due Date')}:</span> <span className="dir-ltr">{row.check.dueDate}</span>
-                                </div>
-                                <div className="rounded-xl bg-gray-50 px-3 py-2">
-                                    <span className="text-gray-400">{tr('الموقع', 'Location')}:</span> {row.location}
-                                </div>
-                            </div>
+                            {renderCheckSummaryStrip(row.check, {
+                                amountClassName: `dir-ltr text-left ${row.kind === 'COLLECTION' ? 'text-emerald-700' : 'text-rose-700'}`,
+                                locationLabel: row.location
+                            })}
                         </div>
                     ))}
                     {rows.length === 0 && (
@@ -4012,21 +5206,23 @@ const FinancialReports: React.FC = () => {
                             <div className="divide-y divide-white/80 bg-white/70">
                                 {group.items.map(check => (
                                     <div key={check.id} className="px-4 py-3 text-xs space-y-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(check.status)}`}>
+                                                    {getCheckStatusLabel(check.status)}
+                                                </span>
+                                                <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckTypeBadgeClass(check.type)}`}>
+                                                    {getCheckTypeLabel(check.type)}
+                                                </span>
+                                            </div>
+                                            <span className="text-[10px] font-black text-gray-400">
+                                                {getCheckReportDateLabel()}: <span className="dir-ltr">{getCheckReportDateValue(check)}</span>
+                                            </span>
+                                        </div>
                                         {renderCheckSummaryStrip(check, {
                                             amountClassName: `dir-ltr text-left ${group.tone === 'rose' ? 'text-rose-700' : group.tone === 'blue' ? 'text-blue-700' : 'text-amber-700'}`,
                                             bankName: getCheckPrimaryBankName(check)
                                         })}
-                                        <div className="min-w-0">
-                                            <p className="font-black text-gray-800 break-words">#{check.checkNumber} - {displayContactName(contacts.find(c => c.id === check.contactId) || null) || tr('غير معروف', 'Unknown')}</p>
-                                            <p className="text-[10px] font-bold text-gray-500 break-words">{getCheckPrimaryBankName(check)}</p>
-                                            <p className="text-[9px] font-black text-gray-400">{getCheckReportDateLabel()}: {getCheckReportDateValue(check)} • {tr('استحقاق', 'Due')}: {check.dueDate}</p>
-                                        </div>
-                                        <div className={`${isEnglish ? 'text-left' : 'text-right'} shrink-0`}>
-                                            <p className={`font-black dir-ltr ${group.tone === 'rose' ? 'text-rose-700' : group.tone === 'blue' ? 'text-blue-700' : 'text-amber-700'}`}>{formatValue(check.amount)}</p>
-                                            <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${getCheckStatusBadgeClass(check.status)}`}>
-                                                {getCheckStatusLabel(check.status)}
-                                            </span>
-                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -6217,9 +7413,6 @@ const FinancialReports: React.FC = () => {
 
     // --- 12-C. Customer Statement ---
     const renderCustomerStatement = () => {
-        const receivableAccountIds = accounts
-            .filter(a => !a.isGroup && (a.id === 'acc_receivable' || a.parentId === 'acc_receivable_group'))
-            .map(a => a.id);
         const customers = contacts.filter(c => c.type === 'CUSTOMER');
         const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
@@ -6232,112 +7425,26 @@ const FinancialReports: React.FC = () => {
             );
         }
 
-        const customerTx = transactions
-            .filter(t =>
-                t.status === 'POSTED' &&
-                t.contactId === selectedCustomer.id &&
-                (receivableAccountIds.includes(t.debitAccountId || '') || receivableAccountIds.includes(t.creditAccountId || ''))
-            )
-            .sort((a, b) => a.date.localeCompare(b.date));
-
-        const openingBalance = customerTx
-            .filter(t => t.date < startDate)
-            .reduce((sum, t) => {
-                const amountInBase = t.amount * (t.exchangeRate || 1);
-                const debit = receivableAccountIds.includes(t.debitAccountId || '') ? amountInBase : 0;
-                const credit = receivableAccountIds.includes(t.creditAccountId || '') ? amountInBase : 0;
-                return sum + debit - credit;
-            }, 0);
-
-        const rangeEntries = customerTx
-            .filter(t => t.date >= startDate && t.date <= endDate)
-            .map(t => {
-                const amountInBase = t.amount * (t.exchangeRate || 1);
-                return {
-                    id: t.id,
-                    tx: t,
-                    date: t.date,
-                    description: t.description,
-                    debit: receivableAccountIds.includes(t.debitAccountId || '') ? amountInBase : 0,
-                    credit: receivableAccountIds.includes(t.creditAccountId || '') ? amountInBase : 0
-                };
-            });
-
-        let running = openingBalance;
-        const entriesWithBalance = rangeEntries.map(e => {
-            running += e.debit - e.credit;
-            return { ...e, balance: running };
-        });
-
-        const totalDebit = rangeEntries.reduce((sum, e) => sum + e.debit, 0);
-        const totalCredit = rangeEntries.reduce((sum, e) => sum + e.credit, 0);
-        const closingBalance = openingBalance + (totalDebit - totalCredit);
+        const statementData = getUnifiedPartnerStatementData(selectedCustomer, startDate, endDate);
 
         return (
             <div className="animate-in slide-in-from-bottom-4">
                 <ReportHeader title={tr('كشف حساب الزبائن', 'Customer Statement')} />
-                <div className="bg-white p-4 rounded-[1.8rem] border border-gray-100 shadow-sm mb-4">
-                    <label className="block text-[10px] text-gray-400 font-black mb-2">{tr('اختيار الزبون', 'Select Customer')}</label>
-                    <select
-                        value={selectedCustomerId}
-                        onChange={e => setSelectedCustomerId(e.target.value)}
-                        className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-black text-xs"
-                    >
-                        {customers.map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
-                    </select>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('افتتاحي', 'Opening')}</p><p className="text-sm font-black dir-ltr">{formatValue(openingBalance)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('مدين', 'Debit')}</p><p className="text-sm font-black dir-ltr text-rose-600">{formatValue(totalDebit)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('دائن', 'Credit')}</p><p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(totalCredit)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className="text-sm font-black dir-ltr text-blue-700">{formatValue(closingBalance)}</p></div>
-                </div>
-                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
-                    <table className="statement-report-table statement-report-table--ledger report-table-customer-statement w-full text-start table-fixed min-w-0 md:min-w-[760px]">
-                        <colgroup>
-                            <col style={{ width: '15%' }} />
-                            <col style={{ width: '45%' }} />
-                            <col style={{ width: '12%' }} />
-                            <col style={{ width: '12%' }} />
-                            <col style={{ width: '16%' }} />
-                        </colgroup>
-                        <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
-                            <tr>
-                                <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
-                                <th className="p-2 md:p-3 w-[42%] sm:w-[53%]">{tr('البيان', 'Description')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] text-center">{tr('مدين', 'Debit')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] text-center">{tr('دائن', 'Credit')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] text-center">{tr('الرصيد', 'Balance')}</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50 text-[11px] sm:text-xs">
-                            <tr className="bg-amber-50/50">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
-                                <td className="p-2 md:p-3 font-bold text-gray-600 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
-                                <td className="p-2 md:p-3 text-center">-</td>
-                                <td className="p-2 md:p-3 text-center">-</td>
-                                <td className="p-2 md:p-3 text-center dir-ltr font-black">{formatValue(openingBalance)}</td>
-                            </tr>
-                            {entriesWithBalance.map(e => (
-                                <tr key={e.id} className="hover:bg-gray-50">
-                                    <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{e.date}</td>
-                                    <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
-                                        <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(e.tx)}</div>
-                                        {renderStatementOperationDetails(e.tx, receivableAccountIds)}
-                                    </td>
-                                    <td className="p-2 md:p-3 text-center dir-ltr text-rose-600">{e.debit > 0 ? formatValue(e.debit) : '-'}</td>
-                                    <td className="p-2 md:p-3 text-center dir-ltr text-emerald-600">{e.credit > 0 ? formatValue(e.credit) : '-'}</td>
-                                    <td className="p-2 md:p-3 text-center dir-ltr font-black">{formatValue(e.balance)}</td>
-                                </tr>
-                            ))}
-                            {entriesWithBalance.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="p-5 text-center text-xs font-bold text-gray-400">{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                {renderStatementReportShell({
+                    contact: selectedCustomer,
+                    selectorLabel: tr('اختيار الزبون', 'Select Customer'),
+                    selectorValue: selectedCustomerId,
+                    onSelectorChange: setSelectedCustomerId,
+                    selectorOptions: customers,
+                    statementContent: renderUnifiedPartnerStatement({
+                        statementKind: tr('كشف حساب عميل', 'Customer Statement'),
+                        reportTableClassName: 'report-table-customer-statement',
+                        contact: selectedCustomer,
+                        openingBalance: statementData.openingBalance,
+                        closingBalance: statementData.closingBalance,
+                        entries: statementData.transactions
+                    })
+                })}
             </div>
         );
     };
@@ -6494,7 +7601,6 @@ const FinancialReports: React.FC = () => {
 
     // --- 12-E. Supplier Statement ---
     const renderSupplierStatement = () => {
-        const payableAccountIds = payableSupplierAccountIds;
         const suppliers = contacts.filter(c => c.type === 'SUPPLIER');
         const selectedSupplier = suppliers.find(c => c.id === selectedSupplierId);
 
@@ -6507,112 +7613,26 @@ const FinancialReports: React.FC = () => {
             );
         }
 
-        const supplierTx = transactions
-            .filter(t =>
-                t.status === 'POSTED' &&
-                t.contactId === selectedSupplier.id &&
-                (payableAccountIds.includes(t.debitAccountId || '') || payableAccountIds.includes(t.creditAccountId || ''))
-            )
-            .sort((a, b) => a.date.localeCompare(b.date));
-
-        const openingBalance = supplierTx
-            .filter(t => t.date < startDate)
-            .reduce((sum, t) => {
-                const amountInBase = t.amount * (t.exchangeRate || 1);
-                const debit = payableAccountIds.includes(t.debitAccountId || '') ? amountInBase : 0;
-                const credit = payableAccountIds.includes(t.creditAccountId || '') ? amountInBase : 0;
-                return sum + credit - debit;
-            }, 0);
-
-        const rangeEntries = supplierTx
-            .filter(t => t.date >= startDate && t.date <= endDate)
-            .map(t => {
-                const amountInBase = t.amount * (t.exchangeRate || 1);
-                return {
-                    id: t.id,
-                    tx: t,
-                    date: t.date,
-                    description: t.description,
-                    debit: payableAccountIds.includes(t.debitAccountId || '') ? amountInBase : 0,
-                    credit: payableAccountIds.includes(t.creditAccountId || '') ? amountInBase : 0
-                };
-            });
-
-        let running = openingBalance;
-        const entriesWithBalance = rangeEntries.map(e => {
-            running += e.credit - e.debit;
-            return { ...e, balance: running };
-        });
-
-        const totalDebit = rangeEntries.reduce((sum, e) => sum + e.debit, 0);
-        const totalCredit = rangeEntries.reduce((sum, e) => sum + e.credit, 0);
-        const closingBalance = openingBalance + (totalCredit - totalDebit);
+        const statementData = getUnifiedPartnerStatementData(selectedSupplier, startDate, endDate);
 
         return (
             <div className="animate-in slide-in-from-bottom-4">
                 <ReportHeader title={tr('كشف حساب الموردين', 'Supplier Statement')} />
-                <div className="bg-white p-4 rounded-[1.8rem] border border-gray-100 shadow-sm mb-4">
-                    <label className="block text-[10px] text-gray-400 font-black mb-2">{tr('اختيار المورد', 'Select Supplier')}</label>
-                    <select
-                        value={selectedSupplierId}
-                        onChange={e => setSelectedSupplierId(e.target.value)}
-                        className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-black text-xs"
-                    >
-                        {suppliers.map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
-                    </select>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('افتتاحي', 'Opening')}</p><p className="text-sm font-black dir-ltr">{formatValue(openingBalance)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('مدين', 'Debit')}</p><p className="text-sm font-black dir-ltr text-rose-600">{formatValue(totalDebit)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('دائن', 'Credit')}</p><p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(totalCredit)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className="text-sm font-black dir-ltr text-blue-700">{formatValue(closingBalance)}</p></div>
-                </div>
-                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
-                    <table className="statement-report-table statement-report-table--ledger report-table-supplier-statement w-full text-start table-fixed min-w-0 md:min-w-[760px]">
-                        <colgroup>
-                            <col style={{ width: '15%' }} />
-                            <col style={{ width: '45%' }} />
-                            <col style={{ width: '12%' }} />
-                            <col style={{ width: '12%' }} />
-                            <col style={{ width: '16%' }} />
-                        </colgroup>
-                        <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
-                            <tr>
-                                <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
-                                <th className="p-2 md:p-3 w-[42%] sm:w-[53%]">{tr('البيان', 'Description')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] text-center">{tr('مدين', 'Debit')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] text-center">{tr('دائن', 'Credit')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] text-center">{tr('الرصيد', 'Balance')}</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50 text-[11px] sm:text-xs">
-                            <tr className="bg-amber-50/50">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
-                                <td className="p-2 md:p-3 font-bold text-gray-600 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
-                                <td className="p-2 md:p-3 text-center">-</td>
-                                <td className="p-2 md:p-3 text-center">-</td>
-                                <td className="p-2 md:p-3 text-center dir-ltr font-black">{formatValue(openingBalance)}</td>
-                            </tr>
-                            {entriesWithBalance.map(e => (
-                                <tr key={e.id} className="hover:bg-gray-50">
-                                    <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{e.date}</td>
-                                    <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
-                                        <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(e.tx)}</div>
-                                        {renderStatementOperationDetails(e.tx, payableAccountIds)}
-                                    </td>
-                                    <td className="p-2 md:p-3 text-center dir-ltr text-rose-600">{e.debit > 0 ? formatValue(e.debit) : '-'}</td>
-                                    <td className="p-2 md:p-3 text-center dir-ltr text-emerald-600">{e.credit > 0 ? formatValue(e.credit) : '-'}</td>
-                                    <td className="p-2 md:p-3 text-center dir-ltr font-black">{formatValue(e.balance)}</td>
-                                </tr>
-                            ))}
-                            {entriesWithBalance.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="p-5 text-center text-xs font-bold text-gray-400">{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                {renderStatementReportShell({
+                    contact: selectedSupplier,
+                    selectorLabel: tr('اختيار المورد', 'Select Supplier'),
+                    selectorValue: selectedSupplierId,
+                    onSelectorChange: setSelectedSupplierId,
+                    selectorOptions: suppliers,
+                    statementContent: renderUnifiedPartnerStatement({
+                        statementKind: tr('كشف حساب مورد', 'Supplier Statement'),
+                        reportTableClassName: 'report-table-supplier-statement',
+                        contact: selectedSupplier,
+                        openingBalance: statementData.openingBalance,
+                        closingBalance: statementData.closingBalance,
+                        entries: statementData.transactions
+                    })
+                })}
             </div>
         );
     };
@@ -6758,6 +7778,11 @@ const FinancialReports: React.FC = () => {
                 runningBalance
             };
         });
+        const totalDebit = ledgerEntries.reduce((sum, entry) => sum + entry.debit, 0);
+        const totalCredit = ledgerEntries.reduce((sum, entry) => sum + entry.credit, 0);
+        const closingBalance = ledgerEntries.length > 0
+            ? ledgerEntries[ledgerEntries.length - 1].runningBalance
+            : openingBalance;
 
         return (
             <div className="animate-in slide-in-from-bottom-4">
@@ -6767,18 +7792,48 @@ const FinancialReports: React.FC = () => {
                         {accounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
                     </select>
                 </div>
+                {renderStatementIdentityPanel(
+                    tr('حركة حساب', 'Account Ledger'),
+                    displayAccountName(acc),
+                    [
+                        {
+                            label: tr('الفترة', 'Period'),
+                            value: `${startDate} - ${endDate}`
+                        },
+                        {
+                            label: tr('رمز الحساب', 'Account Code'),
+                            value: acc.code || tr('بدون رمز', 'No code'),
+                            numeric: true
+                        },
+                        {
+                            label: tr('العملة', 'Currency'),
+                            value: reportCurrency,
+                            numeric: true
+                        }
+                    ]
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('افتتاحي', 'Opening')}</p><p className={`text-sm font-black dir-ltr ${openingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatValue(Math.abs(openingBalance))} {getBalanceNature(acc.type, openingBalance)}</p></div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('مدين', 'Debit')}</p><p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(totalDebit)}</p></div>
+                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('دائن', 'Credit')}</p><p className="text-sm font-black dir-ltr text-rose-600">{formatValue(totalCredit)}</p></div>
+                    <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className={`text-sm font-black dir-ltr ${closingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatValue(Math.abs(closingBalance))} {getBalanceNature(acc.type, closingBalance)}</p></div>
+                </div>
                 <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
-                    <table className="statement-report-table statement-report-table--ledger report-table-account-ledger w-full text-start table-fixed min-w-0 md:min-w-[760px]">
+                    <div className="statement-mobile-viewport">
+                        <div className="statement-mobile-canvas">
+                            <table className={`statement-report-table statement-report-table--ledger report-table-account-ledger w-full text-start table-fixed min-w-0 max-w-full ${hideVoucherColumnInStatement ? '' : 'statement-report-table--with-voucher'}`}>
                         <colgroup>
-                            <col style={{ width: '15%' }} />
-                            <col style={{ width: '45%' }} />
+                            <col style={{ width: hideVoucherColumnInStatement ? '15%' : '14%' }} />
+                            {!hideVoucherColumnInStatement && <col style={{ width: '13%' }} />}
+                            <col style={{ width: hideVoucherColumnInStatement ? '45%' : '31%' }} />
                             <col style={{ width: '12%' }} />
                             <col style={{ width: '12%' }} />
-                            <col style={{ width: '16%' }} />
+                            <col style={{ width: hideVoucherColumnInStatement ? '16%' : '18%' }} />
                         </colgroup>
                         <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                             <tr>
                                 <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
+                                {!hideVoucherColumnInStatement && <th className="p-2 md:p-3 text-center">{tr('السند', 'Voucher')}</th>}
                                 <th className="p-2 md:p-3 w-[42%] sm:w-[53%]">{tr('البيان', 'Description')}</th>
                                 <th className="p-2 md:p-3 w-[14%] sm:w-[12%] dir-ltr text-center">{tr('مدين', 'Debit')}</th>
                                 <th className="p-2 md:p-3 w-[14%] sm:w-[12%] dir-ltr text-center">{tr('دائن', 'Credit')}</th>
@@ -6788,6 +7843,7 @@ const FinancialReports: React.FC = () => {
                         <tbody className="divide-y divide-gray-50">
                             <tr className="text-xs bg-blue-50/40">
                                 <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
+                                {!hideVoucherColumnInStatement && <td className="p-2 md:p-3 dir-ltr text-center text-gray-400 whitespace-nowrap">-</td>}
                                 <td className="p-2 md:p-3 font-black text-gray-700 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
                                 <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
                                 <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
@@ -6798,6 +7854,7 @@ const FinancialReports: React.FC = () => {
                             {ledgerEntries.map(({ tx, debit, credit, runningBalance: rowBalance }) => (
                                 <tr key={tx.id} className="text-xs hover:bg-gray-50">
                                     <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{tx.date}</td>
+                                    {!hideVoucherColumnInStatement && <td className="p-2 md:p-3 text-center dir-ltr font-semibold text-slate-600 whitespace-nowrap">{getStatementDocumentNumber(tx)}</td>}
                                     <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
                                         <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(tx)}</div>
                                         {renderStatementOperationDetails(tx, [acc.id])}
@@ -6811,13 +7868,25 @@ const FinancialReports: React.FC = () => {
                             ))}
                             {ledgerEntries.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="p-4 text-center text-xs font-black text-gray-400">
+                                    <td colSpan={hideVoucherColumnInStatement ? 5 : 6} className="p-4 text-center text-xs font-black text-gray-400">
                                         {tr('لا توجد حركة خلال الفترة المحددة', 'No entries in selected period')}
                                     </td>
                                 </tr>
                             )}
+                            <tr className="text-xs bg-sky-50/60">
+                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
+                                {!hideVoucherColumnInStatement && <td className="p-2 md:p-3 dir-ltr text-center text-gray-400 whitespace-nowrap">-</td>}
+                                <td className="p-2 md:p-3 font-black text-blue-800 break-words whitespace-normal">{tr('الرصيد الختامي', 'Closing Balance')}</td>
+                                <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
+                                <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
+                                <td className={`p-2 md:p-3 dir-ltr text-center font-black ${closingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                    {formatValue(Math.abs(closingBalance))} {getBalanceNature(acc.type, closingBalance)}
+                                </td>
+                            </tr>
                         </tbody>
-                    </table>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
@@ -7103,8 +8172,8 @@ const FinancialReports: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 md:gap-4">
-                    <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
+                <div className="grid grid-cols-1 gap-3 md:gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+                    <div className="min-w-0 bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <Activity size={16} className="text-blue-600" />
                             <h3 className="font-black text-gray-800">{tr('أكثر الحسابات حركة', 'Most Active Accounts')}</h3>
@@ -7114,12 +8183,12 @@ const FinancialReports: React.FC = () => {
                                 const widthPct = Math.max(8, (acc.periodMovement / maxMovement) * 100);
                                 return (
                                     <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="p-3 rounded-xl border border-gray-100 bg-gray-50 cursor-pointer">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="min-w-0">
+                                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                                            <div className="min-w-0 flex-1">
                                                 <p className="text-xs font-black text-gray-800 truncate">{displayAccountName(acc)}</p>
                                                 <p className="text-[10px] text-gray-400 font-bold">({acc.code})</p>
                                             </div>
-                                            <div className="text-left">
+                                            <div className="text-left shrink-0">
                                                 <p className="text-xs font-black text-blue-700 dir-ltr">{formatValue(acc.periodMovement)}</p>
                                                 <p className="text-[10px] text-gray-400 font-bold">{tr('إجمالي حركة', 'Total movement')}</p>
                                             </div>
@@ -7136,33 +8205,33 @@ const FinancialReports: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
-                        <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
+                    <div className="grid grid-cols-1 gap-3 md:gap-4 sm:grid-cols-2">
+                        <div className="min-w-0 bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                             <h3 className="font-black text-gray-800 mb-3">{tr('أعلى حسابات الإيراد', 'Top Revenue Accounts')}</h3>
                             <div className="space-y-2">
                                 {analyticsData.topRevenueAccounts.map(acc => (
-                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="flex cursor-pointer items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100">
-                                        <div className="min-w-0">
+                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="flex cursor-pointer flex-col gap-1.5 p-3 rounded-xl bg-emerald-50 border border-emerald-100 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0 flex-1">
                                             <p className="text-xs font-black text-emerald-800 truncate">{displayAccountName(acc)}</p>
                                             <p className="text-[10px] text-emerald-600/70 font-bold">({acc.code})</p>
                                         </div>
-                                        <p className="text-xs font-black text-emerald-700 dir-ltr">{formatValue(Math.abs(acc.periodNet))}</p>
+                                        <p className="text-xs font-black text-emerald-700 dir-ltr shrink-0">{formatValue(Math.abs(acc.periodNet))}</p>
                                     </div>
                                 ))}
                                 {analyticsData.topRevenueAccounts.length === 0 && <p className="text-xs text-gray-400 font-bold">{tr('لا توجد إيرادات ضمن الفترة', 'No revenue in selected period')}</p>}
                             </div>
                         </div>
 
-                        <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
+                        <div className="min-w-0 bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
                             <h3 className="font-black text-gray-800 mb-3">{tr('أعلى حسابات المصروف', 'Top Expense Accounts')}</h3>
                             <div className="space-y-2">
                                 {analyticsData.topExpenseAccounts.map(acc => (
-                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="flex cursor-pointer items-center justify-between p-3 rounded-xl bg-rose-50 border border-rose-100">
-                                        <div className="min-w-0">
+                                    <div key={acc.id} onDoubleClick={() => openAccountLedger(acc.id)} className="flex cursor-pointer flex-col gap-1.5 p-3 rounded-xl bg-rose-50 border border-rose-100 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0 flex-1">
                                             <p className="text-xs font-black text-rose-800 truncate">{displayAccountName(acc)}</p>
                                             <p className="text-[10px] text-rose-600/70 font-bold">({acc.code})</p>
                                         </div>
-                                        <p className="text-xs font-black text-rose-700 dir-ltr">{formatValue(Math.abs(acc.periodNet))}</p>
+                                        <p className="text-xs font-black text-rose-700 dir-ltr shrink-0">{formatValue(Math.abs(acc.periodNet))}</p>
                                     </div>
                                 ))}
                                 {analyticsData.topExpenseAccounts.length === 0 && <p className="text-xs text-gray-400 font-bold">{tr('لا توجد مصروفات ضمن الفترة', 'No expenses in selected period')}</p>}

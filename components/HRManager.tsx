@@ -167,6 +167,22 @@ const parseLocalizedNumberInput = (value: string): number => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatLocalIsoDate = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
+const parseLocalIsoDate = (value?: string): Date | null => {
+    const normalized = String(value || '').trim();
+    const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const [, year, month, day] = match;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+};
+
 const normalizeEmployeePayBasis = (emp: Pick<Employee, 'salaryType' | 'payBasis'>): EmployeePayBasis => {
     if (emp.payBasis) return emp.payBasis;
     return emp.salaryType === 'HOURLY' ? 'HOURLY' : 'FIXED_MONTHLY';
@@ -267,6 +283,8 @@ const HRManager: React.FC = () => {
     const [code, setCode] = useState('');
     const [deptId, setDeptId] = useState('');
     const [position, setPosition] = useState('');
+    const [empHireDate, setEmpHireDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [empEndDate, setEmpEndDate] = useState('');
     const [employeePhone, setEmployeePhone] = useState('');
     const [employeeBankName, setEmployeeBankName] = useState('');
     const [employeeIban, setEmployeeIban] = useState('');
@@ -316,15 +334,15 @@ const HRManager: React.FC = () => {
     // Payroll Dates & Setup
     const [payrollStartDate, setPayrollStartDate] = useState(() => {
         const date = new Date();
-        return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().slice(0, 10);
+        return formatLocalIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
     });
     const [payrollEndDate, setPayrollEndDate] = useState(() => {
         const date = new Date();
-        return new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().slice(0, 10);
+        return formatLocalIsoDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
     });
     const [payrollPeriodPreset, setPayrollPeriodPreset] = useState<PayrollPeriodPreset>('MONTHLY');
     const [payrollPayBasisFilter, setPayrollPayBasisFilter] = useState<'ALL' | EmployeePayBasis>('ALL');
-    const [postingDate, setPostingDate] = useState(new Date().toISOString().split('T')[0]);
+    const [postingDate, setPostingDate] = useState(() => formatLocalIsoDate(new Date()));
     const [monthlyWorkingDays, setMonthlyWorkingDays] = useState(30);
     const [paymentAccountId, setPaymentAccountId] = useState('');
     const [expenseAccountId, setExpenseAccountId] = useState(''); // State for expense account
@@ -450,8 +468,8 @@ const HRManager: React.FC = () => {
 
     const applyPayrollPeriodPreset = (preset: PayrollPeriodPreset) => {
         setPayrollPeriodPreset(preset);
-        const now = new Date();
-        const todayIso = now.toISOString().slice(0, 10);
+        const anchorDate = parseLocalIsoDate(payrollEndDate) || parseLocalIsoDate(payrollStartDate) || new Date();
+        const todayIso = formatLocalIsoDate(anchorDate);
         if (preset === 'CUSTOM') return;
         if (preset === 'DAILY') {
             setPayrollStartDate(todayIso);
@@ -460,22 +478,22 @@ const HRManager: React.FC = () => {
             return;
         }
         if (preset === 'WEEKLY') {
-            const day = now.getDay(); // 0=Sun
+            const day = anchorDate.getDay(); // 0=Sun
             const offsetToMonday = (day + 6) % 7;
-            const monday = new Date(now);
-            monday.setDate(now.getDate() - offsetToMonday);
+            const monday = new Date(anchorDate);
+            monday.setDate(anchorDate.getDate() - offsetToMonday);
             const sunday = new Date(monday);
             sunday.setDate(monday.getDate() + 6);
-            setPayrollStartDate(monday.toISOString().slice(0, 10));
-            setPayrollEndDate(sunday.toISOString().slice(0, 10));
-            setPostingDate(sunday.toISOString().slice(0, 10));
+            setPayrollStartDate(formatLocalIsoDate(monday));
+            setPayrollEndDate(formatLocalIsoDate(sunday));
+            setPostingDate(formatLocalIsoDate(sunday));
             return;
         }
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        setPayrollStartDate(monthStart.toISOString().slice(0, 10));
-        setPayrollEndDate(monthEnd.toISOString().slice(0, 10));
-        setPostingDate(monthEnd.toISOString().slice(0, 10));
+        const monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+        const monthEnd = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
+        setPayrollStartDate(formatLocalIsoDate(monthStart));
+        setPayrollEndDate(formatLocalIsoDate(monthEnd));
+        setPostingDate(formatLocalIsoDate(monthEnd));
     };
 
     const payrollRunStorageKey = `al_mohaseb_hr_payroll_runs_${currentCompanyId || 'default'}`;
@@ -2330,7 +2348,9 @@ const HRManager: React.FC = () => {
     };
 
     const renderPayroll = () => {
+        const today = new Date().toISOString().split('T')[0];
         const payrollEmployees = employees.filter(e => {
+            if ((e as any).employmentEndDate && (e as any).employmentEndDate <= today) return false;
             if (payrollFocusEmployeeId && e.id !== payrollFocusEmployeeId) return false;
             if (payrollPayBasisFilter !== 'ALL' && getEmployeePayBasis(e) !== payrollPayBasisFilter) return false;
             return true;
@@ -3273,6 +3293,7 @@ const HRManager: React.FC = () => {
             })
             .filter(item => item.diffDays >= 0 && item.diffDays <= 30);
         const unpaidCurrentPayrollEmployees = employees.filter(emp => {
+            if ((emp as any).employmentEndDate && (emp as any).employmentEndDate <= todayIso) return false;
             const range = getEmployeePayrollRange(emp.id);
             return isEmployeeAccrued(emp.id, range) && !isEmployeePaid(emp.id, range);
         });
@@ -3342,11 +3363,18 @@ const HRManager: React.FC = () => {
                                 <input data-testid="hr-employee-code" value={code} onChange={e => setCode(e.target.value)} placeholder={tr('الرقم الوظيفي', 'Employee Code')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} required />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
-                                <select value={deptId} onChange={e => setDeptId(e.target.value)} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`}>
-                                    <option value="">{tr('القسم...', 'Department...')}</option>
-                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
+                                <input value={deptId} onChange={e => setDeptId(e.target.value)} placeholder={tr('القسم', 'Department')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
                                 <input data-testid="hr-employee-position" value={position} onChange={e => setPosition(e.target.value)} placeholder={tr('المسمى الوظيفي', 'Job Title')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 block mb-1">{tr('تاريخ التوظيف', 'Hire Date')}</label>
+                                    <EnglishDateInput value={empHireDate} onChange={setEmpHireDate} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-500 block mb-1">{tr('تاريخ انتهاء التوظيف', 'Employment End Date')}</label>
+                                    <EnglishDateInput value={empEndDate} onChange={setEmpEndDate} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
+                                </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <input value={employeePhone} onChange={e => setEmployeePhone(e.target.value)} placeholder={tr('رقم الهاتف', 'Phone Number')} className={`w-full p-3 bg-gray-50 rounded-xl border-none outline-none font-bold text-sm ${inputAlignClass}`} />
@@ -3502,7 +3530,9 @@ const HRManager: React.FC = () => {
                 .filter(c => c.employeeId === emp.id && c.status === 'ACTIVE')
                 .slice()
                 .sort((a, b) => b.startDate.localeCompare(a.startDate))[0]?.contractType || 'OPEN_ENDED';
-        setEditingId(emp.id); setName(emp.name); setCode(emp.code); setDeptId(emp.departmentId); setPosition(emp.position);
+        setEditingId(emp.id); setName(emp.name); setCode(emp.code); setDeptId(emp.departmentId || ''); setPosition(emp.position);
+        setEmpHireDate(emp.hireDate || new Date().toISOString().split('T')[0]);
+        setEmpEndDate((emp as any).employmentEndDate || '');
         setEmployeePhone(emp.phone || '');
         setEmployeeBankName(emp.bankName || '');
         setEmployeeIban(emp.iban || '');
@@ -3523,13 +3553,14 @@ const HRManager: React.FC = () => {
         setName(''); setCode(''); setDeptId(''); setPosition(''); setEmployeePayBasis('FIXED_MONTHLY'); setSalaryType('FIXED'); setBasicSalary(''); setDailyHours('8'); setHousing(''); setTransport('');
         setEmployeePhone(''); setEmployeeBankName(''); setEmployeeIban('');
         setEmployeeInitialContractType('OPEN_ENDED');
+        setEmpHireDate(new Date().toISOString().split('T')[0]); setEmpEndDate('');
         setHourlyRate(''); setDailyRate(''); setWeeklyRate(''); setCommissionRatePercent(''); setOvertimeHourlyRate(''); setEditingId(null);
     };
 
     const handleEmployeeSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const data = {
-            name, code, departmentId: deptId || departments[0]?.id, position, salaryType,
+            name, code, departmentId: deptId || '', position, salaryType,
             payBasis: employeePayBasis,
             basicSalary: parseFloat(basicSalary) || 0,
             dailyWorkHours: parseFloat(dailyHours) || 8, hourlyRate: parseFloat(hourlyRate) || 0, overtimeHourlyRate: parseFloat(overtimeHourlyRate) || 0,
@@ -3537,7 +3568,8 @@ const HRManager: React.FC = () => {
             weeklyRate: parseLocalizedNumberInput(weeklyRate) || 0,
             commissionRatePercent: parseLocalizedNumberInput(commissionRatePercent) || 0,
             housingAllowance: parseFloat(housing) || 0, transportAllowance: parseFloat(transport) || 0, otherAllowances: 0,
-            hireDate: new Date().toISOString().split('T')[0], status: 'ACTIVE' as const,
+            hireDate: empHireDate || new Date().toISOString().split('T')[0], status: 'ACTIVE' as const,
+            employmentEndDate: empEndDate.trim() || undefined,
             phone: employeePhone.trim() || undefined,
             bankName: employeeBankName.trim() || undefined,
             iban: employeeIban.trim() || undefined
@@ -4714,7 +4746,7 @@ const HRManager: React.FC = () => {
         });
 
         return (
-            <div className="space-y-3 sm:space-y-4 animate-in slide-in-from-bottom-4">
+            <div className="employee-reports-page space-y-3 sm:space-y-4 animate-in slide-in-from-bottom-4">
                 <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm space-y-2">
                     <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -4804,8 +4836,8 @@ const HRManager: React.FC = () => {
                                 <p className="text-sm font-black text-amber-600 dir-ltr">{attendanceTotals.overtimeHours.toFixed(2)}</p>
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-right min-w-[860px]">
+                        <div className="employee-report-table-shell overflow-x-auto">
+                            <table className="employee-report-table employee-report-table--attendance-summary w-full text-right min-w-[860px]">
                                 <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                     <tr>
                                         <th className="p-3">{tr('الموظف', 'Employee')}</th>
@@ -4821,14 +4853,14 @@ const HRManager: React.FC = () => {
                                 <tbody className="divide-y divide-gray-50 text-xs">
                                     {attendanceRows.map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
-                                            <td className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td className="p-3 text-center dir-ltr">{row.trackedDays}</td>
-                                            <td className="p-3 text-center dir-ltr text-emerald-600 font-black">{row.presentDays}</td>
-                                            <td className="p-3 text-center dir-ltr text-rose-600 font-black">{row.absentDays}</td>
-                                            <td className="p-3 text-center dir-ltr">{row.totalHours.toFixed(2)}</td>
-                                            <td className="p-3 text-center dir-ltr">{row.expectedHours.toFixed(2)}</td>
-                                            <td className="p-3 text-center dir-ltr text-amber-600">{row.overtimeHours.toFixed(2)}</td>
-                                            <td className="p-3 text-center dir-ltr text-rose-600">{row.shortageHours.toFixed(2)}</td>
+                                            <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
+                                            <td data-label={tr('أيام مسجلة', 'Tracked Days')} className="p-3 text-center dir-ltr">{row.trackedDays}</td>
+                                            <td data-label={tr('حضور', 'Present')} className="p-3 text-center dir-ltr text-emerald-600 font-black">{row.presentDays}</td>
+                                            <td data-label={tr('غياب', 'Absent')} className="p-3 text-center dir-ltr text-rose-600 font-black">{row.absentDays}</td>
+                                            <td data-label={tr('ساعات فعلية', 'Actual Hours')} className="p-3 text-center dir-ltr">{row.totalHours.toFixed(2)}</td>
+                                            <td data-label={tr('ساعات متوقعة', 'Expected Hours')} className="p-3 text-center dir-ltr">{row.expectedHours.toFixed(2)}</td>
+                                            <td data-label={tr('ساعات إضافية', 'Overtime')} className="p-3 text-center dir-ltr text-amber-600">{row.overtimeHours.toFixed(2)}</td>
+                                            <td data-label={tr('عجز ساعات', 'Shortage')} className="p-3 text-center dir-ltr text-rose-600">{row.shortageHours.toFixed(2)}</td>
                                         </tr>
                                     ))}
                                     {attendanceRows.length === 0 && (
@@ -4866,8 +4898,8 @@ const HRManager: React.FC = () => {
                                 <p className="text-sm font-black text-indigo-600 dir-ltr">{dailyAttendanceTotals.workedHours.toFixed(2)}</p>
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-right min-w-[1180px]">
+                        <div className="employee-report-table-shell overflow-x-auto">
+                            <table className="employee-report-table employee-report-table--daily-attendance w-full text-right min-w-[1180px]">
                                 <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                     <tr>
                                         <th className="p-3">{tr('التاريخ', 'Date')}</th>
@@ -4884,9 +4916,9 @@ const HRManager: React.FC = () => {
                                 <tbody className="divide-y divide-gray-50 text-xs">
                                     {attendanceDailyRows.map(row => (
                                         <tr key={`${row.date}-${row.emp.id}`} className="hover:bg-gray-50">
-                                            <td className="p-3 font-bold text-gray-600">{row.date}</td>
-                                            <td className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td className="p-2.5">
+                                            <td data-label={tr('التاريخ', 'Date')} className="p-3 font-bold text-gray-600">{row.date}</td>
+                                            <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
+                                            <td data-label={tr('الدخول', 'In')} className="p-2.5">
                                                 <input
                                                     type="time"
                                                     value={row.inTime}
@@ -4894,7 +4926,7 @@ const HRManager: React.FC = () => {
                                                     className="w-full p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs font-black outline-none"
                                                 />
                                             </td>
-                                            <td className="p-2.5">
+                                            <td data-label={tr('الخروج', 'Out')} className="p-2.5">
                                                 <input
                                                     type="time"
                                                     value={row.outTime}
@@ -4902,15 +4934,15 @@ const HRManager: React.FC = () => {
                                                     className="w-full p-2 bg-gray-50 rounded-lg border border-gray-100 text-xs font-black outline-none"
                                                 />
                                             </td>
-                                            <td className="p-3 text-center dir-ltr">{row.workedHours.toFixed(2)}</td>
-                                            <td className="p-3 text-center dir-ltr text-amber-600">{row.overtimeHours.toFixed(2)}</td>
-                                            <td className="p-3 text-center dir-ltr text-rose-600">{row.shortageHours.toFixed(2)}</td>
-                                            <td className="p-3 text-center">
+                                            <td data-label={tr('الساعات', 'Hours')} className="p-3 text-center dir-ltr">{row.workedHours.toFixed(2)}</td>
+                                            <td data-label={tr('الإضافي', 'Overtime')} className="p-3 text-center dir-ltr text-amber-600">{row.overtimeHours.toFixed(2)}</td>
+                                            <td data-label={tr('العجز', 'Shortage')} className="p-3 text-center dir-ltr text-rose-600">{row.shortageHours.toFixed(2)}</td>
+                                            <td data-label={tr('الحالة', 'Status')} className="p-3 text-center">
                                                 {row.status === 'PRESENT' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-700">{tr('حضور', 'Present')}</span>}
                                                 {row.status === 'PARTIAL' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-amber-50 text-amber-700">{tr('ناقص', 'Partial')}</span>}
                                                 {row.status === 'ABSENT' && <span className="px-2 py-1 rounded-md text-[10px] font-black bg-rose-50 text-rose-700">{tr('غياب', 'Absent')}</span>}
                                             </td>
-                                            <td className="p-2.5">
+                                            <td data-label={tr('ملاحظة', 'Note')} className="p-2.5">
                                                 <input
                                                     type="text"
                                                     value={row.note}
@@ -4960,8 +4992,8 @@ const HRManager: React.FC = () => {
                                 <p className={`text-sm font-black dir-ltr ${payrollTotals.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{payrollTotals.remaining.toLocaleString()}</p>
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-right min-w-[920px]">
+                        <div className="employee-report-table-shell overflow-x-auto">
+                            <table className="employee-report-table employee-report-table--payroll w-full text-right min-w-[920px]">
                                 <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                     <tr>
                                         <th className="p-3">{tr('الموظف', 'Employee')}</th>
@@ -4976,13 +5008,13 @@ const HRManager: React.FC = () => {
                                 <tbody className="divide-y divide-gray-50 text-xs">
                                     {payrollRowsReport.map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
-                                            <td className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td className="p-3 text-center dir-ltr text-blue-700">{row.entitlements.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-emerald-600 font-black">{row.net.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString()}</td>
-                                            <td className={`p-3 text-center dir-ltr font-black ${row.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{row.remaining.toLocaleString()}</td>
-                                            <td className="p-3 text-center">
+                                            <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
+                                            <td data-label={tr('المستحقات', 'Entitlements')} className="p-3 text-center dir-ltr text-blue-700">{row.entitlements.toLocaleString()}</td>
+                                            <td data-label={tr('الخصومات', 'Deductions')} className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString()}</td>
+                                            <td data-label={tr('الصافي', 'Net')} className="p-3 text-center dir-ltr text-emerald-600 font-black">{row.net.toLocaleString()}</td>
+                                            <td data-label={tr('المدفوع', 'Paid')} className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString()}</td>
+                                            <td data-label={tr('المتبقي', 'Remaining')} className={`p-3 text-center dir-ltr font-black ${row.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{row.remaining.toLocaleString()}</td>
+                                            <td data-label={tr('كشف الموظف', 'Employee Statement')} className="p-3 text-center">
                                                 <button
                                                     type="button"
                                                     onClick={() => openEmployeeStatement(row.emp.id)}
@@ -5032,8 +5064,8 @@ const HRManager: React.FC = () => {
                                 <p className={`text-sm font-black dir-ltr ${unpaidAccrualTotals.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{unpaidAccrualTotals.unpaid.toLocaleString()}</p>
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-right min-w-[980px]">
+                        <div className="employee-report-table-shell overflow-x-auto">
+                            <table className="employee-report-table employee-report-table--unpaid-accruals w-full text-right min-w-[980px]">
                                 <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                     <tr>
                                         <th className="p-3">{tr('الموظف', 'Employee')}</th>
@@ -5048,13 +5080,13 @@ const HRManager: React.FC = () => {
                                 <tbody className="divide-y divide-gray-50 text-xs">
                                     {[...unpaidAccrualRows].sort((a, b) => b.unpaid - a.unpaid).map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
-                                            <td className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td className="p-3 text-center dir-ltr text-blue-700">{row.accrued.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-emerald-600">{row.netAccrued.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString()}</td>
-                                            <td className={`p-3 text-center dir-ltr font-black ${row.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.unpaid.toLocaleString()}</td>
-                                            <td className="p-3 text-center">
+                                            <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
+                                            <td data-label={tr('استحقاق', 'Accrual')} className="p-3 text-center dir-ltr text-blue-700">{row.accrued.toLocaleString()}</td>
+                                            <td data-label={tr('خصومات', 'Deductions')} className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString()}</td>
+                                            <td data-label={tr('صافي مستحق', 'Net Due')} className="p-3 text-center dir-ltr text-emerald-600">{row.netAccrued.toLocaleString()}</td>
+                                            <td data-label={tr('مدفوع', 'Paid')} className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString()}</td>
+                                            <td data-label={tr('غير مصروف', 'Unpaid')} className={`p-3 text-center dir-ltr font-black ${row.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.unpaid.toLocaleString()}</td>
+                                            <td data-label={tr('كشف الموظف', 'Employee Statement')} className="p-3 text-center">
                                                 <button
                                                     type="button"
                                                     onClick={() => openEmployeeStatement(row.emp.id)}
@@ -5101,8 +5133,8 @@ const HRManager: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="overflow-x-auto border-b border-gray-100">
-                            <table className="w-full text-right min-w-[980px]">
+                        <div className="employee-report-table-shell overflow-x-auto border-b border-gray-100">
+                            <table className="employee-report-table employee-report-table--advance-balance w-full text-right min-w-[980px]">
                                 <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                     <tr>
                                         <th className="p-3">{tr('الموظف', 'Employee')}</th>
@@ -5116,12 +5148,12 @@ const HRManager: React.FC = () => {
                                 <tbody className="divide-y divide-gray-50 text-xs">
                                     {activeAdvanceRows.map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
-                                            <td className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td className="p-3 text-center dir-ltr">{row.openingBalance.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-amber-600">+{row.periodAdvance.toLocaleString()}</td>
-                                            <td className="p-3 text-center dir-ltr text-emerald-600">-{row.periodSettlement.toLocaleString()}</td>
-                                            <td className={`p-3 text-center dir-ltr font-black ${row.closingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.closingBalance.toLocaleString()}</td>
-                                            <td className="p-3 text-center">
+                                            <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
+                                            <td data-label={tr('افتتاحي', 'Opening')} className="p-3 text-center dir-ltr">{row.openingBalance.toLocaleString()}</td>
+                                            <td data-label={tr('سلف الفترة', 'Period Advances')} className="p-3 text-center dir-ltr text-amber-600">+{row.periodAdvance.toLocaleString()}</td>
+                                            <td data-label={tr('تسويات الفترة', 'Period Settlements')} className="p-3 text-center dir-ltr text-emerald-600">-{row.periodSettlement.toLocaleString()}</td>
+                                            <td data-label={tr('ختامي', 'Closing')} className={`p-3 text-center dir-ltr font-black ${row.closingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.closingBalance.toLocaleString()}</td>
+                                            <td data-label={tr('كشف الموظف', 'Employee Statement')} className="p-3 text-center">
                                                 <button
                                                     type="button"
                                                     onClick={() => openEmployeeStatement(row.emp.id)}
@@ -5141,8 +5173,8 @@ const HRManager: React.FC = () => {
                             </table>
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-right min-w-[980px]">
+                        <div className="employee-report-table-shell overflow-x-auto">
+                            <table className="employee-report-table employee-report-table--advance-movements w-full text-right min-w-[980px]">
                                 <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                     <tr>
                                         <th className="p-3">{tr('التاريخ', 'Date')}</th>
@@ -5156,16 +5188,16 @@ const HRManager: React.FC = () => {
                                 <tbody className="divide-y divide-gray-50 text-xs">
                                     {advanceMovementRows.map(row => (
                                         <tr key={`${row.id}-${row.employeeCode}`} className="hover:bg-gray-50">
-                                            <td className="p-3">{row.date}</td>
-                                            <td className="p-3 font-bold text-gray-700">{row.employeeName} <span className="text-[9px] text-gray-400 font-bold">({row.employeeCode})</span></td>
-                                            <td className="p-3 text-center">
+                                            <td data-label={tr('التاريخ', 'Date')} className="p-3">{row.date}</td>
+                                            <td data-label={tr('الموظف', 'Employee')} className="p-3 font-bold text-gray-700">{row.employeeName} <span className="text-[9px] text-gray-400 font-bold">({row.employeeCode})</span></td>
+                                            <td data-label={tr('النوع', 'Type')} className="p-3 text-center">
                                                 {row.kind === 'ADVANCE'
                                                     ? <span className="px-2 py-1 rounded-md text-[10px] font-black bg-amber-50 text-amber-700">{tr('سلفة', 'Advance')}</span>
                                                     : <span className="px-2 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-700">{tr('تسوية', 'Settlement')}</span>}
                                             </td>
-                                            <td className="p-3">{row.description || '-'}</td>
-                                            <td className={`p-3 text-center dir-ltr font-black ${row.kind === 'ADVANCE' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.kind === 'ADVANCE' ? '+' : '-'}{row.amount.toLocaleString()}</td>
-                                            <td className={`p-3 text-center dir-ltr font-black ${row.runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.runningBalance.toLocaleString()}</td>
+                                            <td data-label={tr('البيان', 'Description')} className="p-3">{row.description || '-'}</td>
+                                            <td data-label={tr('المبلغ', 'Amount')} className={`p-3 text-center dir-ltr font-black ${row.kind === 'ADVANCE' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.kind === 'ADVANCE' ? '+' : '-'}{row.amount.toLocaleString()}</td>
+                                            <td data-label={tr('الرصيد بعد الحركة', 'Balance After Movement')} className={`p-3 text-center dir-ltr font-black ${row.runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.runningBalance.toLocaleString()}</td>
                                         </tr>
                                     ))}
                                     {advanceMovementRows.length === 0 && (

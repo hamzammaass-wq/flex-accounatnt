@@ -15,6 +15,7 @@ interface PrintElementOptions {
   lang?: string;
   autoCloseAfterPrint?: boolean;
   pageOrientation?: 'portrait' | 'landscape';
+  targetWindow?: Window | null;
 }
 
 interface PdfSnapshotOptions extends HtmlSnapshotOptions {
@@ -81,6 +82,39 @@ export const downloadTextFile = (content: string, fileName: string, mimeType = '
   triggerDownload(new Blob([content], { type: mimeType }), fileName);
 };
 
+const waitForRenderPass = (frames = 1, fallbackMs = 100) => new Promise<void>(resolve => {
+  if (typeof window === 'undefined') {
+    resolve();
+    return;
+  }
+
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    resolve();
+  };
+
+  const timeoutId = window.setTimeout(finish, fallbackMs);
+  const visibilityState = typeof document === 'undefined' ? 'visible' : document.visibilityState;
+  if (visibilityState === 'hidden') {
+    return;
+  }
+
+  const step = (remaining: number) => {
+    window.requestAnimationFrame(() => {
+      if (remaining <= 1) {
+        window.clearTimeout(timeoutId);
+        finish();
+        return;
+      }
+      step(remaining - 1);
+    });
+  };
+
+  step(Math.max(1, frames));
+});
+
 export const settleElementBeforeSnapshot = async (element: HTMLElement | null) => {
   if (!element || typeof window === 'undefined' || typeof document === 'undefined') return;
 
@@ -89,14 +123,43 @@ export const settleElementBeforeSnapshot = async (element: HTMLElement | null) =
     activeElement.blur();
   }
 
-  await new Promise<void>(resolve => {
-    window.setTimeout(() => {
-      window.requestAnimationFrame(() => resolve());
-    }, 0);
-  });
+  await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+  await waitForRenderPass(1, 120);
 };
 
 const normalizeText = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
+const MM_TO_PX = 96 / 25.4;
+
+const getStatementPrintLocale = (lang: string) => (
+  lang.toLowerCase().startsWith('ar') ? 'ar-EG-u-nu-latn' : 'en-GB'
+);
+
+const formatStatementPrintDate = (lang: string) => new Intl.DateTimeFormat(getStatementPrintLocale(lang), {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric'
+}).format(new Date());
+
+const updateStatementFooterMeta = (
+  root: ParentNode,
+  meta: {
+    printDate?: string;
+    pageCount?: number;
+  }
+) => {
+  if (meta.printDate) {
+    root.querySelectorAll('[data-statement-print-date]').forEach(node => {
+      node.textContent = meta.printDate as string;
+    });
+  }
+
+  if (typeof meta.pageCount === 'number') {
+    const pageCountText = String(Math.max(1, meta.pageCount));
+    root.querySelectorAll('[data-statement-page-count]').forEach(node => {
+      node.textContent = pageCountText;
+    });
+  }
+};
 
 const collectPrintStylesMarkup = () => {
   if (typeof document === 'undefined') return '';
@@ -375,13 +438,41 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
   const dir = options.dir || 'rtl';
   const lang = options.lang || (dir === 'rtl' ? 'ar' : 'en');
   const pageOrientation = options.pageOrientation || 'portrait';
+  const hasStatementPrintFooter = Boolean(clone.querySelector('.statement-classic-sheet'));
   const stylesMarkup = collectPrintStylesMarkup();
-  const printWindow = window.open('', '_blank');
+  const printWindow = options.targetWindow && !options.targetWindow.closed
+    ? options.targetWindow
+    : window.open('', '_blank');
   if (!printWindow) return false;
 
   const autoCloseScript = options.autoCloseAfterPrint === false
     ? ''
     : 'window.onafterprint = () => window.close();';
+  const printLocale = getStatementPrintLocale(lang);
+  const printFooterPageLabel = lang.toLowerCase().startsWith('ar') ? 'الصفحة' : 'Page';
+  const printFooterOfLabel = lang.toLowerCase().startsWith('ar') ? 'من' : 'of';
+  const printFooterDateLabel = lang.toLowerCase().startsWith('ar') ? 'تاريخ الطباعة' : 'Print Date';
+  const pageTopMarginMm = 10;
+  const pageBottomMarginMm = hasStatementPrintFooter ? 18 : 10;
+  const statementPrintFooterHtml = hasStatementPrintFooter
+    ? `
+    <div class="statement-print-footer" aria-hidden="true">
+      <div class="statement-print-footer__meta">
+        <span class="statement-print-footer__item">
+          <span class="statement-print-footer__label">${printFooterDateLabel}</span>
+          <span class="statement-print-footer__value" data-statement-print-date></span>
+        </span>
+        <span class="statement-print-footer__item">
+          <span class="statement-print-footer__label">${printFooterPageLabel}</span>
+          <span class="statement-print-footer__counter">
+            <span class="statement-print-footer__value statement-print-footer__page-current"></span>
+            <span class="statement-print-footer__label">${printFooterOfLabel}</span>
+            <span class="statement-print-footer__value" data-statement-page-count>1</span>
+          </span>
+        </span>
+      </div>
+    </div>`
+    : '';
 
   const html = `<!doctype html>
 <html lang="${lang}" dir="${dir}">
@@ -683,11 +774,31 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         line-height: 1.75 !important;
         font-weight: 700 !important;
       }
-      /* Hide ultra-dense inline cards in PDF statement exports to keep rows readable and consistent. */
-      .report-print-statement .statement-operation-details,
-      .report-print-statement .statement-detail-grid,
-      .report-print-statement .statement-line-items,
-      .report-print-statement .statement-line-item-meta,
+      .report-print-statement .statement-inline-detail {
+        margin-top: 8px !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+      .report-print-statement .statement-inline-table {
+        width: 100% !important;
+        table-layout: fixed !important;
+        border-collapse: collapse !important;
+      }
+      .report-print-statement .statement-inline-table th,
+      .report-print-statement .statement-inline-table td {
+        padding: 6px 7px !important;
+        font-size: 10px !important;
+        line-height: 1.4 !important;
+      }
+      .report-print-statement .statement-inline-value {
+        white-space: nowrap !important;
+        font-variant-numeric: tabular-nums !important;
+      }
+      .report-print-statement .statement-report-table.statement-report-table--with-voucher th:nth-child(2),
+      .report-print-statement .statement-report-table.statement-report-table--with-voucher td:nth-child(2) {
+        white-space: nowrap !important;
+        font-variant-numeric: tabular-nums !important;
+      }
       .report-print-statement .statement-detail-note,
       .report-print-statement .statement-operation-badges {
         display: none !important;
@@ -716,6 +827,14 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-supplier-statement .statement-report-table--ledger td:nth-child(1) {
         width: 11% !important;
       }
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(1),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(1),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(1),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(1),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(1),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(1) {
+        width: 14% !important;
+      }
       .report-print-account-ledger .statement-report-table--ledger th:nth-child(2),
       .report-print-account-ledger .statement-report-table--ledger td:nth-child(2),
       .report-print-customer-statement .statement-report-table--ledger th:nth-child(2),
@@ -723,6 +842,22 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-supplier-statement .statement-report-table--ledger th:nth-child(2),
       .report-print-supplier-statement .statement-report-table--ledger td:nth-child(2) {
         width: 53% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(2),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(2),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(2),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(2),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(2),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(2) {
+        width: 13% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(3),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(3),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(3),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(3),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(3),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(3) {
+        width: 31% !important;
       }
       .report-print-account-ledger .statement-report-table--ledger th:nth-child(3),
       .report-print-account-ledger .statement-report-table--ledger td:nth-child(3),
@@ -743,6 +878,28 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       .report-print-supplier-statement .statement-report-table--ledger th:nth-child(5),
       .report-print-supplier-statement .statement-report-table--ledger td:nth-child(5) {
         width: 12% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(4),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(4),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(5),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(5),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(4),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(4),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(5),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(5),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(4),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(4),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(5),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(5) {
+        width: 12% !important;
+      }
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(6),
+      .report-print-account-ledger .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(6),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(6),
+      .report-print-customer-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(6),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher th:nth-child(6),
+      .report-print-supplier-statement .statement-report-table--ledger.statement-report-table--with-voucher td:nth-child(6) {
+        width: 18% !important;
       }
       .report-print-purchases-list .report-table-purchases-list th:nth-child(1),
       .report-print-purchases-list .report-table-purchases-list td:nth-child(1) {
@@ -875,10 +1032,46 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         width: 11% !important;
       }
       .dir-ltr { direction: ltr; }
+      .statement-print-footer {
+        display: none;
+      }
+      .statement-print-footer__meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+      }
+      .statement-print-footer__item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: #334155;
+        white-space: nowrap;
+      }
+      .statement-print-footer__label {
+        color: #64748b;
+        font-weight: 800;
+      }
+      .statement-print-footer__value {
+        color: #111827;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+      }
+      .statement-print-footer__counter {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-variant-numeric: tabular-nums;
+      }
+      .statement-print-footer__page-current::before {
+        content: counter(page);
+      }
       @media print {
         @page {
           size: ${pageOrientation};
-          margin: 10mm;
+          margin: ${pageTopMarginMm}mm 10mm ${pageBottomMarginMm}mm;
         }
         body {
           padding: 8px;
@@ -888,23 +1081,84 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
           break-inside: auto !important;
           page-break-inside: auto !important;
         }
+        .statement-print-footer {
+          position: fixed;
+          left: 10mm;
+          right: 10mm;
+          bottom: 4mm;
+          z-index: 50;
+          display: flex !important;
+          align-items: center;
+          justify-content: space-between;
+          padding-top: 3mm;
+          border-top: 1px solid #cbd5e1;
+          background: #ffffff;
+        }
       }
     </style>
   </head>
   <body>
-    ${clone.outerHTML}
+    <div data-report-print-root>
+      ${clone.outerHTML}
+    </div>
+    ${statementPrintFooterHtml}
     <script>
-      window.onload = () => { setTimeout(() => window.print(), 120); };
+      const syncStatementFooterMeta = () => {
+        const printDate = new Intl.DateTimeFormat('${printLocale}', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        }).format(new Date());
+        document.querySelectorAll('[data-statement-print-date]').forEach(node => {
+          node.textContent = printDate;
+        });
+
+        const mmToPx = ${MM_TO_PX};
+        const pageHeightMm = '${pageOrientation}' === 'landscape' ? 210 : 297;
+        const topMarginPx = ${pageTopMarginMm} * mmToPx;
+        const bottomMarginPx = ${pageBottomMarginMm} * mmToPx;
+        const bodyStyle = window.getComputedStyle(document.body);
+        const bodyPaddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+        const bodyPaddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+        const printableHeight = Math.max(1, (pageHeightMm * mmToPx) - topMarginPx - bottomMarginPx - bodyPaddingTop - bodyPaddingBottom);
+        const root = document.querySelector('[data-report-print-root]');
+        const contentHeight = Math.max(
+          root ? Math.max(root.scrollHeight, root.getBoundingClientRect().height) : 0
+        );
+        const pageCount = Math.max(1, Math.ceil(contentHeight / printableHeight));
+        document.querySelectorAll('[data-statement-page-count]').forEach(node => {
+          node.textContent = String(pageCount);
+        });
+      };
+
+      window.onload = async () => {
+        try {
+          if (document.fonts?.ready) {
+            await Promise.race([
+              document.fonts.ready,
+              new Promise(resolve => setTimeout(resolve, 800))
+            ]);
+          }
+        } catch {}
+        await waitForRenderPass(2, 140);
+        syncStatementFooterMeta();
+        window.focus();
+        setTimeout(() => window.print(), 120);
+      };
       ${autoCloseScript}
     </script>
   </body>
 </html>`;
 
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.focus();
-  return true;
+  try {
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const expandSnapshotLayout = (root: HTMLElement) => {
@@ -931,6 +1185,23 @@ const expandSnapshotLayout = (root: HTMLElement) => {
     node.style.minHeight = '0';
   });
 
+  root.querySelectorAll<HTMLElement>('.statement-mobile-viewport, .statement-mobile-canvas, .directory-statement-content').forEach(node => {
+    node.style.overflow = 'visible';
+    node.style.width = '100%';
+    node.style.minWidth = '0';
+    node.style.maxWidth = 'none';
+    node.style.height = 'auto';
+    node.style.maxHeight = 'none';
+    node.style.transform = 'none';
+    node.style.setProperty('zoom', '1');
+  });
+
+  root.querySelectorAll<HTMLElement>('.directory-statement-inline-detail, .statement-inline-detail').forEach(node => {
+    node.style.width = '100%';
+    node.style.minWidth = '0';
+    node.style.maxWidth = 'none';
+  });
+
   root.querySelectorAll<HTMLElement>('table').forEach(node => {
     node.style.width = '100%';
     node.style.minWidth = '0';
@@ -944,9 +1215,17 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   const padding = options.padding ?? 16;
   const backgroundColor = options.backgroundColor || '#ffffff';
   const clone = stripInteractiveElements(element);
-  const minRenderWidth = Math.max(360, options.minRenderWidth ?? 720);
+  const hasClassicStatementLayout = clone.classList.contains('statement-classic-sheet')
+    || Boolean(clone.querySelector('.statement-classic-sheet'));
+  const liveElementWidth = Math.max(Math.ceil(element.getBoundingClientRect().width), 360);
+  const minRenderWidth = Math.max(
+    360,
+    options.minRenderWidth ?? (hasClassicStatementLayout ? liveElementWidth : 720)
+  );
   const orientation = options.orientation || 'portrait';
-  const defaultMaxRenderWidth = orientation === 'landscape' ? 1360 : 980;
+  const defaultMaxRenderWidth = hasClassicStatementLayout
+    ? Math.max(minRenderWidth, liveElementWidth)
+    : (orientation === 'landscape' ? 1360 : 980);
   const maxRenderWidth = Math.max(minRenderWidth, options.maxRenderWidth ?? defaultMaxRenderWidth);
   const measuredWidth = Math.max(element.scrollWidth, Math.ceil(element.getBoundingClientRect().width), minRenderWidth);
   const sourceWidth = Math.min(measuredWidth, maxRenderWidth);
@@ -988,12 +1267,81 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   });
   // Ensure Tajawal Arabic font is explicitly available to the snapshot host
   const fontFace = document.createElement('style');
+  const snapshotSupportStyles = hasClassicStatementLayout
+    ? ''
+    : `
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: ${dir === 'rtl' ? 'right' : 'left'}; vertical-align: top; font-size: 12px; line-height: 1.45; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+    .statement-mobile-viewport,
+    .statement-mobile-canvas,
+    .directory-statement-content {
+      overflow: visible !important;
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      height: auto !important;
+      max-height: none !important;
+      transform: none !important;
+      zoom: 1 !important;
+    }
+    .directory-statement-table,
+    .statement-report-table {
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: 100% !important;
+      table-layout: fixed !important;
+    }
+    .directory-statement-table th,
+    .directory-statement-table td,
+    .statement-report-table th,
+    .statement-report-table td {
+      font-size: 12px !important;
+      line-height: 1.6 !important;
+      padding: 8px 7px !important;
+      white-space: normal !important;
+      word-break: break-word !important;
+      overflow-wrap: anywhere !important;
+    }
+    .directory-statement-description,
+    .directory-statement-description-text,
+    .statement-report-description {
+      font-size: 12px !important;
+      line-height: 1.72 !important;
+      font-weight: 700 !important;
+    }
+    .directory-statement-inline-detail,
+    .statement-inline-detail {
+      width: 100% !important;
+      min-width: 0 !important;
+      max-width: none !important;
+    }
+    .directory-statement-inline-title,
+    .statement-inline-detail-title,
+    .statement-inline-detail-footer {
+      font-size: 10px !important;
+      line-height: 1.35 !important;
+    }
+    .directory-statement-detail-table th,
+    .directory-statement-detail-table td,
+    .statement-inline-table th,
+    .statement-inline-table td {
+      font-size: 10px !important;
+      line-height: 1.35 !important;
+      padding: 6px 7px !important;
+    }
+    .directory-statement-detail-table .statement-inline-value,
+    .statement-inline-value {
+      white-space: nowrap !important;
+      word-break: keep-all !important;
+      overflow-wrap: normal !important;
+      font-variant-numeric: tabular-nums !important;
+    }
+  `;
   fontFace.textContent = `
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=block');
     * { font-family: ${dir === 'rtl' ? "'Tajawal', Arial, sans-serif" : "'Segoe UI', Arial, sans-serif"}; }
     .dir-ltr { direction: ltr; unicode-bidi: embed; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: ${dir === 'rtl' ? 'right' : 'left'}; vertical-align: top; font-size: 12px; line-height: 1.45; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+    ${snapshotSupportStyles}
   `;
   styleHost.appendChild(fontFace);
   host.insertBefore(styleHost, viewport);
@@ -1022,7 +1370,7 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
       await document.fonts.ready;
     }
     // Allow an extra frame for fonts to render in the offscreen host.
-    await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    await waitForRenderPass(2, 140);
 
     const pdf = new jsPDF({
       orientation: options.orientation || 'portrait',
@@ -1043,24 +1391,31 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     const naturalSliceHeight = Math.floor(((printableHeight * hostWidth) / printableWidth) - (padding * 2));
     const maxSliceHeight = Math.max(960, Math.floor(1800 / Math.max(scale, 1)));
     const pageSliceHeight = Math.max(1, Math.min(naturalSliceHeight, maxSliceHeight));
+    const estimatedPageCount = Math.max(1, Math.ceil(totalHeight / pageSliceHeight));
+    updateStatementFooterMeta(clone, {
+      printDate: formatStatementPrintDate(options.lang || 'ar'),
+      pageCount: estimatedPageCount
+    });
     let renderedHeight = 0;
     let pageIndex = 0;
 
     while (renderedHeight < totalHeight) {
       const sliceHeight = Math.min(pageSliceHeight, totalHeight - renderedHeight);
+      const captureHeight = Math.ceil(sliceHeight + (padding * 2));
       viewport.style.height = `${sliceHeight}px`;
+      host.style.height = `${captureHeight}px`;
       clone.style.transform = `translateY(-${renderedHeight}px)`;
 
-      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+      await waitForRenderPass(1, 100);
 
       const canvas = await html2canvas(host, {
         backgroundColor,
         scale,
         useCORS: true,
         width: hostWidth,
-        height: Math.ceil(host.scrollHeight),
+        height: captureHeight,
         windowWidth: hostWidth,
-        windowHeight: Math.ceil(host.scrollHeight),
+        windowHeight: captureHeight,
         scrollX: 0,
         scrollY: 0
       });
@@ -1078,6 +1433,7 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     }
 
     clone.style.transform = 'translateY(0)';
+    host.style.height = 'auto';
 
     const fileName = options.fileName.endsWith('.pdf') ? options.fileName : `${options.fileName}.pdf`;
     const blob = pdf.output('blob');

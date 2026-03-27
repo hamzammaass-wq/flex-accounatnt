@@ -13,7 +13,7 @@ import {
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, printElementContent, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
 import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
 import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
 
@@ -201,18 +201,402 @@ const Directory: React.FC = () => {
             const { contraAccountId, isReceipt } = getPaymentLineMeta(sub, contact);
             const account = accounts.find(a => a.id === contraAccountId);
             if (!account) return [];
+            const relatedCheck = sub.checkId ? checks.find(c => c.id === sub.checkId) : null;
 
-            const showSplitAmount = sub.amount !== entry.debit && sub.amount !== entry.credit;
             return [{
                 id: `${entry.id || entry.voucherId || 'statement'}-payment-${index}`,
                 label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
                 accountName: displayAccountName(account),
-                amount: showSplitAmount ? Number(sub.amount) || 0 : null,
-                currency: sub.currency || entry.currency || baseCurrency
+                amount: Number(sub.amount ?? sub.debit ?? sub.credit ?? entry.amount ?? entry.debit ?? entry.credit ?? 0) || 0,
+                currency: sub.currency || entry.currency || baseCurrency,
+                checkMeta: relatedCheck ? {
+                    checkNumber: relatedCheck.checkNumber || '-',
+                    bankName: displayAccountName(
+                        relatedCheck.bankAccountId
+                            ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null
+                            : { id: '', name: relatedCheck.bankName }
+                    ) || relatedCheck.bankName || '-',
+                    dueDate: formatDate(relatedCheck.dueDate) || '-'
+                } : null
             }];
         });
 
         return { invoice, checkRows, paymentRows };
+    };
+
+    const getStatementDocumentNumber = (entry?: { voucherId?: string; invoiceId?: string | null } | null) => {
+        if (!entry) return '-';
+        const voucherId = String(entry.voucherId || '').trim();
+        if (voucherId) return voucherId;
+
+        const linkedInvoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
+        if (linkedInvoice?.invoiceNumber) {
+            return linkedInvoice.invoiceNumber;
+        }
+
+        return '-';
+    };
+
+    type ClassicStatementPreview = ReturnType<typeof buildStatementEntryPreview>;
+
+    type ClassicStatementRow = {
+        id: string;
+        entry: any;
+        preview: ClassicStatementPreview;
+        dateText: string;
+        documentNumber: string;
+        notesText: string;
+        primaryDescription: string;
+        secondaryDescription: string;
+        debit: number;
+        credit: number;
+        balance: number;
+    };
+
+    const formatStatementFigure = (value: number, fractionDigits = 2) => {
+        const normalized = Number(value || 0).toLocaleString('en-US', {
+            minimumFractionDigits: fractionDigits,
+            maximumFractionDigits: fractionDigits,
+            useGrouping: false
+        });
+        return dottedNumbers ? normalized.replace(/,/g, '.') : normalized;
+    };
+
+    const getClassicStatementBalanceColumnLabel = () => {
+        return tr('الرصيد', 'Balance');
+    };
+
+    const getClassicStatementDocumentLabel = (entry: any, preview: ClassicStatementPreview) => {
+        const rawDescription = String(entry.description || '').trim().toLowerCase();
+        const hasBankAccount = preview.paymentRows.some(row => /bank|بنك/i.test(String(row.accountName || '')));
+
+        switch (entry.category) {
+            case 'sales_invoice': return tr('مبيعات', 'Sales');
+            case 'sales_return': return tr('مردود مبيعات', 'Sales Return');
+            case 'purchase_invoice': return tr('مشتريات', 'Purchases');
+            case 'purchase_return': return tr('مردود مشتريات', 'Purchase Return');
+            case 'receipt': return tr('قبض', 'Receipt');
+            case 'payment':
+                return hasBankAccount || /bank|بنك/.test(rawDescription)
+                    ? tr('قيد بنكي', 'Bank Entry')
+                    : tr('صرف', 'Payment');
+            case 'returned_check':
+            case 'returned_checks':
+            case 'check_return': return tr('بدل شيك راجع', 'Returned Check');
+            default: break;
+        }
+
+        if (preview.checkRows.length > 0) return tr('قبض', 'Receipt');
+        if (hasBankAccount || /bank|بنك/.test(rawDescription)) return tr('قيد بنكي', 'Bank Entry');
+        return tr('قيد', 'Entry');
+    };
+
+    const getClassicStatementDescriptionText = (entry: any, preview: ClassicStatementPreview) => {
+        const rawDescription = String(entry.description || '').trim();
+        const documentLabel = getClassicStatementDocumentLabel(entry, preview);
+        if (rawDescription && rawDescription !== documentLabel) {
+            return rawDescription;
+        }
+
+        const paymentNames = preview.paymentRows.map(row => row.accountName).filter(Boolean).join(' - ');
+        if (paymentNames) return paymentNames;
+
+        if (preview.invoice?.notes?.trim()) return preview.invoice.notes.trim();
+
+        return tr('بدون بيان', 'No description');
+    };
+
+    const buildClassicStatementRows = (contact: Contact, entries: any[]) => {
+        const printableEntries = statementDateAscending ? [...entries] : [...entries].reverse();
+        return printableEntries.map((entry): ClassicStatementRow => {
+            const preview = buildStatementEntryPreview(entry, contact, { includeCheckImages: false });
+            const paymentNames = preview.paymentRows.map(row => row.accountName).filter(Boolean);
+            const invoiceNotes = String(preview.invoice?.notes || '').trim();
+            const notesText = [...paymentNames, ...(invoiceNotes ? [invoiceNotes] : [])].join(' - ');
+            const primaryDescription = getClassicStatementDocumentLabel(entry, preview);
+            const secondaryDescription = getClassicStatementDescriptionText(entry, preview);
+
+            return {
+                id: entry.id,
+                entry,
+                preview,
+                dateText: formatDate(entry.date) || entry.date || '-',
+                documentNumber: hideVoucherColumnInStatement ? '' : getStatementDocumentNumber(entry),
+                notesText,
+                primaryDescription,
+                secondaryDescription,
+                debit: Number(entry.debit) || 0,
+                credit: Number(entry.credit) || 0,
+                balance: Number(entry.runningBalance) || 0
+            };
+        });
+    };
+
+    const renderClassicStatementInlineDetails = (preview: ClassicStatementPreview, mainDescription: string) => {
+        const notesText = String(preview.invoice?.notes || '').trim();
+        const paymentRows = preview.paymentRows.filter(row => row.amount > 0 || row.accountName);
+        const standaloneCheckRows = paymentRows.length > 0 ? [] : preview.checkRows;
+        const paymentTotal = paymentRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+        const formatVoucherAmount = (value: number, currency?: string) => {
+            const formatted = formatStatementFigure(value);
+            return printStatementAllCurrencies ? `${formatted} ${currency || baseCurrency}` : formatted;
+        };
+        const showNotesLine = Boolean(notesText && notesText !== mainDescription);
+        if (!preview.invoice?.items?.length && !standaloneCheckRows.length && !paymentRows.length && !showNotesLine) return null;
+
+        return (
+            <div className="statement-classic-detail-block">
+                {standaloneCheckRows.length > 0 && (
+                    <div className="statement-classic-detail-meta-list">
+                        {standaloneCheckRows.map(check => (
+                            <div key={check.id} className="statement-classic-detail-line statement-classic-detail-line--check">
+                                <span className="statement-classic-detail-label">{tr('شيك', 'Check')}</span>
+                                <span className="statement-classic-detail-pill statement-inline-value">{check.checkNumber || '-'}</span>
+                                <span>{tr('البنك', 'Bank')}: {check.bankName || '-'}</span>
+                                <span className="dir-ltr">{tr('الاستحقاق', 'Due')}: {check.dueDate || '-'}</span>
+                                <span className="statement-inline-value">{formatStatementFigure(check.amount)}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {paymentRows.length > 0 && (
+                    <table className="statement-classic-inline-table statement-classic-inline-table--voucher w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                        <colgroup>
+                            <col style={{ width: '24%' }} />
+                            <col style={{ width: '50%' }} />
+                            <col style={{ width: '26%' }} />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th className="text-center">{tr('العملية', 'Action')}</th>
+                                <th className="text-start">{tr('الحساب', 'Account')}</th>
+                                <th className="text-center">{tr('المبلغ', 'Amount')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paymentRows.map(row => (
+                                <tr key={row.id}>
+                                    <td className="text-center">{row.label}</td>
+                                    <td>
+                                        <div className="statement-classic-voucher-account">
+                                            <div className="statement-classic-voucher-account-name">{row.accountName || '-'}</div>
+                                            {row.checkMeta && (
+                                                <div className="statement-classic-voucher-check-meta">
+                                                    <div>
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('شيك', 'Check')}:</span>{' '}
+                                                        <span className="statement-inline-value">{row.checkMeta.checkNumber}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('البنك', 'Bank')}:</span>{' '}
+                                                        <span>{row.checkMeta.bankName}</span>
+                                                    </div>
+                                                    <div className="dir-ltr">
+                                                        <span className="statement-classic-voucher-check-meta-label">{tr('الاستحقاق', 'Due')}:</span>{' '}
+                                                        <span>{row.checkMeta.dueDate}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="text-center dir-ltr font-black">{formatVoucherAmount(row.amount, row.currency)}</td>
+                                </tr>
+                            ))}
+                            <tr className="statement-classic-inline-summary-row">
+                                <td className="statement-classic-inline-summary-label text-center">{tr('الإجمالي', 'Total')}</td>
+                                <td className="text-center statement-classic-placeholder">-</td>
+                                <td className="text-center dir-ltr font-black">{formatVoucherAmount(paymentTotal, paymentRows[0]?.currency)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
+
+                {preview.invoice && preview.invoice.items.length > 0 && (
+                    <table className="statement-classic-inline-table w-full" dir={isEnglish ? 'ltr' : 'rtl'}>
+                        <colgroup>
+                            <col style={{ width: '39%' }} />
+                            <col style={{ width: '17%' }} />
+                            <col style={{ width: '18%' }} />
+                            <col style={{ width: '26%' }} />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th className="text-start">{tr('اسم الصنف', 'Item')}</th>
+                                <th className="text-center">{tr('الكمية', 'Qty')}</th>
+                                <th className="text-center">{tr('السعر', 'Price')}</th>
+                                <th className="text-center">{tr('إجمالي', 'Total')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {preview.invoice.items.map((item, idx) => {
+                                const product = products.find(p => p.id === item.productId);
+                                return (
+                                    <tr key={item.id || idx}>
+                                        <td>{item.description || displayProductName(product) || product?.itemCode || product?.barcode || '-'}</td>
+                                        <td className="text-center dir-ltr">{formatStatementFigure(Number(item.quantity) || 0, 2)}</td>
+                                        <td className="text-center dir-ltr">{formatStatementFigure(Number(item.unitPrice) || 0, 3)}</td>
+                                        <td className="text-center dir-ltr font-black">{formatStatementFigure(Number(item.total) || 0)}</td>
+                                    </tr>
+                                );
+                            })}
+                            <tr className="statement-classic-inline-summary-row">
+                                <td className="statement-classic-inline-summary-label">{tr('المجموع', 'Total')}</td>
+                                <td className="text-center dir-ltr">{tr('خصم:', 'Discount:')} {formatStatementFigure(Number(preview.invoice.discountAmount) || 0)}</td>
+                                <td className="text-center statement-classic-placeholder">-</td>
+                                <td className="text-center dir-ltr font-black">{formatStatementFigure(Number(preview.invoice.totalAmount) || 0)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                )}
+
+                {showNotesLine && <div className="statement-classic-note-line">{notesText}</div>}
+            </div>
+        );
+    };
+
+    const renderClassicContactStatement = (
+        contact: Contact,
+        openingBalance: number,
+        closingBalance: number,
+        entries: any[],
+        sheetRef?: React.Ref<HTMLDivElement>
+    ) => {
+        const rows = buildClassicStatementRows(contact, entries);
+        const totalDebit = rows.reduce((sum, row) => sum + row.debit, 0);
+        const totalCredit = rows.reduce((sum, row) => sum + row.credit, 0);
+        const openingRowDate = stmtStartDate ? (formatDate(stmtStartDate) || stmtStartDate) : '-';
+        const phoneValue = String(contact.phone || '').trim();
+        const statementKind = contact.type === 'SUPPLIER'
+            ? tr('كشف حساب مورد', 'Supplier Statement')
+            : tr('كشف حساب زبون', 'Customer Statement');
+
+        const companyName = String(companySettings.name || '').trim();
+        const companyPhone = String(companySettings.phone || '').trim();
+
+        return (
+            <div ref={sheetRef} className="statement-classic-sheet directory-statement-classic bg-white rounded-[1.75rem] border border-gray-200 shadow-sm overflow-hidden">
+                <div className="statement-classic-header">
+                    <div className="statement-classic-title-block">
+                        <h3 className="statement-classic-title">{tr('كشف حساب', 'Statement of Account')}</h3>
+                        {companyName && (
+                            <p className="statement-classic-company-name">{companyName}{companyPhone ? <span className="statement-classic-company-phone dir-ltr"> | {companyPhone}</span> : null}</p>
+                        )}
+                    </div>
+
+                    <div className="statement-classic-identity-row statement-classic-identity-row--paper">
+                        <div className="statement-classic-identity statement-classic-identity--party">
+                            <span className="statement-classic-identity-label">{tr('حضرة السيد', 'To')}</span>
+                            <span className="statement-classic-identity-value">{displayContactName(contact)}</span>
+                        </div>
+                        <div className="statement-classic-identity statement-classic-identity--phone">
+                            <span className={`statement-classic-identity-value statement-inline-value ${phoneValue ? '' : 'statement-classic-placeholder'}`}>{phoneValue ? `( ${phoneValue} )` : '( - )'}</span>
+                            <span className="statement-classic-identity-label">{tr('تلفون', 'Phone')}</span>
+                        </div>
+                    </div>
+
+                    <div className="statement-classic-meta-row">
+                        <span>{statementKind}</span>
+                        <span>{tr('الفترة', 'Period')}: <span className="statement-inline-value">{stmtStartDate}</span> - <span className="statement-inline-value">{stmtEndDate}</span></span>
+                        <span>{tr('العملة', 'Currency')}: <span className="statement-inline-value">{baseCurrency}</span></span>
+                    </div>
+                </div>
+
+                <div className="statement-mobile-viewport">
+                    <div className="statement-mobile-canvas">
+                        <table
+                            dir={isEnglish ? 'ltr' : 'rtl'}
+                            className="directory-statement-table statement-classic-table statement-classic-table--paper w-full text-start table-fixed min-w-0 max-w-full"
+                        >
+                            <colgroup>
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '13%' }} />
+                                <col style={{ width: '41%' }} />
+                                <col style={{ width: '11%' }} />
+                                <col style={{ width: '11%' }} />
+                                <col style={{ width: '12%' }} />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>{tr('التاريخ', 'Date')}</th>
+                                    <th>{tr('المستند', 'Document')}</th>
+                                    <th>{tr('البيان', 'Description')}</th>
+                                    <th>{tr('مدين', 'Debit')}</th>
+                                    <th>{tr('دائن', 'Credit')}</th>
+                                    <th>{getClassicStatementBalanceColumnLabel()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr className="statement-classic-row statement-classic-row--opening">
+                                    <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
+                                    <td className="statement-classic-document-cell"></td>
+                                    <td className="statement-classic-description">{tr('رصيد منقول', 'Balance B/F')}</td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-balance-cell dir-ltr">{formatStatementFigure(openingBalance)}</td>
+                                </tr>
+
+                                {rows.map(row => {
+                                    const detailBlock = renderClassicStatementInlineDetails(row.preview, row.secondaryDescription);
+                                    return (
+                                        <React.Fragment key={row.id}>
+                                            <tr className={`statement-classic-row ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
+                                                <td className="statement-classic-date-cell dir-ltr">{row.dateText}</td>
+                                                <td className="statement-classic-document-cell">
+                                                    <div className="statement-classic-document-wrap">
+                                                        <span className="statement-classic-document-label">{row.primaryDescription}</span>
+                                                        <span className="statement-classic-document-number dir-ltr">{row.documentNumber}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="statement-classic-description">
+                                                    <div className="statement-classic-primary">{row.secondaryDescription}</div>
+                                                </td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{row.debit > 0 ? formatStatementFigure(row.debit) : '-'}</td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{row.credit > 0 ? formatStatementFigure(row.credit) : '-'}</td>
+                                                <td className="statement-classic-balance-cell dir-ltr">{formatStatementFigure(row.balance)}</td>
+                                            </tr>
+                                            {detailBlock && (
+                                                <tr className="statement-classic-detail-row">
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-detail-cell">{detailBlock}</td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+
+                                {rows.length === 0 && (
+                                    <tr className="statement-classic-empty-row">
+                                        <td colSpan={6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                    </tr>
+                                )}
+
+                                <tr className="statement-classic-summary-inline-row">
+                                    <td></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatStatementFigure(totalDebit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatStatementFigure(totalCredit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatStatementFigure(closingBalance)}</td>
+                                </tr>
+                                <tr className="statement-classic-fill-row">
+                                    <td colSpan={6}></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {statementFooterNote && (
+                    <div className="statement-classic-note-panel">
+                        <div className="statement-classic-note">{statementFooterNote}</div>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const getTransactionDC = (t: typeof transactions[0], contact: Contact) => {
@@ -415,146 +799,127 @@ const Directory: React.FC = () => {
 
         const rows = printableStatements.map(t => {
             const entryPreview = buildStatementEntryPreview(t, contact, { includeCheckImages });
-            const statementCheckDetailsHtml = entryPreview.checkRows.length > 0
-                ? `
-                    <div class="statement-entry-detail statement-entry-detail--checks">
-                        <div class="statement-entry-detail-title">${tr('تفاصيل الشيكات', 'Check details')}</div>
-                        <table class="statement-detail-table statement-detail-table--checks">
-                            <colgroup>
-                                <col style="width:18%" />
-                                <col style="width:28%" />
-                                <col style="width:18%" />
-                                <col style="width:16%" />
-                                <col style="width:20%" />
-                            </colgroup>
-                            <thead>
-                                <tr>
-                                    <th>${tr('رقم الشيك', 'Check #')}</th>
-                                    <th>${tr('البنك', 'Bank')}</th>
-                                    <th>${tr('الحساب', 'Account')}</th>
-                                    <th>${tr('الاستحقاق', 'Due')}</th>
-                                    <th>${tr('المبلغ', 'Amount')}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${entryPreview.checkRows.map(checkRow => `
-                                    <tr>
-                                        <td>${escapeHtml(checkRow.checkNumber)}</td>
-                                        <td>${escapeHtml(checkRow.bankName)}</td>
-                                        <td>${escapeHtml(checkRow.accountNumber || '-')}</td>
-                                        <td class="statement-number-cell">${escapeHtml(checkRow.dueDate)}</td>
-                                        <td class="statement-number-cell">${escapeHtml(formatPrintAmount(checkRow.amount, checkRow.currency))}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                        ${entryPreview.checkRows.some(checkRow => checkRow.imageUrls.length > 0)
-                            ? `
-                                <div class="statement-check-gallery">
-                                    ${entryPreview.checkRows.map((checkRow, checkIndex) => checkRow.imageUrls.map((src, imageIndex) => `
-                                        <div class="statement-check-image-frame">
-                                            <img src="${escapeAttr(src)}" alt="${escapeAttr(`${tr('صورة الشيك', 'Check image')} ${checkIndex + 1}-${imageIndex + 1}`)}" class="statement-check-image" />
-                                        </div>
-                                    `).join('')).join('')}
-                                </div>
-                            `
-                            : ''
-                        }
-                    </div>
-                `
+
+            const statementCheckDetailsHtml = entryPreview.checkRows.length > 0 && entryPreview.paymentRows.length === 0
+                ? `<div class="stmt-detail stmt-detail--checks">
+                    <div class="stmt-detail-title">${tr('تفاصيل الشيكات', 'Check details')}</div>
+                    ${entryPreview.checkRows.map((checkRow, ci) => `
+                        <div class="stmt-check-item">
+                            <div class="stmt-check-row1">
+                                <span>${tr('شيك', 'Check')} <strong>#${escapeHtml(checkRow.checkNumber)}</strong></span>
+                                <span class="stmt-num">${escapeHtml(formatPrintAmount(checkRow.amount, checkRow.currency))}</span>
+                            </div>
+                            <div class="stmt-check-row2">
+                                <span>${tr('البنك', 'Bank')}: ${escapeHtml(checkRow.bankName)}</span>
+                                ${checkRow.accountNumber ? `<span>${tr('الحساب', 'Acct')}: ${escapeHtml(checkRow.accountNumber)}</span>` : ''}
+                                <span>${tr('الاستحقاق', 'Due')}: ${escapeHtml(checkRow.dueDate)}</span>
+                            </div>
+                            ${checkRow.imageUrls.length > 0 ? `<div class="stmt-check-gallery">${checkRow.imageUrls.map((src, ii) => `<div class="stmt-check-image-frame"><img src="${escapeAttr(src)}" alt="${escapeAttr(`${tr('صورة الشيك', 'Check')} ${ci + 1}-${ii + 1}`)}" class="stmt-check-image" /></div>`).join('')}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>`
                 : '';
 
             const statementPaymentDetailsHtml = entryPreview.paymentRows.length > 0
-                ? `
-                    <div class="statement-entry-detail statement-entry-detail--payments">
-                        <div class="statement-entry-detail-title">${tr('تفاصيل السند', 'Voucher details')}</div>
-                        <table class="statement-detail-table statement-detail-table--payments">
-                            <colgroup>
-                                <col style="width:28%" />
-                                <col style="width:48%" />
-                                <col style="width:24%" />
-                            </colgroup>
-                            <thead>
+                ? `<div class="stmt-detail stmt-detail--payment">
+                    <div class="stmt-detail-title">${tr('تفاصيل السند', 'Voucher details')}</div>
+                    <table class="stmt-detail-table stmt-detail-table--voucher">
+                        <colgroup>
+                            <col style="width:24%" />
+                            <col style="width:50%" />
+                            <col style="width:26%" />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>${tr('العملية', 'Action')}</th>
+                                <th>${tr('الحساب', 'Account')}</th>
+                                <th>${tr('المبلغ', 'Amount')}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${entryPreview.paymentRows.map(pr => `
                                 <tr>
-                                    <th>${tr('الحركة', 'Movement')}</th>
-                                    <th>${tr('الحساب', 'Account')}</th>
-                                    <th>${tr('المبلغ', 'Amount')}</th>
+                                    <td>${escapeHtml(pr.label)}</td>
+                                    <td>
+                                        <div class="stmt-voucher-account">
+                                            <div class="stmt-voucher-account-name">${escapeHtml(pr.accountName)}</div>
+                                            ${pr.checkMeta ? `
+                                                <div class="stmt-voucher-check-meta">
+                                                    <div><span class="stmt-voucher-check-meta-label">${tr('شيك', 'Check')}:</span> <span class="stmt-num">${escapeHtml(pr.checkMeta.checkNumber)}</span></div>
+                                                    <div><span class="stmt-voucher-check-meta-label">${tr('البنك', 'Bank')}:</span> ${escapeHtml(pr.checkMeta.bankName)}</div>
+                                                    <div><span class="stmt-voucher-check-meta-label">${tr('الاستحقاق', 'Due')}:</span> <span class="stmt-num">${escapeHtml(pr.checkMeta.dueDate)}</span></div>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </td>
+                                    <td class="stmt-num">${escapeHtml(formatPrintAmount(pr.amount, pr.currency))}</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                ${entryPreview.paymentRows.map(paymentRow => `
-                                    <tr>
-                                        <td>${escapeHtml(paymentRow.label)}</td>
-                                        <td>${escapeHtml(paymentRow.accountName)}</td>
-                                        <td class="statement-number-cell">${paymentRow.amount === null ? '-' : escapeHtml(formatPrintAmount(paymentRow.amount, paymentRow.currency))}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `
+                            `).join('')}
+                            <tr class="stmt-detail-table-summary">
+                                <td>${tr('الإجمالي', 'Total')}</td>
+                                <td>-</td>
+                                <td class="stmt-num">${escapeHtml(formatPrintAmount(entryPreview.paymentRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0), entryPreview.paymentRows[0]?.currency))}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>`
                 : '';
 
             const statementInvoiceDetailsHtml = entryPreview.invoice
-                ? `
-                    <div class="statement-entry-detail statement-entry-detail--invoice">
-                        <div class="statement-entry-detail-title">${tr('تفاصيل الفاتورة', 'Invoice details')}</div>
-                        <table class="statement-detail-table statement-detail-table--invoice">
-                            <colgroup>
-                                <col style="width:52%" />
-                                <col style="width:12%" />
-                                <col style="width:16%" />
-                                <col style="width:20%" />
-                            </colgroup>
-                            <thead>
-                                <tr>
-                                    <th>${tr('الصنف', 'Item')}</th>
-                                    <th>${tr('الكمية', 'Qty')}</th>
-                                    <th>${tr('السعر', 'Price')}</th>
-                                    <th>${tr('الإجمالي', 'Total')}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${entryPreview.invoice.items.map(item => {
-                                    const product = products.find(p => p.id === item.productId);
-                                    return `
-                                        <tr>
-                                            <td>${escapeHtml(item.description || displayProductName(product))}</td>
-                                            <td class="statement-number-cell">${escapeHtml(formatPrintNumber(item.quantity))}</td>
-                                            <td class="statement-number-cell">${escapeHtml(formatPrintAmount(item.unitPrice, entryPreview.invoice?.currency))}</td>
-                                            <td class="statement-number-cell">${escapeHtml(formatPrintAmount(item.total, entryPreview.invoice?.currency))}</td>
-                                        </tr>
-                                    `;
-                                }).join('')}
-                            </tbody>
-                        </table>
-                        ${(printExpiryDate && entryPreview.invoice.dueDate)
-                            ? `<div class="statement-entry-detail-footer"><strong>${tr('تاريخ الاستحقاق', 'Expiry Date')}:</strong> <span class="statement-number-cell">${escapeHtml(formatDate(entryPreview.invoice.dueDate) || '-')}</span></div>`
-                            : ''
-                        }
+                ? `<div class="stmt-detail stmt-detail--invoice">
+                    <div class="stmt-detail-title">${tr('تفاصيل الفاتورة', 'Invoice details')}</div>
+                    <div class="stmt-invoice-head">
+                        <span>${tr('الصنف', 'Item')}</span>
+                        <span>${tr('الكمية', 'Qty')} × ${tr('السعر', 'Price')}</span>
+                        <span>${tr('الإجمالي', 'Total')}</span>
                     </div>
-                `
+                    ${entryPreview.invoice.items.map(item => {
+                        const product = products.find(p => p.id === item.productId);
+                        return `<div class="stmt-invoice-item">
+                            <span class="stmt-item-name">${escapeHtml(item.description || displayProductName(product))}</span>
+                            <span class="stmt-item-meta">${escapeHtml(formatPrintNumber(item.quantity))} × ${escapeHtml(formatPrintAmount(item.unitPrice, entryPreview.invoice?.currency))}</span>
+                            <span class="stmt-item-total">${escapeHtml(formatPrintAmount(item.total, entryPreview.invoice?.currency))}</span>
+                        </div>`;
+                    }).join('')}
+                    ${(printExpiryDate && entryPreview.invoice.dueDate)
+                        ? `<div class="stmt-invoice-footer"><strong>${tr('تاريخ الاستحقاق', 'Due Date')}:</strong> ${escapeHtml(formatDate(entryPreview.invoice.dueDate) || '-')}</div>`
+                        : ''}
+                </div>`
                 : '';
 
             return `
-                <tr>
-                    <td class="statement-main-date statement-number-cell">${escapeHtml(formatDate(t.date) || '-')}</td>
-                    ${!hideVoucherColumnInStatement ? `<td class="statement-main-voucher statement-number-cell">${escapeHtml(t.voucherId || '-')}</td>` : ''}
-                    <td class="statement-main-description">
-                        <div class="statement-main-description-text">${escapeHtml(t.description || '-')}</div>
-                        ${statementPaymentDetailsHtml}
-                        ${statementCheckDetailsHtml}
-                        ${statementInvoiceDetailsHtml}
-                    </td>
-                    <td class="statement-main-amount statement-number-cell">${t.debit > 0 ? escapeHtml(formatPrintAmount(t.debit, t.currency)) : '-'}</td>
-                    <td class="statement-main-amount statement-number-cell">${t.credit > 0 ? escapeHtml(formatPrintAmount(t.credit, t.currency)) : '-'}</td>
-                    <td class="statement-main-balance statement-number-cell">${escapeHtml(formatPrintAmount(t.runningBalance, t.currency))}</td>
-                </tr>
+                <div class="stmt-row">
+                    <div class="stmt-row-header">
+                        <span class="stmt-date">${escapeHtml(formatDate(t.date) || '-')}</span>
+                        ${!hideVoucherColumnInStatement ? `<span class="stmt-voucher">${escapeHtml(getStatementDocumentNumber(t))}</span>` : ''}
+                    </div>
+                    <div class="stmt-desc">${escapeHtml(t.description || '-')}</div>
+                    <div class="stmt-amounts">
+                        <div class="stmt-amount-item stmt-debit">
+                            <span class="stmt-amount-label">${debitLabel}</span>
+                            <span class="stmt-amount-value">${t.debit > 0 ? escapeHtml(formatPrintAmount(t.debit, t.currency)) : '-'}</span>
+                        </div>
+                        <div class="stmt-amount-item stmt-credit">
+                            <span class="stmt-amount-label">${creditLabel}</span>
+                            <span class="stmt-amount-value">${t.credit > 0 ? escapeHtml(formatPrintAmount(t.credit, t.currency)) : '-'}</span>
+                        </div>
+                        <div class="stmt-amount-item stmt-balance">
+                            <span class="stmt-amount-label">${tr('الرصيد', 'Balance')}</span>
+                            <span class="stmt-amount-value">${escapeHtml(formatPrintAmount(t.runningBalance, t.currency))}</span>
+                        </div>
+                    </div>
+                    ${statementPaymentDetailsHtml}
+                    ${statementCheckDetailsHtml}
+                    ${statementInvoiceDetailsHtml}
+                </div>
             `;
         }).join('');
 
         const statementTitle = `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`;
         const statementPeriodText = `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`;
+        const printDateLabel = tr('تاريخ الطباعة', 'Print Date');
+        const pageLabel = tr('الصفحة', 'Page');
+        const ofLabel = tr('من', 'of');
         const basePadding = 30 + (Math.max(0, headerTopLines) * 20);
         const shareSummary = `${statementTitle}\n${statementPeriodText}\n${tr('الرصيد الختامي', 'Closing Balance')}: ${formatPrintAmount(closingBalance, baseCurrency)}`;
 
@@ -565,318 +930,184 @@ const Directory: React.FC = () => {
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>${escapeHtml(statementTitle)}</title>
   <style>
-    :root { --statement-body-pad: ${basePadding}px; }
+    :root { --stmt-pad: ${basePadding}px; }
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=block');
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Cairo', 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif;
-      margin: 0;
-      padding: var(--statement-body-pad);
-      background: #f8fafc;
-      color: #111827;
+      padding: var(--stmt-pad) 10px 20px;
+      background: #f1f5f9;
+      color: #0f172a;
+      font-size: 13px;
       line-height: 1.5;
-      letter-spacing: 0;
-      text-rendering: optimizeLegibility;
       -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
-    table, th, td, h1, p, div, span, strong {
-      letter-spacing: 0 !important;
-    }
+    /* Actions bar */
     .statement-actions {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      background: rgba(248, 250, 252, 0.95);
-      backdrop-filter: blur(6px);
-      border: 1px solid #e5e7eb;
-      border-radius: 14px;
-      padding: 10px;
-      margin-bottom: 12px;
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-      flex-wrap: wrap;
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(241,245,249,0.97); backdrop-filter: blur(8px);
+      border: 1px solid #e2e8f0; border-radius: 14px;
+      padding: 8px 10px; margin-bottom: 10px;
+      display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap;
     }
     .statement-actions button {
-      border: 1px solid #d1d5db;
-      background: #fff;
-      color: #111827;
-      padding: 8px 12px;
-      border-radius: 10px;
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      min-width: 92px;
+      border: 1px solid #cbd5e1; background: #fff; color: #1e293b;
+      padding: 8px 14px; border-radius: 10px; font-family: inherit;
+      font-size: 13px; font-weight: 700; cursor: pointer;
     }
-    .statement-actions button:hover {
-      background: #f3f4f6;
-    }
+    .statement-actions button:hover { background: #f8fafc; }
+    /* Sheet */
     .statement-sheet {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 16px;
-      padding: 14px;
-      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 16px;
+      padding: 14px 12px; box-shadow: 0 4px 20px rgba(15,23,42,0.07);
     }
-    .statement-title {
-      margin: 0 0 10px;
-      font-size: 32px;
-      line-height: 1.25;
-      word-break: break-word;
+    .statement-title { font-size: 20px; font-weight: 900; color: #0f172a; margin-bottom: 4px; }
+    .statement-sub { font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 3px; }
+    /* Card list */
+    .stmt-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+    /* Transaction card */
+    .stmt-row {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+      padding: 10px 12px; box-shadow: 0 1px 3px rgba(15,23,42,0.04);
     }
-    .statement-sub {
-      margin: 0 0 8px;
-      color: #4b5563;
-      font-size: 16px;
-      font-weight: 600;
+    .stmt-row--special { background: #f8fafc; border-color: #cbd5e1; }
+    .stmt-row--closing { background: #fff7ed; border-color: #fed7aa; }
+    /* Card header */
+    .stmt-row-header {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 5px;
     }
-    .statement-table-wrap {
-      width: 100%;
-      overflow-x: hidden;
-      margin-top: 10px;
+    .stmt-date { font-size: 11px; font-weight: 700; color: #64748b; direction: ltr; }
+    .stmt-voucher {
+      font-size: 11px; font-weight: 800; color: #4f46e5;
+      background: #eef2ff; padding: 1px 7px; border-radius: 6px; direction: ltr;
     }
-    .statement-number-cell {
-      direction: ltr;
-      unicode-bidi: embed;
-      white-space: nowrap;
+    /* Description */
+    .stmt-desc { font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 8px; line-height: 1.4; }
+    .stmt-desc-bold { font-size: 13px; font-weight: 900; color: #334155; }
+    /* Amounts */
+    .stmt-amounts { display: flex; gap: 5px; margin-top: 2px; }
+    .stmt-amount-item {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      background: #f8fafc; border-radius: 8px; padding: 5px 4px;
+    }
+    .stmt-amount-label { font-size: 9px; font-weight: 700; color: #94a3b8; }
+    .stmt-amount-value {
+      font-size: 12px; font-weight: 900; margin-top: 1px;
+      direction: ltr; white-space: nowrap; font-variant-numeric: tabular-nums;
+    }
+    .stmt-debit .stmt-amount-value { color: #1d4ed8; }
+    .stmt-credit .stmt-amount-value { color: #0891b2; }
+    .stmt-balance .stmt-amount-value { color: #be123c; }
+    /* Detail block */
+    .stmt-detail { margin-top: 8px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    .stmt-detail-title {
+      padding: 5px 10px; font-size: 10px; font-weight: 800;
+      color: #334155; background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+    }
+    .stmt-detail--invoice .stmt-detail-title { background: #eff6ff; color: #1d4ed8; border-bottom-color: #bfdbfe; }
+    .stmt-detail--checks .stmt-detail-title { background: #fff7ed; color: #9a3412; border-bottom-color: #fed7aa; }
+    .stmt-detail--payment .stmt-detail-title { background: #f0fdf4; color: #166534; border-bottom-color: #bbf7d0; }
+    /* Payment row */
+    .stmt-detail-row {
+      display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap;
+      padding: 5px 10px; border-top: 1px solid #f1f5f9; font-size: 11px;
+    }
+    .stmt-detail-row + .stmt-detail-row { border-top: 1px solid #f1f5f9; }
+    .stmt-detail-label { font-weight: 800; color: #334155; flex-shrink: 0; }
+    .stmt-detail-value { flex: 1; font-weight: 600; color: #0f172a; }
+    .stmt-num { font-weight: 800; color: #0f172a; direction: ltr; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .stmt-detail-table {
+      width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff;
+    }
+    .stmt-detail-table th,
+    .stmt-detail-table td {
+      border: 1px solid #cbd5e1; padding: 6px 7px; font-size: 10px; line-height: 1.45; color: #0f172a;
+    }
+    .stmt-detail-table th { background: #f8fafc; font-weight: 900; }
+    .stmt-detail-table th:first-child,
+    .stmt-detail-table td:first-child { text-align: center; }
+    .stmt-detail-table th:last-child,
+    .stmt-detail-table td:last-child { text-align: center; }
+    .stmt-detail-table-summary td { background: #f8fafc; font-weight: 900; }
+    .stmt-voucher-account { display: grid; gap: 3px; }
+    .stmt-voucher-account-name { font-weight: 700; color: #0f172a; word-break: break-word; }
+    .stmt-voucher-check-meta { display: grid; gap: 2px; font-size: 9px; color: #64748b; line-height: 1.35; }
+    .stmt-voucher-check-meta-label { font-weight: 800; color: #475569; }
+    /* Invoice */
+    .stmt-invoice-head {
+      display: flex; gap: 6px; padding: 4px 10px;
+      font-size: 9px; font-weight: 800; color: #64748b;
+      background: #f8fafc; border-bottom: 1px solid #dbeafe;
+    }
+    .stmt-invoice-head span:first-child { flex: 1; }
+    .stmt-invoice-item {
+      display: flex; gap: 6px; align-items: baseline;
+      padding: 5px 10px; border-top: 1px solid #f1f5f9; font-size: 11px;
+    }
+    .stmt-item-name { flex: 1; font-weight: 700; color: #0f172a; word-break: break-word; }
+    .stmt-item-meta { font-size: 10px; color: #64748b; direction: ltr; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .stmt-item-total { font-weight: 900; color: #1d4ed8; direction: ltr; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .stmt-invoice-footer { padding: 5px 10px; font-size: 10px; color: #475569; background: #f8fafc; border-top: 1px solid #bfdbfe; }
+    /* Check */
+    .stmt-check-item { padding: 6px 10px; border-top: 1px solid #f1f5f9; }
+    .stmt-check-row1 {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; font-weight: 700; color: #0f172a; flex-wrap: wrap; gap: 4px;
+    }
+    .stmt-check-row2 { display: flex; gap: 10px; flex-wrap: wrap; font-size: 10px; color: #64748b; margin-top: 2px; }
+    /* Check gallery */
+    .stmt-check-gallery {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: 8px 10px; border-top: 1px solid #fed7aa; background: #fff;
+    }
+    .stmt-check-image-frame { border: 1px solid #e2e8f0; border-radius: 8px; padding: 3px; background: #fff; }
+    .stmt-check-image { display: block; width: 120px; height: 75px; object-fit: cover; border-radius: 6px; }
+    /* Closing summary */
+    .statement-closing-summary { margin-top: 12px; text-align: ${isEnglish ? 'left' : 'right'}; }
+    .statement-closing-summary-label { display: block; font-size: 10px; font-weight: 800; color: #94a3b8; }
+    .statement-closing-summary-value { display: inline-block; margin-top: 2px; color: #e11d48; font-size: 18px; font-weight: 900; direction: ltr; font-variant-numeric: tabular-nums; }
+    .statement-print-footer { display: none; }
+    .statement-print-footer__meta {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; width: 100%;
+    }
+    .statement-print-footer__item {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; color: #334155; white-space: nowrap;
+    }
+    .statement-print-footer__label { color: #64748b; font-weight: 800; }
+    .statement-print-footer__value {
+      color: #0f172a; font-weight: 900;
       font-variant-numeric: tabular-nums;
     }
-    .statement-main-table {
-      table-layout: fixed;
-      width: 100%;
-      min-width: 0;
-      max-width: 100%;
+    .statement-print-footer__counter {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-variant-numeric: tabular-nums;
     }
-    .statement-main-table th,
-    .statement-main-table td {
-      font-size: 11px;
-      line-height: 1.5;
-      padding: 7px 6px;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-      vertical-align: top;
-    }
-    .statement-main-table thead th {
-      background: #eef2ff;
-      color: #1e293b;
-      font-size: 11px;
-      font-weight: 800;
-    }
-    .statement-main-date,
-    .statement-main-voucher,
-    .statement-main-amount,
-    .statement-main-balance {
-      text-align: center;
-      font-size: 10px;
-      line-height: 1.35;
-      white-space: nowrap;
-      overflow-wrap: normal;
-      word-break: normal;
-    }
-    .statement-main-date {
-      padding-left: 4px;
-      padding-right: 4px;
-    }
-    .statement-main-description {
-      text-align: ${isEnglish ? 'left' : 'right'};
-    }
-    .statement-main-description-text {
-      font-weight: 800;
-      color: #0f172a;
-      font-size: 11px;
-      line-height: 1.6;
-    }
-    .statement-main-balance {
-      background: #f8fafc;
-      font-weight: 800;
-    }
-    .statement-entry-detail {
-      margin-top: 8px;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #ffffff;
-    }
-    .statement-entry-detail-title {
-      padding: 7px 10px;
-      font-size: 10px;
-      font-weight: 800;
-      color: #334155;
-      background: #f8fafc;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .statement-entry-detail--checks .statement-entry-detail-title {
-      background: #fff7ed;
-      color: #9a3412;
-      border-bottom-color: #fed7aa;
-    }
-    .statement-entry-detail--payments .statement-entry-detail-title {
-      background: #f8fafc;
-      color: #334155;
-    }
-    .statement-entry-detail--invoice .statement-entry-detail-title {
-      background: #eff6ff;
-      color: #1d4ed8;
-      border-bottom-color: #bfdbfe;
-    }
-    .statement-detail-table {
-      width: 100%;
-      min-width: 0;
-      table-layout: fixed;
-      border-collapse: collapse;
-    }
-    .statement-detail-table th,
-    .statement-detail-table td {
-      border: 1px solid #e2e8f0;
-      padding: 4px 5px;
-      font-size: 9px;
-      line-height: 1.35;
-      text-align: ${isEnglish ? 'left' : 'right'};
-      vertical-align: top;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }
-    .statement-detail-table thead th {
-      background: #f8fafc;
-      color: #475569;
-      font-weight: 800;
-    }
-    .statement-entry-detail--checks .statement-detail-table thead th {
-      background: #fff7ed;
-      color: #9a3412;
-    }
-    .statement-entry-detail--invoice .statement-detail-table thead th {
-      background: #eff6ff;
-      color: #1d4ed8;
-    }
-    .statement-detail-table th:not(:first-child),
-    .statement-detail-table td:not(:first-child) {
-      text-align: center;
-    }
-    .statement-entry-detail-footer {
-      padding: 7px 10px;
-      font-size: 10px;
-      color: #475569;
-      background: #f8fafc;
-      border-top: 1px solid #e2e8f0;
-    }
-    .statement-check-gallery {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      padding: 8px 10px 10px;
-      background: #fff;
-      border-top: 1px solid #fed7aa;
-    }
-    .statement-check-image-frame {
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 4px;
-      background: #fff;
-    }
-    .statement-check-image {
-      display: block;
-      width: 132px;
-      max-width: 28vw;
-      height: 82px;
-      object-fit: cover;
-      border-radius: 7px;
-    }
-    .statement-closing-summary {
-      width: 100%;
-      margin-top: 12px;
-      text-align: left;
-    }
-    .statement-closing-summary-label {
-      display: block;
-      color: #94a3b8;
-      font-size: 10px;
-      font-weight: 800;
-      line-height: 1.4;
-    }
-    .statement-closing-summary-value {
-      display: inline-block;
-      margin-top: 2px;
-      color: #e11d48;
-      font-size: 18px;
-      font-weight: 900;
-      line-height: 1.2;
-    }
-    table {
-      width: 100%;
-      min-width: 680px;
-      border-collapse: collapse;
-      background: #fff;
-    }
-    th, td {
-      border: 1px solid #ddd;
-      padding: 8px;
-      text-align: center;
-      vertical-align: top;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    th { background: #f8fafc; }
-    @media (max-width: 640px) {
-      body { padding: 10px; }
-      .statement-actions { margin-bottom: 8px; }
-      .statement-actions button {
-        flex: 1 1 30%;
-        min-width: 0;
-        padding: 10px 8px;
-        font-size: 12px;
-      }
-      .statement-sheet { border-radius: 12px; padding: 10px; }
-      .statement-title { font-size: 24px; }
-      .statement-sub { font-size: 14px; }
-      .statement-main-table th,
-      .statement-main-table td {
-        font-size: 10px;
-        padding: 6px 4px;
-      }
-      .statement-main-date,
-      .statement-main-voucher,
-      .statement-main-amount,
-      .statement-main-balance {
-        font-size: 9px;
-      }
-      .statement-main-description-text {
-        font-size: 10px;
-      }
-      .statement-detail-table th,
-      .statement-detail-table td {
-        font-size: 8px;
-        padding: 4px;
-      }
-      .statement-closing-summary-label {
-        font-size: 9px;
-      }
-      .statement-closing-summary-value {
-        font-size: 16px;
-      }
-      .statement-check-image {
-        width: 108px;
-        max-width: 24vw;
-        height: 68px;
-      }
+    .statement-print-footer__page-current::before { content: counter(page); }
+    @media (max-width: 480px) {
+      body { padding: 8px 6px 16px; }
+      .statement-actions { padding: 6px 8px; margin-bottom: 8px; }
+      .statement-actions button { flex: 1 1 28%; padding: 8px 6px; font-size: 12px; }
+      .statement-sheet { padding: 10px 8px; border-radius: 12px; }
+      .statement-title { font-size: 17px; }
+      .stmt-row { padding: 8px 10px; }
+      .stmt-desc { font-size: 12px; }
+      .stmt-amount-value { font-size: 11px; }
+      .stmt-check-image { width: 100px; height: 63px; }
     }
     @media print {
-      body {
-        background: #fff;
-        padding: var(--statement-body-pad);
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
+      @page { margin: 10mm 10mm 18mm 10mm; }
+      body { background: #fff; padding: var(--stmt-pad) 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .statement-actions { display: none !important; }
-      .statement-sheet {
-        border: none;
-        border-radius: 0;
-        box-shadow: none;
-        padding: 0;
+      .statement-sheet { border: none; border-radius: 0; box-shadow: none; padding: 0; }
+      .stmt-row { box-shadow: none; border-color: #d1d5db; }
+      .statement-print-footer {
+        position: fixed; left: 10mm; right: 10mm; bottom: 4mm; z-index: 50;
+        display: flex !important; align-items: center; justify-content: space-between;
+        padding-top: 3mm; border-top: 1px solid #cbd5e1; background: #fff;
       }
-      .statement-table-wrap { overflow: visible; }
-      table { min-width: 0; }
     }
   </style>
 </head>
@@ -893,42 +1124,30 @@ const Directory: React.FC = () => {
     <button type="button" id="statement-print-btn">${tr('طباعة', 'Print')}</button>
     <button type="button" id="statement-share-btn">${tr('مشاركة', 'Share')}</button>
   </div>
-  <div class="statement-sheet">
+  <div class="statement-sheet" data-statement-print-root>
     <h1 class="statement-title">${tr('كشف حساب', 'Statement')}: ${escapeHtml(displayContactName(contact))}</h1>
     <p class="statement-sub">${escapeHtml(statementPeriodText)}</p>
     ${printPersonalData ? `<p class="statement-sub">${tr('الهاتف', 'Phone')}: ${escapeHtml(contact.phone || '-')} ${contact.address ? `| ${tr('العنوان', 'Address')}: ${escapeHtml(contact.address)}` : ''}</p>` : ''}
-    <div class="statement-table-wrap">
-      <table class="statement-main-table">
-        <colgroup>
-          <col style="width:${hideVoucherColumnInStatement ? '14%' : '12%'}" />
-          ${!hideVoucherColumnInStatement ? '<col style="width:10%" />' : ''}
-          <col style="width:${hideVoucherColumnInStatement ? '47%' : '40%'}" />
-          <col style="width:${hideVoucherColumnInStatement ? '10%' : '10%'}" />
-          <col style="width:${hideVoucherColumnInStatement ? '10%' : '10%'}" />
-          <col style="width:${hideVoucherColumnInStatement ? '19%' : '18%'}" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>${tr('التاريخ', 'Date')}</th>
-            ${!hideVoucherColumnInStatement ? `<th>${tr('السند', 'Voucher')}</th>` : ''}
-            <th>${tr('البيان', 'Description')}</th>
-            <th>${debitLabel}</th>
-            <th>${creditLabel}</th>
-            <th>${tr('الرصيد', 'Balance')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="statement-main-date statement-number-cell">-</td>
-            ${!hideVoucherColumnInStatement ? '<td class="statement-main-voucher statement-number-cell">-</td>' : ''}
-            <td class="statement-main-description"><div class="statement-main-description-text">${tr('الرصيد الافتتاحي', 'Opening balance')}</div></td>
-            <td class="statement-main-amount statement-number-cell">-</td>
-            <td class="statement-main-amount statement-number-cell">-</td>
-            <td class="statement-main-balance statement-number-cell">${formatPrintAmount(openingBalance, baseCurrency)}</td>
-          </tr>
-          ${rows}
-        </tbody>
-      </table>
+    <div class="stmt-list">
+      <div class="stmt-row stmt-row--special">
+        <div class="stmt-desc-bold">${tr('الرصيد الافتتاحي', 'Opening balance')}</div>
+        <div class="stmt-amounts">
+          <div class="stmt-amount-item stmt-balance">
+            <span class="stmt-amount-label">${tr('الرصيد', 'Balance')}</span>
+            <span class="stmt-amount-value">${formatPrintAmount(openingBalance, baseCurrency)}</span>
+          </div>
+        </div>
+      </div>
+      ${rows}
+      <div class="stmt-row stmt-row--closing">
+        <div class="stmt-desc-bold">${tr('الرصيد الختامي', 'Closing balance')}</div>
+        <div class="stmt-amounts">
+          <div class="stmt-amount-item stmt-balance">
+            <span class="stmt-amount-label">${tr('الرصيد', 'Balance')}</span>
+            <span class="stmt-amount-value">${formatPrintAmount(closingBalance, baseCurrency)}</span>
+          </div>
+        </div>
+      </div>
     </div>
     ${statementFooterNote ? `<p style="margin-top:10px; color:#555;">${statementFooterNote}</p>` : ''}
     ${(companySettings.showAccountBalanceUnderVoucher ?? false)
@@ -941,6 +1160,22 @@ const Directory: React.FC = () => {
       : ''
     }
   </div>
+  <div class="statement-print-footer" aria-hidden="true">
+    <div class="statement-print-footer__meta">
+      <span class="statement-print-footer__item">
+        <span class="statement-print-footer__label">${escapeHtml(printDateLabel)}</span>
+        <span class="statement-print-footer__value" data-statement-print-date></span>
+      </span>
+      <span class="statement-print-footer__item">
+        <span class="statement-print-footer__label">${escapeHtml(pageLabel)}</span>
+        <span class="statement-print-footer__counter">
+          <span class="statement-print-footer__value statement-print-footer__page-current"></span>
+          <span class="statement-print-footer__label">${escapeHtml(ofLabel)}</span>
+          <span class="statement-print-footer__value" data-statement-page-count>1</span>
+        </span>
+      </span>
+    </div>
+  </div>
   <script>
     (() => {
       const closeBtn = document.getElementById('statement-close-btn');
@@ -951,6 +1186,31 @@ const Directory: React.FC = () => {
       const shouldAutoPrint = actions?.getAttribute('data-auto-print') === 'true';
       const copySuccess = actions?.getAttribute('data-copy-success') || 'Copied';
       const shareFailed = actions?.getAttribute('data-share-failed') || 'Share failed';
+      const syncPrintFooterMeta = () => {
+        const printDate = new Intl.DateTimeFormat('${isEnglish ? 'en-GB' : 'ar-EG-u-nu-latn'}', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        }).format(new Date());
+        document.querySelectorAll('[data-statement-print-date]').forEach(node => {
+          node.textContent = printDate;
+        });
+
+        const mmToPx = ${96 / 25.4};
+        const pageHeightMm = 297;
+        const topMarginPx = 10 * mmToPx;
+        const bottomMarginPx = 18 * mmToPx;
+        const bodyStyle = window.getComputedStyle(document.body);
+        const bodyPaddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+        const bodyPaddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+        const printableHeight = Math.max(1, (pageHeightMm * mmToPx) - topMarginPx - bottomMarginPx - bodyPaddingTop - bodyPaddingBottom);
+        const root = document.querySelector('[data-statement-print-root]') || document.body;
+        const contentHeight = Math.max(root.scrollHeight, root.getBoundingClientRect().height, 1);
+        const pageCount = Math.max(1, Math.ceil(contentHeight / printableHeight));
+        document.querySelectorAll('[data-statement-page-count]').forEach(node => {
+          node.textContent = String(pageCount);
+        });
+      };
       const waitForStatementFonts = async () => {
         try {
           if (document.fonts?.ready) {
@@ -962,6 +1222,8 @@ const Directory: React.FC = () => {
       };
       const triggerPrint = async () => {
         await waitForStatementFonts();
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        syncPrintFooterMeta();
         window.print();
       };
 
@@ -1078,11 +1340,9 @@ const Directory: React.FC = () => {
             fileName: buildStatementPdfName(contact),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar',
-            orientation: 'landscape',
-            minRenderWidth: 980,
-            maxRenderWidth: 1220,
-            canvasScale: 2.0,
-            padding: 18,
+            orientation: 'portrait',
+            canvasScale: 2,
+            padding: 14,
             backgroundColor: '#ffffff'
         });
     };
@@ -1159,7 +1419,7 @@ const Directory: React.FC = () => {
             const details = buildStatementEntryDetails(entry, contact, invoice);
             rows.push([
                 formatDate(entry.date) || '',
-                ...(!hideVoucherColumnInStatement ? [entry.voucherId || '-'] : []),
+                ...(!hideVoucherColumnInStatement ? [getStatementDocumentNumber(entry)] : []),
                 [entry.description, details].filter(Boolean).join('\n'),
                 entry.debit > 0 ? toExcelNumber(entry.debit) : '',
                 entry.credit > 0 ? toExcelNumber(entry.credit) : '',
@@ -1261,16 +1521,43 @@ const Directory: React.FC = () => {
     };
 
     const handlePrintStatement = async (contact: Contact, printWindow?: Window | null) => {
-        const targetWindow = printWindow || window.open('', '_blank');
+        const targetWindow = printWindow && !printWindow.closed ? printWindow : window.open('', '_blank');
         if (!targetWindow) {
-            alert(tr('تعذر فتح نافذة كشف الحساب.', 'Could not open statement window.'));
+            alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
             return;
         }
-        const html = buildStatementPrintHtml(contact, printCheckImagesInStatement, true);
-        targetWindow.document.open();
-        targetWindow.document.write(html);
-        targetWindow.document.close();
-        targetWindow.focus();
+        try {
+            targetWindow.document.open();
+            targetWindow.document.write(`<!doctype html><html lang="${isEnglish ? 'en' : 'ar'}" dir="${isEnglish ? 'ltr' : 'rtl'}"><head><title>${tr('جاري تجهيز الطباعة', 'Preparing print')}</title></head><body style="font-family:${isEnglish ? 'Segoe UI, Arial, sans-serif' : 'Tajawal, Arial, sans-serif'};padding:24px;color:#334155;">${tr('جاري تجهيز كشف الحساب للطباعة...', 'Preparing the statement for printing...')}</body></html>`);
+            targetWindow.document.close();
+        } catch {
+            // Keep going; printElementContent will try to rewrite the window content.
+        }
+
+        try {
+            await settleStatementSnapshot();
+            const printed = printElementContent(statementExportRef.current, {
+                title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
+                dir: isEnglish ? 'ltr' : 'rtl',
+                lang: isEnglish ? 'en' : 'ar',
+                pageOrientation: 'portrait',
+                autoCloseAfterPrint: true,
+                targetWindow
+            });
+            if (!printed) {
+                throw new Error('statement_print_failed');
+            }
+        } catch (error) {
+            try {
+                targetWindow.document.open();
+                targetWindow.document.write(`<!doctype html><html lang="${isEnglish ? 'en' : 'ar'}" dir="${isEnglish ? 'ltr' : 'rtl'}"><head><title>${tr('تعذر تجهيز الطباعة', 'Print unavailable')}</title></head><body style="font-family:${isEnglish ? 'Segoe UI, Arial, sans-serif' : 'Tajawal, Arial, sans-serif'};padding:24px;color:#334155;">${tr('تعذر تجهيز كشف الحساب للطباعة الآن.', 'Could not prepare the statement for printing right now.')}</body></html>`);
+                targetWindow.document.close();
+                targetWindow.focus();
+            } catch {
+                // Ignore secondary print window failures.
+            }
+            throw error;
+        }
     };
 
     const printStatementSafe = async (contact: Contact, printWindow?: Window | null) => {
@@ -1409,7 +1696,7 @@ const Directory: React.FC = () => {
                 const details = buildStatementEntryDetails(entry, contact, invoice);
                 rows.push([
                     formatDate(entry.date) || '',
-                    ...(!hideVoucherColumnInStatement ? [entry.voucherId || '-'] : []),
+                    ...(!hideVoucherColumnInStatement ? [getStatementDocumentNumber(entry)] : []),
                     [entry.description, details].filter(Boolean).join('\n'),
                     entry.debit > 0 ? toExcelNumber(entry.debit) : '',
                     entry.credit > 0 ? toExcelNumber(entry.credit) : '',
@@ -1785,13 +2072,13 @@ const Directory: React.FC = () => {
                         if (!contact) return null;
                         const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
                         return (
-                            <div ref={statementExportRef} className="h-full flex flex-col bg-white">
-                                <div className="bg-slate-50 p-6 border-b border-gray-200 flex justify-between items-center gap-3">
+                            <div className="directory-statement-sheet h-full flex flex-col bg-white">
+                                <div className="directory-statement-header bg-slate-50 p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center gap-3">
                                     <div>
-                                        <h2 className="text-xl font-black text-gray-800">{displayContactName(contact)}</h2>
-                                        <p className={`text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
+                                        <h2 className="text-lg sm:text-xl font-black text-gray-800 break-words">{displayContactName(contact)}</h2>
+                                        <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
                                     </div>
-                                    <div className="flex items-center gap-2 shrink-0">
+                                    <div className="directory-statement-toolbar flex items-center gap-2 shrink-0">
                                         <DocumentActions
                                             title={`${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`}
                                             shareText={buildStatementShareText(contact, closingBalance)}
@@ -1800,24 +2087,17 @@ const Directory: React.FC = () => {
                                             notificationPhone={contact.phone}
                                             isEnglish={isEnglish}
                                             tr={tr}
-                                            onPrint={() => {
-                                                const printWindow = window.open('', '_blank');
-                                                if (!printWindow) {
-                                                    alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-                                                    return;
-                                                }
-                                                void printStatementSafe(contact, printWindow);
-                                            }}
+                                            onPrint={() => printStatementSafe(contact)}
                                             onShare={() => shareStatementDocumentSafe(contact, closingBalance)}
                                             onSave={() => downloadStatementPdfSafe(contact)}
                                             onExcel={() => exportStatementExcelSafe(contact)}
                                             saveTitle={tr('تنزيل PDF', 'Download PDF')}
                                         />
-                                        <button onClick={() => setSelectedContactId(null)} className="p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-100"><X size={18} /></button>
+                                        <button onClick={() => setSelectedContactId(null)} className="p-2.5 sm:p-3 bg-white border border-gray-300 rounded-xl hover:bg-gray-100"><X size={18} /></button>
                                     </div>
                                 </div>
 
-                                <div className="p-3 sm:p-4 grid grid-cols-2 gap-2 sm:gap-3 bg-white border-b border-gray-100">
+                                <div className="directory-statement-filters p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 bg-white border-b border-gray-100">
                                     <EnglishDateInput
                                         value={stmtStartDate}
                                         onChange={setStmtStartDate}
@@ -1834,189 +2114,10 @@ const Directory: React.FC = () => {
                                     />
                                 </div>
 
-                                <div ref={statementContentRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4">
-                                    <table className="w-full min-w-0 max-w-full text-sm border-collapse table-fixed" dir={isEnglish ? 'ltr' : 'rtl'}>
-                                        <colgroup>
-                                            <col style={{ width: '17%' }} />
-                                            <col style={{ width: '42%' }} />
-                                            <col style={{ width: '11%' }} />
-                                            <col style={{ width: '11%' }} />
-                                            <col style={{ width: '19%' }} />
-                                        </colgroup>
-                                        <thead className="bg-slate-800 text-white rounded-t-xl">
-                                            <tr>
-                                                <th className={`px-1.5 sm:px-2 py-3 whitespace-nowrap ${isEnglish ? 'text-left uppercase tracking-wider' : 'text-right tracking-normal leading-relaxed'} first:rounded-tr-xl text-[9px] sm:text-[10px] font-black`}>{tr('التاريخ', 'Date')}</th>
-                                                <th className={`px-3 py-3 ${isEnglish ? 'text-left uppercase tracking-wider' : 'text-right tracking-normal leading-relaxed'} text-[10px] sm:text-[10px] font-black`}>{tr('البيان', 'Description')}</th>
-                                                <th className={`px-2 py-3 text-center text-[10px] sm:text-[10px] font-black bg-white/10 ${isEnglish ? 'uppercase tracking-wider' : 'tracking-normal leading-relaxed'}`}>{tr('مدين', 'Debit')}</th>
-                                                <th className={`px-2 py-3 text-center text-[10px] sm:text-[10px] font-black bg-white/10 ${isEnglish ? 'uppercase tracking-wider' : 'tracking-normal leading-relaxed'}`}>{tr('دائن', 'Credit')}</th>
-                                                <th className={`px-2 py-3 text-center last:rounded-tl-xl text-[10px] sm:text-[10px] font-black ${isEnglish ? 'uppercase tracking-wider' : 'tracking-normal leading-relaxed'}`}>{tr('الرصيد', 'Balance')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            <tr className="bg-amber-50/50 font-bold">
-                                                <td className="px-1.5 sm:px-2 py-3 text-center text-[9px] sm:text-[10px] dir-ltr whitespace-nowrap">-</td>
-                                                <td className="px-3 py-3 text-[11px] sm:text-[10px] leading-6" dir={isEnglish ? 'ltr' : 'rtl'}>{tr('الرصيد الافتتاحي', 'Opening balance')}</td>
-                                                <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] dir-ltr">-</td>
-                                                <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] dir-ltr">-</td>
-                                                <td className="px-2 py-3 text-center font-black text-[10px] sm:text-[10px] dir-ltr">{openingBalance.toLocaleString()}</td>
-                                            </tr>
-                                            {stmts.map(t => {
-                                                const entryPreview = buildStatementEntryPreview(t, contact, { includeCheckImages: printCheckImagesInStatement });
-                                                const invoiceRows = entryPreview.invoice?.items || [];
-
-                                                return (
-                                                    <tr key={t.id} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="px-1.5 sm:px-2 py-3 text-[9px] sm:text-[10px] font-bold text-gray-500 whitespace-nowrap align-top dir-ltr">{formatDate(t.date) || '-'}</td>
-                                                        <td className="px-3 py-3 text-[11px] sm:text-[10px] font-bold text-gray-700 align-top" dir={isEnglish ? 'ltr' : 'rtl'}>
-                                                            <div className="break-words leading-6">{t.description}</div>
-
-                                                            {entryPreview.paymentRows.length > 0 && (
-                                                                <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/70">
-                                                                    <div className={`px-2.5 py-1.5 text-[10px] font-black text-slate-700 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{tr('تفاصيل السند', 'Voucher details')}</div>
-                                                                    <table className="w-full table-fixed border-collapse text-[9px]">
-                                                                        <colgroup>
-                                                                            <col style={{ width: '28%' }} />
-                                                                            <col style={{ width: '48%' }} />
-                                                                            <col style={{ width: '24%' }} />
-                                                                        </colgroup>
-                                                                        <thead className="bg-slate-100 text-slate-600">
-                                                                            <tr>
-                                                                                <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحركة', 'Movement')}</th>
-                                                                                <th className={`border border-slate-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
-                                                                                <th className={`border border-slate-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody className="text-slate-600">
-                                                                            {entryPreview.paymentRows.map(paymentRow => (
-                                                                                <tr key={paymentRow.id}>
-                                                                                    <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{paymentRow.label}</td>
-                                                                                    <td className={`border border-slate-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{paymentRow.accountName}</td>
-                                                                                    <td className="border border-slate-200 px-2 py-1.5 text-center dir-ltr font-semibold">{paymentRow.amount === null ? '-' : paymentRow.amount.toLocaleString()}</td>
-                                                                                </tr>
-                                                                            ))}
-                                                                        </tbody>
-                                                                    </table>
-                                                                </div>
-                                                            )}
-
-                                                            {entryPreview.checkRows.length > 0 && (
-                                                                <div className="mt-2 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60">
-                                                                    <div className={`px-2.5 py-1.5 text-[10px] font-black text-amber-700 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{tr('تفاصيل الشيكات', 'Check details')}</div>
-                                                                    <table className="w-full table-fixed border-collapse text-[9px]">
-                                                                        <colgroup>
-                                                                            <col style={{ width: '18%' }} />
-                                                                            <col style={{ width: '28%' }} />
-                                                                            <col style={{ width: '18%' }} />
-                                                                            <col style={{ width: '16%' }} />
-                                                                            <col style={{ width: '20%' }} />
-                                                                        </colgroup>
-                                                                        <thead className="bg-amber-100/70 text-amber-800">
-                                                                            <tr>
-                                                                                <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('رقم الشيك', 'Check #')}</th>
-                                                                                <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('البنك', 'Bank')}</th>
-                                                                                <th className={`border border-amber-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الحساب', 'Account')}</th>
-                                                                                <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الاستحقاق', 'Due')}</th>
-                                                                                <th className={`border border-amber-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('المبلغ', 'Amount')}</th>
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody className="text-amber-900/80">
-                                                                            {entryPreview.checkRows.map(checkRow => (
-                                                                                <React.Fragment key={checkRow.id}>
-                                                                                    <tr>
-                                                                                        <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{checkRow.checkNumber}</td>
-                                                                                        <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{checkRow.bankName}</td>
-                                                                                        <td className={`border border-amber-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{checkRow.accountNumber || '-'}</td>
-                                                                                        <td className="border border-amber-200 px-2 py-1.5 text-center dir-ltr">{checkRow.dueDate}</td>
-                                                                                        <td className="border border-amber-200 px-2 py-1.5 text-center dir-ltr font-semibold">{checkRow.amount.toLocaleString()}</td>
-                                                                                    </tr>
-                                                                                    {checkRow.imageUrls.length > 0 && (
-                                                                                        <tr>
-                                                                                            <td colSpan={5} className="border border-amber-200 px-2 py-2">
-                                                                                                <div className="flex flex-wrap gap-2">
-                                                                                                    {checkRow.imageUrls.map((src, imageIndex) => (
-                                                                                                        <div key={`${checkRow.id}-image-${imageIndex}`} className="rounded-lg border border-amber-200 bg-white p-1">
-                                                                                                            <img src={src} alt={`${tr('صورة الشيك', 'Check image')} ${imageIndex + 1}`} className="h-20 w-28 sm:w-32 rounded-md object-cover" />
-                                                                                                        </div>
-                                                                                                    ))}
-                                                                                                </div>
-                                                                                            </td>
-                                                                                        </tr>
-                                                                                    )}
-                                                                                </React.Fragment>
-                                                                            ))}
-                                                                        </tbody>
-                                                                    </table>
-                                                                </div>
-                                                            )}
-
-                                                            {entryPreview.invoice && (
-                                                                <div className="mt-2 overflow-hidden rounded-xl border border-blue-200 bg-blue-50/60">
-                                                                    <div className={`px-2.5 py-1.5 text-[10px] font-black text-blue-700 ${isEnglish ? 'uppercase tracking-[0.18em]' : 'tracking-normal leading-relaxed'}`}>{tr('تفاصيل الفاتورة', 'Invoice details')}</div>
-                                                                    <table className="w-full table-fixed border-collapse text-[9px]">
-                                                                        <colgroup>
-                                                                            <col style={{ width: '52%' }} />
-                                                                            <col style={{ width: '12%' }} />
-                                                                            <col style={{ width: '16%' }} />
-                                                                            <col style={{ width: '20%' }} />
-                                                                        </colgroup>
-                                                                        <thead className="bg-blue-100/70 text-blue-800">
-                                                                            <tr>
-                                                                                <th className={`border border-blue-200 px-2 py-1.5 font-black ${isEnglish ? 'text-left uppercase tracking-[0.16em]' : 'text-right tracking-normal leading-relaxed'}`}>{tr('الصنف', 'Item')}</th>
-                                                                                <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الكمية', 'Qty')}</th>
-                                                                                <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('السعر', 'Price')}</th>
-                                                                                <th className={`border border-blue-200 px-2 py-1.5 text-center font-black ${isEnglish ? 'uppercase tracking-[0.16em]' : 'tracking-normal leading-relaxed'}`}>{tr('الإجمالي', 'Total')}</th>
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody className="text-slate-700">
-                                                                            {invoiceRows.map((item, idx) => {
-                                                                                const product = products.find(p => p.id === item.productId);
-                                                                                return (
-                                                                                    <tr key={item.id || `${t.id}-invoice-item-${idx}`}>
-                                                                                        <td className={`border border-blue-200 px-2 py-1.5 align-top ${isEnglish ? 'text-left' : 'text-right'}`}>{item.description || displayProductName(product)}</td>
-                                                                                        <td className="border border-blue-200 px-2 py-1.5 text-center dir-ltr">{item.quantity.toLocaleString()}</td>
-                                                                                        <td className="border border-blue-200 px-2 py-1.5 text-center dir-ltr">{item.unitPrice.toLocaleString()}</td>
-                                                                                        <td className="border border-blue-200 px-2 py-1.5 text-center dir-ltr font-semibold">{item.total.toLocaleString()}</td>
-                                                                                    </tr>
-                                                                                );
-                                                                            })}
-                                                                        </tbody>
-                                                                    </table>
-                                                                    {printExpiryDate && entryPreview.invoice.dueDate && (
-                                                                        <div className={`border-t border-blue-200 bg-white/70 px-2.5 py-1.5 text-[10px] text-slate-600 ${isEnglish ? 'text-left' : 'text-right'}`}>
-                                                                            <span className="font-black">{tr('تاريخ الاستحقاق', 'Expiry Date')}:</span>{' '}
-                                                                            <span className="dir-ltr">{formatDate(entryPreview.invoice.dueDate)}</span>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] text-emerald-600 font-bold dir-ltr bg-emerald-50/30 align-top">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
-                                                        <td className="px-2 py-3 text-center text-[10px] sm:text-[10px] text-rose-600 font-bold dir-ltr bg-rose-50/30 align-top">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
-                                                        <td className="px-2 py-3 text-center font-black text-[10px] sm:text-[10px] dir-ltr align-top">{t.runningBalance.toLocaleString()}</td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
+                                <div ref={statementContentRef} className="directory-statement-content flex-1 overflow-y-auto p-2.5 sm:p-4">
+                                    {renderClassicContactStatement(contact, openingBalance, closingBalance, stmts, statementExportRef)}
                                 </div>
 
-                                <div className="p-4 border-t border-gray-200 bg-gray-50 flex flex-col items-stretch gap-3">
-                                    <div data-document-actions className="flex items-center gap-2 flex-wrap">
-                                        <label className="inline-flex items-center gap-2 bg-white border border-gray-200 px-3 py-2 rounded-xl text-[11px] font-bold text-gray-600 cursor-pointer hover:bg-gray-100 transition-colors">
-                                            <input
-                                                type="checkbox"
-                                                checked={printCheckImagesInStatement}
-                                                onChange={(e) => setPrintCheckImagesInStatement(e.target.checked)}
-                                                className="accent-blue-600"
-                                            />
-                                            <span>{tr('طباعة صور الشيكات مع الكشف', 'Print check images with statement')}</span>
-                                        </label>
-                                    </div>
-                                    <div className="w-full text-left">
-                                        <span className={`text-[10px] font-black text-gray-400 block ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('الرصيد الختامي', 'Closing Balance')}</span>
-                                        <span className={`text-xl font-black dir-ltr ${closingBalance > 0 ? 'text-rose-600' : closingBalance < 0 ? 'text-emerald-600' : 'text-slate-800'}`}>{closingBalance.toLocaleString()}</span>
-                                    </div>
-                                </div>
                             </div>
                         );
                     })()}
