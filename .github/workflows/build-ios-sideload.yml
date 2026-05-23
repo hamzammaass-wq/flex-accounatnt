@@ -3,6 +3,9 @@ name: Build iOS (Unsigned IPA for Sideloading)
 on:
   workflow_dispatch: # Allows manual trigger from GitHub Actions UI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build iOS App
