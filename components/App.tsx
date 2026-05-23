@@ -28,7 +28,8 @@ export type TabView =
     | 'dashboard' | 'list' | 'ai' | 'directory' | 'products'
     | 'reports' | 'definitions' | 'sales' | 'purchases' | 'purchases-expenses'
     | 'checks' | 'treasury' | 'receipts-list' | 'payments-list' | 'journal-list'
-    | 'import-list' | 'hr' | 'settlements' | 'fixed-assets';
+    | 'import-list' | 'hr' | 'settlements' | 'fixed-assets' | 'equity-partners' | 'warehouses' | 'manufacturing' | 'bank-reconciliation'
+    | 'notices' | 'alerts' | 'accounts-hub';
 
 export type OverlayView =
     | 'add-sales' | 'add-sales-return' | 'add-quotation' | 'add-purchase' | 'add-purchase-return' | 'add-expense' | 'add-voucher-receipt' | 'add-voucher-payment' | 'add-manual-purchase' | 'add-journal' | 'add-import' | 'voice-ai' | null;
@@ -163,7 +164,7 @@ const AppContent: React.FC = () => {
                 {/* Gemini Voice Trigger FAB */}
                 <button
                     onClick={() => openOverlay('voice-ai')}
-                    className="absolute bottom-28 left-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center animate-bounce z-40 hover:bg-indigo-700 active:scale-90 transition-all"
+                    className="absolute bottom-28 left-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center z-40 hover:bg-indigo-700 hover:scale-105 active:scale-90 transition-all"
                 >
                     <Mic size={24} />
                 </button>
