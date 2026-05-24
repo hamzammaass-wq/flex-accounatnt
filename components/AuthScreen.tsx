@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   getAdditionalUserInfo,
@@ -304,7 +304,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
       setSessionCheckLoading(true);
       try {
-        const redirectResult = await getRedirectResult(firebaseAuth);
+        const redirectResult = await Promise.race([
+          getRedirectResult(firebaseAuth),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+        ]);
         if (redirectResult && typeof window !== 'undefined') {
           const pendingDelete = localStorage.getItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY) === '1';
           if (pendingDelete) {
