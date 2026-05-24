@@ -253,8 +253,3 @@ root.render(
   </React.StrictMode>
 );
 
-try {
-  sessionStorage.removeItem(BOOT_RECOVERY_KEY);
-} catch {
-  // Ignore storage errors after successful mount.
-}
