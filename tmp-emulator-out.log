@@ -1,0 +1,8 @@
+INFO         | Android emulator version 36.5.10.0 (build_id 15081367) (CL:N/A)
+INFO         | Graphics backend: gfxstream
+INFO         | AVD SmartAccountant_API36 has path C:\Users\yusuf\.android\avd\..\avd\SmartAccountant_API36.avd
+INFO         | trying to check whether C:\Users\yusuf\AppData\Local\Android\Sdk is a valid sdk root
+WARNING      | C:\Users\yusuf\AppData\Local\Android\Sdk\system-images\android-36\google_apis\x86_64\ is not a valid directory.
+WARNING      | emulator has searched the above paths but found no valid sdk root directory.
+FATAL        | Cannot find AVD system path. Please define ANDROID_SDK_ROOT
+
