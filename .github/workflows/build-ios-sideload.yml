@@ -44,6 +44,7 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          cp App/GoogleService-Info.plist Payload/App.app/
           zip -r SmartAccountant-iOS.ipa Payload
 
       - name: Upload IPA Artifact
