@@ -57,6 +57,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.smartaccountant.erp</string>
+				<string>com.googleusercontent.apps.879535686153-opg5pk4o7htj13edtqa2rc5fo4il63bg</string>
 			</array>
 		</dict>
 	</array>
