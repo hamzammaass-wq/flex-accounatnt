@@ -4,11 +4,14 @@ import {
   getAdditionalUserInfo,
   getRedirectResult,
   GoogleAuthProvider,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   updateProfile,
 } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { BadgeCheck, Building2, CheckCircle2, Clock3, KeyRound, Lock, Mail, ShieldCheck, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
@@ -452,6 +455,32 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
+      if (Capacitor.isNativePlatform()) {
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        if (result.credential?.idToken) {
+          const credential = GoogleAuthProvider.credential(result.credential.idToken);
+          const userCred = await signInWithCredential(firebaseAuth, credential);
+          if (authMode === 'REGISTER') {
+            const additionalInfo = getAdditionalUserInfo(userCred);
+            if (additionalInfo?.isNewUser) {
+              markInitialSetupPending();
+            } else {
+              clearSignupFlowIntent();
+            }
+          }
+          if (hasGuestWorkspaceData) {
+            await applyGuestDataDecision(guestDataPreference);
+          }
+          if (shouldDeleteGuestData && typeof window !== 'undefined') {
+            window.location.replace(`${window.location.pathname}${window.location.hash}`);
+            return;
+          }
+        } else {
+          throw new Error('No ID token returned from Google Sign-In.');
+        }
+        return;
+      }
+
       if (shouldPreferRedirectAuth()) {
         if (shouldDeleteGuestData && typeof window !== 'undefined') {
           localStorage.setItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY, '1');

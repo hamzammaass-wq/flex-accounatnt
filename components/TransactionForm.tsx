@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
@@ -2540,7 +2540,7 @@ const InvoiceScreen: React.FC<{
 
     return (
         <div
-            className="transaction-mobile-form transaction-screen-with-submit-dock invoice-mobile-page app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
+            className="transaction-mobile-form transaction-screen-with-submit-dock invoice-mobile-page app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)_+_0.8rem)] overflow-x-hidden"
             dir={isEnglish ? 'ltr' : 'rtl'}
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
@@ -4572,7 +4572,7 @@ const VoucherScreen: React.FC<{
 
     return (
         <div
-            className="transaction-mobile-form transaction-screen-with-submit-dock app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)+0.8rem)] overflow-x-hidden"
+            className="transaction-mobile-form transaction-screen-with-submit-dock app-page w-full max-w-full px-2 sm:px-3 space-y-3 pb-[calc(var(--app-safe-bottom)_+_0.8rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
             data-testid="voucher-form-root"
@@ -5745,7 +5745,7 @@ const JournalScreen: React.FC<{
 
     return (
         <div
-            className="transaction-mobile-form transaction-screen-with-submit-dock w-full max-w-full space-y-2.5 pb-[calc(var(--app-safe-bottom)+4rem)] overflow-x-hidden"
+            className="transaction-mobile-form transaction-screen-with-submit-dock w-full max-w-full space-y-2.5 pb-[calc(var(--app-safe-bottom)_+_4rem)] overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
             data-testid="journal-form-root"
@@ -6212,7 +6212,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({ initialMode, initialV
 
     return (
         <div
-            className="app-page transaction-entry-page transaction-mobile-form w-full max-w-full px-3 sm:px-4 pt-[calc(var(--app-safe-top)+0.5rem)] pb-[calc(var(--app-safe-bottom)+0.5rem)] space-y-4 overflow-x-hidden"
+            className="app-page transaction-entry-page transaction-mobile-form w-full max-w-full px-3 sm:px-4 pt-[calc(var(--app-safe-top)_+_0.5rem)] pb-[calc(var(--app-safe-bottom)_+_0.5rem)] space-y-4 overflow-x-hidden"
             onKeyDown={focusNextFieldOnEnter}
             data-entry-form="true"
         >
