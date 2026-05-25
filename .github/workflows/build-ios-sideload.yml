@@ -24,7 +24,30 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Build Web App and Sync iOS
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: npm run cap:sync:ios
+
+      - name: Inject GoogleService-Info.plist
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}" | base64 --decode > ios/App/App/GoogleService-Info.plist
+            
+            # Extract REVERSED_CLIENT_ID and inject into Info.plist for Google Sign-In
+            REVERSED_CLIENT_ID=$(/usr/libexec/PlistBuddy -c "Print REVERSED_CLIENT_ID" ios/App/App/GoogleService-Info.plist)
+            if [ -n "$REVERSED_CLIENT_ID" ]; then
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" ios/App/App/Info.plist || true
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" ios/App/App/Info.plist || true
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" ios/App/App/Info.plist || true
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $REVERSED_CLIENT_ID" ios/App/App/Info.plist || true
+            fi
+          fi
 
       - name: Build Unsigned iOS App
         working-directory: ios/App
