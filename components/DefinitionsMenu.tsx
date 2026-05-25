@@ -333,6 +333,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     switchCompany,
     createCompany,
     deleteCompany,
+    wipeAllCompanyData,
     prepareSubscriptionCheckout,
     updateCompanyProfile,
     updateCompanySubscription,
@@ -1438,6 +1439,38 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     }
   };
 
+  const [isWipingData, setIsWipingData] = useState(false);
+  const handleWipeCompanyData = async () => {
+    if (isWipingData) return;
+    const confirmationMessage = tr(
+      'تحذير خطير: سيتم مسح جميع البيانات المدخلة في الشركة الحالية (القيود، الفواتير، الأصناف، العملاء... إلخ) بشكل نهائي! هل أنت متأكد تماماً؟',
+      'SEVERE WARNING: All entered data in the current company (transactions, invoices, products, contacts, etc) will be PERMANENTLY ERASED! Are you absolutely sure?'
+    );
+
+    if (!confirm(confirmationMessage)) return;
+
+    const secondConfirmation = tr(
+      'هذا الإجراء لا يمكن التراجع عنه أبداً. اضغط موافق للتأكيد النهائي.',
+      'This action can NEVER be undone. Click OK to finally confirm.'
+    );
+
+    if (!confirm(secondConfirmation)) return;
+
+    setIsWipingData(true);
+    try {
+      const result = await wipeAllCompanyData();
+      if (!result.ok) {
+        alert(result.message);
+        return;
+      }
+      alert(tr('تم مسح جميع بيانات الشركة بنجاح.', 'All company data has been wiped successfully.'));
+      // Reload page to ensure clean state
+      window.location.reload();
+    } finally {
+      setIsWipingData(false);
+    }
+  };
+
   const getSubscriptionStatusLabel = (status: CompanySubscriptionStatus) => {
     switch (status) {
       case 'ACTIVE': return tr('مفعل', 'Active');
@@ -1735,6 +1768,21 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="border-t border-gray-100 pt-4 mt-4 space-y-2">
+        <label className="block text-xs font-bold text-gray-500">{tr('إدارة بيانات الشركة الحالية', 'Current company data management')}</label>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleWipeCompanyData}
+            disabled={isWipingData}
+            className="flex-1 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-black flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" />
+            {tr('مسح جميع البيانات المدخلة وبدء حساب جديد للشركة', 'Wipe all entered data and start fresh for this company')}
+          </button>
+        </div>
       </div>
 
       <div className="border-t border-gray-100 pt-4 space-y-2">

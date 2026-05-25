@@ -131,6 +131,7 @@ interface AccountingContextType {
   switchCompany: (companyId: string) => MutationResult;
   createCompany: (input: CreateCompanyInput) => Promise<MutationResult>;
   deleteCompany: (companyId: string) => Promise<MutationResult>;
+  wipeAllCompanyData: () => Promise<MutationResult>;
   updateWorkspaceSubscription: (updates: Partial<WorkspaceSubscriptionAccount>) => Promise<MutationResult>;
   prepareSubscriptionCheckout: (
     provider: SubscriptionCheckoutProvider,
@@ -8377,6 +8378,34 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   };
 
+  const wipeAllCompanyData = async (): Promise<MutationResult> => {
+    const permission = enforcePermission('SETTINGS', 'DELETE', 'Company Settings');
+    if (!permission.ok) return permission;
+
+    if (!currentCompanyId || !currentCompany) {
+      return makeError('VALIDATION_ERROR', 'No active company found.');
+    }
+
+    try {
+      const emptySnapshot = buildEmptyWorkspaceSnapshot(currentCompany);
+      emptySnapshot.companySettings = companySettings;
+      
+      const didPersist = await persistWorkspaceSnapshot(currentCompany.id, emptySnapshot);
+      if (!didPersist) {
+        return makeError('VALIDATION_ERROR', 'Failed to save wiped data.');
+      }
+
+      upsertWorkspaceSyncQueueItem(currentCompany.id, emptySnapshot.updatedAt, currentUser?.id);
+      setSyncQueueVersion(prev => prev + 1);
+
+      setWorkspaceHydratedForCompanyId(null);
+      
+      return makeSuccess();
+    } catch (e: any) {
+      return makeError('VALIDATION_ERROR', e.message || 'Wipe failed');
+    }
+  };
+
   const buildWorkspaceSubscriptionFromOfferCode = useCallback((
     base: WorkspaceSubscriptionAccount,
     offer: WorkspaceOfferCode
@@ -10301,7 +10330,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       currentUser, setCurrentUser, logout,
       companies, currentCompanyId, currentCompany, trialDaysLeft, companyAccessStatus, companyAccessDaysLeft, companyAccessEndsAt,
       workspaceSubscription, workspaceMaxCompanies, workspaceRemainingCompanySlots, workspaceCompanyLimitReached, workspaceProviderAvailability,
-      switchCompany, createCompany, deleteCompany, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
+      switchCompany, createCompany, deleteCompany, wipeAllCompanyData, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
       deviceBindingId, cloudSubscription, subscriptionCloudBusy, subscriptionCloudError, subscriptionAdminEnabled, programOwnerEnabled, subscriptionCodes, subscriptionCodesLoading, workspaceOfferCodes, workspaceOfferCodesLoading, subscriptionCompanies, subscriptionCompaniesLoading, issueSubscriptionCode, cancelSubscriptionCode, issueWorkspaceOfferCode, redeemWorkspaceOfferCode, linkCurrentSubscriptionDevice, unlinkSubscriptionDevice,
       transactions, addTransaction, deleteTransaction, setTransactions, updateTransaction, postVoucher, deleteVoucher, reverseTransaction,
       invoices, createInvoice, updateInvoice, deleteInvoice, postInvoice, reverseInvoice, returnInvoiceItem, setInvoices,
