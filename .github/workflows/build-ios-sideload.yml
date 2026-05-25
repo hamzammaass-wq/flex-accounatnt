@@ -34,14 +34,12 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: npm run cap:sync:ios
 
-      - name: Inject GoogleService-Info.plist
+      - name: Inject REVERSED_CLIENT_ID into Info.plist
         run: |
-          if [ -n "${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}" ]; then
-            echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}" | base64 --decode > ios/App/App/GoogleService-Info.plist
-            
-            # Extract REVERSED_CLIENT_ID and inject into Info.plist for Google Sign-In
-            REVERSED_CLIENT_ID=$(/usr/libexec/PlistBuddy -c "Print REVERSED_CLIENT_ID" ios/App/App/GoogleService-Info.plist)
+          if [ -f "ios/App/App/GoogleService-Info.plist" ]; then
+            REVERSED_CLIENT_ID=$(/usr/libexec/PlistBuddy -c "Print REVERSED_CLIENT_ID" ios/App/App/GoogleService-Info.plist || echo "")
             if [ -n "$REVERSED_CLIENT_ID" ]; then
+              echo "Found REVERSED_CLIENT_ID: $REVERSED_CLIENT_ID"
               /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" ios/App/App/Info.plist || true
               /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" ios/App/App/Info.plist || true
               /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" ios/App/App/Info.plist || true
