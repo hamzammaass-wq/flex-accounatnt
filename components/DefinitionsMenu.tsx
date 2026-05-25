@@ -25,7 +25,8 @@ import {
   CloudUpload,
   CloudDownload,
   BookOpen,
-  Trash2
+  Trash2,
+  User
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
 import CurrencyManager from './CurrencyManager';
@@ -105,6 +106,7 @@ type BooleanSettingKey =
 
 export type SettingsMode =
   | 'MENU'
+  | 'USER_ACCOUNT'
   | 'COMPANIES'
   | 'SUBSCRIPTION'
   | 'SUBSCRIPTION_REPORTS'
@@ -1695,6 +1697,44 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       return stack.includes(query);
     });
   }, [auditLogs, auditSearch]);
+
+  const renderUserAccountForm = () => (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
+      <div className="flex items-center gap-2 border-b border-gray-100 pb-4">
+        <User className="w-5 h-5 text-blue-600" />
+        <h3 className="text-sm font-black text-gray-800">{tr('معلومات الحساب', 'Account Information')}</h3>
+      </div>
+      
+      <div className="space-y-4">
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-bold text-gray-500">{tr('الاسم', 'Name')}</label>
+          <div className="text-sm font-black text-gray-900">{currentUser?.name || '-'}</div>
+        </div>
+        
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-bold text-gray-500">{tr('البريد الإلكتروني', 'Email')}</label>
+          <div className="text-sm font-black text-gray-900">{currentUser?.email || '-'}</div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-bold text-gray-500">{tr('حالة التسجيل', 'Registration Status')}</label>
+          <div className="text-sm font-black">
+            <span className={`px-2 py-1 rounded-lg text-xs ${currentUser?.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+              {currentUser?.status === 'ACTIVE' ? tr('نشط', 'Active') : tr('غير نشط', 'Inactive')}
+            </span>
+          </div>
+        </div>
+        
+        <div className="flex flex-col gap-1 pt-2 border-t border-gray-100">
+          <label className="text-[11px] font-bold text-gray-500">{tr('الصلاحية', 'Role')}</label>
+          <div className="text-sm font-black text-gray-900">
+            {currentUser?.role === 'ADMIN' ? tr('مدير نظام', 'Admin') : currentUser?.role === 'ACCOUNTANT' ? tr('محاسب', 'Accountant') : tr('مستخدم للعرض', 'Viewer')}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
 
   const renderCompaniesForm = () => (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
@@ -4892,6 +4932,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
   const renderContent = () => {
     switch (mode) {
+      case 'USER_ACCOUNT': return renderUserAccountForm();
       case 'COMPANIES': return renderCompaniesForm();
       case 'SUBSCRIPTION': return renderSubscriptionForm();
       case 'SUBSCRIPTION_REPORTS': return renderSubscriptionReports();
@@ -4963,6 +5004,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               description={tr('المهام اليومية السريعة التي تحتاجها غالبًا أولًا.', 'The quick daily tasks you usually need first.')}
             >
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <MenuItem icon={<User className="w-6 h-6" />} title={tr('معلومات الحساب', 'Account Information')} desc={tr('الاسم، البريد الإلكتروني، وحالة التسجيل', 'Name, Email, and Registration Status')} color="blue" rtl={rtl} onClick={() => setMode('USER_ACCOUNT')} />
                 <MenuItem icon={<Building2 className="w-6 h-6" />} title={tr('الشركات', 'Companies')} desc={tr('التبديل بين الشركات وإضافة شركة جديدة', 'Switch and manage multiple companies')} color="teal" rtl={rtl} onClick={() => setMode('COMPANIES')} />
                 <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('إدارة الاشتراك', 'Subscription')} desc={tr('تفعيل الاشتراك، تمديده، وضبط حالة الوصول للشركة الحالية', 'Activate, renew, and control company access status')} color="emerald" rtl={rtl} onClick={() => setMode('SUBSCRIPTION')} />
                 <MenuItem icon={<Building className="w-6 h-6" />} title={t('settings.companyData')} desc={t('settings.companyDesc')} color="blue" rtl={rtl} onClick={() => setMode('COMPANY')} />
