@@ -1308,14 +1308,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
   const handleSaveBackupSettings = () => {
     const keepCount = Math.max(1, Math.min(200, Math.floor(Number(autoBackupKeepCount) || 30)));
-    if (autoBackupEnabled && autoBackupPassword.trim().length < 4) {
-      setBackupStatus(tr('كلمة مرور النسخ التلقائي يجب أن تكون 4 أحرف على الأقل.', 'Auto backup password must be at least 4 characters.'));
-      return;
-    }
-    if (googleDriveAutoUpload && !googleDriveClientId.trim()) {
-      setBackupStatus(tr('أدخل Google OAuth Client ID لتفعيل الرفع التلقائي.', 'Enter Google OAuth Client ID to enable auto upload.'));
-      return;
-    }
+
 
     const result = updateCompanySettings({
       ...companySettings,
@@ -4345,16 +4338,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             />
           </div>
         </div>
-        <div>
-          <label className="block text-[11px] font-bold text-gray-500 mb-1">{tr('كلمة مرور النسخ التلقائي', 'Auto backup password')}</label>
-          <input
-            type="password"
-            value={autoBackupPassword}
-            onChange={(e) => setAutoBackupPassword(e.target.value)}
-            className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-bold outline-none"
-            placeholder={tr('مطلوبة عند التفعيل (4 أحرف على الأقل)', 'Required when enabled (min 4 chars)')}
-          />
-        </div>
+
         <div className="rounded-lg border border-gray-200 bg-white p-2.5 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[11px] font-black text-gray-700">{tr('Google Drive', 'Google Drive')}</p>
@@ -4366,18 +4350,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               {googleDriveAutoUpload ? tr('رفع تلقائي مفعل', 'Auto upload on') : tr('رفع تلقائي متوقف', 'Auto upload off')}
             </button>
           </div>
-          <input
-            value={googleDriveClientId}
-            onChange={(e) => setGoogleDriveClientId(e.target.value)}
-            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-[11px] font-mono outline-none"
-            placeholder={tr('Google OAuth Client ID', 'Google OAuth Client ID')}
-          />
-          <input
-            value={googleDriveFolderId}
-            onChange={(e) => setGoogleDriveFolderId(e.target.value)}
-            className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-[11px] font-mono outline-none"
-            placeholder={tr('Folder ID (اختياري)', 'Folder ID (optional)')}
-          />
+
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           <button
@@ -4437,16 +4410,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         )}
       </div>
 
-      <div>
-        <label className="block text-xs font-bold text-gray-500 mb-1">{tr('كلمة مرور النسخة', 'Backup Password')}</label>
-        <input
-          type="password"
-          value={backupPassword}
-          onChange={(e) => setBackupPassword(e.target.value)}
-          className="w-full p-3 bg-gray-50 rounded-xl border border-gray-200 outline-none"
-          placeholder={tr('أدخل كلمة مرور قوية', 'Enter strong password')}
-        />
-      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         <button type="button" onClick={handleCreateBackup} className="py-2.5 rounded-xl bg-blue-600 text-white text-xs font-black flex items-center justify-center gap-2">
           <Download className="w-4 h-4" />

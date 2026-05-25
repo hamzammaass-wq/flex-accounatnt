@@ -1,4 +1,4 @@
-﻿
+
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from 'react';
 import {
   Transaction, Invoice, Account, Product, Contact, FixedAsset,
@@ -31,7 +31,9 @@ import { normalizeEntityNameKey } from '../utils/entityNameMatching';
 import { buildDefaultWorkspaceSubscription, getSubscriptionProviderAvailability, getWorkspaceEffectiveMaxCompanies, getWorkspaceRemainingCompanySlots, normalizeWorkspaceSubscription, prepareWorkspaceCheckout } from '../utils/subscriptionCommerce';
 import { buildCloudSubscriptionFromCompanyProfile, getCurrentSubscriptionDeviceBinding, getOrCreateSubscriptionDeviceId, isLocalSubscriptionAdminEnabled, isProgramOwnerEmail, isSubscriptionAdminEmail, normalizeCloudCompanySubscription, normalizeCloudSubscriptionCode, normalizeWorkspaceOfferCode } from '../utils/subscriptionCloud';
 import { clearWorkspaceSnapshotStorage, deleteWorkspaceSnapshotRecord, readWorkspaceSnapshotRecord, writeWorkspaceSnapshotRecord } from '../utils/workspaceSnapshotStorage';
-import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, limit as firestoreLimit } from 'firebase/firestore';
 import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
 
@@ -9768,15 +9770,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     source: 'MANUAL' | 'AUTO'
   ): Promise<BackupPayloadV1 | null> => {
     const normalizedPassword = String(password || '').trim();
-    if (normalizedPassword.length < MIN_BACKUP_PASSWORD_LENGTH) {
-      appendAuditLog({
-        entityType: 'backup',
-        action: source === 'AUTO' ? 'AUTO_EXPORT_REJECTED' : 'EXPORT_REJECTED',
-        screen: 'Settings > Backup',
-        metadata: { reason: 'WEAK_PASSWORD' }
-      });
-      return null;
-    }
+
 
     const encrypted = await encryptBackupPayload(buildBackupSnapshot(), normalizedPassword);
     return encrypted;
@@ -9803,36 +9797,38 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const requestGoogleAccessToken = async (interactive: boolean): Promise<string> => {
-    const clientId = String(companySettings.googleDriveClientId || '').trim();
-    if (!clientId) throw new Error('Google Drive Client ID is required.');
-
     const now = Date.now();
     if (googleTokenRef.current && now < googleTokenExpiresAtRef.current - 60_000) {
       return googleTokenRef.current;
     }
 
-    await loadGoogleIdentityScript();
-    const googleApi = (window as any).google;
-    if (!googleApi?.accounts?.oauth2?.initTokenClient) {
-      throw new Error('Google identity SDK is not available.');
+    if (!interactive) {
+      throw new Error(tr('انتهت صلاحية الجلسة. يرجى ربط Google Drive يدوياً مرة أخرى.', 'Session expired. Please connect Google Drive manually again.'));
     }
 
-    const tokenResponse = await new Promise<GoogleTokenResponse>((resolve) => {
-      const tokenClient = googleApi.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: GOOGLE_DRIVE_SCOPES,
-        callback: (response: GoogleTokenResponse) => resolve(response)
+    if (Capacitor.isNativePlatform()) {
+      const result = await FirebaseAuthentication.signInWithGoogle({
+        scopes: ['https://www.googleapis.com/auth/drive.file']
       });
-      tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
-    });
-
-    if (!tokenResponse?.access_token || tokenResponse.error) {
-      throw new Error(tokenResponse?.error_description || tokenResponse?.error || 'Google authentication failed.');
+      if (!result.credential?.accessToken) {
+        throw new Error('No access token returned from Google Sign In.');
+      }
+      googleTokenRef.current = result.credential.accessToken;
+      googleTokenExpiresAtRef.current = Date.now() + 3500 * 1000;
+      return result.credential.accessToken;
+    } else {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      provider.setCustomParameters({ prompt: 'consent' });
+      const result = await signInWithPopup(firebaseAuth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new Error('No access token returned from Google Sign In.');
+      }
+      googleTokenRef.current = credential.accessToken;
+      googleTokenExpiresAtRef.current = Date.now() + 3500 * 1000;
+      return credential.accessToken;
     }
-
-    googleTokenRef.current = tokenResponse.access_token;
-    googleTokenExpiresAtRef.current = Date.now() + ((tokenResponse.expires_in || 3600) * 1000);
-    return tokenResponse.access_token;
   };
 
   const fetchGoogleDriveUserEmail = async (token: string): Promise<string | undefined> => {
@@ -9995,9 +9991,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     const password = String(companySettings.autoBackupPassword || '').trim();
-    if (password.length < MIN_BACKUP_PASSWORD_LENGTH) {
-      return makeError('VALIDATION_ERROR', 'Auto backup password must be at least 4 characters.');
-    }
+
 
     autoBackupInFlightRef.current = true;
     try {
@@ -10168,9 +10162,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!permission.ok) return permission;
 
     const normalizedPassword = String(password || '').trim();
-    if (normalizedPassword.length < MIN_BACKUP_PASSWORD_LENGTH) {
-      return makeError('VALIDATION_ERROR', 'Backup password must be at least 4 characters.');
-    }
+
 
     try {
       setGoogleDriveStatus(prev => ({ ...prev, isBusy: true, lastError: undefined }));
@@ -10249,7 +10241,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
     if (!companySettings.autoBackupEnabled) return;
-    if (String(companySettings.autoBackupPassword || '').trim().length < MIN_BACKUP_PASSWORD_LENGTH) return;
+
 
     let cancelled = false;
     const frequencyMs = companySettings.autoBackupFrequency === 'HOURLY'
