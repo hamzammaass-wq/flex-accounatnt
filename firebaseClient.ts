@@ -2,6 +2,7 @@ import { getApps, getApp, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
   getAuth,
+  initializeAuth,
   setPersistence,
   type Auth
 } from 'firebase/auth';
@@ -36,7 +37,13 @@ export const firebaseApp = isFirebaseAuthEnabled
   : null;
 
 export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
-  ? getAuth(firebaseApp)
+  ? (function() {
+      try {
+        return initializeAuth(firebaseApp, { persistence: browserLocalPersistence });
+      } catch (e) {
+        return getAuth(firebaseApp);
+      }
+    })()
   : null;
 
 export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
