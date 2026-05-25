@@ -31,9 +31,10 @@ android/*.keystore
 android/keystore/
 ios/App/release.xcconfig
 
-# Firebase local cache
+# Firebase local cache & exports
 .firebase/
-
+firebase-export-*/
+dataconnect/.dataconnect/
 # Temporary QA/debug artifacts
 qa-output/
 artifacts/
