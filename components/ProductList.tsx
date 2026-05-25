@@ -548,7 +548,7 @@ const ProductList: React.FC = () => {
   const handleToggleNegativeStock = () => handleSetNegativeStock(!allowNegativeStock);
 
   return (
-    <div data-testid="product-list-root" className={`app-page w-full max-w-[1680px] mx-auto overflow-x-hidden px-3 sm:px-4 lg:px-6 pb-[calc(var(--app-nav-height)_+_var(--app-safe-bottom)_+_0.75rem)] font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+    <div data-testid="product-list-root" className={`app-page w-full max-w-[1680px] mx-auto overflow-x-hidden px-3 sm:px-4 lg:px-6 safe-pb-nav font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
       <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between min-w-0">
         <div className="min-w-0">
            <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-tight break-words">{tr('المستودع', 'Inventory')}</h1>

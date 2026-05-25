@@ -13,6 +13,31 @@
     direction: rtl;
     text-align: right;
   }
+
+  .safe-pt {
+    padding-top: calc(var(--app-safe-top) + 0.5rem) !important;
+  }
+  .safe-pt-sm {
+    padding-top: calc(var(--app-safe-top) + 0.35rem) !important;
+  }
+  .safe-pb {
+    padding-bottom: calc(var(--app-safe-bottom) + 0.5rem) !important;
+  }
+  .safe-pb-lg {
+    padding-bottom: calc(var(--app-safe-bottom) + 5.5rem) !important;
+  }
+  .safe-pb-nav {
+    padding-bottom: calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.75rem) !important;
+  }
+  .safe-pb-dock {
+    padding-bottom: calc(var(--app-safe-bottom) + 0.8rem) !important;
+  }
+  .safe-pb-dock-lg {
+    padding-bottom: calc(var(--app-safe-bottom) + 4rem) !important;
+  }
+  .safe-top-offset {
+    top: calc(var(--app-safe-top) + 0.25rem) !important;
+  }
 }
 
 .dir-ltr {

@@ -3044,7 +3044,7 @@ const FinancialReports: React.FC = () => {
                 </div>
             )}
 
-            <div className="report-header-controls sticky top-[calc(var(--app-safe-top)_+_0.25rem)] z-40 rounded-[1.5rem] border border-gray-100 bg-white/95 p-2 shadow-sm backdrop-blur-md">
+            <div className="report-header-controls sticky safe-top-offset z-40 rounded-[1.5rem] border border-gray-100 bg-white/95 p-2 shadow-sm backdrop-blur-md">
                 <div className="grid grid-cols-2 gap-1.5">
                     <EnglishDateInput
                         value={startDate}
@@ -8526,7 +8526,7 @@ const FinancialReports: React.FC = () => {
     return (
         <div
             data-testid="financial-reports-root"
-            className={`financial-reports-page px-3 sm:px-4 pt-[calc(var(--app-safe-top)_+_0.5rem)] pb-[calc(var(--app-safe-bottom)_+_5.5rem)] app-page max-w-7xl mx-auto ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
+            className={`financial-reports-page px-3 sm:px-4 safe-pt safe-pb-lg app-page max-w-7xl mx-auto ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
             dir={isEnglish ? 'ltr' : 'rtl'}
         >
             <div

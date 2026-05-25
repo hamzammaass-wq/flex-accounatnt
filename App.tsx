@@ -857,7 +857,7 @@ const AppContent: React.FC = () => {
         >
           {!overlay && (
             <div
-              className="relative z-[70] px-2 pt-[calc(var(--app-safe-top)_+_0.35rem)] pb-2 flex"
+              className="relative z-[70] px-2 safe-pt-sm pb-2 flex"
             >
               <div
                 className={`relative w-full max-w-[min(100%,var(--app-content-max-width-tablet-browser))] flex items-center gap-2 ${isMobile ? 'justify-between' : (rtl ? 'justify-start' : 'justify-end')
