@@ -601,7 +601,7 @@ export interface CompanySettings {
 
   // Backup options
   autoBackupEnabled: boolean;
-  autoBackupFrequency: 'HOURLY' | 'DAILY';
+  autoBackupFrequency: 'INSTANT' | 'HOURLY' | 'DAILY';
   autoBackupPassword: string;
   autoBackupKeepCount: number;
   autoBackupLastRunAt?: string;

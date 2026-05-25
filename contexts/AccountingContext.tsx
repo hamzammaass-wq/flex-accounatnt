@@ -10244,9 +10244,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
 
     let cancelled = false;
-    const frequencyMs = companySettings.autoBackupFrequency === 'HOURLY'
-      ? 60 * 60 * 1000
-      : 24 * 60 * 60 * 1000;
+    const frequencyMs = companySettings.autoBackupFrequency === 'INSTANT'
+      ? 10 * 1000
+      : companySettings.autoBackupFrequency === 'HOURLY'
+        ? 60 * 60 * 1000
+        : 24 * 60 * 60 * 1000;
 
     const runIfDue = async () => {
       if (cancelled || autoBackupInFlightRef.current) return;
@@ -10265,9 +10267,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     };
 
     void runIfDue();
+    const intervalMs = companySettings.autoBackupFrequency === 'INSTANT' ? 10 * 1000 : 60 * 1000;
     const timer = window.setInterval(() => {
       void runIfDue();
-    }, 60 * 1000);
+    }, intervalMs);
 
     return () => {
       cancelled = true;
@@ -10283,7 +10286,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     companySettings.googleDriveAutoUpload,
     companySettings.googleDriveClientId,
     companySettings.googleDriveFolderId,
-    companySettings.autoBackupKeepCount
+    companySettings.autoBackupKeepCount,
+    syncQueueVersion
   ]);
 
   const showWorkspaceBootstrapping = Boolean(

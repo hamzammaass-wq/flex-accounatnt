@@ -428,8 +428,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [backupJson, setBackupJson] = useState('');
   const [backupStatus, setBackupStatus] = useState('');
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(Boolean(companySettings.autoBackupEnabled));
-  const [autoBackupFrequency, setAutoBackupFrequency] = useState<'HOURLY' | 'DAILY'>(
-    companySettings.autoBackupFrequency === 'HOURLY' ? 'HOURLY' : 'DAILY'
+  const [autoBackupFrequency, setAutoBackupFrequency] = useState<'INSTANT' | 'HOURLY' | 'DAILY'>(
+    companySettings.autoBackupFrequency || 'DAILY'
   );
   const [autoBackupPassword, setAutoBackupPassword] = useState(companySettings.autoBackupPassword || '');
   const [autoBackupKeepCount, setAutoBackupKeepCount] = useState(String(companySettings.autoBackupKeepCount || 30));
@@ -485,7 +485,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
   useEffect(() => {
     setAutoBackupEnabled(Boolean(companySettings.autoBackupEnabled));
-    setAutoBackupFrequency(companySettings.autoBackupFrequency === 'HOURLY' ? 'HOURLY' : 'DAILY');
+    setAutoBackupFrequency(companySettings.autoBackupFrequency || 'DAILY');
     setAutoBackupPassword(companySettings.autoBackupPassword || '');
     setAutoBackupKeepCount(String(companySettings.autoBackupKeepCount || 30));
     setGoogleDriveAutoUpload(Boolean(companySettings.googleDriveAutoUpload));
@@ -4321,9 +4321,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             <label className="block text-[11px] font-bold text-gray-500 mb-1">{tr('التكرار', 'Frequency')}</label>
             <select
               value={autoBackupFrequency}
-              onChange={(e) => setAutoBackupFrequency(e.target.value === 'HOURLY' ? 'HOURLY' : 'DAILY')}
+              onChange={(e) => setAutoBackupFrequency(e.target.value as 'INSTANT' | 'HOURLY' | 'DAILY')}
               className="w-full p-2.5 bg-white border border-gray-200 rounded-lg text-xs font-bold outline-none"
             >
+              <option value="INSTANT">{tr('فوري (عند كل عملية)', 'Instant (on every operation)')}</option>
               <option value="DAILY">{tr('يومي', 'Daily')}</option>
               <option value="HOURLY">{tr('كل ساعة', 'Hourly')}</option>
             </select>
