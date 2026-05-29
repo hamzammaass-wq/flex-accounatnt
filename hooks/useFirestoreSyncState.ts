@@ -28,7 +28,27 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       })) as T[];
       
       // Merge remote items, preserving local order if needed, but for ERP lists, remote state is source of truth.
-      setData(items);
+      setData(prev => {
+        // Automatic one-time migration: If Firestore is empty but we have local data, push local to cloud!
+        // This ensures data isn't wiped when transitioning from offline-first to cloud-first.
+        if (items.length === 0 && prev.length > 0 && !snapshot.metadata.hasPendingWrites) {
+          console.log(`[Sync] Migrating local data to Firestore collection: ${collectionName}`);
+          const batch = writeBatch(firebaseDb!);
+          let count = 0;
+          prev.forEach(item => {
+            if (!item.id) return;
+            const docRef = doc(firebaseDb!, `companies/${companyId}/${collectionName}`, item.id);
+            const cleanItem = JSON.parse(JSON.stringify(item));
+            batch.set(docRef, cleanItem, { merge: true });
+            count++;
+          });
+          if (count > 0) {
+            batch.commit().catch(err => console.error(`Failed to migrate ${collectionName}`, err));
+          }
+          return prev;
+        }
+        return items;
+      });
     });
 
     return () => unsubscribe();
@@ -66,7 +86,8 @@ export function useFirestoreSyncState<T extends { id?: string }>(
           
           toUpsert.forEach(item => {
             const docRef = doc(firebaseDb, `companies/${companyId}/${collectionName}`, item.id!);
-            batch.set(docRef, item, { merge: true });
+            const cleanItem = JSON.parse(JSON.stringify(item));
+            batch.set(docRef, cleanItem, { merge: true });
           });
 
           toDelete.forEach(id => {

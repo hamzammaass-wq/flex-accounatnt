@@ -120,12 +120,22 @@ service cloud.firestore {
       allow delete: if isSubscriptionAdmin();
     }
 
+    match /company_subscriptions/{companyId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isSubscriptionAdmin();
+    }
+
     match /workspace_subscriptions/{userId} {
       allow read, create, update: if isSignedIn() && request.auth.uid == userId;
       allow delete: if isSubscriptionAdmin() || (isSignedIn() && request.auth.uid == userId);
     }
 
     match /workspace_sync_snapshots/{snapshotId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /companies/{companyId}/{document=**} {
       allow read, write: if isSignedIn();
     }
 

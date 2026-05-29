@@ -10,19 +10,11 @@ import { buildNextItemCode, normalizeItemCode, resolveProductItemCodeMode } from
 import { PricingMode, resolveProductPricing } from '../utils/productPricing';
 import { getDisplayItemGroupName, getDisplayUnitName } from '../utils/displayNames';
 import { normalizeProductInventoryFields } from '../utils/productKind';
+import { compressImageFile } from '../utils/imageCompression';
 
 const inputClass = 'w-full p-3 bg-gray-50 border border-gray-100 rounded-[1.2rem] text-sm font-bold text-slate-700 outline-none transition-all duration-300 shadow-sm focus:bg-white focus:shadow-[0_8px_20px_rgba(0,0,0,0.06)] focus:border-blue-400/30 placeholder:text-gray-300';
 
-const readFileAsDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') resolve(reader.result);
-      else reject(new Error('Unable to read file'));
-    };
-    reader.onerror = () => reject(reader.error || new Error('File read failed'));
-    reader.readAsDataURL(file);
-  });
+
 
 type QuickAddProductModalProps = {
   onClose: () => void;
@@ -192,10 +184,15 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await compressImageFile(file, {
+        maxWidth: 800,
+        maxHeight: 800,
+        quality: 0.7,
+        mimeType: 'image/jpeg'
+      });
       setImageUrl(dataUrl);
     } catch {
-      alert(tr('تعذر قراءة الصورة. حاول مرة أخرى.', 'Could not read image. Please try again.'));
+      alert(tr('تعذر قراءة أو معالجة الصورة. حاول مرة أخرى.', 'Could not process image. Please try again.'));
     }
   };
 

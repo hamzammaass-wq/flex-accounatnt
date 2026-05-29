@@ -35,7 +35,7 @@ import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { useFirestoreSyncState } from '../hooks/useFirestoreSyncState';
-import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, limit as firestoreLimit } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, limit as firestoreLimit } from 'firebase/firestore';
 import { ref as storageRef, uploadString } from 'firebase/storage';
 import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
 
@@ -1277,7 +1277,7 @@ type CompanyWorkspaceSnapshot = {
 
 type WorkspaceSnapshotReadResult = {
   snapshot: CompanyWorkspaceSnapshot | null;
-  source: 'idb' | 'legacy' | 'none';
+  source: 'idb' | 'legacy' | 'remote' | 'none';
   needsRewrite: boolean;
 };
 
@@ -3912,12 +3912,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [employees]);
 
 
-  const summary: FinancialSummary = {
-    totalIncome: transactions.filter(t => t.type === 'INCOME' && t.status !== 'DRAFT').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0),
-    totalExpense: transactions.filter(t => t.type === 'EXPENSE' && t.status !== 'DRAFT').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0),
-    netBalance: 0
-  };
-  summary.netBalance = summary.totalIncome - summary.totalExpense;
+  const summary: FinancialSummary = useMemo(() => {
+    const totalIncome = transactions.filter(t => t.type === 'INCOME' && t.status !== 'DRAFT' && t.category !== 'voucher_receipt' && t.category !== 'supplier_debit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
+    const totalExpense = transactions.filter(t => t.type === 'EXPENSE' && t.status !== 'DRAFT' && t.category !== 'voucher_payment' && t.category !== 'customer_credit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
+    return {
+      totalIncome,
+      totalExpense,
+      netBalance: totalIncome - totalExpense
+    };
+  }, [transactions]);
 
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
@@ -7741,6 +7744,27 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         needsRewrite: true
       };
     }
+
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser)) {
+      try {
+        const syncDocRef = doc(firebaseDb, WORKSPACE_SYNC_COLLECTION, `${companyId}_${currentUser.id}`);
+        const syncDocSnap = await getDoc(syncDocRef);
+        if (syncDocSnap.exists()) {
+          const remoteData = syncDocSnap.data();
+          const remoteSnapshot = parseWorkspaceSnapshot(companyId, remoteData.snapshot);
+          if (remoteSnapshot) {
+            return {
+              snapshot: remoteSnapshot,
+              source: 'remote',
+              needsRewrite: true
+            };
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch remote workspace snapshot:', error);
+      }
+    }
+
     return {
       snapshot: null,
       source: 'none',
@@ -8043,7 +8067,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
-    void saveCurrentWorkspaceSnapshot(currentCompanyId);
+    
+    // Debounce the heavy JSON stringification process
+    // This prevents the browser from crashing (OOM/Aw Snap) when multiple collections sync concurrently from Firestore.
+    const timer = setTimeout(() => {
+      void saveCurrentWorkspaceSnapshot(currentCompanyId);
+    }, 1500);
+
+    return () => clearTimeout(timer);
   }, [
     currentCompanyId,
     workspaceHydratedForCompanyId,
@@ -8198,6 +8229,95 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }));
     }
   }, [currentUser, currentCompanyId, companies]);
+
+  // Migrate logged-in users stuck on cmp_default to a unique real company ID
+  useEffect(() => {
+    if (!currentUser || isGuestUser(currentUser) || !currentCompanyId) return;
+
+    if (currentCompanyId === 'cmp_default') {
+      const realCompany = companies.find(c => c.id !== 'cmp_default');
+      if (realCompany) {
+        setCurrentCompanyId(realCompany.id);
+        return;
+      }
+
+      const migrateToRealCompany = async () => {
+        const newCompanyId = `cmp_${currentUser.id}`;
+        console.log(`[Migration] Upgrading user to real company ID: ${newCompanyId}`);
+        
+        await saveCurrentWorkspaceSnapshot(newCompanyId);
+        
+        setCompanies(prev => prev.map(c => 
+          c.id === 'cmp_default' ? { ...c, id: newCompanyId } : c
+        ));
+        
+        setCurrentUser(prev => prev ? { ...prev, companyId: newCompanyId } : prev);
+        setCurrentCompanyId(newCompanyId);
+      };
+
+      void migrateToRealCompany();
+    }
+  }, [currentUser, currentCompanyId, companies, saveCurrentWorkspaceSnapshot]);
+
+
+  // Restore companies from Firebase on a new device
+  useEffect(() => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) return;
+    
+    // Only attempt restore if we only have the default company (cmp_default)
+    if (companies.length > 1 || companies[0]?.id !== 'cmp_default') return;
+
+    const restoreCompanies = async () => {
+      try {
+        const syncsQuery = query(
+          collection(firebaseDb, WORKSPACE_SYNC_COLLECTION),
+          where('userId', '==', currentUser.id)
+        );
+        const syncsSnap = await getDocs(syncsQuery);
+        
+        if (!syncsSnap.empty) {
+          const restoredCompanies: CompanyProfile[] = [];
+          syncsSnap.forEach(docSnap => {
+            const data = docSnap.data();
+            if (data.snapshot && data.snapshot.companySettings) {
+              const remoteSnapshot = parseWorkspaceSnapshot(data.companyId, data.snapshot);
+              if (remoteSnapshot) {
+                void persistWorkspaceSnapshot(data.companyId, remoteSnapshot);
+                if (currentCompanyId === data.companyId) {
+                  applyWorkspaceSnapshot(remoteSnapshot);
+                  setWorkspaceHydratedForCompanyId(data.companyId);
+                }
+              }
+
+              const settings = data.snapshot.companySettings;
+              restoredCompanies.push({
+                id: data.companyId,
+                name: settings.name || defaultCompanySettings.name,
+                taxNumber: settings.taxNumber || '',
+                address: settings.address || '',
+                phone: settings.phone || '',
+                logoUrl: settings.logoUrl || defaultCompanySettings.logoUrl,
+                createdAt: data.snapshot.updatedAt || new Date().toISOString(),
+                trialEndsAt: addDaysIso(new Date().toISOString(), 14),
+                subscriptionStatus: 'TRIAL',
+                subscriptionPlan: 'TRIAL',
+                graceDays: 0
+              });
+            }
+          });
+
+          if (restoredCompanies.length > 0) {
+            setCompanies(restoredCompanies);
+            setCurrentCompanyId(restoredCompanies[0].id);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to restore companies from Firebase:', error);
+      }
+    };
+
+    void restoreCompanies();
+  }, [currentUser, companies.length, currentCompanyId]);
 
   const switchCompany = (companyId: string): MutationResult => {
     const company = companies.find(c => c.id === companyId);

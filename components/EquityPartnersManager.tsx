@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, FileText, Layers3, Percent, Plus, Printer, Wallet } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import EnglishDateInput from './EnglishDateInput';
@@ -14,6 +14,7 @@ import {
   roundMoney,
   validateEquitySettlementInput
 } from '../utils/equityPartners';
+import { compressImageFile } from '../utils/imageCompression';
 
 type TabKey = 'DASHBOARD' | 'CAPITAL' | 'PARTNER_ACCOUNTS' | 'PROFIT_DISTRIBUTION' | 'SETTLEMENT';
 
@@ -570,14 +571,16 @@ const EquityPartnersManager: React.FC = () => {
     const files = Array.from(list);
     const prepared: SettlementAttachment[] = [];
     for (const file of files) {
-      if (file.size > 5 * 1024 * 1024) return alert(tr(`الملف ${file.name} أكبر من 5MB.`, `File ${file.name} exceeds 5MB.`));
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('read failed'));
-        reader.onerror = () => reject(reader.error || new Error('read failed'));
-        reader.readAsDataURL(file);
-      });
-      prepared.push({ id: newId('att'), name: file.name, dataUrl });
+      if (file.size > 5 * 1024 * 1024) {
+        alert(tr(`الملف ${file.name} أكبر من 5MB.`, `File ${file.name} exceeds 5MB.`));
+        continue;
+      }
+      try {
+        const dataUrl = await compressImageFile(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.7, mimeType: 'image/jpeg' });
+        prepared.push({ id: newId('att'), name: file.name, dataUrl });
+      } catch {
+        alert(tr(`تعذر قراءة أو معالجة الملف ${file.name}.`, `Could not process file ${file.name}.`));
+      }
     }
     setSettlementAttachments(prev => [...prev, ...prepared].slice(0, 5));
   };

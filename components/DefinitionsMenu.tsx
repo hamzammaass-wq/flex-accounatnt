@@ -48,6 +48,7 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
 import { normalizeAppLanguage, translate } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { compressImageFile } from '../utils/imageCompression';
 import { applyAppTheme } from '../utils/appTheme';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
 import { buildWorkspaceSubscriptionQuote } from '../utils/subscriptionCommerce';
@@ -1673,18 +1674,25 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     setSubscriptionStatusMessage(tr('تم فك ربط الجهاز المحدد.', 'The selected device was unlinked successfully.'));
   };
 
-  const handleLogoFile = (file: File | null) => {
+  const handleLogoFile = async (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      alert(tr('يرجى اختيار ملف صورة صالح', 'Please select an image file.'));
+      alert(tr('يرجى اختيار ملف صورة صالح', 'Please select a valid image file.'));
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') return;
-      setLogoCropSource(reader.result);
-    };
-    reader.readAsDataURL(file);
+    
+    try {
+      const compressedDataUrl = await compressImageFile(file, {
+        maxWidth: 500,
+        maxHeight: 500,
+        quality: 0.8,
+        mimeType: 'image/png' // Use PNG to preserve potential transparency in logos
+      });
+      setLogoCropSource(compressedDataUrl);
+    } catch (error) {
+      console.error('Failed to compress logo:', error);
+      alert(tr('حدث خطأ أثناء معالجة الصورة.', 'An error occurred while processing the image.'));
+    }
   };
 
   const handleCloseLogoCrop = () => {

@@ -883,7 +883,7 @@ const QuickAddProductModalLegacy: React.FC<{ onClose: () => void; onSave: (produ
             return;
         }
         try {
-            const dataUrl = await readFileAsDataUrl(file);
+            const dataUrl = await compressImageForInlineStorage(file, { maxDimension: 800, targetBytes: 200 * 1024 });
             setImageUrl(dataUrl);
         } catch {
             alert(tr('تعذر قراءة الصورة. حاول مرة أخرى.', 'Could not read image. Please try again.'));
