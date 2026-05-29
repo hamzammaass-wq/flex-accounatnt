@@ -7,6 +7,7 @@
     "node": "22"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-ios-google-auth.mjs",
     "dev": "vite",
     "brand:sync": "node scripts/sync-brand-icons.mjs",
     "brand:sync:mobile": "node scripts/sync-brand-icons.mjs --include-mobile",
