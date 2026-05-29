@@ -304,6 +304,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
         return;
       }
 
+      if (Capacitor.isNativePlatform()) {
+        if (!cancelled) setSessionCheckLoading(false);
+        return;
+      }
+
       setSessionCheckLoading(true);
       try {
         const redirectResult = await getRedirectResult(firebaseAuth);
