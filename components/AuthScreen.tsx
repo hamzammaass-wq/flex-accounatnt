@@ -457,14 +457,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
     try {
       if (Capacitor.isNativePlatform()) {
-        alert('DEBUG: 1 - Starting FirebaseAuthentication.signInWithGoogle()');
         const result = await FirebaseAuthentication.signInWithGoogle();
-        alert('DEBUG: 2 - Resolved! has idToken: ' + !!result.credential?.idToken);
         if (result.credential?.idToken) {
           const credential = GoogleAuthProvider.credential(result.credential.idToken);
-          alert('DEBUG: 3 - Calling signInWithCredential (JS SDK)');
           const userCred = await signInWithCredential(firebaseAuth, credential);
-          alert('DEBUG: 4 - signInWithCredential successful!');
           if (authMode === 'REGISTER') {
             const additionalInfo = getAdditionalUserInfo(userCred);
             if (additionalInfo?.isNewUser) {
@@ -535,7 +531,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
         throw error;
       }
     } catch (error: any) {
-      alert('DEBUG: ERROR CAUGHT - ' + (error?.message || String(error)));
       if (authMode === 'REGISTER') {
         clearSignupFlowIntent();
       }
