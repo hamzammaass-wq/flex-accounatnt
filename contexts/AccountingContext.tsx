@@ -34,8 +34,10 @@ import { clearWorkspaceSnapshotStorage, deleteWorkspaceSnapshotRecord, readWorks
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { useFirestoreSyncState } from '../hooks/useFirestoreSyncState';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, limit as firestoreLimit } from 'firebase/firestore';
-import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
+import { ref as storageRef, uploadString } from 'firebase/storage';
+import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
 
 // ... (Existing Interfaces)
 
@@ -313,6 +315,7 @@ interface AccountingContextType {
   connectGoogleDrive: () => Promise<MutationResult>;
   disconnectGoogleDrive: () => void;
   uploadBackupToGoogleDrive: (payload: BackupPayloadV1, fileName?: string) => Promise<MutationResult>;
+  uploadBackupToFirebase: (payload: BackupPayloadV1, fileName?: string) => Promise<MutationResult>;
   restoreFromGoogleDrive: (password: string) => Promise<MutationResult>;
   runAutoBackupNow: () => Promise<MutationResult>;
 
@@ -2416,31 +2419,39 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     language: detectPreferredAppLanguage()
   };
 
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
-  const [importExpenseDistributions, setImportExpenseDistributions] = useState<ImportExpenseDistribution[]>([]);
-  const [invoiceSettlements, setInvoiceSettlements] = useState<InvoiceSettlement[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
-  const [products, setProducts] = useState<Product[]>(seededProducts);
-  const [itemGroups, setItemGroups] = useState<ItemGroup[]>(defaultItemGroups);
-  const [units, setUnits] = useState<UnitOfMeasure[]>(initialUnits);
-  const [contacts, setContacts] = useState<Contact[]>(seededContacts);
+  const [currentCompanyId, setCurrentCompanyId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.currentCompany) || 'cmp_default';
+    } catch {
+      return 'cmp_default';
+    }
+  });
 
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
-  const [employeeContracts, setEmployeeContracts] = useState<EmployeeContract[]>([]);
-  const [salaryHistory, setSalaryHistory] = useState<SalaryHistoryEntry[]>([]);
-  const [employeeLeaveRequests, setEmployeeLeaveRequests] = useState<EmployeeLeaveRequest[]>([]);
-  const [employeeRecurringDeductions, setEmployeeRecurringDeductions] = useState<EmployeeRecurringDeduction[]>([]);
+  const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId);
+  const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId);
+  const [importExpenseDistributions, setImportExpenseDistributions] = useFirestoreSyncState<ImportExpenseDistribution>('importExpenseDistributions', [], currentCompanyId);
+  const [invoiceSettlements, setInvoiceSettlements] = useFirestoreSyncState<InvoiceSettlement>('invoiceSettlements', [], currentCompanyId);
+  const [accounts, setAccounts] = useFirestoreSyncState<Account>('accounts', initialAccounts, currentCompanyId);
+  const [products, setProducts] = useFirestoreSyncState<Product>('products', seededProducts, currentCompanyId);
+  const [itemGroups, setItemGroups] = useFirestoreSyncState<ItemGroup>('itemGroups', defaultItemGroups, currentCompanyId);
+  const [units, setUnits] = useFirestoreSyncState<UnitOfMeasure>('units', initialUnits, currentCompanyId);
+  const [contacts, setContacts] = useFirestoreSyncState<Contact>('contacts', seededContacts, currentCompanyId);
+
+  const [employees, setEmployees] = useFirestoreSyncState<Employee>('employees', initialEmployees, currentCompanyId);
+  const [employeeContracts, setEmployeeContracts] = useFirestoreSyncState<EmployeeContract>('employeeContracts', [], currentCompanyId);
+  const [salaryHistory, setSalaryHistory] = useFirestoreSyncState<SalaryHistoryEntry>('salaryHistory', [], currentCompanyId);
+  const [employeeLeaveRequests, setEmployeeLeaveRequests] = useFirestoreSyncState<EmployeeLeaveRequest>('employeeLeaveRequests', [], currentCompanyId);
+  const [employeeRecurringDeductions, setEmployeeRecurringDeductions] = useFirestoreSyncState<EmployeeRecurringDeduction>('employeeRecurringDeductions', [], currentCompanyId);
   const [fingerprintDevices, setFingerprintDevices] = useState<FingerprintReaderDevice[]>([]);
   const [fingerprintAttendanceBatches, setFingerprintAttendanceBatches] = useState<FingerprintAttendanceBatch[]>([]);
-  const [departments, setDepartments] = useState<Department[]>(defaultDepartments);
+  const [departments, setDepartments] = useFirestoreSyncState<Department>('departments', defaultDepartments, currentCompanyId);
 
-  const [tickets, setTickets] = useState<SupportTicket[]>(initialTickets);
-  const [assetGroups, setAssetGroups] = useState<FixedAssetGroup[]>(initialAssetGroups);
-  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>(initialFixedAssets);
-  const [checks, setChecks] = useState<Check[]>(initialChecks);
-  const [currencies, setCurrencies] = useState<Currency[]>(defaultCurrencies);
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [tickets, setTickets] = useFirestoreSyncState<SupportTicket>('tickets', initialTickets, currentCompanyId);
+  const [assetGroups, setAssetGroups] = useFirestoreSyncState<FixedAssetGroup>('assetGroups', initialAssetGroups, currentCompanyId);
+  const [fixedAssets, setFixedAssets] = useFirestoreSyncState<FixedAsset>('fixedAssets', initialFixedAssets, currentCompanyId);
+  const [checks, setChecks] = useFirestoreSyncState<Check>('checks', initialChecks, currentCompanyId);
+  const [currencies, setCurrencies] = useFirestoreSyncState<Currency>('currencies', defaultCurrencies, currentCompanyId);
+  const [users, setUsers] = useFirestoreSyncState<User>('users', initialUsers, currentCompanyId);
   const [companySettings, setCompanySettings] = useState<CompanySettings>(withNormalizedValuationSettings(defaultCompanySettings));
   const [companies, setCompanies] = useState<CompanyProfile[]>(() => {
     const nowIso = new Date().toISOString();
@@ -2466,13 +2477,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return (parsed as CompanyProfile[]).map(withNormalizedCompanyProfile);
     } catch {
       return fallback;
-    }
-  });
-  const [currentCompanyId, setCurrentCompanyId] = useState<string>(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.currentCompany) || 'cmp_default';
-    } catch {
-      return 'cmp_default';
     }
   });
   const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
@@ -7427,8 +7431,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
 
   // --- WAREHOUSE STATE ---
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(initialWarehouses);
-  const [stockTransfers, setStockTransfers] = useState<StockTransfer[]>(initialStockTransfers);
+  const [warehouses, setWarehouses] = useFirestoreSyncState<Warehouse>('warehouses', initialWarehouses, currentCompanyId);
+  const [stockTransfers, setStockTransfers] = useFirestoreSyncState<StockTransfer>('stockTransfers', initialStockTransfers, currentCompanyId);
 
   useEffect(() => {
     setTransactions(prev => {
@@ -7471,8 +7475,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
 
   // --- MANUFACTURING STATE ---
-  const [boms, setBoms] = useState<BillOfMaterial[]>(initialBoms);
-  const [productionOrders, setProductionOrders] = useState<ProductionOrder[]>(initialProductionOrders);
+  const [boms, setBoms] = useFirestoreSyncState<BillOfMaterial>('boms', initialBoms, currentCompanyId);
+  const [productionOrders, setProductionOrders] = useFirestoreSyncState<ProductionOrder>('productionOrders', initialProductionOrders, currentCompanyId);
 
   const buildDefaultWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot => {
     const meta = companies.find(c => c.id === companyId);
@@ -7745,38 +7749,46 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const applyWorkspaceSnapshot = (snapshot: CompanyWorkspaceSnapshot) => {
-    const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
-    setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
-    setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
-    setUsers(normalizedSnapshot.users || []);
-    setAccounts(normalizedSnapshot.accounts || []);
-    setTransactions(normalizedSnapshot.transactions || []);
-    setInvoices(normalizedSnapshot.invoices || []);
-    setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
-    setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
-    setProducts(normalizedSnapshot.products || []);
-    setItemGroups(normalizedSnapshot.itemGroups || []);
-    setUnits(normalizedSnapshot.units || []);
-    setContacts(normalizedSnapshot.contacts || []);
-    setEmployees(normalizedSnapshot.employees || []);
-    setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
-    setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
-    setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
-    setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
-    setFingerprintDevices((normalizedSnapshot as any).fingerprintDevices || []);
-    setFingerprintAttendanceBatches((normalizedSnapshot as any).fingerprintAttendanceBatches || []);
-    setDepartments(normalizedSnapshot.departments || []);
-    setTickets(normalizedSnapshot.tickets || []);
-    setFixedAssets(normalizedSnapshot.fixedAssets || []);
-    setAssetGroups(normalizedSnapshot.assetGroups || []);
-    setChecks(normalizedSnapshot.checks || []);
-    setCurrencies(normalizedSnapshot.currencies || []);
-    setWarehouses(normalizedSnapshot.warehouses || []);
-    setStockTransfers(normalizedSnapshot.stockTransfers || []);
-    setBoms(normalizedSnapshot.boms || []);
-    setProductionOrders(normalizedSnapshot.productionOrders || []);
-    setPermissions(resolveWorkspacePermissions(normalizedSnapshot.permissions, normalizedSnapshot.auditLogs));
-    setAuditLogs(normalizedSnapshot.auditLogs || []);
+    (window as any).__IS_HYDRATING__ = true;
+    try {
+      const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
+      setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
+      setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
+      setUsers(normalizedSnapshot.users || []);
+      setAccounts(normalizedSnapshot.accounts || []);
+      setTransactions(normalizedSnapshot.transactions || []);
+      setInvoices(normalizedSnapshot.invoices || []);
+      setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
+      setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
+      setProducts(normalizedSnapshot.products || []);
+      setItemGroups(normalizedSnapshot.itemGroups || []);
+      setUnits(normalizedSnapshot.units || []);
+      setContacts(normalizedSnapshot.contacts || []);
+      setEmployees(normalizedSnapshot.employees || []);
+      setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
+      setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
+      setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
+      setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
+      setFingerprintDevices((normalizedSnapshot as any).fingerprintDevices || []);
+      setFingerprintAttendanceBatches((normalizedSnapshot as any).fingerprintAttendanceBatches || []);
+      setDepartments(normalizedSnapshot.departments || []);
+      setTickets(normalizedSnapshot.tickets || []);
+      setFixedAssets(normalizedSnapshot.fixedAssets || []);
+      setAssetGroups(normalizedSnapshot.assetGroups || []);
+      setChecks(normalizedSnapshot.checks || []);
+      setCurrencies(normalizedSnapshot.currencies || []);
+      setWarehouses(normalizedSnapshot.warehouses || []);
+      setStockTransfers(normalizedSnapshot.stockTransfers || []);
+      setBoms(normalizedSnapshot.boms || []);
+      setProductionOrders(normalizedSnapshot.productionOrders || []);
+      setPermissions(resolveWorkspacePermissions(normalizedSnapshot.permissions, normalizedSnapshot.auditLogs));
+      setAuditLogs(normalizedSnapshot.auditLogs || []);
+    } finally {
+      // Use setTimeout to ensure the React state updates are processed before unsetting the flag
+      setTimeout(() => {
+        (window as any).__IS_HYDRATING__ = false;
+      }, 0);
+    }
   };
 
   const saveCurrentWorkspaceSnapshot = async (companyId: string): Promise<boolean> => {
@@ -10014,6 +10026,44 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
 
+  const uploadBackupToFirebase: AccountingContextType['uploadBackupToFirebase'] = async (payload, fileName) => {
+    const permission = enforcePermission('SETTINGS', 'PRINT', 'Settings > Backup');
+    if (!permission.ok) return permission;
+    if (!firebaseStorage) {
+      return makeError('VALIDATION_ERROR', 'Firebase Storage is not configured.');
+    }
+    const currentUser = firebaseAuth?.currentUser;
+    if (!currentUser) {
+      return makeError('VALIDATION_ERROR', 'Firebase authentication is required.');
+    }
+
+    const targetFileName = fileName || buildBackupFileName(payload.createdAt);
+    const companyFolder = String(currentCompanyId || 'cmp_default');
+    const storagePath = `backups/${currentUser.uid}/${companyFolder}/${targetFileName}`;
+
+    try {
+      await uploadString(storageRef(firebaseStorage, storagePath), JSON.stringify(payload, null, 2), 'raw', {
+        contentType: 'application/json'
+      });
+      appendAuditLog({
+        entityType: 'backup',
+        action: 'FIREBASE_UPLOAD',
+        screen: 'Settings > Backup',
+        metadata: { storagePath, userId: currentUser.uid, userEmail: currentUser.email || '' }
+      });
+      return makeSuccess();
+    } catch (error: any) {
+      const message = String(error?.message || 'Firebase backup upload failed.');
+      appendAuditLog({
+        entityType: 'backup',
+        action: 'FIREBASE_UPLOAD_REJECTED',
+        screen: 'Settings > Backup',
+        metadata: { reason: message, storagePath }
+      });
+      return makeError('VALIDATION_ERROR', message);
+    }
+  };
+
   const runAutoBackupCycle = async (interactiveDriveAuth: boolean): Promise<MutationResult> => {
     if (autoBackupInFlightRef.current) {
       return makeError('VALIDATION_ERROR', 'Auto backup is already running.');
@@ -10356,7 +10406,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       users, addUser, updateUser, deleteUser,
       summary,
       isOnline, isSyncing, lastSyncTime, syncData, exportData, importData,
-      googleDriveStatus, connectGoogleDrive, disconnectGoogleDrive, uploadBackupToGoogleDrive, restoreFromGoogleDrive, runAutoBackupNow,
+      googleDriveStatus, connectGoogleDrive, disconnectGoogleDrive, uploadBackupToGoogleDrive, uploadBackupToFirebase, restoreFromGoogleDrive, runAutoBackupNow,
       permissions, updatePermissions, can, auditLogs, appendAuditLog,
 
       // Warehouse Module

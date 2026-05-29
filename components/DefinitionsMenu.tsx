@@ -26,7 +26,8 @@ import {
   CloudDownload,
   BookOpen,
   Trash2,
-  User
+  User,
+  AlertTriangle
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
 import CurrencyManager from './CurrencyManager';
@@ -135,7 +136,8 @@ export type SettingsMode =
   | 'TREASURY'
   | 'ITEM_GROUPS'
   | 'UNITS'
-  | 'LANGUAGE';
+  | 'LANGUAGE'
+  | 'WIPE_DATA';
 
 interface DefinitionsMenuProps {
   initialMode?: SettingsMode;
@@ -366,6 +368,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     connectGoogleDrive,
     disconnectGoogleDrive,
     uploadBackupToGoogleDrive,
+    uploadBackupToFirebase,
     restoreFromGoogleDrive,
     runAutoBackupNow,
     auditLogs,
@@ -481,6 +484,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [integrityAreaFilter, setIntegrityAreaFilter] = useState<'ALL' | IntegrityArea>('ALL');
   const [selectedIntegrityIssueId, setSelectedIntegrityIssueId] = useState<string | null>(null);
   const [runtimeErrorLog, setRuntimeErrorLog] = useState<RuntimeErrorEntry[]>([]);
+  const [wipeConfirmText, setWipeConfirmText] = useState('');
+  const [wipeBusy, setWipeBusy] = useState(false);
 
   useEffect(() => {
     setPermissionDraft(clonePermissions(permissions));
@@ -1364,6 +1369,28 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       setBackupStatus(
         result.ok
           ? tr('تم رفع النسخة إلى Google Drive.', 'Backup uploaded to Google Drive.')
+          : result.message
+      );
+    } catch {
+      setBackupStatus(tr('JSON النسخة غير صالح.', 'Backup JSON is invalid.'));
+    }
+  };
+
+  const handleUploadBackupToFirebase = async () => {
+    if (!backupJson.trim()) {
+      setBackupStatus(tr('أنشئ نسخة أو ألصق JSON قبل الرفع إلى Firebase.', 'Create or paste backup JSON before uploading to Firebase.'));
+      return;
+    }
+    try {
+      const parsed = JSON.parse(backupJson);
+      if (!isBackupPayloadV1(parsed)) {
+        setBackupStatus(tr('محتوى النسخة غير صالح للرفع.', 'Backup payload is invalid for upload.'));
+        return;
+      }
+      const result = await uploadBackupToFirebase(parsed);
+      setBackupStatus(
+        result.ok
+          ? tr('تم رفع النسخة إلى Firebase.', 'Backup uploaded to Firebase.')
           : result.message
       );
     } catch {
@@ -4489,6 +4516,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             <CloudUpload className="w-4 h-4" />
             {tr('رفع النسخة الحالية', 'Upload current backup')}
           </button>
+          <button type="button" onClick={handleUploadBackupToFirebase} className="py-2 rounded-lg bg-violet-600 text-white text-xs font-black flex items-center justify-center gap-2">
+            <CloudUpload className="w-4 h-4" />
+            {tr('رفع النسخة إلى Firebase', 'Upload current backup to Firebase')}
+          </button>
           <button type="button" onClick={handleRestoreFromDrive} className="py-2 rounded-lg bg-purple-600 text-white text-xs font-black flex items-center justify-center gap-2">
             <CloudDownload className="w-4 h-4" />
             {tr('استرجاع من Google Drive', 'Restore from Google Drive')}
@@ -4657,6 +4688,95 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       )}
     </div>
   );
+
+  const renderWipeDataForm = () => {
+    const isWipeDisabled = wipeBusy || wipeConfirmText.trim() !== (isEnglish ? 'delete' : 'حذف');
+    
+    const handleWipeData = async () => {
+      if (isWipeDisabled) return;
+      try {
+        setWipeBusy(true);
+        const result = await wipeAllCompanyData();
+        if (result.ok) {
+          setMode('MENU');
+          setWipeConfirmText('');
+        } else {
+          alert(result.message || tr('تعذر حذف البيانات.', 'Could not delete data.'));
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setWipeBusy(false);
+      }
+    };
+
+    return (
+      <div className="max-w-3xl space-y-4">
+        <div className="rounded-[2rem] border border-rose-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-xs font-black text-rose-500">{tr('الرقابة والبيانات', 'Control and Data')}</div>
+              <h2 className="mt-1 text-xl font-black text-slate-900">{tr('حذف جميع البيانات', 'Delete all data')}</h2>
+              <p className="mt-2 text-sm font-bold leading-7 text-slate-500">
+                {tr(
+                  'ستقوم هذه العملية بحذف كافة بيانات التطبيق، والشركات، والمخزون، والفواتير، وإعادة التطبيق لحالة ضبط المصنع.',
+                  'This operation will delete all app data, companies, inventory, invoices, and reset the app to factory settings.'
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMode('MENU')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+            >
+              <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+              {tr('عودة', 'Back')}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-2 text-rose-600 mb-4">
+            <AlertTriangle className="h-5 w-5" />
+            <h3 className="text-base font-black">{tr('تأكيد الحذف الشامل', 'Confirm full deletion')}</h3>
+          </div>
+          
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-black leading-6 text-rose-700">
+            {tr(
+              'تنبيه خطير: هذه العملية لا يمكن التراجع عنها، وسيتم فقدان جميع بياناتك إذا لم يكن لديك نسخة احتياطية محفوظة خارجياً.',
+              'Critical warning: This operation cannot be undone, and all your data will be lost if you do not have an external backup saved.'
+            )}
+          </div>
+
+          <div className="mt-6">
+            <label className="mb-2 block text-sm font-bold text-slate-700">
+              {tr('لتأكيد الحذف، يرجى كتابة "حذف" في المربع أدناه:', 'To confirm deletion, please type "delete" in the box below:')}
+            </label>
+            <input
+              type="text"
+              value={wipeConfirmText}
+              onChange={(e) => setWipeConfirmText(e.target.value)}
+              placeholder={tr('حذف', 'delete')}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+            />
+          </div>
+
+          <button
+            onClick={() => void handleWipeData()}
+            disabled={isWipeDisabled}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-black text-white transition hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {wipeBusy ? (
+               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            {tr('حذف جميع البيانات الآن', 'Delete all data now')}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderIntegrityForm = () => (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4 animate-in fade-in">
@@ -4893,7 +5013,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                     {tr(selectedIntegrityIssue.messageAr, selectedIntegrityIssue.messageEn)}
                   </div>
                   <div className="text-[11px] text-gray-400 font-bold mt-1">
-                    {getIntegrityAreaLabel(selectedIntegrityIssue.area)} ط·آ¢ط¢آ· {selectedIntegrityIssue.entityLabel || '-'} {selectedIntegrityIssue.entityId ? `(${selectedIntegrityIssue.entityId})` : ''}
+                    {getIntegrityAreaLabel(selectedIntegrityIssue.area)} · {selectedIntegrityIssue.entityLabel || '-'} {selectedIntegrityIssue.entityId ? `(${selectedIntegrityIssue.entityId})` : ''}
                   </div>
                 </div>
                 <button
@@ -4952,6 +5072,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'UNITS': return <UnitManager />;
       case 'PERMISSIONS': return renderPermissionsForm();
       case 'AUDIT': return renderAuditForm();
+      case 'WIPE_DATA': return renderWipeDataForm();
       case 'INTEGRITY': return renderIntegrityForm();
       case 'CURRENCY': return <CurrencyManager />;
       case 'ASSETS': return <FixedAssetsManager />;
@@ -5049,6 +5170,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('الصلاحيات', 'Permissions')} desc={tr('عرض/إضافة/تعديل/حذف/ترحيل/طباعة/عكس', 'Access matrix by operation')} color="indigo" rtl={rtl} onClick={() => setMode('PERMISSIONS')} />
                 <MenuItem icon={<Lock className="w-6 h-6" />} title={tr('سجل التدقيق', 'Audit Trail')} desc={tr('من عدّل ماذا ومتى وعلى أي شاشة', 'Who changed what and when')} color="gray" rtl={rtl} onClick={() => setMode('AUDIT')} />
                 <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سلامة البيانات', 'Integrity Check')} desc={tr('فحص شامل للأخطاء المؤثرة على التقارير مع إصلاحات آمنة', 'Scan data integrity issues affecting reports with safe fixes')} color="rose" rtl={rtl} onClick={() => setMode('INTEGRITY')} />
+                <MenuItem icon={<Trash2 className="w-6 h-6" />} title={tr('حذف جميع البيانات', 'Delete all data')} desc={tr('إعادة ضبط المصنع ومسح كل شيء', 'Factory reset and clear everything')} color="rose" rtl={rtl} onClick={() => setMode('WIPE_DATA')} />
               </div>
             </MenuSection>
 

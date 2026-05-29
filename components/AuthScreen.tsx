@@ -77,8 +77,7 @@ const shouldPreferRedirectAuth = (): boolean => {
   const standalone = (typeof window.matchMedia === 'function'
     ? window.matchMedia('(display-mode: standalone)').matches
     : false) || (navigator as any).standalone === true;
-  const userAgent = window.navigator.userAgent.toLowerCase();
-  return standalone || /android|iphone|ipad|ipod/.test(userAgent);
+  return standalone;
 };
 
 const getFirebaseErrorMessage = (error: unknown, language: 'AR' | 'EN'): string => {
@@ -307,10 +306,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
       setSessionCheckLoading(true);
       try {
-        const redirectResult = await Promise.race([
-          getRedirectResult(firebaseAuth),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
-        ]);
+        const redirectResult = await getRedirectResult(firebaseAuth);
         if (redirectResult && typeof window !== 'undefined') {
           const pendingDelete = localStorage.getItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY) === '1';
           if (pendingDelete) {

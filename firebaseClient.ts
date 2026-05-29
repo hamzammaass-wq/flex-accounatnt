@@ -1,13 +1,15 @@
 import { getApps, getApp, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
+  browserPopupRedirectResolver,
   getAuth,
   initializeAuth,
   setPersistence,
   type Auth
 } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence, type Firestore } from 'firebase/firestore';
 import { getFunctions, type Functions } from 'firebase/functions';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseApiKey = String(import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
 const firebaseAuthDomain = String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim();
@@ -39,7 +41,10 @@ export const firebaseApp = isFirebaseAuthEnabled
 export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
   ? (function() {
       try {
-        return initializeAuth(firebaseApp, { persistence: browserLocalPersistence });
+        return initializeAuth(firebaseApp, { 
+          persistence: browserLocalPersistence,
+          popupRedirectResolver: browserPopupRedirectResolver
+        });
       } catch (e) {
         return getAuth(firebaseApp);
       }
@@ -48,6 +53,16 @@ export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
 
 export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
   ? getFirestore(firebaseApp)
+  : null;
+
+if (firebaseDb) {
+  enableIndexedDbPersistence(firebaseDb).catch((err) => {
+    console.warn('Firebase persistence warning:', err.code);
+  });
+}
+
+export const firebaseStorage: FirebaseStorage | null = isFirebaseAuthEnabled && firebaseApp && firebaseStorageBucket
+  ? getStorage(firebaseApp)
   : null;
 
 export const firebaseFunctions: Functions | null = isFirebaseAuthEnabled && firebaseApp
