@@ -15,7 +15,7 @@ const targetPath = path.join(
 if (fs.existsSync(targetPath)) {
   let content = fs.readFileSync(targetPath, 'utf8');
   const targetLine = 'let config = GIDConfiguration(clientID: clientId, serverClientID: clientId)';
-  const replacement = 'let serverClientId = self.pluginImplementation.getConfig().getString("clientId") ?? clientId\n        let config = GIDConfiguration(clientID: clientId, serverClientID: serverClientId)';
+  const replacement = 'let serverClientId = self.pluginImplementation.getPlugin().getConfig().getString("clientId") ?? clientId\n        let config = GIDConfiguration(clientID: clientId, serverClientID: serverClientId)';
   
   if (content.includes(targetLine)) {
     content = content.replace(targetLine, replacement);
