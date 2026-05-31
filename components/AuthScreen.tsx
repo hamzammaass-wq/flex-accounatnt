@@ -179,21 +179,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     ? 'انتهت تجربة الضيف (14 يوم). يرجى إنشاء حساب أو تسجيل الدخول للمتابعة.'
     : 'Guest trial (14 days) has ended. Please create an account or sign in to continue.';
 
-  const markSignupFlowIntent = () => {
-    if (typeof window === 'undefined') return;
-    safeStorageSet(SIGNUP_INTENT_KEY, SIGNUP_INTENT_REGISTER);
-  };
 
-  const clearSignupFlowIntent = () => {
-    if (typeof window === 'undefined') return;
-    safeStorageRemove(SIGNUP_INTENT_KEY);
-  };
-
-  const markInitialSetupPending = () => {
-    if (typeof window === 'undefined') return;
-    safeStorageSet(INITIAL_SETUP_PENDING_KEY, '1');
-    clearSignupFlowIntent();
-  };
 
   const removeAppPrefixedStorage = async () => {
     if (typeof window === 'undefined') return;
@@ -325,9 +311,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
           if (pendingSignup) {
             const additionalInfo = getAdditionalUserInfo(redirectResult);
             if (additionalInfo?.isNewUser) {
-              markInitialSetupPending();
+
             } else {
-              clearSignupFlowIntent();
+
             }
           }
         }
@@ -390,7 +376,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
       if (fullName) {
         await updateProfile(credential.user, { displayName: fullName });
       }
-      markInitialSetupPending();
+
 
       const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
       if (hasGuestWorkspaceData) {
@@ -445,7 +431,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     setInfoMessage('');
     if (authMode === 'REGISTER') {
       persistSignupCompanyName(regCompanyName);
-      markSignupFlowIntent();
+
     }
     const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
     if (!shouldDeleteGuestData && typeof window !== 'undefined') {
@@ -464,9 +450,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
           if (authMode === 'REGISTER') {
             const additionalInfo = getAdditionalUserInfo(userCred);
             if (additionalInfo?.isNewUser) {
-              markInitialSetupPending();
+
             } else {
-              clearSignupFlowIntent();
+
             }
           }
           if (hasGuestWorkspaceData) {
@@ -498,9 +484,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
         if (authMode === 'REGISTER') {
           const additionalInfo = getAdditionalUserInfo(result);
           if (additionalInfo?.isNewUser) {
-            markInitialSetupPending();
+
           } else {
-            clearSignupFlowIntent();
+
           }
         }
         if (hasGuestWorkspaceData) {
@@ -532,7 +518,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
       }
     } catch (error: any) {
       if (authMode === 'REGISTER') {
-        clearSignupFlowIntent();
+
       }
       setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
     } finally {

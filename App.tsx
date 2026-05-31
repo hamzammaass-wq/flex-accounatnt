@@ -90,6 +90,7 @@ const AppContent: React.FC = () => {
     setCurrentUser,
     companySettings,
     companies,
+    companiesLoaded,
     currentCompany,
     currentCompanyId,
     trialDaysLeft,
@@ -553,6 +554,17 @@ const AppContent: React.FC = () => {
 
   if (!currentUser || guestTrialInfo.expired) {
     return <AuthScreen guestTrialExpired={guestTrialInfo.expired} guestTrialDaysLeft={guestTrialInfo.remainingDays} />;
+  }
+
+  if (!companiesLoaded) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-gray-50 flex-col gap-4">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
+        <div className="text-sm font-bold text-slate-600">
+          {appLanguage === 'AR' ? 'جارٍ تجهيز مساحة العمل السحابية...' : 'Preparing cloud workspace...'}
+        </div>
+      </div>
+    );
   }
 
   const handleSwitchCompany = (companyId: string) => {

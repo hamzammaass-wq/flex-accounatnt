@@ -121,6 +121,7 @@ interface AccountingContextType {
   companies: CompanyProfile[];
   currentCompanyId: string;
   currentCompany: CompanyProfile | null;
+  companiesLoaded: boolean;
   trialDaysLeft: number;
   companyAccessStatus: CompanySubscriptionStatus;
   companyAccessDaysLeft: number;
@@ -1591,73 +1592,148 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const [currentCompanyId, setCurrentCompanyId] = useState<string>(() => {
+    if (currentUser && isGuestUser(currentUser)) return 'cmp_default';
     try {
-      return localStorage.getItem(STORAGE_KEYS.currentCompany) || 'cmp_default';
+      return localStorage.getItem(STORAGE_KEYS.currentCompany) || '';
     } catch {
-      return 'cmp_default';
+      return '';
     }
   });
 
-  const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId);
-  const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId);
-  const [importExpenseDistributions, setImportExpenseDistributions] = useFirestoreSyncState<ImportExpenseDistribution>('importExpenseDistributions', [], currentCompanyId);
-  const [invoiceSettlements, setInvoiceSettlements] = useFirestoreSyncState<InvoiceSettlement>('invoiceSettlements', [], currentCompanyId);
-  const [accounts, setAccounts] = useFirestoreSyncState<Account>('accounts', initialAccounts, currentCompanyId);
-  const [products, setProducts] = useFirestoreSyncState<Product>('products', seededProducts, currentCompanyId);
-  const [itemGroups, setItemGroups] = useFirestoreSyncState<ItemGroup>('itemGroups', defaultItemGroups, currentCompanyId);
-  const [units, setUnits] = useFirestoreSyncState<UnitOfMeasure>('units', initialUnits, currentCompanyId);
-  const [contacts, setContacts] = useFirestoreSyncState<Contact>('contacts', seededContacts, currentCompanyId);
+  const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId, currentUser?.id || null);
+  const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId, currentUser?.id || null);
+  const [importExpenseDistributions, setImportExpenseDistributions] = useFirestoreSyncState<ImportExpenseDistribution>('importExpenseDistributions', [], currentCompanyId, currentUser?.id || null);
+  const [invoiceSettlements, setInvoiceSettlements] = useFirestoreSyncState<InvoiceSettlement>('invoiceSettlements', [], currentCompanyId, currentUser?.id || null);
+  const [accounts, setAccounts] = useFirestoreSyncState<Account>('accounts', initialAccounts, currentCompanyId, currentUser?.id || null);
+  const [products, setProducts] = useFirestoreSyncState<Product>('products', seededProducts, currentCompanyId, currentUser?.id || null);
+  const [itemGroups, setItemGroups] = useFirestoreSyncState<ItemGroup>('itemGroups', defaultItemGroups, currentCompanyId, currentUser?.id || null);
+  const [units, setUnits] = useFirestoreSyncState<UnitOfMeasure>('units', initialUnits, currentCompanyId, currentUser?.id || null);
+  const [contacts, setContacts] = useFirestoreSyncState<Contact>('contacts', seededContacts, currentCompanyId, currentUser?.id || null);
 
-  const [employees, setEmployees] = useFirestoreSyncState<Employee>('employees', initialEmployees, currentCompanyId);
-  const [employeeContracts, setEmployeeContracts] = useFirestoreSyncState<EmployeeContract>('employeeContracts', [], currentCompanyId);
-  const [salaryHistory, setSalaryHistory] = useFirestoreSyncState<SalaryHistoryEntry>('salaryHistory', [], currentCompanyId);
-  const [employeeLeaveRequests, setEmployeeLeaveRequests] = useFirestoreSyncState<EmployeeLeaveRequest>('employeeLeaveRequests', [], currentCompanyId);
-  const [employeeRecurringDeductions, setEmployeeRecurringDeductions] = useFirestoreSyncState<EmployeeRecurringDeduction>('employeeRecurringDeductions', [], currentCompanyId);
+  const [employees, setEmployees] = useFirestoreSyncState<Employee>('employees', initialEmployees, currentCompanyId, currentUser?.id || null);
+  const [employeeContracts, setEmployeeContracts] = useFirestoreSyncState<EmployeeContract>('employeeContracts', [], currentCompanyId, currentUser?.id || null);
+  const [salaryHistory, setSalaryHistory] = useFirestoreSyncState<SalaryHistoryEntry>('salaryHistory', [], currentCompanyId, currentUser?.id || null);
+  const [employeeLeaveRequests, setEmployeeLeaveRequests] = useFirestoreSyncState<EmployeeLeaveRequest>('employeeLeaveRequests', [], currentCompanyId, currentUser?.id || null);
+  const [employeeRecurringDeductions, setEmployeeRecurringDeductions] = useFirestoreSyncState<EmployeeRecurringDeduction>('employeeRecurringDeductions', [], currentCompanyId, currentUser?.id || null);
   const [fingerprintDevices, setFingerprintDevices] = useState<FingerprintReaderDevice[]>([]);
   const [fingerprintAttendanceBatches, setFingerprintAttendanceBatches] = useState<FingerprintAttendanceBatch[]>([]);
-  const [departments, setDepartments] = useFirestoreSyncState<Department>('departments', defaultDepartments, currentCompanyId);
+  const [departments, setDepartments] = useFirestoreSyncState<Department>('departments', defaultDepartments, currentCompanyId, currentUser?.id || null);
 
-  const [tickets, setTickets] = useFirestoreSyncState<SupportTicket>('tickets', initialTickets, currentCompanyId);
-  const [assetGroups, setAssetGroups] = useFirestoreSyncState<FixedAssetGroup>('assetGroups', initialAssetGroups, currentCompanyId);
-  const [fixedAssets, setFixedAssets] = useFirestoreSyncState<FixedAsset>('fixedAssets', initialFixedAssets, currentCompanyId);
-  const [checks, setChecks] = useFirestoreSyncState<Check>('checks', initialChecks, currentCompanyId);
-  const [currencies, setCurrencies] = useFirestoreSyncState<Currency>('currencies', defaultCurrencies, currentCompanyId);
-  const [users, setUsers] = useFirestoreSyncState<User>('users', initialUsers, currentCompanyId);
+  const [tickets, setTickets] = useFirestoreSyncState<SupportTicket>('tickets', initialTickets, currentCompanyId, currentUser?.id || null);
+  const [assetGroups, setAssetGroups] = useFirestoreSyncState<FixedAssetGroup>('assetGroups', initialAssetGroups, currentCompanyId, currentUser?.id || null);
+  const [fixedAssets, setFixedAssets] = useFirestoreSyncState<FixedAsset>('fixedAssets', initialFixedAssets, currentCompanyId, currentUser?.id || null);
+  const [checks, setChecks] = useFirestoreSyncState<Check>('checks', initialChecks, currentCompanyId, currentUser?.id || null);
+  const [currencies, setCurrencies] = useFirestoreSyncState<Currency>('currencies', defaultCurrencies, currentCompanyId, currentUser?.id || null);
+  const [users, setUsers] = useFirestoreSyncState<User>('users', initialUsers, currentCompanyId, currentUser?.id || null);
   const [companySettings, setCompanySettings] = useState<CompanySettings>(withNormalizedValuationSettings(defaultCompanySettings));
   const [companies, setCompanies] = useState<CompanyProfile[]>(() => {
-    const nowIso = new Date().toISOString();
-    const fallback: CompanyProfile[] = [{
-      id: 'cmp_default',
-      name: defaultCompanySettings.name,
-      taxNumber: defaultCompanySettings.taxNumber,
-      address: defaultCompanySettings.address,
-      phone: defaultCompanySettings.phone,
-      logoUrl: defaultCompanySettings.logoUrl,
-      createdAt: nowIso,
-      trialEndsAt: addDaysIso(nowIso, 14),
-      subscriptionStatus: 'TRIAL',
-      subscriptionPlan: 'TRIAL',
-      subscriptionStartsAt: nowIso,
-      graceDays: 0
-    }];
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.companies);
-      if (!raw) return fallback;
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed) || parsed.length === 0) return fallback;
-      return (parsed as CompanyProfile[]).map(withNormalizedCompanyProfile);
-    } catch {
-      return fallback;
+    if (currentUser && isGuestUser(currentUser)) {
+      const nowIso = new Date().toISOString();
+      return [{
+        id: 'cmp_default',
+        name: defaultCompanySettings.name,
+        taxNumber: defaultCompanySettings.taxNumber,
+        address: defaultCompanySettings.address,
+        phone: defaultCompanySettings.phone,
+        logoUrl: defaultCompanySettings.logoUrl,
+        createdAt: nowIso,
+        trialEndsAt: addDaysIso(nowIso, 14),
+        subscriptionStatus: 'TRIAL',
+        subscriptionPlan: 'TRIAL',
+        subscriptionStartsAt: nowIso,
+        graceDays: 0
+      }];
     }
+    return [];
   });
-  const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.workspaceSubscription);
-      if (!raw) return buildDefaultWorkspaceSubscription();
-      return normalizeWorkspaceSubscription(JSON.parse(raw));
-    } catch {
-      return buildDefaultWorkspaceSubscription();
+  
+  const [companiesLoaded, setCompaniesLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
+       setCompaniesLoaded(true);
+       return;
     }
+    const userDocRef = doc(firebaseDb, 'users', currentUser.id);
+    const unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
+      let data = snapshot.exists() ? snapshot.data() : null;
+      let finalCompanies: CompanyProfile[] = [];
+      let needsCloudUpdate = false;
+
+      if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
+        finalCompanies = data.companies.map(withNormalizedCompanyProfile);
+        
+        // Migrate cmp_default users seamlessly
+        if (finalCompanies.some(c => c.id === 'cmp_default')) {
+          const newCompanyId = `cmp_${currentUser.id}`;
+          finalCompanies = finalCompanies.map(c => 
+            c.id === 'cmp_default' ? { ...c, id: newCompanyId } : c
+          );
+          needsCloudUpdate = true;
+          setCurrentCompanyId(newCompanyId);
+        }
+      } else {
+        // Completely new user! Create their real cloud company immediately
+        const newCompanyId = `cmp_${currentUser.id}`;
+        let signupName = 'My Company';
+        try {
+           const storedName = localStorage.getItem('al_mohaseb_signup_company_name');
+           if (storedName && storedName.trim()) {
+             signupName = storedName.trim();
+           }
+        } catch {}
+
+        const nowIso = new Date().toISOString();
+        finalCompanies = [{
+          id: newCompanyId,
+          name: signupName,
+          taxNumber: defaultCompanySettings.taxNumber,
+          address: defaultCompanySettings.address,
+          phone: defaultCompanySettings.phone,
+          logoUrl: defaultCompanySettings.logoUrl,
+          createdAt: nowIso,
+          trialEndsAt: addDaysIso(nowIso, 14),
+          subscriptionStatus: 'TRIAL',
+          subscriptionPlan: 'TRIAL',
+          subscriptionStartsAt: nowIso,
+          graceDays: 0
+        }];
+        needsCloudUpdate = true;
+        setCurrentCompanyId(newCompanyId);
+      }
+
+      setCompanies(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(finalCompanies)) {
+          return finalCompanies;
+        }
+        return prev;
+      });
+      setCompaniesLoaded(true);
+
+      if (needsCloudUpdate) {
+        try {
+          const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
+          await setDoc(userDocRef, { companies: cleanCompanies }, { merge: true });
+        } catch (err: any) {
+          console.error("Failed to seed new user companies:", err);
+          if (typeof window !== 'undefined') {
+            alert(`خطأ في المزامنة السحابية (الشركات): ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        }
+      }
+    });
+    return unsubscribe;
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!companiesLoaded || !firebaseDb || !currentUser || isGuestUser(currentUser)) return;
+    if ((window as any).__IS_HYDRATING__) return;
+
+    const cleanCompanies = JSON.parse(JSON.stringify(companies));
+    setDoc(doc(firebaseDb, 'users', currentUser.id), { companies: cleanCompanies }, { merge: true }).catch(console.error);
+  }, [companies, companiesLoaded, currentUser]);
+  const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
+    return buildDefaultWorkspaceSubscription();
   });
   const [cloudMemberships, setCloudMemberships] = useState<CompanyMembership[]>([]);
   const [permissions, setPermissions] = useState<PermissionMatrix>(() => normalizePermissionMatrix());
@@ -6605,8 +6681,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
 
   // --- WAREHOUSE STATE ---
-  const [warehouses, setWarehouses] = useFirestoreSyncState<Warehouse>('warehouses', initialWarehouses, currentCompanyId);
-  const [stockTransfers, setStockTransfers] = useFirestoreSyncState<StockTransfer>('stockTransfers', initialStockTransfers, currentCompanyId);
+  const [warehouses, setWarehouses] = useFirestoreSyncState<Warehouse>('warehouses', initialWarehouses, currentCompanyId, currentUser?.id || null);
+  const [stockTransfers, setStockTransfers] = useFirestoreSyncState<StockTransfer>('stockTransfers', initialStockTransfers, currentCompanyId, currentUser?.id || null);
 
   useEffect(() => {
     setTransactions(prev => {
@@ -6649,8 +6725,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
 
   // --- MANUFACTURING STATE ---
-  const [boms, setBoms] = useFirestoreSyncState<BillOfMaterial>('boms', initialBoms, currentCompanyId);
-  const [productionOrders, setProductionOrders] = useFirestoreSyncState<ProductionOrder>('productionOrders', initialProductionOrders, currentCompanyId);
+  const [boms, setBoms] = useFirestoreSyncState<BillOfMaterial>('boms', initialBoms, currentCompanyId, currentUser?.id || null);
+  const [productionOrders, setProductionOrders] = useFirestoreSyncState<ProductionOrder>('productionOrders', initialProductionOrders, currentCompanyId, currentUser?.id || null);
 
   const buildDefaultWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot => {
     const meta = companies.find(c => c.id === companyId);
@@ -6874,51 +6950,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     companyId: string,
     snapshot: CompanyWorkspaceSnapshot
   ): Promise<boolean> => {
-    try {
-      const storedInIndexedDb = await writeWorkspaceSnapshotRecord(companyId, snapshot);
-      if (storedInIndexedDb) {
-        try {
-          localStorage.removeItem(getCompanyWorkspaceKey(companyId));
-        } catch {
-          // Ignore cleanup failures after a successful IndexedDB write.
-        }
-        return true;
-      }
-
-      try {
-        localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
-        return true;
-      } catch {
-        return false;
-      }
-    } catch {
-      return false;
-    }
+    // Toggled to server-only mode. Skip writing to local IndexedDB and localStorage.
+    return true;
   };
 
   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
-    const indexedDbRecord = await readWorkspaceSnapshotRecord(companyId);
-    const indexedDbSnapshot = parseWorkspaceSnapshot(companyId, indexedDbRecord);
-    if (indexedDbSnapshot) {
-      return {
-        snapshot: indexedDbSnapshot,
-        source: 'idb',
-        needsRewrite: typeof indexedDbRecord === 'string'
-      };
-    }
-
-    const legacySnapshot = readLegacyWorkspaceSnapshot(companyId);
-    if (legacySnapshot) {
-      return {
-        snapshot: legacySnapshot,
-        source: 'legacy',
-        needsRewrite: true
-      };
-    }
-
     if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser)) {
       try {
-        const syncDocRef = doc(firebaseDb, WORKSPACE_SYNC_COLLECTION, `${companyId}_${currentUser.id}`);
+        const syncDocRef = doc(firebaseDb, `users/${currentUser.id}/workspace_sync_snapshots`, companyId);
         const syncDocSnap = await getDoc(syncDocRef);
         if (syncDocSnap.exists()) {
           const remoteData = syncDocSnap.data();
@@ -6949,33 +6988,33 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
       setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
       setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
-      setUsers(normalizedSnapshot.users || []);
-      setAccounts(normalizedSnapshot.accounts || []);
-      setTransactions(normalizedSnapshot.transactions || []);
-      setInvoices(normalizedSnapshot.invoices || []);
-      setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
-      setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
-      setProducts(normalizedSnapshot.products || []);
-      setItemGroups(normalizedSnapshot.itemGroups || []);
-      setUnits(normalizedSnapshot.units || []);
-      setContacts(normalizedSnapshot.contacts || []);
-      setEmployees(normalizedSnapshot.employees || []);
-      setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
-      setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
-      setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
-      setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
-      setFingerprintDevices((normalizedSnapshot as any).fingerprintDevices || []);
-      setFingerprintAttendanceBatches((normalizedSnapshot as any).fingerprintAttendanceBatches || []);
-      setDepartments(normalizedSnapshot.departments || []);
-      setTickets(normalizedSnapshot.tickets || []);
-      setFixedAssets(normalizedSnapshot.fixedAssets || []);
-      setAssetGroups(normalizedSnapshot.assetGroups || []);
-      setChecks(normalizedSnapshot.checks || []);
-      setCurrencies(normalizedSnapshot.currencies || []);
-      setWarehouses(normalizedSnapshot.warehouses || []);
-      setStockTransfers(normalizedSnapshot.stockTransfers || []);
-      setBoms(normalizedSnapshot.boms || []);
-      setProductionOrders(normalizedSnapshot.productionOrders || []);
+      // Heavy data collections are fetched and synced directly via useFirestoreSyncState hooks.
+      // We no longer overwrite them with snapshot data to avoid wiping server-loaded data.
+      // setUsers(normalizedSnapshot.users || []);
+      // setAccounts(normalizedSnapshot.accounts || []);
+      // setTransactions(normalizedSnapshot.transactions || []);
+      // setInvoices(normalizedSnapshot.invoices || []);
+      // setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
+      // setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
+      // setProducts(normalizedSnapshot.products || []);
+      // setItemGroups(normalizedSnapshot.itemGroups || []);
+      // setUnits(normalizedSnapshot.units || []);
+      // setContacts(normalizedSnapshot.contacts || []);
+      // setEmployees(normalizedSnapshot.employees || []);
+      // setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
+      // setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
+      // setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
+      // setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
+      // setDepartments(normalizedSnapshot.departments || []);
+      // setTickets(normalizedSnapshot.tickets || []);
+      // setFixedAssets(normalizedSnapshot.fixedAssets || []);
+      // setAssetGroups(normalizedSnapshot.assetGroups || []);
+      // setChecks(normalizedSnapshot.checks || []);
+      // setCurrencies(normalizedSnapshot.currencies || []);
+      // setWarehouses(normalizedSnapshot.warehouses || []);
+      // setStockTransfers(normalizedSnapshot.stockTransfers || []);
+      // setBoms(normalizedSnapshot.boms || []);
+      // setProductionOrders(normalizedSnapshot.productionOrders || []);
       setPermissions(resolveWorkspacePermissions(normalizedSnapshot.permissions, normalizedSnapshot.auditLogs));
       setAuditLogs(normalizedSnapshot.auditLogs || []);
     } finally {
@@ -6993,33 +7032,33 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       updatedAt: new Date().toISOString(),
       baseCurrency,
       companySettings,
-      users,
-      accounts,
-      transactions,
-      invoices,
-      invoiceSettlements,
-      importExpenseDistributions,
-      products,
-      itemGroups,
-      units,
-      contacts,
-      employees,
-      employeeContracts,
-      salaryHistory,
-      employeeLeaveRequests,
-      employeeRecurringDeductions,
+      users: [],
+      accounts: [],
+      transactions: [],
+      invoices: [],
+      invoiceSettlements: [],
+      importExpenseDistributions: [],
+      products: [],
+      itemGroups: [],
+      units: [],
+      contacts: [],
+      employees: [],
+      employeeContracts: [],
+      salaryHistory: [],
+      employeeLeaveRequests: [],
+      employeeRecurringDeductions: [],
       fingerprintDevices,
       fingerprintAttendanceBatches,
-      departments,
-      tickets,
-      fixedAssets,
-      assetGroups,
-      checks,
-      currencies,
-      warehouses,
-      stockTransfers,
-      boms,
-      productionOrders,
+      departments: [],
+      tickets: [],
+      fixedAssets: [],
+      assetGroups: [],
+      checks: [],
+      currencies: [],
+      warehouses: [],
+      stockTransfers: [],
+      boms: [],
+      productionOrders: [],
       permissions,
       auditLogs
     };
@@ -7062,7 +7101,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
         try {
           await setDoc(
-            doc(firebaseDb, WORKSPACE_SYNC_COLLECTION, `${snapshot.companyId}_${authUserId}`),
+            doc(firebaseDb, `users/${authUserId}/workspace_sync_snapshots`, snapshot.companyId),
             {
               schemaVersion: snapshot.schemaVersion,
               companyId: snapshot.companyId,
@@ -7149,22 +7188,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return unsubscribe;
   }, [companies.length, currentCompany?.trialEndsAt, currentUser]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.workspaceSubscription, JSON.stringify(workspaceSubscription));
-    } catch {
-      // Ignore storage write failures so subscription UI keeps working.
-    }
-  }, [workspaceSubscription]);
-
-  useEffect(() => {
-    if (!companies.length) return;
-    try {
-      localStorage.setItem(STORAGE_KEYS.companies, JSON.stringify(companies));
-    } catch {
-      // Ignore storage write failures so company changes remain in memory.
-    }
-  }, [companies]);
+  // LocalStorage backups removed for server-only mode
 
   useEffect(() => {
     if (!currentCompanyId) return;
@@ -7401,94 +7425,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   }, [currentUser, currentCompanyId, companies]);
 
-  // Migrate logged-in users stuck on cmp_default to a unique real company ID
-  useEffect(() => {
-    if (!currentUser || isGuestUser(currentUser) || !currentCompanyId) return;
-
-    if (currentCompanyId === 'cmp_default') {
-      const realCompany = companies.find(c => c.id !== 'cmp_default');
-      if (realCompany) {
-        setCurrentCompanyId(realCompany.id);
-        return;
-      }
-
-      const migrateToRealCompany = async () => {
-        const newCompanyId = `cmp_${currentUser.id}`;
-        console.log(`[Migration] Upgrading user to real company ID: ${newCompanyId}`);
-        
-        await saveCurrentWorkspaceSnapshot(newCompanyId);
-        
-        setCompanies(prev => prev.map(c => 
-          c.id === 'cmp_default' ? { ...c, id: newCompanyId } : c
-        ));
-        
-        setCurrentUser(prev => prev ? { ...prev, companyId: newCompanyId } : prev);
-        setCurrentCompanyId(newCompanyId);
-      };
-
-      void migrateToRealCompany();
-    }
-  }, [currentUser, currentCompanyId, companies, saveCurrentWorkspaceSnapshot]);
 
 
-  // Restore companies from Firebase on a new device
-  useEffect(() => {
-    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) return;
-    
-    // Only attempt restore if we only have the default company (cmp_default)
-    if (companies.length > 1 || companies[0]?.id !== 'cmp_default') return;
 
-    const restoreCompanies = async () => {
-      try {
-        const syncsQuery = query(
-          collection(firebaseDb, WORKSPACE_SYNC_COLLECTION),
-          where('userId', '==', currentUser.id)
-        );
-        const syncsSnap = await getDocs(syncsQuery);
-        
-        if (!syncsSnap.empty) {
-          const restoredCompanies: CompanyProfile[] = [];
-          syncsSnap.forEach(docSnap => {
-            const data = docSnap.data();
-            if (data.snapshot && data.snapshot.companySettings) {
-              const remoteSnapshot = parseWorkspaceSnapshot(data.companyId, data.snapshot);
-              if (remoteSnapshot) {
-                void persistWorkspaceSnapshot(data.companyId, remoteSnapshot);
-                if (currentCompanyId === data.companyId) {
-                  applyWorkspaceSnapshot(remoteSnapshot);
-                  setWorkspaceHydratedForCompanyId(data.companyId);
-                }
-              }
-
-              const settings = data.snapshot.companySettings;
-              restoredCompanies.push({
-                id: data.companyId,
-                name: settings.name || defaultCompanySettings.name,
-                taxNumber: settings.taxNumber || '',
-                address: settings.address || '',
-                phone: settings.phone || '',
-                logoUrl: settings.logoUrl || defaultCompanySettings.logoUrl,
-                createdAt: data.snapshot.updatedAt || new Date().toISOString(),
-                trialEndsAt: addDaysIso(new Date().toISOString(), 14),
-                subscriptionStatus: 'TRIAL',
-                subscriptionPlan: 'TRIAL',
-                graceDays: 0
-              });
-            }
-          });
-
-          if (restoredCompanies.length > 0) {
-            setCompanies(restoredCompanies);
-            setCurrentCompanyId(restoredCompanies[0].id);
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to restore companies from Firebase:', error);
-      }
-    };
-
-    void restoreCompanies();
-  }, [currentUser, companies.length, currentCompanyId]);
+  // Restore companies logic removed for strict server-only execution
 
   const switchCompany = (companyId: string): MutationResult => {
     const company = companies.find(c => c.id === companyId);
@@ -7649,7 +7589,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (firebaseDb && currentUser && !isGuestUser(currentUser)) {
         const cleanupResults = await Promise.allSettled([
           deleteDoc(doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, companyId)),
-          deleteDoc(doc(firebaseDb, WORKSPACE_SYNC_COLLECTION, `${companyId}_${currentUser.id}`))
+          deleteDoc(doc(firebaseDb, `users/${currentUser.id}/workspace_sync_snapshots`, companyId))
         ]);
 
         cleanupResults.forEach((result) => {
@@ -9669,7 +9609,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   return (
     <AccountingContext.Provider value={{
       currentUser, setCurrentUser, logout,
-      companies, currentCompanyId, currentCompany, trialDaysLeft, companyAccessStatus, companyAccessDaysLeft, companyAccessEndsAt,
+      companies, currentCompanyId, currentCompany, companiesLoaded, trialDaysLeft, companyAccessStatus, companyAccessDaysLeft, companyAccessEndsAt,
       workspaceSubscription, workspaceMaxCompanies, workspaceRemainingCompanySlots, workspaceCompanyLimitReached, workspaceProviderAvailability,
       switchCompany, createCompany, deleteCompany, wipeAllCompanyData, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
       deviceBindingId, cloudSubscription, subscriptionCloudBusy, subscriptionCloudError, subscriptionAdminEnabled, programOwnerEnabled, subscriptionCodes, subscriptionCodesLoading, workspaceOfferCodes, workspaceOfferCodesLoading, subscriptionCompanies, subscriptionCompaniesLoading, issueSubscriptionCode, cancelSubscriptionCode, issueWorkspaceOfferCode, redeemWorkspaceOfferCode, linkCurrentSubscriptionDevice, unlinkSubscriptionDevice,

@@ -55,11 +55,12 @@ export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
   ? getFirestore(firebaseApp)
   : null;
 
-if (firebaseDb) {
-  enableIndexedDbPersistence(firebaseDb).catch((err) => {
-    console.warn('Firebase persistence warning:', err.code);
-  });
-}
+// Offline persistence disabled as per user request to enforce 100% live server communication
+// if (firebaseDb) {
+//   enableIndexedDbPersistence(firebaseDb).catch((err) => {
+//     console.warn('Firebase persistence warning:', err.code);
+//   });
+// }
 
 export const firebaseStorage: FirebaseStorage | null = isFirebaseAuthEnabled && firebaseApp && firebaseStorageBucket
   ? getStorage(firebaseApp)

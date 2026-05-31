@@ -20,7 +20,7 @@ export function useFirestoreCollection<T extends { id: string }>(
   const [error, setError] = useState<FirestoreError | null>(null);
 
   useEffect(() => {
-    if (!firebaseDb || !companyId || companyId === 'cmp_default') {
+    if (!firebaseDb || !companyId) {
       setData(initialData);
       return;
     }
@@ -49,7 +49,7 @@ export function useFirestoreCollection<T extends { id: string }>(
   }, [companyId, collectionName]);
 
   const saveItem = async (item: T) => {
-    if (!firebaseDb || !companyId || companyId === 'cmp_default') {
+    if (!firebaseDb || !companyId) {
       // Offline / Trial fallback
       setData((prev) => {
         const idx = prev.findIndex((p) => p.id === item.id);
@@ -68,7 +68,7 @@ export function useFirestoreCollection<T extends { id: string }>(
   };
 
   const deleteItem = async (itemId: string) => {
-    if (!firebaseDb || !companyId || companyId === 'cmp_default') {
+    if (!firebaseDb || !companyId) {
        // Offline / Trial fallback
        setData((prev) => prev.filter((p) => p.id !== itemId));
        return;
