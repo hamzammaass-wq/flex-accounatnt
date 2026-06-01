@@ -55,6 +55,23 @@ export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
   ? getFirestore(firebaseApp)
   : null;
 
+// CRITICAL: Log Firebase initialization status
+if (typeof window !== 'undefined') {
+  if (firebaseDb) {
+    console.log('[Firebase] ✅ Firestore connected successfully to project:', firebaseProjectId);
+  } else {
+    console.error('[Firebase] ❌ Firestore NOT initialized! Check environment variables.');
+    console.error('[Firebase] Debug info:', {
+      hasApiKey: !!firebaseApiKey,
+      hasAuthDomain: !!firebaseAuthDomain,
+      hasProjectId: !!firebaseProjectId,
+      hasAppId: !!firebaseAppId,
+      isAuthEnabled: isFirebaseAuthEnabled,
+      hasApp: !!firebaseApp
+    });
+  }
+}
+
 // Offline persistence disabled as per user request to enforce 100% live server communication
 // if (firebaseDb) {
 //   enableIndexedDbPersistence(firebaseDb).catch((err) => {
