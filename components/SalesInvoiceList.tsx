@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { TransactionType, Invoice } from '../types';
@@ -429,12 +429,37 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
         if (!result.ok) alert(result.message);
     };
 
+    const getNextInvoiceNumber = (prefix: string) => {
+        const currentYear = new Date().getFullYear();
+        const yearPrefix = `${prefix}-${currentYear}-`;
+
+        const invoiceNumbers = new Set<string>();
+        invoices.forEach(inv => {
+            if (inv.invoiceNumber && inv.invoiceNumber.startsWith(yearPrefix)) {
+                invoiceNumbers.add(inv.invoiceNumber);
+            }
+        });
+
+        let maxNum = 0;
+        invoiceNumbers.forEach(numStr => {
+            const numPart = numStr.slice(yearPrefix.length);
+            const num = parseInt(numPart, 10);
+            if (!isNaN(num)) {
+                maxNum = Math.max(maxNum, num);
+            }
+        });
+
+        const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+        const paddedNum = String(nextNum).padStart(6, '0');
+        return `${yearPrefix}${paddedNum}`;
+    };
+
     const handleConvertToInvoice = (id: string) => {
         if (confirm(tr('تحويل عرض السعر إلى فاتورة بيع مرحلة؟', 'Convert quotation to posted sales invoice?'))) {
             const result = updateInvoice(id, {
                 status: 'PENDING',
                 postingStatus: 'DRAFT',
-                invoiceNumber: 'INV-' + Date.now().toString().slice(-6),
+                invoiceNumber: getNextInvoiceNumber('INV'),
                 date: new Date().toISOString().split('T')[0] // Update date to today
             });
             if (!result.ok) {

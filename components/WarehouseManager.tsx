@@ -118,11 +118,36 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
             }
         }
 
+        const getNextStockTransferNumber = () => {
+            const currentYear = new Date().getFullYear();
+            const prefix = `TRF-${currentYear}-`;
+
+            const transferNumbers = new Set<string>();
+            stockTransfers.forEach(t => {
+                if (t.transferNumber && t.transferNumber.startsWith(prefix)) {
+                    transferNumbers.add(t.transferNumber);
+                }
+            });
+
+            let maxNum = 0;
+            transferNumbers.forEach(numStr => {
+                const numPart = numStr.slice(prefix.length);
+                const num = parseInt(numPart, 10);
+                if (!isNaN(num)) {
+                    maxNum = Math.max(maxNum, num);
+                }
+            });
+
+            const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+            const paddedNum = String(nextNum).padStart(6, '0');
+            return `${prefix}${paddedNum}`;
+        };
+
         const existingTransfer = editingTransferId
             ? stockTransfers.find(transfer => transfer.id === editingTransferId) || null
             : null;
         const payload = {
-            transferNumber: existingTransfer?.transferNumber || `TRF-${Date.now().toString().slice(-6)}`,
+            transferNumber: existingTransfer?.transferNumber || getNextStockTransferNumber(),
             date: existingTransfer?.date || new Date().toISOString().split('T')[0],
             fromWarehouseId: transferData.fromId,
             toWarehouseId: transferData.toId,

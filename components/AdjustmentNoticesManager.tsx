@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   BadgePercent,
   Calendar,
@@ -230,10 +230,34 @@ const AdjustmentNoticesManager: React.FC = () => {
       return;
     }
 
+    const getNextNoticeNumber = (pref: string) => {
+      const currentYear = new Date().getFullYear();
+      const yearPrefix = `${pref}-${currentYear}-`;
+
+      const noticeNumbers = new Set<string>();
+      invoices.forEach(inv => {
+        if (inv.invoiceNumber && inv.invoiceNumber.startsWith(yearPrefix)) {
+          noticeNumbers.add(inv.invoiceNumber);
+        }
+      });
+
+      let maxNum = 0;
+      noticeNumbers.forEach(numStr => {
+        const numPart = numStr.slice(yearPrefix.length);
+        const num = parseInt(numPart, 10);
+        if (!isNaN(num)) {
+          maxNum = Math.max(maxNum, num);
+        }
+      });
+
+      const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+      const paddedNum = String(nextNum).padStart(6, '0');
+      return `${yearPrefix}${paddedNum}`;
+    };
+
     const isCredit = activeKind === 'CREDIT_NOTE';
     const prefix = isCredit ? 'CN' : 'DN';
-    const stamp = Date.now().toString().slice(-8);
-    const invoiceNumber = `${prefix}-${stamp}`;
+    const invoiceNumber = getNextNoticeNumber(prefix);
     const currency = linkedInvoice?.currency || baseCurrency || 'ILS';
     const exchangeRate = linkedInvoice ? Math.max(0.0001, Number(linkedInvoice.exchangeRate) || 1) : 1;
     const noteText = noticeNotes.trim() || (isCredit ? tr('إشعار دائن', 'Credit note') : tr('إشعار مدين', 'Debit note'));

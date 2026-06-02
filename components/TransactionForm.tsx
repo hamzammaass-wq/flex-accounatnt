@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
-import { TransactionType, Product, InvoiceItem, ContactType, CheckStatus, Contact, Invoice, InvoiceTaxMode, Account, FixedAsset, Check as CheckTypeData, Transaction, InvoiceSettlement } from '../types';
+import { TransactionType, Product, InvoiceItem, ContactType, CheckStatus, Contact, Invoice, InvoiceTaxMode, Account, FixedAsset, Check as CheckTypeData, Transaction, InvoiceSettlement, StockTransfer } from '../types';
 import ProductCard from './ProductCard';
 import ContactEditorDialog from './ContactEditorDialog';
 import EnglishDateInput from './EnglishDateInput';
@@ -1027,7 +1027,7 @@ const InvoiceScreen: React.FC<{
     initialInvoiceId?: string;
     initialDraft?: InvoiceFormDraftState;
 }> = ({ mode, sharedState, onDateChange, onCurrencyChange, onRateChange, onModeChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId, initialDraft }) => {
-    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency } = useAccounting();
+    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency, stockTransfers } = useAccounting();
 
     const isSales = mode === 'SALES';
     const isReturn = mode === 'SALES_RETURN';
@@ -1062,14 +1062,67 @@ const InvoiceScreen: React.FC<{
 
     const invoiceNumberPrefix = useMemo(() => {
         if (isQuotation) return 'QT';
-        if (isReturn || isPurchaseReturn) return 'RET';
+        if (isReturn) return 'SRTN';
+        if (isPurchaseReturn) return 'PRTN';
         if (isImportExpenses) return 'IMP';
         if (isExpenses) return 'EXP';
         if (isPurchase) return 'PINV';
         return 'INV';
     }, [isQuotation, isReturn, isPurchaseReturn, isImportExpenses, isExpenses, isPurchase]);
 
-    const generateInvoiceNumber = () => `${invoiceNumberPrefix}-${Date.now().toString().slice(-6)}`;
+    const getNextStockTransferNumber = (transfers: StockTransfer[]) => {
+        const currentYear = new Date().getFullYear();
+        const prefix = `TRF-${currentYear}-`;
+
+        const transferNumbers = new Set<string>();
+        transfers.forEach(t => {
+            if (t.transferNumber && t.transferNumber.startsWith(prefix)) {
+                transferNumbers.add(t.transferNumber);
+            }
+        });
+
+        let maxNum = 0;
+        transferNumbers.forEach(numStr => {
+            const numPart = numStr.slice(prefix.length);
+            const num = parseInt(numPart, 10);
+            if (!isNaN(num)) {
+                maxNum = Math.max(maxNum, num);
+            }
+        });
+
+        const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+        const paddedNum = String(nextNum).padStart(6, '0');
+        return `${prefix}${paddedNum}`;
+    };
+
+    const getNextInvoiceNumber = useCallback((prefix: string) => {
+        const currentYear = new Date().getFullYear();
+        const yearPrefix = `${prefix}-${currentYear}-`;
+
+        const invoiceNumbers = new Set<string>();
+        invoices.forEach(inv => {
+            if (inv.invoiceNumber && inv.invoiceNumber.startsWith(yearPrefix)) {
+                invoiceNumbers.add(inv.invoiceNumber);
+            }
+        });
+
+        let maxNum = 0;
+        invoiceNumbers.forEach(numStr => {
+            const numPart = numStr.slice(yearPrefix.length);
+            const num = parseInt(numPart, 10);
+            if (!isNaN(num)) {
+                maxNum = Math.max(maxNum, num);
+            }
+        });
+
+        const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+        const paddedNum = String(nextNum).padStart(6, '0');
+        return `${yearPrefix}${paddedNum}`;
+    }, [invoices]);
+
+    const generateInvoiceNumber = useCallback(() => {
+        return getNextInvoiceNumber(invoiceNumberPrefix);
+    }, [invoiceNumberPrefix, getNextInvoiceNumber]);
 
     const defaultContactId = 'cash_customer';
     const [contactId, setContactId] = useState(defaultContactId);
@@ -1310,7 +1363,7 @@ const InvoiceScreen: React.FC<{
     useEffect(() => {
         if (editingInvoice) return;
         setInvoiceNumber(prev => prev.trim() ? prev : generateInvoiceNumber());
-    }, [editingInvoice, invoiceNumberPrefix]);
+    }, [editingInvoice, generateInvoiceNumber]);
 
     useEffect(() => {
         if (!showBarcodeScanner) return;
@@ -1908,7 +1961,7 @@ const InvoiceScreen: React.FC<{
         }
 
         addStockTransfer({
-            transferNumber: `TRF-${Date.now().toString().slice(-6)}`,
+            transferNumber: getNextStockTransferNumber(stockTransfers),
             date: sharedState.date || getTodayDateString(),
             fromWarehouseId: sourceWarehouseId,
             toWarehouseId: stockShortageIssue.currentWarehouseId,
@@ -1980,7 +2033,7 @@ const InvoiceScreen: React.FC<{
 
     const buildModeSwitchDraft = (): InvoiceFormDraftState => {
         const trimmedInvoiceNumber = invoiceNumber.trim();
-        const autoGeneratedNumberPattern = new RegExp(`^${invoiceNumberPrefix}-\\d{6}$`);
+        const autoGeneratedNumberPattern = new RegExp(`^${invoiceNumberPrefix}-\\d{4}-\\d{6}$`);
         const preservedInvoiceNumber = trimmedInvoiceNumber && !autoGeneratedNumberPattern.test(trimmedInvoiceNumber)
             ? trimmedInvoiceNumber
             : undefined;
@@ -3663,7 +3716,7 @@ const VoucherScreen: React.FC<{
         if (initialVoucherId) return initialVoucherId;
 
         const currentYear = new Date().getFullYear(); // e.g. 2026
-        const prefix = `VOU-${currentYear}-`; // e.g. "VOU-2026-"
+        const prefix = `${voucherType === 'RECEIPT' ? 'REC' : 'PAY'}-${currentYear}-`;
 
         const voucherIds = new Set<string>();
         transactions.forEach(tx => {
@@ -3684,7 +3737,7 @@ const VoucherScreen: React.FC<{
         const nextNum = maxNum === 0 ? 1 : maxNum + 1;
         const paddedNum = String(nextNum).padStart(6, '0');
         return `${prefix}${paddedNum}`;
-    }, [initialVoucherId, transactions]);
+    }, [initialVoucherId, transactions, voucherType]);
     const voucherTitle = useMemo(
         () => voucherType === 'RECEIPT'
             ? tr('سند قبض', 'Receipt Voucher')
@@ -5158,6 +5211,32 @@ const JournalScreen: React.FC<{
             .slice()
             .sort((a, b) => a.id.localeCompare(b.id));
     }, [initialJournalId, transactions]);
+    const journalReference = useMemo(() => {
+        if (initialJournalId) return initialJournalId;
+
+        const currentYear = new Date().getFullYear(); // e.g. 2026
+        const prefix = `JRN-${currentYear}-`; // e.g. "JRN-2026-"
+
+        const voucherIds = new Set<string>();
+        transactions.forEach(tx => {
+            if (tx.voucherId && tx.voucherId.startsWith(prefix)) {
+                voucherIds.add(tx.voucherId);
+            }
+        });
+
+        let maxNum = 0;
+        voucherIds.forEach(id => {
+            const numPart = id.slice(prefix.length); // Get the sequential number part
+            const num = parseInt(numPart, 10);
+            if (!isNaN(num)) {
+                maxNum = Math.max(maxNum, num);
+            }
+        });
+
+        const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+        const paddedNum = String(nextNum).padStart(6, '0');
+        return `${prefix}${paddedNum}`;
+    }, [initialJournalId, transactions]);
     const editingJournalBlocked = useMemo(
         () => editingJournalTransactions.some(tx => tx.isReversal || tx.reversedById),
         [editingJournalTransactions]
@@ -5516,7 +5595,7 @@ const JournalScreen: React.FC<{
             }
         }
 
-        const voucherId = isEditingJournal ? initialJournalId! : `JRN-${Date.now()}`;
+        const voucherId = isEditingJournal ? initialJournalId! : journalReference;
 
         const enrichedLines = activeLines.map(line => {
             const dr = parseFloat(line.debit) || 0;
