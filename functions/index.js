@@ -1,5 +1,6 @@
-import { initializeApp } from 'firebase-admin/app';
+import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { logger } from 'firebase-functions';
 import { onRequest } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2';
@@ -535,5 +536,70 @@ export const submitAccountDeletionRequest = onRequest(async (req, res) => {
       ok: false,
       error: 'INTERNAL_ERROR'
     });
+  }
+});
+
+export const firestoreWriteProxy = onRequest(async (req, res) => {
+  applyPublicApiCors(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ ok: false, error: 'Method Not Allowed' });
+    return;
+  }
+
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ ok: false, error: 'Unauthorized: Missing token' });
+      return;
+    }
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    const { operations } = req.body || {};
+    if (!Array.isArray(operations)) {
+      res.status(400).json({ ok: false, error: 'Operations must be an array' });
+      return;
+    }
+
+    const batch = db.batch();
+
+    for (const op of operations) {
+      const { type, path, data } = op;
+      if (!path || typeof path !== 'string') {
+        res.status(400).json({ ok: false, error: 'Each operation must have a path' });
+        return;
+      }
+
+      // Security check: path must be under users/{uid}/ or workspace_subscriptions/{uid}
+      const isUserPath = path.startsWith(`users/${uid}/`);
+      const isWorkspaceSubPath = path === `workspace_subscriptions/${uid}`;
+      if (!isUserPath && !isWorkspaceSubPath) {
+        res.status(403).json({ ok: false, error: `Forbidden: Path '${path}' is outside user scope.` });
+        return;
+      }
+
+      const docRef = db.doc(path);
+
+      if (type === 'set') {
+        batch.set(docRef, data || {}, { merge: true });
+      } else if (type === 'delete') {
+        batch.delete(docRef);
+      } else {
+        res.status(400).json({ ok: false, error: `Invalid operation type: ${type}` });
+        return;
+      }
+    }
+
+    await batch.commit();
+    res.json({ ok: true });
+  } catch (error) {
+    logger.error('firestoreWriteProxy failed', error);
+    res.status(500).json({ ok: false, error: error.message || 'Internal Error' });
   }
 });

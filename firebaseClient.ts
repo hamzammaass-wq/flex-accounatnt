@@ -92,3 +92,23 @@ export const isFirebaseSyncEnabled = Boolean(firebaseDb);
 if (firebaseAuth) {
   void setPersistence(firebaseAuth, browserLocalPersistence);
 }
+
+export const executeFirestoreWrite = async (
+  currentUser: any,
+  operations: Array<{ type: 'set' | 'delete'; path: string; data?: any }>
+): Promise<void> => {
+  if (!currentUser) throw new Error('User not authenticated');
+  const token = await currentUser.getIdToken();
+  const response = await fetch('/api/firestore-write-proxy', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ operations })
+  });
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP error ${response.status}`);
+  }
+};

@@ -32,6 +32,10 @@
         "function": "submitAccountDeletionRequest"
       },
       {
+        "source": "/api/firestore-write-proxy",
+        "function": "firestoreWriteProxy"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

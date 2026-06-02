@@ -41,8 +41,14 @@ const triggerBootRecoveryReload = () => {
   sessionStorage.setItem(BOOT_RECOVERY_KEY, '1');
 
   void clearRuntimeCaches().finally(() => {
-    const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash}`;
-    window.location.replace(cleanUrl);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('cb', String(Date.now()));
+      window.location.replace(url.toString());
+    } catch {
+      const cleanUrl = `${window.location.origin}${window.location.pathname}?cb=${Date.now()}${window.location.hash}`;
+      window.location.replace(cleanUrl);
+    }
   });
 };
 
@@ -103,6 +109,10 @@ class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, AppErrorBo
       source: 'AppErrorBoundary'
     });
     console.error('App crashed during render. Showing recovery screen.', error);
+
+    if (CHUNK_LOAD_ERROR_PATTERN.test(err.message)) {
+      triggerBootRecoveryReload();
+    }
   }
 
   public render() {

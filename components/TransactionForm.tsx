@@ -3659,10 +3659,32 @@ const VoucherScreen: React.FC<{
         () => contacts.find(c => c.id === contactId),
         [contacts, contactId]
     );
-    const voucherReference = useMemo(
-        () => initialVoucherId || `VOU-${Date.now().toString().slice(-6)}`,
-        [initialVoucherId]
-    );
+    const voucherReference = useMemo(() => {
+        if (initialVoucherId) return initialVoucherId;
+
+        const currentYear = new Date().getFullYear(); // e.g. 2026
+        const prefix = `VOU-${currentYear}-`; // e.g. "VOU-2026-"
+
+        const voucherIds = new Set<string>();
+        transactions.forEach(tx => {
+            if (tx.voucherId && tx.voucherId.startsWith(prefix)) {
+                voucherIds.add(tx.voucherId);
+            }
+        });
+
+        let maxNum = 0;
+        voucherIds.forEach(id => {
+            const numPart = id.slice(prefix.length); // Get the sequential number part
+            const num = parseInt(numPart, 10);
+            if (!isNaN(num)) {
+                maxNum = Math.max(maxNum, num);
+            }
+        });
+
+        const nextNum = maxNum === 0 ? 1 : maxNum + 1;
+        const paddedNum = String(nextNum).padStart(6, '0');
+        return `${prefix}${paddedNum}`;
+    }, [initialVoucherId, transactions]);
     const voucherTitle = useMemo(
         () => voucherType === 'RECEIPT'
             ? tr('سند قبض', 'Receipt Voucher')

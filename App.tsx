@@ -44,32 +44,68 @@ const INITIAL_SETUP_COMPLETED_KEY_PREFIX = 'al_mohaseb_initial_setup_completed_'
 
 const getInitialSetupCompletedKey = (companyId: string) => `${INITIAL_SETUP_COMPLETED_KEY_PREFIX}${companyId}`;
 
-const TransactionForm = lazy(() => import('./components/TransactionForm'));
-const LiveVoiceAssistant = lazy(() => import('./components/LiveVoiceAssistant'));
-const TransactionList = lazy(() => import('./components/TransactionList'));
-const AIAssistant = lazy(() => import('./components/AIAssistant'));
-const Directory = lazy(() => import('./components/Directory'));
-const ProductList = lazy(() => import('./components/ProductList'));
-const FinancialReports = lazy(() => import('./components/FinancialReports'));
-const DefinitionsMenu = lazy(() => import('./components/DefinitionsMenu'));
-const SalesInvoiceList = lazy(() => import('./components/SalesInvoiceList'));
-const PurchaseInvoiceList = lazy(() => import('./components/PurchaseInvoiceList'));
-const PurchasesExpenses = lazy(() => import('./components/PurchasesExpenses'));
-const CheckPortfolio = lazy(() => import('./components/CheckPortfolio'));
-const TreasuryManager = lazy(() => import('./components/TreasuryManager'));
-const VoucherManager = lazy(() => import('./components/VoucherManager'));
-const JournalManager = lazy(() => import('./components/JournalManager'));
-const ImportManager = lazy(() => import('./components/ImportManager'));
-const HRManager = lazy(() => import('./components/HRManager'));
-const SettlementManager = lazy(() => import('./components/SettlementManager'));
-const EquityPartnersManager = lazy(() => import('./components/EquityPartnersManager'));
-const FixedAssetsManager = lazy(() => import('./components/FixedAssetsManager'));
-const ManufacturingManager = lazy(() => import('./components/ManufacturingManager'));
-const BankReconciliationManager = lazy(() => import('./components/BankReconciliationManager'));
-const AdjustmentNoticesManager = lazy(() => import('./components/AdjustmentNoticesManager'));
-const NotificationCenterManager = lazy(() => import('./components/NotificationCenterManager'));
-const ImportantAccountsHub = lazy(() => import('./components/ImportantAccountsHub'));
-const WarehouseManager = lazy(() =>
+const lazyWithRetry = <T extends React.ComponentType<any>>(
+  componentImport: () => Promise<{ default: T } | { [key: string]: T }>
+) =>
+  lazy(() =>
+    componentImport().catch((error) => {
+      console.error("Chunk load failed, triggering recovery reload...", error);
+      if (typeof window !== 'undefined') {
+        const BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
+        if (sessionStorage.getItem(BOOT_RECOVERY_KEY) !== '1') {
+          sessionStorage.setItem(BOOT_RECOVERY_KEY, '1');
+          
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+              registrations.forEach(r => r.unregister().catch(() => {}));
+            }).catch(() => {});
+          }
+          if ('caches' in window) {
+            caches.keys().then((keys) => {
+              keys.forEach(k => caches.delete(k).catch(() => {}));
+            }).catch(() => {});
+          }
+          
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('cb', String(Date.now()));
+            window.location.replace(url.toString());
+          } catch {
+            const cleanUrl = `${window.location.origin}${window.location.pathname}?cb=${Date.now()}${window.location.hash}`;
+            window.location.replace(cleanUrl);
+          }
+        }
+      }
+      throw error;
+    })
+  );
+
+const TransactionForm = lazyWithRetry(() => import('./components/TransactionForm'));
+const LiveVoiceAssistant = lazyWithRetry(() => import('./components/LiveVoiceAssistant'));
+const TransactionList = lazyWithRetry(() => import('./components/TransactionList'));
+const AIAssistant = lazyWithRetry(() => import('./components/AIAssistant'));
+const Directory = lazyWithRetry(() => import('./components/Directory'));
+const ProductList = lazyWithRetry(() => import('./components/ProductList'));
+const FinancialReports = lazyWithRetry(() => import('./components/FinancialReports'));
+const DefinitionsMenu = lazyWithRetry(() => import('./components/DefinitionsMenu'));
+const SalesInvoiceList = lazyWithRetry(() => import('./components/SalesInvoiceList'));
+const PurchaseInvoiceList = lazyWithRetry(() => import('./components/PurchaseInvoiceList'));
+const PurchasesExpenses = lazyWithRetry(() => import('./components/PurchasesExpenses'));
+const CheckPortfolio = lazyWithRetry(() => import('./components/CheckPortfolio'));
+const TreasuryManager = lazyWithRetry(() => import('./components/TreasuryManager'));
+const VoucherManager = lazyWithRetry(() => import('./components/VoucherManager'));
+const JournalManager = lazyWithRetry(() => import('./components/JournalManager'));
+const ImportManager = lazyWithRetry(() => import('./components/ImportManager'));
+const HRManager = lazyWithRetry(() => import('./components/HRManager'));
+const SettlementManager = lazyWithRetry(() => import('./components/SettlementManager'));
+const EquityPartnersManager = lazyWithRetry(() => import('./components/EquityPartnersManager'));
+const FixedAssetsManager = lazyWithRetry(() => import('./components/FixedAssetsManager'));
+const ManufacturingManager = lazyWithRetry(() => import('./components/ManufacturingManager'));
+const BankReconciliationManager = lazyWithRetry(() => import('./components/BankReconciliationManager'));
+const AdjustmentNoticesManager = lazyWithRetry(() => import('./components/AdjustmentNoticesManager'));
+const NotificationCenterManager = lazyWithRetry(() => import('./components/NotificationCenterManager'));
+const ImportantAccountsHub = lazyWithRetry(() => import('./components/ImportantAccountsHub'));
+const WarehouseManager = lazyWithRetry(() =>
   import('./components/WarehouseManager').then((module) => ({ default: module.WarehouseManager }))
 );
 
@@ -1026,6 +1062,18 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('cb')) {
+        url.searchParams.delete('cb');
+        window.history.replaceState({}, '', url.toString());
+      }
+      sessionStorage.removeItem(BOOT_RECOVERY_KEY);
+    }
+  }, []);
+
   return (
     <AccountingProvider>
       <AppContent />

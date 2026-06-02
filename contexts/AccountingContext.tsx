@@ -34,10 +34,10 @@ import { clearWorkspaceSnapshotStorage, deleteWorkspaceSnapshotRecord, readWorks
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { useFirestoreSyncState } from '../hooks/useFirestoreSyncState';
+import { useFirestoreSyncState, showSyncAlertOnce } from '../hooks/useFirestoreSyncState';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, limit as firestoreLimit } from 'firebase/firestore';
 import { ref as storageRef, uploadString } from 'firebase/storage';
-import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled } from '../firebaseClient';
+import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite } from '../firebaseClient';
 
 // ... (Existing Interfaces)
 
@@ -1280,6 +1280,13 @@ type WorkspaceSnapshotReadResult = {
   snapshot: CompanyWorkspaceSnapshot | null;
   source: 'idb' | 'legacy' | 'remote' | 'none';
   needsRewrite: boolean;
+};
+
+const withTimeout = <T extends unknown>(promise: Promise<T>, timeoutMs: number, errorMsg: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), timeoutMs))
+  ]);
 };
 
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
@@ -3498,6 +3505,24 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeError('VALIDATION_ERROR', 'Posting date is outside the locked allowed period.');
     }
 
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const path = `users/${currentUser.id}/companies/${currentCompanyId}/transactions/${created.id}`;
+        const cleanTx = JSON.parse(JSON.stringify(created));
+        withTimeout(
+          executeFirestoreWrite(fbUser, [{ type: 'set', path, data: cleanTx }]),
+          15000,
+          'انتهت مهلة حفظ الحركة في السحابة.'
+        ).catch(err => {
+          console.error('Direct Firestore write failed for transaction:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل حفظ الحركة على السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
+    }
+
     setTransactions(prev => [created, ...prev]);
     appendAuditLog({
       entityType: 'transaction',
@@ -4038,6 +4063,25 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     const next = { ...existing, ...updates };
+
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const path = `users/${currentUser.id}/companies/${currentCompanyId}/transactions/${id}`;
+        const cleanTx = JSON.parse(JSON.stringify(next));
+        withTimeout(
+          executeFirestoreWrite(fbUser, [{ type: 'set', path, data: cleanTx }]),
+          15000,
+          'انتهت مهلة تحديث الحركة في السحابة.'
+        ).catch(err => {
+          console.error('Direct Firestore write failed for transaction update:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل تحديث الحركة على السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
+    }
+
     setTransactions(prev => prev.map(t => t.id === id ? next : t));
     appendAuditLog({
       entityType: 'transaction',
@@ -4065,6 +4109,23 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     if (strictPostedLockEnabled && existing.status === 'POSTED') {
       return buildPostedLockedResult('transaction', id);
+    }
+
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const path = `users/${currentUser.id}/companies/${currentCompanyId}/transactions/${id}`;
+        withTimeout(
+          executeFirestoreWrite(fbUser, [{ type: 'delete', path }]),
+          15000,
+          'انتهت مهلة حذف الحركة من السحابة.'
+        ).catch(err => {
+          console.error('Direct Firestore delete failed for transaction:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل حذف الحركة من السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
     }
 
     setTransactions(prev => prev.filter(t => t.id !== id));
@@ -4469,6 +4530,25 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       id: invoiceData.id || newId('inv'),
       postingStatus: invoiceData.postingStatus || (invoiceData.status === 'QUOTATION' ? 'DRAFT' : 'POSTED')
     };
+
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const path = `users/${currentUser.id}/companies/${currentCompanyId}/invoices/${newInvoice.id}`;
+        const cleanInv = JSON.parse(JSON.stringify(newInvoice));
+        withTimeout(
+          executeFirestoreWrite(fbUser, [{ type: 'set', path, data: cleanInv }]),
+          15000,
+          'انتهت مهلة حفظ الفاتورة في السحابة.'
+        ).catch(err => {
+          console.error('Direct Firestore write failed for invoice:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل حفظ الفاتورة على السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
+    }
+
     const contactPostingAccountId = resolveContactPostingAccount(newInvoice.customerId, newInvoice.paymentType);
     setInvoices(prev => [newInvoice, ...prev]);
     appendAuditLog({
@@ -4952,6 +5032,25 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     const next = { ...existing, ...updates };
+
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const path = `users/${currentUser.id}/companies/${currentCompanyId}/invoices/${id}`;
+        const cleanInv = JSON.parse(JSON.stringify(next));
+        withTimeout(
+          executeFirestoreWrite(fbUser, [{ type: 'set', path, data: cleanInv }]),
+          15000,
+          'انتهت مهلة تحديث الفاتورة في السحابة.'
+        ).catch(err => {
+          console.error('Direct Firestore write failed for invoice update:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل تحديث الفاتورة على السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
+    }
+
     setInvoices(prev => prev.map(inv => inv.id === id ? next : inv));
     appendAuditLog({
       entityType: 'invoice',
@@ -4999,6 +5098,30 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         normalizeInvoiceStatusesWithSettlements(remainingSettlements, impactedSettlementInvoiceIds);
       }
     }
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const ops: Array<{ type: 'set' | 'delete'; path: string; data?: any }> = [];
+        ops.push({ type: 'delete', path: `users/${currentUser.id}/companies/${currentCompanyId}/invoices/${id}` });
+
+        const relatedTx = transactions.filter(t => t.invoiceId === id);
+        relatedTx.forEach(tx => {
+          ops.push({ type: 'delete', path: `users/${currentUser.id}/companies/${currentCompanyId}/transactions/${tx.id}` });
+        });
+
+        withTimeout(
+          executeFirestoreWrite(fbUser, ops),
+          15000,
+          'انتهت مهلة حذف الفاتورة والحركات المرتبطة بها من السيرفر.'
+        ).catch(err => {
+          console.error('Direct Firestore delete failed for invoice:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل حذف الفاتورة والحركات من السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
+    }
+
     setInvoices(prev => prev.filter(inv => inv.id !== id));
     setTransactions(prev => prev.filter(t => t.invoiceId !== id));
 
@@ -5025,6 +5148,32 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     const permission = enforcePermission(resolveInvoiceModule(inv), 'POST', 'Invoice List');
     if (!permission.ok) return permission;
+
+    if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser) && currentCompanyId) {
+      const fbUser = firebaseAuth?.currentUser;
+      if (fbUser) {
+        const ops: Array<{ type: 'set' | 'delete'; path: string; data?: any }> = [];
+        const cleanInv = JSON.parse(JSON.stringify({ ...inv, postingStatus: 'POSTED' }));
+        ops.push({ type: 'set', path: `users/${currentUser.id}/companies/${currentCompanyId}/invoices/${id}`, data: cleanInv });
+
+        const relatedTx = transactions.filter(t => t.invoiceId === id);
+        relatedTx.forEach(tx => {
+          const cleanTx = JSON.parse(JSON.stringify({ ...tx, status: 'POSTED' }));
+          ops.push({ type: 'set', path: `users/${currentUser.id}/companies/${currentCompanyId}/transactions/${tx.id}`, data: cleanTx });
+        });
+
+        withTimeout(
+          executeFirestoreWrite(fbUser, ops),
+          15000,
+          'انتهت مهلة ترحيل الفاتورة في السحابة.'
+        ).catch(err => {
+          console.error('Direct Firestore update failed for postInvoice:', err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ فشل ترحيل الفاتورة على السيرفر مباشرة: ${err.message || 'حدث خطأ غير معروف'}`);
+          }
+        });
+      }
+    }
 
     setInvoices(prev => prev.map(i => i.id === id ? { ...i, postingStatus: 'POSTED' } : i));
     setTransactions(prev => prev.map(t => t.invoiceId === id ? { ...t, status: 'POSTED' } : t));
@@ -6561,6 +6710,53 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const setBaseCurrency = (code: string) => {
     if (!guardSubscriptionOnlyMutation('SETTINGS', 'EDIT', 'Settings > Currency')) return;
     setBaseCurrencyState(code);
+
+    // Immediately persist workspace settings to prevent loss during rapid page refreshes
+    if (currentCompanyId) {
+      const snapshot: CompanyWorkspaceSnapshot = {
+        schemaVersion: 1,
+        companyId: currentCompanyId,
+        updatedAt: new Date().toISOString(),
+        baseCurrency: code,
+        companySettings,
+        users: [],
+        accounts: [],
+        transactions: [],
+        invoices: [],
+        invoiceSettlements: [],
+        importExpenseDistributions: [],
+        products: [],
+        itemGroups: [],
+        units: [],
+        contacts: [],
+        employees: [],
+        employeeContracts: [],
+        salaryHistory: [],
+        employeeLeaveRequests: [],
+        employeeRecurringDeductions: [],
+        fingerprintDevices,
+        fingerprintAttendanceBatches,
+        departments: [],
+        tickets: [],
+        fixedAssets: [],
+        assetGroups: [],
+        checks: [],
+        currencies: [],
+        warehouses: [],
+        stockTransfers: [],
+        boms: [],
+        productionOrders: [],
+        permissions,
+        auditLogs
+      };
+      
+      void persistWorkspaceSnapshot(currentCompanyId, snapshot).then(didPersist => {
+        if (didPersist) {
+          upsertWorkspaceSyncQueueItem(currentCompanyId, snapshot.updatedAt, currentUser?.id);
+          setSyncQueueVersion(prev => prev + 1);
+        }
+      });
+    }
   };
   const addCurrency = (currency: Currency) => {
     if (!guardSubscriptionOnlyMutation('SETTINGS', 'ADD', 'Settings > Currency')) return;
@@ -6598,6 +6794,63 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }
         : company
     )));
+
+    // Immediately persist settings snapshot to prevent loss during rapid page refreshes or closures
+    if (currentCompanyId) {
+      const snapshot: CompanyWorkspaceSnapshot = {
+        schemaVersion: 1,
+        companyId: currentCompanyId,
+        updatedAt: new Date().toISOString(),
+        baseCurrency,
+        companySettings: next,
+        users: [],
+        accounts: [],
+        transactions: [],
+        invoices: [],
+        invoiceSettlements: [],
+        importExpenseDistributions: [],
+        products: [],
+        itemGroups: [],
+        units: [],
+        contacts: [],
+        employees: [],
+        employeeContracts: [],
+        salaryHistory: [],
+        employeeLeaveRequests: [],
+        employeeRecurringDeductions: [],
+        fingerprintDevices,
+        fingerprintAttendanceBatches,
+        departments: [],
+        tickets: [],
+        fixedAssets: [],
+        assetGroups: [],
+        checks: [],
+        currencies: [],
+        warehouses: [],
+        stockTransfers: [],
+        boms: [],
+        productionOrders: [],
+        permissions,
+        auditLogs: [
+          {
+            entityType: 'company_settings',
+            action: 'UPDATE',
+            screen: 'Settings',
+            before: safeClone(companySettings),
+            after: safeClone(next)
+          },
+          ...auditLogs
+        ]
+      };
+      
+      void persistWorkspaceSnapshot(currentCompanyId, snapshot).then(didPersist => {
+        if (didPersist) {
+          upsertWorkspaceSyncQueueItem(currentCompanyId, snapshot.updatedAt, currentUser?.id);
+          setSyncQueueVersion(prev => prev + 1);
+        }
+      });
+    }
+
     appendAuditLog({
       entityType: 'company_settings',
       action: 'UPDATE',
@@ -6950,11 +7203,24 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     companyId: string,
     snapshot: CompanyWorkspaceSnapshot
   ): Promise<boolean> => {
-    // Toggled to server-only mode. Skip writing to local IndexedDB and localStorage.
-    return true;
+    try {
+      localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
+      return true;
+    } catch (e) {
+      console.warn('Failed to persist workspace settings snapshot locally:', e);
+      return false;
+    }
   };
 
   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
+    let localSnapshot: CompanyWorkspaceSnapshot | null = null;
+    try {
+      const raw = localStorage.getItem(getCompanyWorkspaceKey(companyId));
+      localSnapshot = parseWorkspaceSnapshot(companyId, raw);
+    } catch (e) {
+      console.warn('Failed to read local workspace snapshot:', e);
+    }
+
     if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser)) {
       try {
         const syncDocRef = doc(firebaseDb, `users/${currentUser.id}/workspace_sync_snapshots`, companyId);
@@ -6963,6 +7229,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           const remoteData = syncDocSnap.data();
           const remoteSnapshot = parseWorkspaceSnapshot(companyId, remoteData.snapshot);
           if (remoteSnapshot) {
+            // If local snapshot is newer than the remote one, return the local snapshot so it can be synced to Firebase
+            if (localSnapshot && localSnapshot.updatedAt > (remoteSnapshot.updatedAt || '')) {
+              return {
+                snapshot: localSnapshot,
+                source: 'local',
+                needsRewrite: true
+              };
+            }
             return {
               snapshot: remoteSnapshot,
               source: 'remote',
@@ -6973,6 +7247,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       } catch (error) {
         console.warn('Failed to fetch remote workspace snapshot:', error);
       }
+    }
+
+    if (localSnapshot) {
+      return {
+        snapshot: localSnapshot,
+        source: 'local',
+        needsRewrite: false
+      };
     }
 
     return {
@@ -7178,7 +7460,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       const bootstrap = normalizeWorkspaceSubscription(fallback, fallback);
       setWorkspaceSubscription(bootstrap);
-      void setDoc(workspaceRef, bootstrap, { merge: true }).catch(() => {
+      void setDoc(workspaceRef, sanitizeFirestorePayload(bootstrap as unknown as Record<string, unknown>), { merge: true }).catch(() => {
         // Ignore bootstrap sync errors and keep local fallback.
       });
     }, () => {
