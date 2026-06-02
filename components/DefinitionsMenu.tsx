@@ -5257,7 +5257,7 @@ const ToggleRow: React.FC<{
       >
         <span
           className="absolute top-1/2 h-[22px] w-[22px] -translate-y-1/2 rounded-full bg-white shadow-[0_2px_6px_rgba(15,23,42,0.18)] transition-[left] duration-200 ease-out"
-          style={{ left: knobLeft }}
+          style={{ left: `${knobLeft}px` }}
         />
       </button>
     </div>
