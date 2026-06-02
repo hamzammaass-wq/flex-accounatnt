@@ -411,6 +411,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const normalizeLanguage = (language: CompanySettings['language'] | string | undefined): CompanySettings['language'] =>
     normalizeAppLanguage(language);
 
+  const companySettingsString = JSON.stringify(companySettings);
+  const permissionsString = JSON.stringify(permissions);
+
   const [localCompany, setLocalCompany] = useState<CompanySettings>(() =>
     withCompanyDefaults({
       ...companySettings,
@@ -425,7 +428,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         language: normalizeLanguage(companySettings.language)
       })
     );
-  }, [companySettings]);
+  }, [companySettingsString]);
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState<BrowserNotificationPermission>(
     detectBrowserNotificationPermission()
   );
@@ -490,7 +493,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
   useEffect(() => {
     setPermissionDraft(clonePermissions(permissions));
-  }, [permissions]);
+  }, [permissionsString]);
 
   useEffect(() => {
     setAutoBackupEnabled(Boolean(companySettings.autoBackupEnabled));
