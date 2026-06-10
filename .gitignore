@@ -30,6 +30,11 @@ android/*.jks
 android/*.keystore
 android/keystore/
 ios/App/release.xcconfig
+ios/App/build/
+ios/App/*.ipa
+*.xcarchive
+*.mobileprovision
+*.p12
 
 # Firebase local cache & exports
 .firebase/
