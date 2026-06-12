@@ -132,7 +132,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     { label: t('dashboard.module.warehouses'), icon: Warehouse, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('warehouses') },
     { label: t('dashboard.module.inventory'), icon: Package, color: 'text-orange-600', bg: 'bg-orange-100', action: () => onNavigate('products') },
     { label: t('dashboard.module.treasury'), icon: Wallet, color: 'text-emerald-600', bg: 'bg-emerald-100', action: () => onNavigate('treasury') },
-    { label: appLanguage === 'AR' ? 'الحسابات' : 'Accounts', icon: Layers, color: 'text-sky-700', bg: 'bg-sky-100', action: () => onNavigate('accounts-hub') },
     { label: appLanguage === 'AR' ? 'مطابقة البنك' : 'Bank Reconciliation', icon: Landmark, color: 'text-teal-600', bg: 'bg-teal-100', action: () => onNavigate('bank-reconciliation') },
     { label: t('dashboard.module.assets'), icon: Briefcase, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('fixed-assets') },
     { label: appLanguage === 'AR' ? 'حقوق الملكية والشركاء' : 'Equity & Partners', icon: Coins, color: 'text-fuchsia-600', bg: 'bg-fuchsia-100', action: () => onNavigate('equity-partners') },

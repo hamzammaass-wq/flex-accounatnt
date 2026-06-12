@@ -40,6 +40,192 @@ interface AccountNode extends Account {
     totalCredit: number; // Aggregated credit
 }
 
+const ReportsContext = React.createContext<any>(null);
+
+const RatioCard = ({
+    title,
+    value,
+    description,
+    tone = 'blue'
+}: {
+    title: string;
+    value: string;
+    description: string;
+    tone?: 'blue' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'gray' | 'cyan';
+}) => {
+    const toneClasses = {
+        blue: 'bg-blue-50 border-blue-100 text-blue-700',
+        emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+        amber: 'bg-amber-50 border-amber-100 text-amber-700',
+        rose: 'bg-rose-50 border-rose-100 text-rose-700',
+        indigo: 'bg-indigo-50 border-indigo-100 text-indigo-700',
+        gray: 'bg-gray-50 border-gray-100 text-gray-700',
+        cyan: 'bg-cyan-50 border-cyan-100 text-cyan-700'
+    } as const;
+    return (
+        <div className={`p-4 rounded-2xl border ${toneClasses[tone]}`}>
+            <p className="text-[10px] font-black opacity-80 uppercase tracking-widest">{title}</p>
+            <h4 className="mt-2 text-2xl font-black dir-ltr">{value}</h4>
+            <p className="mt-1 text-[10px] font-bold opacity-70">{description}</p>
+        </div>
+    );
+};
+
+const ReportHeader = ({ title }: { title: string }) => {
+    const context = React.useContext(ReportsContext);
+    if (!context) return null;
+    const {
+        rawStartDate,
+        setStartDate,
+        rawEndDate,
+        setEndDate,
+        reportCurrency,
+        setReportCurrency,
+        currencies,
+        isEnglish,
+        tr,
+        activeReport,
+        setActiveReport,
+        checkReportFilterActive,
+        checkReportDateBasis,
+        setCheckReportDateBasis,
+        todayIso,
+        fiscalStartDate,
+        reportYearClosed,
+        reportYearCloseEnabled,
+        showFiscalCloseBadge,
+        buildFullReportShareText,
+        handlePrintActiveReport,
+        handleShareActiveReport,
+        handleSaveReportPdf,
+        handleExportReportExcel
+    } = context;
+
+    return (
+        <div className="report-header mb-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                    <button
+                        onClick={() => setActiveReport('MENU')}
+                        className="h-9 w-9 shrink-0 rounded-xl border border-gray-100 bg-white text-gray-500 shadow-sm flex items-center justify-center"
+                    >
+                        <ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={15} />
+                    </button>
+                    <div className="min-w-0">
+                        <h2 className="break-words text-[13px] font-black text-gray-800 sm:text-base">{title}</h2>
+                    </div>
+                </div>
+                <DocumentActions
+                    title={title}
+                    shareText={buildFullReportShareText(title)}
+                    isEnglish={isEnglish}
+                    tr={tr}
+                    onPrint={() => handlePrintActiveReport(title)}
+                    onShare={() => handleShareActiveReport(title)}
+                    onSave={() => handleSaveReportPdf(title)}
+                    onExcel={() => handleExportReportExcel(title)}
+                    saveTitle={tr('حفظ PDF', 'Save PDF')}
+                    saveButtonIcon="fileText"
+                    showSaveButton
+                />
+            </div>
+
+            {showFiscalCloseBadge && (
+                <div
+                    className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black ${
+                        reportYearClosed
+                            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-100 bg-amber-50 text-amber-700'
+                    }`}
+                >
+                    {reportYearClosed
+                        ? tr('مغلق (إقفال تقريري سنوي)', 'Closed (Report-Year Close)')
+                        : tr('سنة مالية مفتوحة', 'Open Fiscal Year')}
+                    {reportYearCloseEnabled && (
+                        <span className="dir-ltr text-[9px] opacity-80">
+                            {tr('تصفير قائمة الدخل من', 'P&L reset from')} {fiscalStartDate}
+                        </span>
+                    )}
+                </div>
+            )}
+
+            <div className="report-header-controls sticky safe-top-offset z-40 rounded-[1.5rem] border border-gray-100 bg-white/95 p-2 shadow-sm backdrop-blur-md">
+                <div className="grid grid-cols-2 gap-2 px-1 py-1">
+                    <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-black text-gray-400 select-none px-1">
+                            {tr('من تاريخ', 'From date')}
+                        </label>
+                        <EnglishDateInput
+                            value={rawStartDate}
+                            onChange={setStartDate}
+                            displayFormat="DMY"
+                            className="h-10 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-xs font-bold outline-none"
+                            aria-label={tr('من تاريخ', 'From date')}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                        <label className="text-[9px] font-black text-gray-400 select-none px-1">
+                            {tr('إلى تاريخ', 'To date')}
+                        </label>
+                        <EnglishDateInput
+                            value={rawEndDate}
+                            onChange={setEndDate}
+                            displayFormat="DMY"
+                            className="h-10 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-xs font-bold outline-none"
+                            aria-label={tr('إلى تاريخ', 'To date')}
+                        />
+                    </div>
+                </div>
+                <div className="mt-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar">
+                    {currencies.map(c => (
+                        <button
+                            key={c.code}
+                            onClick={() => setReportCurrency(c.code)}
+                            className={`min-w-[56px] shrink-0 rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
+                                reportCurrency === c.code ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+                            }`}
+                        >
+                            {c.code}
+                        </button>
+                    ))}
+                </div>
+                {checkReportFilterActive && (
+                    <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50/70 p-1.5">
+                        <div className="mb-1 flex items-center gap-1.5 text-[9px] font-black text-amber-700">
+                            <ListFilter size={12} />
+                            <span>{tr('فلترة تقارير الشيكات حسب', 'Filter check reports by')}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                                type="button"
+                                onClick={() => setCheckReportDateBasis('ISSUE_DATE')}
+                                className={`rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
+                                    checkReportDateBasis === 'ISSUE_DATE'
+                                        ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
+                                        : 'bg-transparent text-amber-600/80'
+                                }`}
+                            >
+                                {tr('تاريخ الإصدار', 'Issue Date')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCheckReportDateBasis('DUE_DATE')}
+                                className={`rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
+                                    checkReportDateBasis === 'DUE_DATE'
+                                        ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
+                                        : 'bg-transparent text-amber-600/80'
+                                }`}
+                            >
+                                {tr('تاريخ الاستحقاق', 'Due Date')}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const AccountRow: React.FC<{
     node: AccountNode;
     level?: number;
@@ -121,8 +307,11 @@ const FinancialReports: React.FC = () => {
     const [reportCurrency, setReportCurrency] = useState(baseCurrency);
     const [dupontBasis, setDupontBasis] = useState<'NET_SALES' | 'TOTAL_REVENUE'>('NET_SALES');
 
-    const [startDate, setStartDate] = useState(currentFiscalYearRange.startDate);
-    const [endDate, setEndDate] = useState(todayIso);
+    const [rawStartDate, setStartDate] = useState(currentFiscalYearRange.startDate);
+    const [rawEndDate, setEndDate] = useState(todayIso);
+
+    const startDate = rawStartDate <= rawEndDate ? rawStartDate : rawEndDate;
+    const endDate = rawStartDate <= rawEndDate ? rawEndDate : rawStartDate;
     const [selectedLedgerAccount, setSelectedLedgerAccount] = useState<string>('');
     const [selectedProductId, setSelectedProductId] = useState<string>('');
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -456,8 +645,12 @@ const FinancialReports: React.FC = () => {
             case 'sales_return': return tr('مرتجع مبيعات', 'Sales Return');
             case 'purchase_invoice': return tr('فاتورة مشتريات', 'Purchase Invoice');
             case 'purchase_return': return tr('مرتجع مشتريات', 'Purchase Return');
-            case 'receipt': return tr('سند قبض', 'Receipt Voucher');
-            case 'payment': return tr('سند صرف', 'Payment Voucher');
+            case 'receipt':
+            case 'voucher_receipt':
+                return tr('سند قبض', 'Receipt Voucher');
+            case 'payment':
+            case 'voucher_payment':
+                return tr('سند صرف', 'Payment Voucher');
             case 'import_expenses': return tr('مصاريف استيراد', 'Import Expenses');
             case 'journal': return tr('قيد يومية', 'Journal Entry');
             default: return category || tr('عملية', 'Operation');
@@ -648,8 +841,10 @@ const FinancialReports: React.FC = () => {
             case 'purchase_return':
                 return tr('مردود مشتريات', 'Purchase Return');
             case 'receipt':
+            case 'voucher_receipt':
                 return tr('قبض', 'Receipt');
             case 'payment':
+            case 'voucher_payment':
                 return hasBankAccount || /bank|بنك/.test(rawDescription)
                     ? tr('قيد بنكي', 'Bank Entry')
                     : tr('صرف', 'Payment');
@@ -1260,8 +1455,11 @@ const FinancialReports: React.FC = () => {
             case 'sales_return': return tr('مردود مبيعات', 'Sales Return');
             case 'purchase_invoice': return tr('مشتريات', 'Purchases');
             case 'purchase_return': return tr('مردود مشتريات', 'Purchase Return');
-            case 'receipt': return tr('قبض', 'Receipt');
+            case 'receipt':
+            case 'voucher_receipt':
+                return tr('قبض', 'Receipt');
             case 'payment':
+            case 'voucher_payment':
                 return hasBankAccount || /bank|بنك/.test(rawDescription)
                     ? tr('قيد بنكي', 'Bank Entry')
                     : tr('صرف', 'Payment');
@@ -1631,14 +1829,14 @@ const FinancialReports: React.FC = () => {
                     {selectorOptions.map(item => <option key={item.id} value={item.id}>{displayContactName(item)}</option>)}
                 </select>
                 <EnglishDateInput
-                    value={startDate}
+                    value={rawStartDate}
                     onChange={setStartDate}
                     wrapperClassName="min-w-0"
                     className={`w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 pr-2.5 rounded-xl text-[11px] sm:text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
                     aria-label={tr('من تاريخ', 'From date')}
                 />
                 <EnglishDateInput
-                    value={endDate}
+                    value={rawEndDate}
                     onChange={setEndDate}
                     wrapperClassName="min-w-0"
                     className={`w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 pr-2.5 rounded-xl text-[11px] sm:text-xs font-bold ${isEnglish ? 'text-left' : 'text-right'} outline-none`}
@@ -1667,7 +1865,9 @@ const FinancialReports: React.FC = () => {
                 case 'sales_return':
                     return `${categoryLabel}${invoiceReference}`.trim();
                 case 'payment':
+                case 'voucher_payment':
                 case 'receipt':
+                case 'voucher_receipt':
                     return `${categoryLabel}${voucherReference}`.trim();
                 case 'import_expenses':
                     return linkedInvoice
@@ -2519,7 +2719,7 @@ const FinancialReports: React.FC = () => {
 
     const getActiveClassicStatementSheet = () => {
         if (typeof document === 'undefined' || !activeReportRef.current) return null;
-        if (activeReport !== 'CUSTOMER_STATEMENT' && activeReport !== 'SUPPLIER_STATEMENT') return null;
+        if (activeReport !== 'CUSTOMER_STATEMENT' && activeReport !== 'SUPPLIER_STATEMENT' && activeReport !== 'ACCOUNT_LEDGER') return null;
         const statementSheet = activeReportRef.current.querySelector('.statement-classic-sheet');
         return statementSheet instanceof HTMLElement ? statementSheet : null;
     };
@@ -2920,11 +3120,6 @@ const FinancialReports: React.FC = () => {
     };
 
     const handlePrintActiveReport = async (title: string) => {
-        const targetWindow = window.open('', '_blank');
-        if (!targetWindow) {
-            alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-            return;
-        }
         await settleActiveReportSnapshot();
         const classicStatementSheet = getActiveClassicStatementSheet();
         if (classicStatementSheet) {
@@ -2932,8 +3127,7 @@ const FinancialReports: React.FC = () => {
                 title: buildReportTitleWithPeriod(title),
                 dir: isEnglish ? 'ltr' : 'rtl',
                 lang: isEnglish ? 'en' : 'ar',
-                pageOrientation: 'portrait',
-                targetWindow
+                pageOrientation: 'portrait'
             });
             if (!success) {
                 alert(tr('تعذر فتح نافذة طباعة التقرير.', 'Could not open the report print window.'));
@@ -2946,8 +3140,7 @@ const FinancialReports: React.FC = () => {
             title: buildReportTitleWithPeriod(title),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar',
-            pageOrientation,
-            targetWindow
+            pageOrientation
         });
         if (!success) {
             alert(tr('تعذر فتح نافذة طباعة التقرير.', 'Could not open the report print window.'));
@@ -2962,153 +3155,6 @@ const FinancialReports: React.FC = () => {
         }
     };
 
-    const RatioCard = ({
-        title,
-        value,
-        description,
-        tone = 'blue'
-    }: {
-        title: string;
-        value: string;
-        description: string;
-        tone?: 'blue' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'gray' | 'cyan';
-    }) => {
-        const toneClasses = {
-            blue: 'bg-blue-50 border-blue-100 text-blue-700',
-            emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
-            amber: 'bg-amber-50 border-amber-100 text-amber-700',
-            rose: 'bg-rose-50 border-rose-100 text-rose-700',
-            indigo: 'bg-indigo-50 border-indigo-100 text-indigo-700',
-            gray: 'bg-gray-50 border-gray-100 text-gray-700',
-            cyan: 'bg-cyan-50 border-cyan-100 text-cyan-700'
-        } as const;
-        return (
-            <div className={`p-4 rounded-2xl border ${toneClasses[tone]}`}>
-                <p className="text-[10px] font-black opacity-80 uppercase tracking-widest">{title}</p>
-                <h4 className="mt-2 text-2xl font-black dir-ltr">{value}</h4>
-                <p className="mt-1 text-[10px] font-bold opacity-70">{description}</p>
-            </div>
-        );
-    };
-
-
-
-    const ReportHeader = ({ title }: { title: string }) => (
-        <div className="report-header mb-3 flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-start gap-2 min-w-0">
-                    <button
-                        onClick={() => setActiveReport('MENU')}
-                        className="h-9 w-9 shrink-0 rounded-xl border border-gray-100 bg-white text-gray-500 shadow-sm flex items-center justify-center"
-                    >
-                        <ArrowLeft className={isEnglish ? '' : 'rotate-180'} size={15} />
-                    </button>
-                    <div className="min-w-0">
-                        <h2 className="break-words text-[13px] font-black text-gray-800 sm:text-base">{title}</h2>
-                        <p className="dir-ltr overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold uppercase tracking-widest text-gray-400">
-                            {startDate} - {endDate}
-                        </p>
-                    </div>
-                </div>
-                <DocumentActions
-                    title={title}
-                    shareText={buildFullReportShareText(title)}
-                    isEnglish={isEnglish}
-                    tr={tr}
-                    onPrint={() => handlePrintActiveReport(title)}
-                    onShare={() => handleShareActiveReport(title)}
-                    onSave={() => handleSaveReportPdf(title)}
-                    onExcel={() => handleExportReportExcel(title)}
-                    saveTitle={tr('حفظ PDF', 'Save PDF')}
-                    saveButtonIcon="fileText"
-                    showSaveButton
-                />
-            </div>
-
-            {showFiscalCloseBadge && (
-                <div
-                    className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black ${
-                        reportYearClosed
-                            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
-                            : 'border-amber-100 bg-amber-50 text-amber-700'
-                    }`}
-                >
-                    {reportYearClosed
-                        ? tr('مغلق (إقفال تقريري سنوي)', 'Closed (Report-Year Close)')
-                        : tr('سنة مالية مفتوحة', 'Open Fiscal Year')}
-                    {reportYearCloseEnabled && (
-                        <span className="dir-ltr text-[9px] opacity-80">
-                            {tr('تصفير قائمة الدخل من', 'P&L reset from')} {fiscalStartDate}
-                        </span>
-                    )}
-                </div>
-            )}
-
-            <div className="report-header-controls sticky safe-top-offset z-40 rounded-[1.5rem] border border-gray-100 bg-white/95 p-2 shadow-sm backdrop-blur-md">
-                <div className="grid grid-cols-2 gap-1.5">
-                    <EnglishDateInput
-                        value={startDate}
-                        onChange={setStartDate}
-                        displayFormat="YMD"
-                        className="h-10 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-xs font-bold outline-none"
-                        aria-label={tr('من تاريخ', 'From date')}
-                    />
-                    <EnglishDateInput
-                        value={endDate}
-                        onChange={setEndDate}
-                        displayFormat="YMD"
-                        className="h-10 w-full rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-xs font-bold outline-none"
-                        aria-label={tr('إلى تاريخ', 'To date')}
-                    />
-                </div>
-                <div className="mt-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar">
-                    {currencies.map(c => (
-                        <button
-                            key={c.code}
-                            onClick={() => setReportCurrency(c.code)}
-                            className={`min-w-[56px] shrink-0 rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
-                                reportCurrency === c.code ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
-                            }`}
-                        >
-                            {c.code}
-                        </button>
-                    ))}
-                </div>
-                {checkReportFilterActive && (
-                    <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50/70 p-1.5">
-                        <div className="mb-1 flex items-center gap-1.5 text-[9px] font-black text-amber-700">
-                            <ListFilter size={12} />
-                            <span>{tr('فلترة تقارير الشيكات حسب', 'Filter check reports by')}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                            <button
-                                type="button"
-                                onClick={() => setCheckReportDateBasis('ISSUE_DATE')}
-                                className={`rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
-                                    checkReportDateBasis === 'ISSUE_DATE'
-                                        ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
-                                        : 'bg-transparent text-amber-600/80'
-                                }`}
-                            >
-                                {tr('تاريخ الإصدار', 'Issue Date')}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setCheckReportDateBasis('DUE_DATE')}
-                                className={`rounded-lg px-2 py-1.5 text-[9px] font-black transition-all ${
-                                    checkReportDateBasis === 'DUE_DATE'
-                                        ? 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-200'
-                                        : 'bg-transparent text-amber-600/80'
-                                }`}
-                            >
-                                {tr('تاريخ الاستحقاق', 'Due Date')}
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
     // --- 1. Stock Remaining Report ---
     const renderStockReport = () => (
         <div className="animate-in slide-in-from-bottom-4">
@@ -7784,108 +7830,242 @@ const FinancialReports: React.FC = () => {
             ? ledgerEntries[ledgerEntries.length - 1].runningBalance
             : openingBalance;
 
+        const buildLedgerClassicStatementPreview = (
+            tx: Transaction,
+            currentAccountId: string
+        ): UnifiedClassicStatementPreview => {
+            const invoice = tx.invoiceId ? invoices.find(inv => inv.id === tx.invoiceId) || null : null;
+            const voucherTransactions = tx.voucherId
+                ? transactions.filter(line => line.voucherId === tx.voucherId)
+                : [tx];
+
+            const checkRows = voucherTransactions.flatMap((sub, index) => {
+                const relatedCheck = sub.checkId ? checks.find(check => check.id === sub.checkId) || null : null;
+                if (!relatedCheck) return [];
+
+                return [{
+                    id: relatedCheck.id || `${tx.id}-check-${index}`,
+                    checkNumber: relatedCheck.checkNumber || '-',
+                    bankName: displayAccountName(
+                        relatedCheck.bankAccountId
+                            ? accounts.find(account => account.id === relatedCheck.bankAccountId) || null
+                            : { id: '', name: relatedCheck.bankName }
+                    ),
+                    accountNumber: relatedCheck.accountNumber || '',
+                    dueDate: formatClassicStatementDate(relatedCheck.dueDate) || '-',
+                    amount: Number(relatedCheck.amount) || 0,
+                    currency: relatedCheck.currency || tx.currency || baseCurrency
+                }];
+            });
+
+            const paymentRows = invoice ? [] : voucherTransactions.flatMap((sub, index) => {
+                const debitIsCurrent = sub.debitAccountId === currentAccountId;
+                const creditIsCurrent = sub.creditAccountId === currentAccountId;
+
+                if (!debitIsCurrent && !creditIsCurrent) return [];
+
+                const contraAccountId = debitIsCurrent ? sub.creditAccountId : sub.debitAccountId;
+                const isReceipt = debitIsCurrent;
+
+                const account = contraAccountId ? accounts.find(item => item.id === contraAccountId) || null : null;
+                if (!account) return [];
+
+                const relatedCheck = sub.checkId ? checks.find(check => check.id === sub.checkId) || null : null;
+
+                return [{
+                    id: `${tx.id}-payment-${index}`,
+                    label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                    accountName: displayAccountName(account),
+                    amount: Number(sub.amount || 0) || 0,
+                    currency: sub.currency || tx.currency || baseCurrency,
+                    checkMeta: relatedCheck ? {
+                        checkNumber: relatedCheck.checkNumber || '-',
+                        bankName: displayAccountName(
+                            relatedCheck.bankAccountId
+                                ? accounts.find(item => item.id === relatedCheck.bankAccountId) || null
+                                : { id: '', name: relatedCheck.bankName }
+                        ) || relatedCheck.bankName || '-',
+                        dueDate: formatClassicStatementDate(relatedCheck.dueDate) || '-'
+                    } : null
+                }];
+            });
+
+            return { invoice, checkRows, paymentRows };
+        };
+
+        const companyName = String(companySettings.name || '').trim();
+        const companyPhone = String(companySettings.phone || '').trim();
+        const footerNote = String(companySettings.statementFooterNote || '').trim();
+        const openingRowDate = startDate ? (formatClassicStatementDate(startDate) || startDate) : '-';
+
+        const ledgerContent = (
+            <div className="statement-classic-sheet directory-statement-classic bg-white rounded-[1.75rem] border border-gray-200 shadow-sm overflow-hidden">
+                <div className="statement-classic-header">
+                    <div className="statement-classic-title-block">
+                        <h3 className="statement-classic-title">{tr('دفتر الأستاذ', 'General Ledger')}</h3>
+                        {companyName && (
+                            <p className="statement-classic-company-name">{companyName}{companyPhone ? <span className="statement-classic-company-phone dir-ltr"> | {companyPhone}</span> : null}</p>
+                        )}
+                    </div>
+
+                    <div className="statement-classic-identity-row statement-classic-identity-row--paper">
+                        <div className="statement-classic-identity statement-classic-identity--party">
+                            <span className="statement-classic-identity-label">{tr('حساب مالي', 'Account')}</span>
+                            <span className="statement-classic-identity-value">{displayAccountName(acc)}</span>
+                        </div>
+                        <div className="statement-classic-identity statement-classic-identity--phone">
+                            <span className="statement-classic-identity-value statement-inline-value">{acc.code || tr('بدون رمز', 'No code')}</span>
+                            <span className="statement-classic-identity-label">{tr('رمز الحساب', 'Account Code')}</span>
+                        </div>
+                    </div>
+
+                    <div className="statement-classic-meta-row">
+                        <span>{tr('حركة كشف الحساب التفصيلي', 'Detailed Account Statement')}</span>
+                        <span>{tr('الفترة', 'Period')}: <span className="statement-inline-value">{startDate}</span> - <span className="statement-inline-value">{endDate}</span></span>
+                        <span>{tr('العملة', 'Currency')}: <span className="statement-inline-value">{reportCurrency}</span></span>
+                    </div>
+                </div>
+
+                <div className="statement-mobile-viewport">
+                    <div className="statement-mobile-canvas">
+                        <table
+                            dir={isEnglish ? 'ltr' : 'rtl'}
+                            className={`directory-statement-table statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper report-table-account-ledger w-full text-start table-fixed min-w-0 max-w-full ${hideVoucherColumnInStatement ? '' : 'statement-report-table--with-voucher'}`}
+                        >
+                            <colgroup>
+                                <col style={{ width: hideVoucherColumnInStatement ? '15%' : '14%' }} />
+                                {!hideVoucherColumnInStatement && <col style={{ width: '13%' }} />}
+                                <col style={{ width: hideVoucherColumnInStatement ? '45%' : '31%' }} />
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: hideVoucherColumnInStatement ? '16%' : '18%' }} />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>{tr('التاريخ', 'Date')}</th>
+                                    {!hideVoucherColumnInStatement && <th>{tr('السند', 'Voucher')}</th>}
+                                    <th>{tr('البيان', 'Description')}</th>
+                                    <th>{tr('مدين', 'Debit')}</th>
+                                    <th>{tr('دائن', 'Credit')}</th>
+                                    <th>{tr('الرصيد الجاري', 'Running Balance')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr className="statement-classic-row statement-classic-row--opening">
+                                    <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
+                                    {!hideVoucherColumnInStatement && <td className="statement-classic-document-cell"></td>}
+                                    <td className="statement-classic-description">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className="statement-classic-placeholder"></td>
+                                    <td className={`statement-classic-balance-cell dir-ltr ${openingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {formatValue(Math.abs(openingBalance))} {getBalanceNature(acc.type, openingBalance)}
+                                    </td>
+                                </tr>
+
+                                {ledgerEntries.map(entry => {
+                                    const { tx, debit, credit, runningBalance: rowBalance } = entry;
+                                    const primaryDesc = tx.voucherReference || tr(tx.category || '', tx.type || '');
+                                    const secondaryDesc = tx.description || '';
+                                    const preview = buildLedgerClassicStatementPreview(tx, acc.id);
+                                    const detailBlock = renderUnifiedClassicStatementInlineDetails(preview, secondaryDesc || primaryDesc);
+                                    const documentLabel =
+                                        tx.category === 'receipt' || tx.category === 'voucher_receipt'
+                                            ? tr('قبض', 'Receipt')
+                                            : tx.category === 'payment' || tx.category === 'voucher_payment'
+                                                ? tr('صرف', 'Payment')
+                                                : tx.voucherId
+                                                    ? tr('سند', 'Voucher')
+                                                    : tr('قيد', 'Entry');
+                                    return (
+                                        <React.Fragment key={tx.id}>
+                                            <tr className="statement-classic-row">
+                                                <td className="statement-classic-date-cell dir-ltr">{tx.date}</td>
+                                                {!hideVoucherColumnInStatement && (
+                                                    <td className="statement-classic-document-cell">
+                                                        <div className="statement-classic-document-wrap">
+                                                            <span className="statement-classic-document-label">{documentLabel}</span>
+                                                            <span className="statement-classic-document-number dir-ltr">#{tx.voucherId || tx.id}</span>
+                                                        </div>
+                                                    </td>
+                                                )}
+                                                <td className="statement-report-description statement-classic-description">
+                                                    <div className="statement-classic-primary">{secondaryDesc || primaryDesc}</div>
+                                                </td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{debit > 0 ? formatValue(debit) : '-'}</td>
+                                                <td className="statement-classic-amount-cell dir-ltr">{credit > 0 ? formatValue(credit) : '-'}</td>
+                                                <td className="statement-classic-balance-cell dir-ltr font-black">{formatValue(Math.abs(rowBalance))}</td>
+                                            </tr>
+                                            {detailBlock && (
+                                                <tr className="statement-classic-detail-row">
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    {!hideVoucherColumnInStatement && <td className="statement-classic-placeholder"></td>}
+                                                    <td className="statement-classic-detail-cell">{detailBlock}</td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                    <td className="statement-classic-placeholder"></td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+
+                                {ledgerEntries.length === 0 && (
+                                    <tr className="statement-classic-empty-row">
+                                        <td colSpan={hideVoucherColumnInStatement ? 5 : 6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                    </tr>
+                                )}
+
+                                <tr className="statement-classic-summary-inline-row">
+                                    <td></td>
+                                    {!hideVoucherColumnInStatement && <td></td>}
+                                    <td></td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalDebit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalCredit)}</td>
+                                    <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(Math.abs(closingBalance))} {getBalanceNature(acc.type, closingBalance)}</td>
+                                </tr>
+                                <tr className="statement-classic-fill-row">
+                                    <td colSpan={hideVoucherColumnInStatement ? 5 : 6}></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {footerNote && (
+                    <div className="statement-classic-note-panel">
+                        <div className="statement-classic-note">{footerNote}</div>
+                    </div>
+                )}
+            </div>
+        );
+
         return (
             <div className="animate-in slide-in-from-bottom-4">
                 <ReportHeader title={`${tr('دفتر الأستاذ', 'General Ledger')}: ${displayAccountName(acc)}`} />
-                <div className="mb-4">
-                    <select value={selectedLedgerAccount} onChange={e => setSelectedLedgerAccount(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
-                        {accounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
-                    </select>
-                </div>
-                {renderStatementIdentityPanel(
-                    tr('حركة حساب', 'Account Ledger'),
-                    displayAccountName(acc),
-                    [
-                        {
-                            label: tr('الفترة', 'Period'),
-                            value: `${startDate} - ${endDate}`
-                        },
-                        {
-                            label: tr('رمز الحساب', 'Account Code'),
-                            value: acc.code || tr('بدون رمز', 'No code'),
-                            numeric: true
-                        },
-                        {
-                            label: tr('العملة', 'Currency'),
-                            value: reportCurrency,
-                            numeric: true
-                        }
-                    ]
-                )}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('افتتاحي', 'Opening')}</p><p className={`text-sm font-black dir-ltr ${openingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatValue(Math.abs(openingBalance))} {getBalanceNature(acc.type, openingBalance)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('مدين', 'Debit')}</p><p className="text-sm font-black dir-ltr text-emerald-600">{formatValue(totalDebit)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-gray-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('دائن', 'Credit')}</p><p className="text-sm font-black dir-ltr text-rose-600">{formatValue(totalCredit)}</p></div>
-                    <div className="bg-white p-3 rounded-2xl border border-blue-100 text-center"><p className="text-[9px] text-gray-400 font-black">{tr('ختامي', 'Closing')}</p><p className={`text-sm font-black dir-ltr ${closingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatValue(Math.abs(closingBalance))} {getBalanceNature(acc.type, closingBalance)}</p></div>
-                </div>
-                <div className="bg-white rounded-[2rem] border border-gray-50 shadow-sm overflow-hidden min-w-0">
-                    <div className="statement-mobile-viewport">
-                        <div className="statement-mobile-canvas">
-                            <table className={`statement-report-table statement-report-table--ledger report-table-account-ledger w-full text-start table-fixed min-w-0 max-w-full ${hideVoucherColumnInStatement ? '' : 'statement-report-table--with-voucher'}`}>
-                        <colgroup>
-                            <col style={{ width: hideVoucherColumnInStatement ? '15%' : '14%' }} />
-                            {!hideVoucherColumnInStatement && <col style={{ width: '13%' }} />}
-                            <col style={{ width: hideVoucherColumnInStatement ? '45%' : '31%' }} />
-                            <col style={{ width: '12%' }} />
-                            <col style={{ width: '12%' }} />
-                            <col style={{ width: hideVoucherColumnInStatement ? '16%' : '18%' }} />
-                        </colgroup>
-                        <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
-                            <tr>
-                                <th className="p-2 md:p-3 w-[16%] sm:w-[11%]">{tr('التاريخ', 'Date')}</th>
-                                {!hideVoucherColumnInStatement && <th className="p-2 md:p-3 text-center">{tr('السند', 'Voucher')}</th>}
-                                <th className="p-2 md:p-3 w-[42%] sm:w-[53%]">{tr('البيان', 'Description')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] dir-ltr text-center">{tr('مدين', 'Debit')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] dir-ltr text-center">{tr('دائن', 'Credit')}</th>
-                                <th className="p-2 md:p-3 w-[14%] sm:w-[12%] dir-ltr text-center">{tr('الرصيد الجاري', 'Running Balance')}</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                            <tr className="text-xs bg-blue-50/40">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
-                                {!hideVoucherColumnInStatement && <td className="p-2 md:p-3 dir-ltr text-center text-gray-400 whitespace-nowrap">-</td>}
-                                <td className="p-2 md:p-3 font-black text-gray-700 break-words whitespace-normal">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
-                                <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
-                                <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
-                                <td className={`p-2 md:p-3 dir-ltr text-center font-black ${openingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                    {formatValue(Math.abs(openingBalance))} {getBalanceNature(acc.type, openingBalance)}
-                                </td>
-                            </tr>
-                            {ledgerEntries.map(({ tx, debit, credit, runningBalance: rowBalance }) => (
-                                <tr key={tx.id} className="text-xs hover:bg-gray-50">
-                                    <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">{tx.date}</td>
-                                    {!hideVoucherColumnInStatement && <td className="p-2 md:p-3 text-center dir-ltr font-semibold text-slate-600 whitespace-nowrap">{getStatementDocumentNumber(tx)}</td>}
-                                    <td className="statement-report-description p-2 md:p-3 align-top break-words whitespace-normal">
-                                        <div className="font-bold text-gray-700">{buildStatementPrimaryDescription(tx)}</div>
-                                        {renderStatementOperationDetails(tx, [acc.id])}
-                                    </td>
-                                    <td className="p-2 md:p-3 dir-ltr text-center text-emerald-600">{debit > 0 ? formatValue(debit) : '-'}</td>
-                                    <td className="p-2 md:p-3 dir-ltr text-center text-rose-600">{credit > 0 ? formatValue(credit) : '-'}</td>
-                                    <td className={`p-2 md:p-3 dir-ltr text-center font-black ${rowBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {formatValue(Math.abs(rowBalance))} {getBalanceNature(acc.type, rowBalance)}
-                                    </td>
-                                </tr>
-                            ))}
-                            {ledgerEntries.length === 0 && (
-                                <tr>
-                                    <td colSpan={hideVoucherColumnInStatement ? 5 : 6} className="p-4 text-center text-xs font-black text-gray-400">
-                                        {tr('لا توجد حركة خلال الفترة المحددة', 'No entries in selected period')}
-                                    </td>
-                                </tr>
-                            )}
-                            <tr className="text-xs bg-sky-50/60">
-                                <td className="p-2 md:p-3 text-gray-500 whitespace-nowrap">-</td>
-                                {!hideVoucherColumnInStatement && <td className="p-2 md:p-3 dir-ltr text-center text-gray-400 whitespace-nowrap">-</td>}
-                                <td className="p-2 md:p-3 font-black text-blue-800 break-words whitespace-normal">{tr('الرصيد الختامي', 'Closing Balance')}</td>
-                                <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
-                                <td className="p-2 md:p-3 dir-ltr text-center text-gray-400">-</td>
-                                <td className={`p-2 md:p-3 dir-ltr text-center font-black ${closingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                    {formatValue(Math.abs(closingBalance))} {getBalanceNature(acc.type, closingBalance)}
-                                </td>
-                            </tr>
-                        </tbody>
-                            </table>
+
+                <div className="directory-statement-sheet bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="directory-statement-header bg-slate-50 p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center gap-3">
+                        <div>
+                            <h2 className="text-lg sm:text-xl font-black text-gray-800 break-words">{displayAccountName(acc)}</h2>
+                            <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>
+                                {tr('حركة كشف الحساب التفصيلي', 'Detailed Account Statement')}
+                            </p>
                         </div>
+                    </div>
+
+                    <div className="directory-statement-filters p-3 sm:p-4 grid grid-cols-1 gap-2 sm:gap-3 bg-white border-b border-gray-100">
+                        <select
+                            value={selectedLedgerAccount}
+                            onChange={e => setSelectedLedgerAccount(e.target.value)}
+                            className="w-full min-w-0 bg-gray-50 border border-gray-200 py-2.5 px-3 rounded-xl text-[11px] sm:text-xs font-bold outline-none"
+                            aria-label={tr('اختيار الحساب', 'Select Account')}
+                        >
+                            {accounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
+                        </select>
+                    </div>
+
+                    <div className="p-3 sm:p-5 bg-slate-50/50">
+                        {ledgerContent}
                     </div>
                 </div>
             </div>
@@ -8523,20 +8703,56 @@ const FinancialReports: React.FC = () => {
         || activeReport === 'SUPPLIER_STATEMENT'
         || activeReport === 'ACCOUNT_LEDGER';
 
+    const reportsContextValue = useMemo(() => ({
+        startDate,
+        endDate,
+        rawStartDate,
+        setStartDate,
+        rawEndDate,
+        setEndDate,
+        reportCurrency,
+        setReportCurrency,
+        currencies,
+        isEnglish,
+        tr,
+        activeReport,
+        setActiveReport,
+        checkReportFilterActive,
+        checkReportDateBasis,
+        setCheckReportDateBasis,
+        todayIso,
+        fiscalStartDate,
+        reportYearClosed,
+        reportYearCloseEnabled,
+        showFiscalCloseBadge,
+        buildFullReportShareText,
+        handlePrintActiveReport,
+        handleShareActiveReport,
+        handleSaveReportPdf,
+        handleExportReportExcel
+    }), [
+        startDate, endDate, rawStartDate, rawEndDate, reportCurrency,
+        currencies, isEnglish, activeReport, checkReportFilterActive,
+        checkReportDateBasis, todayIso, fiscalStartDate, reportYearClosed,
+        reportYearCloseEnabled, showFiscalCloseBadge
+    ]);
+
     return (
-        <div
-            data-testid="financial-reports-root"
-            className={`financial-reports-page px-3 sm:px-4 safe-pt safe-pb-lg app-page max-w-7xl mx-auto ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
-            dir={isEnglish ? 'ltr' : 'rtl'}
-        >
+        <ReportsContext.Provider value={reportsContextValue}>
             <div
-                ref={activeReportRef}
-                data-testid={`financial-reports-active-${activeReport}`}
-                className={`financial-reports-page ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
+                data-testid="financial-reports-root"
+                className={`financial-reports-page px-3 sm:px-4 safe-pt safe-pb-lg app-page max-w-7xl mx-auto ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
+                dir={isEnglish ? 'ltr' : 'rtl'}
             >
-                {renderContent()}
+                <div
+                    ref={activeReportRef}
+                    data-testid={`financial-reports-active-${activeReport}`}
+                    className={`financial-reports-page ${statementReportActive ? 'statement-report-active' : ''} ${isEnglish ? 'text-left' : ''}`}
+                >
+                    {renderContent()}
+                </div>
             </div>
-        </div>
+        </ReportsContext.Provider>
     );
 };
 

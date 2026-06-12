@@ -23,9 +23,22 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
         const unit = units.find(u => u.id === unitId);
         return getDisplayUnitName(unit, isEnglish) || unitId || '-';
     };
-    const getWarehouseProductQuantity = (productId: string, warehouseId: string) => (
-        stockProducts.find(item => item.id === productId)?.warehouseStock?.find(stock => stock.warehouseId === warehouseId)?.quantity ?? 0
-    );
+    const getWarehouseProductQuantity = (productId: string, warehouseId: string) => {
+        const product = stockProducts.find(item => item.id === productId);
+        if (!product) return 0;
+        const currentWHStock = product.warehouseStock || [];
+        const entry = currentWHStock.find(stock => stock.warehouseId === warehouseId);
+        if (entry) return entry.quantity;
+        
+        const isMain = warehouseId === 'wh_main' || 
+                       warehouses.find(w => w.id === warehouseId)?.isMain ||
+                       (warehouses.length > 0 && warehouses[0].id === warehouseId);
+        if (isMain) {
+            return product.stock ?? 0;
+        }
+        if (currentWHStock.length > 0) return 0;
+        return product.stock ?? 0;
+    };
     const buildVarianceNote = (currentQuantity: number, newQuantity: number) => {
         const delta = Number((newQuantity - currentQuantity).toFixed(4));
         return tr(
@@ -57,6 +70,13 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
     // Inventory View State
     const [viewWarehouseId, setViewWarehouseId] = useState(warehouses[0]?.id || '');
+    useEffect(() => {
+        const exists = warehouses.some(w => w.id === viewWarehouseId);
+        if (!exists && warehouses.length > 0) {
+            const main = warehouses.find(w => w.isMain) || warehouses[0];
+            setViewWarehouseId(main.id);
+        }
+    }, [warehouses, viewWarehouseId]);
     const [inlineAdjustProductId, setInlineAdjustProductId] = useState<string | null>(null);
     const [inlineAdjustQuantity, setInlineAdjustQuantity] = useState('');
 
@@ -119,7 +139,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
         }
 
         const getNextStockTransferNumber = () => {
-            const currentYear = new Date().getFullYear();
+            const currentYear = String(new Date().getFullYear()).slice(-2);
             const prefix = `TRF-${currentYear}-`;
 
             const transferNumbers = new Set<string>();
@@ -270,8 +290,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
 
     useEffect(() => {
         if (!inlineAdjustProductId) return;
-        const product = stockProducts.find(item => item.id === inlineAdjustProductId);
-        const quantity = product?.warehouseStock?.find(stock => stock.warehouseId === viewWarehouseId)?.quantity ?? 0;
+        const quantity = getWarehouseProductQuantity(inlineAdjustProductId, viewWarehouseId);
         setInlineAdjustQuantity(String(quantity));
     }, [viewWarehouseId, inlineAdjustProductId, stockProducts]);
 
@@ -493,8 +512,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                     {/* Product Cards */}
                                     <div className="space-y-2">
                                         {filteredProducts.map((product, idx) => {
-                                            const stockEntry = product.warehouseStock?.find(s => s.warehouseId === viewWarehouseId);
-                                            const qty = stockEntry ? stockEntry.quantity : 0;
+                                            const qty = getWarehouseProductQuantity(product.id, viewWarehouseId);
                                             const isInlineEditing = inlineAdjustProductId === product.id;
                                             const inlineNextQuantity = isInlineEditing ? Math.max(0, Number(inlineAdjustQuantity) || 0) : qty;
                                             const inlineDelta = Number((inlineNextQuantity - qty).toFixed(4));
@@ -663,7 +681,7 @@ export const WarehouseManager: React.FC<{ onBack: () => void }> = ({ onBack }) =
                                                     <div className="text-2xl font-black text-slate-700">
                                                         {(() => {
                                                             const p = stockProducts.find(x => x.id === adjustData.productId);
-                                                            return p?.warehouseStock?.find(s => s.warehouseId === adjustData.warehouseId)?.quantity || 0;
+                                                            return p ? getWarehouseProductQuantity(p.id, adjustData.warehouseId) : 0;
                                                         })()}
                                                         <span className="text-xs text-slate-400 font-bold mr-1">
                                                             {displayUnitName(stockProducts.find(x => x.id === adjustData.productId)?.unitId)}

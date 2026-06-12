@@ -6,6 +6,7 @@ import { getDisplayContactName, getDisplayProductName } from '../utils/displayNa
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { printHtmlContent } from '../utils/documentExport';
 import { executeDeviceHubCommand } from '../utils/deviceHub';
 import { getSelectedThermalTemplate, getThermalTemplateCustomization } from '../utils/thermalPrintTemplates';
 import { sanitizeInvoiceItems } from '../utils/invoiceSanitizer';
@@ -13,6 +14,7 @@ import { getInvoiceTaxVisibility } from '../utils/companySettings';
 import { buildInvoiceItemBarcodeMarkup, INVOICE_ITEM_BARCODE_CSS } from '../utils/invoicePrintBarcodes';
 import { getInvoiceTaxModeDescription, isInvoiceTaxApplied, resolveInvoiceTaxMode } from '../utils/invoiceTax';
 import { openDrilldown } from '../utils/drilldown';
+import { matchesDocumentNumberSearch } from '../utils/i18n';
 import {
     Plus, Search, FileText, User, Calendar,
     CheckCircle2, Clock, XCircle, TrendingUp,
@@ -144,7 +146,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
             const contactRaw = (contact?.name || '').toLowerCase();
             const contactDisplay = displayContactName(contact || null).toLowerCase();
             const searchMatch = (
-                asText(inv.invoiceNumber).toLowerCase().includes(normalizedSearch) ||
+                matchesDocumentNumberSearch(asText(inv.invoiceNumber), searchTerm) ||
                 contactRaw.includes(normalizedSearch) ||
                 contactDisplay.includes(normalizedSearch)
             );
@@ -308,11 +310,8 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     };
 
     const printInvoiceBrowser = (invoice: Invoice): boolean => {
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return false;
         const html = buildInvoicePrintHtml(invoice, true);
-        printWindow.document.write(html);
-        printWindow.document.close();
+        printHtmlContent(html);
         return true;
     };
 
@@ -430,7 +429,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
     };
 
     const getNextInvoiceNumber = (prefix: string) => {
-        const currentYear = new Date().getFullYear();
+        const currentYear = String(new Date().getFullYear()).slice(-2);
         const yearPrefix = `${prefix}-${currentYear}-`;
 
         const invoiceNumbers = new Set<string>();
@@ -639,12 +638,12 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
 
                         <div>
                             <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('من تاريخ', 'Date from')}</label>
-                            <EnglishDateInput value={filterDateFrom} onChange={setFilterDateFrom} displayFormat="YMD" wrapperClassName="w-full" className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr" />
+                            <EnglishDateInput value={filterDateFrom} onChange={setFilterDateFrom} displayFormat="DMY" wrapperClassName="w-full" className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr" />
                         </div>
 
                         <div>
                             <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{tr('إلى تاريخ', 'Date to')}</label>
-                            <EnglishDateInput value={filterDateTo} onChange={setFilterDateTo} displayFormat="YMD" wrapperClassName="w-full" className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr" />
+                            <EnglishDateInput value={filterDateTo} onChange={setFilterDateTo} displayFormat="DMY" wrapperClassName="w-full" className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr" />
                         </div>
 
                         <div>

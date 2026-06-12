@@ -1657,6 +1657,31 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const [companiesLoaded, setCompaniesLoaded] = useState(false);
 
   useEffect(() => {
+    if (currentUser && isGuestUser(currentUser)) {
+      const nowIso = new Date().toISOString();
+      const guestCompany = {
+        id: 'cmp_default',
+        name: defaultCompanySettings.name,
+        taxNumber: defaultCompanySettings.taxNumber,
+        address: defaultCompanySettings.address,
+        phone: defaultCompanySettings.phone,
+        logoUrl: defaultCompanySettings.logoUrl,
+        createdAt: nowIso,
+        trialEndsAt: addDaysIso(nowIso, 14),
+        subscriptionStatus: 'TRIAL' as const,
+        subscriptionPlan: 'TRIAL' as const,
+        subscriptionStartsAt: nowIso,
+        graceDays: 0
+      };
+      setCompanies(prev => {
+        if (prev.some(c => c.id === 'cmp_default')) return prev;
+        return [guestCompany];
+      });
+      setCurrentCompanyId(prev => prev || 'cmp_default');
+    }
+  }, [currentUser, defaultCompanySettings]);
+
+  useEffect(() => {
     if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
        setCompaniesLoaded(true);
        return;
@@ -7271,32 +7296,36 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
       setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
       // Heavy data collections are fetched and synced directly via useFirestoreSyncState hooks.
-      // We no longer overwrite them with snapshot data to avoid wiping server-loaded data.
-      // setUsers(normalizedSnapshot.users || []);
-      // setAccounts(normalizedSnapshot.accounts || []);
-      // setTransactions(normalizedSnapshot.transactions || []);
-      // setInvoices(normalizedSnapshot.invoices || []);
-      // setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
-      // setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
-      // setProducts(normalizedSnapshot.products || []);
-      // setItemGroups(normalizedSnapshot.itemGroups || []);
-      // setUnits(normalizedSnapshot.units || []);
-      // setContacts(normalizedSnapshot.contacts || []);
-      // setEmployees(normalizedSnapshot.employees || []);
-      // setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
-      // setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
-      // setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
-      // setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
-      // setDepartments(normalizedSnapshot.departments || []);
-      // setTickets(normalizedSnapshot.tickets || []);
-      // setFixedAssets(normalizedSnapshot.fixedAssets || []);
-      // setAssetGroups(normalizedSnapshot.assetGroups || []);
-      // setChecks(normalizedSnapshot.checks || []);
-      // setCurrencies(normalizedSnapshot.currencies || []);
-      // setWarehouses(normalizedSnapshot.warehouses || []);
-      // setStockTransfers(normalizedSnapshot.stockTransfers || []);
-      // setBoms(normalizedSnapshot.boms || []);
-      // setProductionOrders(normalizedSnapshot.productionOrders || []);
+      // We no longer overwrite them with snapshot data to avoid wiping server-loaded data,
+      // EXCEPT when sync is disabled or the user is a guest user (where we rely entirely on local snapshots).
+      const shouldHydrateCollections = !isFirebaseSyncEnabled || !firebaseDb || !currentUser || isGuestUser(currentUser);
+      if (shouldHydrateCollections) {
+        setUsers(normalizedSnapshot.users || []);
+        setAccounts(normalizedSnapshot.accounts || []);
+        setTransactions(normalizedSnapshot.transactions || []);
+        setInvoices(normalizedSnapshot.invoices || []);
+        setInvoiceSettlements((normalizedSnapshot as any).invoiceSettlements || []);
+        setImportExpenseDistributions(normalizedSnapshot.importExpenseDistributions || []);
+        setProducts(normalizedSnapshot.products || []);
+        setItemGroups(normalizedSnapshot.itemGroups || []);
+        setUnits(normalizedSnapshot.units || []);
+        setContacts(normalizedSnapshot.contacts || []);
+        setEmployees(normalizedSnapshot.employees || []);
+        setEmployeeContracts((normalizedSnapshot as any).employeeContracts || []);
+        setSalaryHistory((normalizedSnapshot as any).salaryHistory || []);
+        setEmployeeLeaveRequests((normalizedSnapshot as any).employeeLeaveRequests || []);
+        setEmployeeRecurringDeductions((normalizedSnapshot as any).employeeRecurringDeductions || []);
+        setDepartments(normalizedSnapshot.departments || []);
+        setTickets(normalizedSnapshot.tickets || []);
+        setFixedAssets(normalizedSnapshot.fixedAssets || []);
+        setAssetGroups(normalizedSnapshot.assetGroups || []);
+        setChecks(normalizedSnapshot.checks || []);
+        setCurrencies(normalizedSnapshot.currencies || []);
+        setWarehouses(normalizedSnapshot.warehouses || []);
+        setStockTransfers(normalizedSnapshot.stockTransfers || []);
+        setBoms(normalizedSnapshot.boms || []);
+        setProductionOrders(normalizedSnapshot.productionOrders || []);
+      }
       setPermissions(resolveWorkspacePermissions(normalizedSnapshot.permissions, normalizedSnapshot.auditLogs));
       setAuditLogs(normalizedSnapshot.auditLogs || []);
     } finally {

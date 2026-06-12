@@ -4,9 +4,9 @@ import { useAccounting } from '../contexts/AccountingContext';
 import { 
   Package, Trash2, Plus, Search, Tag, AlertCircle, 
   LayoutGrid, X, Check, Edit2, ArrowUpDown, SlidersHorizontal,
-  FolderPlus, Settings, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer, BellRing
+  FolderPlus, Settings, PenSquare, Scale, AlertTriangle, ScanBarcode, Camera, Printer, BellRing, CornerDownLeft
 } from 'lucide-react';
-import { Product } from '../types';
+import { ItemGroup, Product } from '../types';
 import ProductCard from './ProductCard';
 import QuickAddProductModal from './QuickAddProductModal';
 import { Html5Qrcode } from "html5-qrcode";
@@ -24,9 +24,10 @@ import { getProductKind, isServiceProduct } from '../utils/productKind';
 const ProductList: React.FC = () => {
   const { 
     products, addProduct, updateProduct, deleteProduct, 
-    itemGroups, addItemGroup, baseCurrency, units, addUnit, companySettings, currentCompanyId, updateCompanySettings
+    itemGroups, addItemGroup, updateItemGroup, deleteItemGroup, baseCurrency, units, addUnit, companySettings, currentCompanyId, updateCompanySettings
   } = useAccounting();
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
+  console.log("DEBUG_PRODUCTS_LIST:", JSON.stringify(products));
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
   const displayProductName = (product?: { id: string; name: string } | null) =>
     getDisplayProductName(product || undefined, isEnglish);
@@ -81,6 +82,8 @@ const ProductList: React.FC = () => {
   // Group Form State
   const [groupName, setGroupName] = useState('');
   const [groupIcon, setGroupIcon] = useState('📦');
+  const [groupParentId, setGroupParentId] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
   // Unit Form State
   const [newUnitName, setNewUnitName] = useState('');
@@ -97,6 +100,23 @@ const ProductList: React.FC = () => {
   }, []);
 
   const icons = ['📦', '📱', '🍞', '👕', '🏠', '✏️', '💊', '🔧', '💻', '🚗'];
+
+  const resetGroupForm = () => {
+    setGroupName('');
+    setGroupIcon(icons[0] || '📦');
+    setGroupParentId('');
+    setEditingGroupId(null);
+  };
+
+  const openGroupManager = () => {
+    resetGroupForm();
+    setShowGroupForm(true);
+  };
+
+  const closeGroupManager = () => {
+    resetGroupForm();
+    setShowGroupForm(false);
+  };
 
   // Scanner Effect
   useEffect(() => {
@@ -276,7 +296,7 @@ const ProductList: React.FC = () => {
       name,
       itemCode: resolvedItemCode,
       itemCodeMode: resolvedItemCodeMode,
-      category: groupId || (itemGroups[0]?.id || 'ig_other'),
+      category: groupId || undefined,
       unitId: unitId || undefined,
       sellPrice: pricing.retailPrice,
       buyPrice: pricing.cost,
@@ -309,11 +329,22 @@ const ProductList: React.FC = () => {
 
   const handleGroupSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!groupName.trim()) return;
+    const trimmedName = groupName.trim();
+    if (!trimmedName) return;
 
-    addItemGroup({ name: groupName, icon: groupIcon });
-    setGroupName('');
-    setShowGroupForm(false);
+    const groupData = {
+      name: trimmedName,
+      icon: groupIcon,
+      parentId: groupParentId || undefined
+    };
+
+    if (editingGroupId) {
+      updateItemGroup(editingGroupId, groupData);
+    } else {
+      addItemGroup(groupData);
+    }
+
+    resetGroupForm();
   };
 
   const handleUnitSubmit = (e: React.FormEvent) => {
@@ -345,6 +376,74 @@ const ProductList: React.FC = () => {
     }),
     [itemGroups]
   );
+
+  const itemGroupProductCounts = useMemo(() => products.reduce<Record<string, number>>((counts, product) => {
+    if (product.category) {
+      counts[product.category] = (counts[product.category] || 0) + 1;
+    }
+    return counts;
+  }, {}), [products]);
+
+  const itemGroupChildCounts = useMemo(() => itemGroups.reduce<Record<string, number>>((counts, group) => {
+    if (group.parentId) {
+      counts[group.parentId] = (counts[group.parentId] || 0) + 1;
+    }
+    return counts;
+  }, {}), [itemGroups]);
+
+  const availableParentGroups = useMemo(
+    () => visibleItemGroups.filter((group) => !group.parentId && group.id !== editingGroupId),
+    [editingGroupId, visibleItemGroups]
+  );
+
+  const sortedItemGroups = useMemo(() => {
+    const visibleIds = new Set(visibleItemGroups.map((group) => group.id));
+    const groupsByParent = visibleItemGroups.reduce<Record<string, ItemGroup[]>>((groups, group) => {
+      const parentKey = group.parentId && visibleIds.has(group.parentId) ? group.parentId : 'ROOT';
+      groups[parentKey] = [...(groups[parentKey] || []), group];
+      return groups;
+    }, {});
+
+    const sortGroups = (groups: ItemGroup[] = []) =>
+      [...groups].sort((a, b) => displayGroupName(a).localeCompare(displayGroupName(b), isEnglish ? 'en' : 'ar'));
+
+    const result: Array<{ group: ItemGroup; depth: number }> = [];
+    const appendGroup = (group: ItemGroup, depth: number) => {
+      result.push({ group, depth });
+      sortGroups(groupsByParent[group.id]).forEach((child) => appendGroup(child, depth + 1));
+    };
+
+    sortGroups(groupsByParent.ROOT).forEach((group) => appendGroup(group, 0));
+    return result;
+  }, [isEnglish, visibleItemGroups]);
+
+  const handleEditItemGroup = (group: ItemGroup) => {
+    setEditingGroupId(group.id);
+    setGroupName(group.name);
+    setGroupIcon(group.icon || icons[0] || '📦');
+    setGroupParentId(group.parentId || '');
+  };
+
+  const handleDeleteItemGroup = (group: ItemGroup) => {
+    const childCount = itemGroupChildCounts[group.id] || 0;
+    if (childCount > 0) {
+      alert(tr('لا يمكن حذف مجموعة تحتوي على مجموعات فرعية. احذف المجموعات الفرعية أولاً.', 'A group with subgroups cannot be deleted. Delete the subgroups first.'));
+      return;
+    }
+
+    const productCount = itemGroupProductCounts[group.id] || 0;
+    if (productCount > 0) {
+      alert(tr('لا يمكن حذف مجموعة مستخدمة في أصناف. انقل الأصناف إلى مجموعة أخرى أولاً.', 'A group used by items cannot be deleted. Move the items to another group first.'));
+      return;
+    }
+
+    if (!window.confirm(tr('هل تريد حذف مجموعة الأصناف؟', 'Delete this item group?'))) return;
+
+    deleteItemGroup(group.id);
+    if (groupFilter === group.id) setGroupFilter('ALL');
+    if (groupId === group.id) setGroupId('');
+    if (editingGroupId === group.id) resetGroupForm();
+  };
 
   useEffect(() => {
     if (groupFilter === 'ALL' || groupFilter === 'LOW_STOCK') return;
@@ -563,7 +662,8 @@ const ProductList: React.FC = () => {
                   {lowStockCount > 0 ? <BellRing className="w-5 h-5 animate-pulse" /> : <Settings className="w-5 h-5" />}
               </button>
               <button 
-                  onClick={() => setShowGroupForm(true)}
+                  onClick={openGroupManager}
+                  data-testid="item-groups-open"
                   className="bg-white text-indigo-600 p-3 rounded-2xl border border-indigo-100 hover:bg-indigo-50 transition-all shadow-sm"
               >
                   <FolderPlus className="w-5 h-5" />
@@ -1099,9 +1199,13 @@ const ProductList: React.FC = () => {
                             <div className="flex h-14">
                                 <select value={groupId} onChange={e => setGroupId(e.target.value)} className="flex-1 px-3 bg-gray-50 rounded-r-2xl rounded-l-md border border-gray-100 outline-none text-xs font-bold appearance-none focus:bg-white focus:border-indigo-200 transition-all text-slate-700">
                                     <option value="">{tr('اختر مجموعة', 'Select group')}</option>
-                                    {itemGroups.map(g => <option key={g.id} value={g.id}>{g.icon} {displayGroupName(g)}</option>)}
+                                    {sortedItemGroups.map(({ group, depth }) => (
+                                      <option key={group.id} value={group.id}>
+                                        {depth > 0 ? '  - ' : ''}{group.icon} {displayGroupName(group)}
+                                      </option>
+                                    ))}
                                 </select>
-                                <button type="button" onClick={() => setShowGroupForm(true)} className="w-12 bg-indigo-50 text-indigo-600 rounded-l-2xl rounded-r-md border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center">
+                                <button type="button" onClick={openGroupManager} data-testid="item-groups-open-inline" className="w-12 bg-indigo-50 text-indigo-600 rounded-l-2xl rounded-r-md border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center">
                                     <Plus size={18} />
                                 </button>
                             </div>
@@ -1303,24 +1407,161 @@ const ProductList: React.FC = () => {
         </div>
       )}
 
-      {/* Quick Add Group Modal */}
+      {/* Item Group Manager Modal */}
       {showGroupForm && (
-        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center p-3 sm:p-6 animate-in fade-in">
-            <div className="bg-white w-full max-w-sm rounded-t-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-2xl animate-in zoom-in-95 max-h-[calc(100dvh-1rem)] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-black text-slate-800 text-lg">{tr('مجموعة أصناف جديدة', 'New Item Group')}</h3>
-                    <button onClick={() => setShowGroupForm(false)} className="p-2 text-gray-400 hover:bg-gray-50 rounded-full"><X size={20} /></button>
-                </div>
-                <form onSubmit={handleGroupSubmit} className="space-y-5">
-                    <input type="text" placeholder={tr('اسم المجموعة', 'Group name')} value={groupName} onChange={e => setGroupName(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm" required />
-                    <div className="grid grid-cols-5 gap-3">
-                        {icons.map(i => (
-                            <button key={i} type="button" onClick={() => setGroupIcon(i)} className={`h-12 w-12 flex items-center justify-center rounded-xl border-2 transition-all ${groupIcon === i ? 'border-indigo-600 bg-indigo-50 text-xl shadow-md' : 'border-gray-50 bg-gray-50/50 hover:border-gray-200'}`}>{i}</button>
-                        ))}
-                    </div>
-                    <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-100 active:scale-95 transition-all">{tr('حفظ المجموعة', 'Save Group')}</button>
-                </form>
+        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center p-3 sm:p-6 animate-in fade-in" data-testid="item-groups-manager">
+          <div className="bg-white w-full max-w-4xl rounded-t-[2rem] sm:rounded-[2rem] p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 max-h-[calc(100dvh-1rem)] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-1">{tr('إدارة الأصناف', 'Inventory setup')}</p>
+                <h3 className="font-black text-slate-900 text-xl leading-tight">{tr('إدارة مجموعات الأصناف', 'Item Group Management')}</h3>
+              </div>
+              <button type="button" onClick={closeGroupManager} className="p-2 text-gray-400 hover:bg-gray-50 rounded-full shrink-0" aria-label={tr('إغلاق', 'Close')}>
+                <X size={20} />
+              </button>
             </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4">
+              <form onSubmit={handleGroupSubmit} className="rounded-3xl border border-indigo-100 bg-indigo-50/40 p-4 sm:p-5 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-black text-slate-800">
+                    {editingGroupId ? tr('تعديل المجموعة', 'Edit group') : tr('إضافة مجموعة', 'Add group')}
+                  </h4>
+                  {editingGroupId && (
+                    <button type="button" onClick={resetGroupForm} className="text-[11px] font-black text-slate-500 hover:text-slate-800">
+                      {tr('إلغاء التعديل', 'Cancel edit')}
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block px-1">{tr('اسم المجموعة', 'Group name')}</label>
+                  <input
+                    type="text"
+                    data-testid="item-group-name-input"
+                    placeholder={tr('مثال: مشروبات', 'Example: Beverages')}
+                    value={groupName}
+                    onChange={e => setGroupName(e.target.value)}
+                    className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-bold text-sm focus:border-indigo-300 transition-all"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block px-1">{tr('المجموعة الرئيسية', 'Parent group')}</label>
+                  <select
+                    value={groupParentId}
+                    onChange={e => setGroupParentId(e.target.value)}
+                    className="w-full p-4 bg-white rounded-2xl border border-indigo-100 outline-none font-bold text-sm text-slate-700 focus:border-indigo-300 transition-all"
+                  >
+                    <option value="">{tr('مجموعة رئيسية', 'Main group')}</option>
+                    {availableParentGroups.map(group => (
+                      <option key={group.id} value={group.id}>{group.icon} {displayGroupName(group)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block px-1">{tr('الأيقونة', 'Icon')}</label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {icons.map(icon => (
+                      <button
+                        key={icon}
+                        type="button"
+                        onClick={() => setGroupIcon(icon)}
+                        className={`h-12 w-full flex items-center justify-center rounded-xl border-2 transition-all ${groupIcon === icon ? 'border-indigo-600 bg-white text-xl shadow-md' : 'border-white bg-white/70 hover:border-indigo-200'}`}
+                        aria-label={tr('اختيار أيقونة', 'Choose icon')}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  data-testid="item-group-save-action"
+                  disabled={!groupName.trim()}
+                  className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-100 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2"
+                >
+                  {editingGroupId ? <Check size={18} /> : <Plus size={18} />}
+                  {editingGroupId ? tr('حفظ التعديل', 'Save changes') : tr('إضافة المجموعة', 'Add group')}
+                </button>
+              </form>
+
+              <div className="rounded-3xl border border-slate-100 bg-white p-4 sm:p-5 shadow-sm min-w-0">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-black text-slate-800">{tr('المجموعات الحالية', 'Current groups')}</h4>
+                    <p className="text-[11px] font-bold text-slate-400 mt-1">{tr('يمكن التعديل والحذف من نفس الشاشة', 'Edit and delete from this screen')}</p>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-600 shrink-0">
+                    {sortedItemGroups.length}
+                  </span>
+                </div>
+
+                {sortedItemGroups.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+                    <FolderPlus className="w-8 h-8 mx-auto text-slate-300 mb-3" />
+                    <p className="text-sm font-black text-slate-700">{tr('لا توجد مجموعات أصناف', 'No item groups yet')}</p>
+                    <p className="text-[11px] font-bold text-slate-400 mt-1">{tr('ابدأ بإضافة أول مجموعة من النموذج.', 'Add the first group using the form.')}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[24rem] overflow-y-auto pr-1">
+                    {sortedItemGroups.map(({ group, depth }) => {
+                      const productCount = itemGroupProductCounts[group.id] || 0;
+                      const childCount = itemGroupChildCounts[group.id] || 0;
+                      const itemLabel = productCount === 1 ? tr('صنف', 'item') : tr('أصناف', 'items');
+                      const canDelete = productCount === 0 && childCount === 0;
+
+                      return (
+                        <div
+                          key={group.id}
+                          className={`flex items-center gap-3 rounded-2xl border p-3 transition-all ${editingGroupId === group.id ? 'border-indigo-200 bg-indigo-50' : 'border-slate-100 bg-slate-50/70 hover:bg-white'}`}
+                          style={{ marginInlineStart: depth ? `${Math.min(depth * 18, 36)}px` : undefined }}
+                        >
+                          <div className="h-11 w-11 shrink-0 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-xl shadow-sm">
+                            {group.icon || icons[0]}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {depth > 0 && <CornerDownLeft className="w-3.5 h-3.5 text-slate-400" />}
+                              <p className="font-black text-slate-800 text-sm truncate">{displayGroupName(group)}</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] font-black text-slate-400">
+                              <span>{productCount} {itemLabel}</span>
+                              {childCount > 0 && <span>{childCount} {tr('فرعية', 'subgroups')}</span>}
+                              {group.parentId && <span>{tr('مجموعة فرعية', 'Subgroup')}</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleEditItemGroup(group)}
+                              className="h-9 w-9 rounded-xl bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50 flex items-center justify-center"
+                              aria-label={tr('تعديل المجموعة', 'Edit group')}
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteItemGroup(group)}
+                              disabled={!canDelete}
+                              title={!canDelete ? tr('لا يمكن حذف مجموعة مستخدمة أو تحتوي مجموعات فرعية', 'Used groups or groups with subgroups cannot be deleted') : undefined}
+                              className="h-9 w-9 rounded-xl bg-white text-red-500 border border-red-100 hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-white flex items-center justify-center"
+                              aria-label={tr('حذف المجموعة', 'Delete group')}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

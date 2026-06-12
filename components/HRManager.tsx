@@ -6,7 +6,7 @@ import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName } from '../utils/displayNames';
-import { downloadElementAsPdf, downloadWorkbookFile, exportElementAsCsv, extractElementReadableText, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { downloadElementAsPdf, downloadWorkbookFile, exportElementAsCsv, extractElementReadableText, settleElementBeforeSnapshot, printHtmlContent } from '../utils/documentExport';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
 import {
@@ -992,11 +992,7 @@ const HRManager: React.FC = () => {
             </body>
             </html>
         `;
-        const printWindow = window.open('', '_blank', 'width=1100,height=800');
-        if (!printWindow) return;
-        printWindow.document.open();
-        printWindow.document.write(html);
-        printWindow.document.close();
+        printHtmlContent(html);
     };
 
     const applyFingerprintAttendanceBatchToLog = (batchId: string, mode: 'STRICT' | 'PARTIAL' = 'PARTIAL') => {
@@ -5523,8 +5519,6 @@ const HRManager: React.FC = () => {
         const printFont = isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif";
 
         const handlePrintPayslip = (rangeOverride?: StatementRange) => {
-            const printWindow = window.open('', '_blank', 'width=900,height=700');
-            if (!printWindow) return alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
             const targetRange = rangeOverride ? normalizeRange(rangeOverride) : { startDate: statementStartDate, endDate: statementEndDate };
             const payslipStartDate = targetRange.startDate;
             const payslipEndDate = targetRange.endDate;
@@ -5618,17 +5612,10 @@ const HRManager: React.FC = () => {
                 </html>
             `;
 
-            printWindow.document.open();
-            printWindow.document.write(html);
-            printWindow.document.close();
-            printWindow.focus();
-            setTimeout(() => printWindow.print(), 300);
+            printHtmlContent(html);
         };
 
         const handlePrintStatement = () => {
-            const printWindow = window.open('', '_blank', 'width=1000,height=720');
-            if (!printWindow) return alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-
             const rowsHtml = statementsWithBalance.length > 0
                 ? statementsWithBalance.map((entry, idx) => {
                     const catLabel = getCategoryLabel(entry.category).label;
@@ -5770,11 +5757,7 @@ const HRManager: React.FC = () => {
                 </html>
             `;
 
-            printWindow.document.open();
-            printWindow.document.write(html);
-            printWindow.document.close();
-            printWindow.focus();
-            setTimeout(() => printWindow.print(), 300);
+            printHtmlContent(html);
         };
 
         const employeeStatementTitle = `${tr('كشف حساب الموظف', 'Employee Statement')} - ${emp.name}`;

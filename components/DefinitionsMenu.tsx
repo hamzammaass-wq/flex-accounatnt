@@ -51,7 +51,8 @@ import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { compressImageFile } from '../utils/imageCompression';
 import { applyAppTheme } from '../utils/appTheme';
 import { isBackupPayloadV1 } from '../utils/backupCrypto';
-import { buildWorkspaceSubscriptionQuote } from '../utils/subscriptionCommerce';
+import { buildWorkspaceSubscriptionQuote, getSubscriptionProviderAvailability } from '../utils/subscriptionCommerce';
+import { getPaddleInstance } from '../utils/paddleLoader';
 import {
   clearRuntimeErrorLog,
   getRuntimeErrorLog,
@@ -342,6 +343,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     prepareSubscriptionCheckout,
     updateCompanyProfile,
     updateCompanySubscription,
+    updateWorkspaceSubscription,
     activateCompanySubscription,
     deviceBindingId,
     cloudSubscription,
@@ -619,8 +621,69 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     [billingCompanyCountDraft, companies.length]
   );
 
+  useEffect(() => {
+    const handlePaddleCheckoutCompleted = async (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const data = customEvent.detail;
+      console.log('Paddle checkout completed event received on frontend:', data);
+
+      try {
+        setBillingStatusMessage(appLanguage === 'AR' ? 'جاري تفعيل الاشتراك...' : 'Activating subscription...');
+        
+        // Calculate expiration: 1 year from now
+        const expiresAt = new Date();
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+        // 1. Update the workspace subscription document directly!
+        await updateWorkspaceSubscription({
+          status: 'ACTIVE',
+          provider: 'PADDLE',
+          billingCycle: 'YEARLY',
+          maxCompanies: desiredBillingCompanyCount,
+          startedAt: new Date().toISOString(),
+          renewalDate: expiresAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          providerSubscriptionId: data?.subscription_id || data?.id || 'sandbox_sub_id',
+          providerCustomerId: data?.customer_id || 'sandbox_cust_id'
+        });
+
+        // 2. Update the current company subscription document!
+        if (currentCompany) {
+          await updateCompanySubscription(currentCompany.id, {
+            subscriptionStatus: 'ACTIVE',
+            subscriptionPlan: 'BASIC',
+            subscriptionStartsAt: new Date().toISOString(),
+            subscriptionEndsAt: expiresAt.toISOString()
+          });
+        }
+
+        // Show a beautiful modal/alert success message
+        alert(
+          appLanguage === 'AR'
+            ? '🎉 تم الاشتراك وتفعيل الخدمة بنجاح! شكراً لك.'
+            : '🎉 Subscription activated successfully! Thank you.'
+        );
+        
+        setBillingStatusMessage('');
+      } catch (err: any) {
+        console.error('Failed to update workspace/company subscription client-side:', err);
+        alert(
+          appLanguage === 'AR'
+            ? `فشل تفعيل الاشتراك تلقائياً: ${err.message || 'خطأ غير معروف'}`
+            : `Failed to activate subscription: ${err.message || 'Unknown error'}`
+        );
+        setBillingStatusMessage('');
+      }
+    };
+
+    window.addEventListener('paddle.checkout.completed', handlePaddleCheckoutCompleted);
+    return () => {
+      window.removeEventListener('paddle.checkout.completed', handlePaddleCheckoutCompleted);
+    };
+  }, [appLanguage, desiredBillingCompanyCount, updateWorkspaceSubscription, currentCompany, updateCompanySubscription]);
+
   const visibleSubscriptionProviders = useMemo(
-    () => (['APPLE', 'GOOGLE'] as SubscriptionCheckoutProvider[]),
+    () => (['PADDLE', 'APPLE', 'GOOGLE'] as SubscriptionCheckoutProvider[]),
     []
   );
 
@@ -647,6 +710,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'PALPAY': return 'PalPay';
       case 'APPLE': return 'Apple';
       case 'GOOGLE': return 'Google';
+      case 'PADDLE': return 'Paddle';
       default: return '-';
     }
   };
@@ -656,6 +720,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'PALPAY': return 'PalPay';
       case 'APPLE': return 'Apple';
       case 'GOOGLE': return 'Google';
+      case 'PADDLE': return 'Paddle';
       case 'MANUAL': return tr('يدوي', 'Manual');
       case 'TRIAL': return tr('تجريبي', 'Trial');
       default: return '-';
@@ -719,6 +784,49 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   };
 
   const handleStartSubscriptionCheckout = async (provider: SubscriptionCheckoutProvider) => {
+    if (provider === 'PADDLE') {
+      try {
+        setBillingStatusMessage(appLanguage === 'AR' ? 'جاري تجهيز بوابة الدفع...' : 'Initializing payment gateway...');
+        const paddle = await getPaddleInstance();
+        if (!paddle) {
+          throw new Error('Paddle initialization failed. Make sure client token is valid.');
+        }
+
+        const basePriceId = import.meta.env.VITE_PADDLE_BASE_PRICE_ID;
+        const extraPriceId = import.meta.env.VITE_PADDLE_EXTRA_PRICE_ID;
+
+        if (!basePriceId) {
+          throw new Error('VITE_PADDLE_BASE_PRICE_ID is not configured.');
+        }
+
+        const extraCount = Math.max(0, desiredBillingCompanyCount - 1);
+        const items = [{ priceId: basePriceId, quantity: 1 }];
+        if (extraCount > 0 && extraPriceId) {
+          items.push({ priceId: extraPriceId, quantity: extraCount });
+        }
+
+        paddle.Checkout.open({
+          items,
+          customData: {
+            userId: currentUser?.id || '',
+            userEmail: currentUser?.email || '',
+            desiredCompanyCount: desiredBillingCompanyCount
+          },
+          settings: {
+            successUrl: window.location.origin + window.location.pathname
+          }
+        });
+
+        setBillingStatusMessage('');
+      } catch (err: any) {
+        console.error('Paddle Checkout failed:', err);
+        setBillingStatusMessage(appLanguage === 'AR' 
+          ? `فشل فتح الدفع: ${err.message || 'خطأ غير معروف'}`
+          : `Checkout failed: ${err.message || 'Unknown error'}`);
+      }
+      return;
+    }
+
     const result = prepareSubscriptionCheckout(provider, billingCycleDraft, desiredBillingCompanyCount, {
       discountPercent: workspaceSubscription.discountPercent,
       offerCode: workspaceSubscription.offerCode

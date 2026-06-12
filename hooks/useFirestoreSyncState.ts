@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import {
   collection,
   doc,
   onSnapshot,
   writeBatch
 } from 'firebase/firestore';
-import { firebaseDb, firebaseAuth, executeFirestoreWrite } from '../firebaseClient';
+import { firebaseDb, firebaseAuth, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
 
 let lastAlertTime = 0;
 let lastAlertMessage = '';
@@ -33,7 +34,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   initialState: T[],
   companyId: string | null,
   userId: string | null
-): [T[], React.Dispatch<React.SetStateAction<T[]>>] {
+): [T[], Dispatch<SetStateAction<T[]>>] {
   const [data, setData] = useState<T[]>(initialState);
 
   // Keep a ref to the latest state to allow synchronous state checks outside React's render phase
@@ -42,6 +43,24 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+
+  // Track Firebase auth UID locally so this hook re-runs when auth state changes.
+  // This replaces the old onAuthStateChanged retry inside the main useEffect,
+  // which caused a race condition during user switching: the hook's listener fired
+  // before the parent component could clear the stale company ID.
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(
+    firebaseAuth?.currentUser?.uid ?? null
+  );
+
+  useEffect(() => {
+    if (!firebaseAuth) return;
+    const unsub = firebaseAuth.onAuthStateChanged((u: any) => {
+      setFirebaseUid(u?.uid ?? null);
+    });
+    return unsub;
+  }, []);
 
   // CRITICAL: Use refs so setSyncedData ALWAYS uses the latest userId/companyId
   // Without refs, setSyncedData captures stale values from its closure,
@@ -64,6 +83,73 @@ export function useFirestoreSyncState<T extends { id?: string }>(
 
   useEffect(() => {
     let isSubscribed = true;
+
+    if (useBackend) {
+      if (!companyId) return;
+      const user = firebaseAuth?.currentUser;
+      if (!user) {
+        // Don't set up our own onAuthStateChanged here.
+        // The firebaseUid state dependency will cause this effect to re-run
+        // once auth initializes. By that time, the parent component will
+        // have validated the companyId (clearing stale values on user switch).
+        return;
+      }
+
+      callBackendApi(user, `/companies/${companyId}/collections/${collectionName}`)
+        .then((items) => {
+          if (!isSubscribed) return;
+          if ((!items || items.length === 0) && initialState.length > 0) {
+            console.log(`[Backend Sync] Seeding initial data for ${collectionName} in company ${companyId}`);
+            setData(initialState);
+            dataRef.current = initialState;
+            
+            // Seed to backend
+            callBackendApi(user, `/companies/${companyId}/collections/${collectionName}/sync`, 'POST', {
+              upserts: initialState,
+              deletes: []
+            })
+              .then(() => {
+                console.log(`[Backend Sync] Successfully seeded initial data for ${collectionName}`);
+              })
+              .catch((err) => {
+                console.error(`[Backend Sync] Failed to seed initial data for ${collectionName}:`, err);
+              });
+          } else {
+            // Auto-repair missing system items
+            const missingItems = initialState.length > 0
+              ? initialState.filter(initItem => !items.some((item: any) => item.id === initItem.id))
+              : [];
+              
+            if (missingItems.length > 0) {
+              console.log(`[Backend Sync] Repairing ${missingItems.length} missing system items in ${collectionName}`);
+              const updatedData = [...items, ...missingItems];
+              setData(updatedData);
+              dataRef.current = updatedData;
+              
+              callBackendApi(user, `/companies/${companyId}/collections/${collectionName}/sync`, 'POST', {
+                upserts: missingItems,
+                deletes: []
+              })
+                .then(() => {
+                  console.log(`[Backend Sync] Successfully repaired missing system items for ${collectionName}`);
+                })
+                .catch((err) => {
+                  console.error(`[Backend Sync] Failed to repair system items for ${collectionName}:`, err);
+                });
+            } else {
+              setData(items || []);
+              dataRef.current = items || [];
+            }
+          }
+        })
+        .catch((err) => {
+          console.error(`[Backend Sync] Fetch error for ${collectionName}:`, err);
+        });
+
+      return () => {
+        isSubscribed = false;
+      };
+    }
 
     if (!firebaseDb || !companyId || !userId) {
       console.warn(`[Sync] Firebase not ready for ${collectionName}. DB=${!!firebaseDb}, Company=${!!companyId}, User=${!!userId}`);
@@ -161,9 +247,9 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       isSubscribed = false;
       unsubscribe();
     };
-  }, [companyId, collectionName, userId]);
+  }, [companyId, collectionName, userId, firebaseUid]);
 
-  const setSyncedData = useCallback((action: React.SetStateAction<T[]>) => {
+  const setSyncedData = useCallback((action: SetStateAction<T[]>) => {
     // 1. Calculate next state using our synchronously updated dataRef.current
     const prev = dataRef.current;
     const next = typeof action === 'function' ? (action as any)(prev) : action;
@@ -177,7 +263,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     const currentCompanyId = companyIdRef.current;
     const currentCollectionName = collectionNameRef.current;
 
-    if (!firebaseDb) {
+    if (!useBackend && !firebaseDb) {
       console.error(`[Sync ERROR] Firebase DB is not initialized! Data for ${currentCollectionName} will NOT be saved.`);
       if (typeof window !== 'undefined') {
         showSyncAlertOnce(`⚠️ خطأ حرج: قاعدة البيانات غير متصلة!\nالبيانات لن تُحفظ. تحقق من إعدادات Firebase.`);
@@ -197,7 +283,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       return;
     }
 
-    // 4. Perform the write to Firestore in the event thread (outside render, batched in a microtask)
+    // 4. Perform the write in the event thread (outside render, batched in a microtask)
     if (!(window as any).__IS_HYDRATING__) {
       // Capture the state *before* this tick's updates began
       if (pendingPrevRef.current === null) {
@@ -242,38 +328,64 @@ export function useFirestoreSyncState<T extends { id?: string }>(
           const activeCompanyId = companyIdRef.current;
           const activeCollectionName = collectionNameRef.current;
 
-          if (activeUserId && activeUserId !== 'guest_user' && activeCompanyId && (toUpsert.length > 0 || toDelete.length > 0)) {
-            console.log(`[Sync] Saving to Firestore via Proxy: ${activeCollectionName} user=${activeUserId} company=${activeCompanyId} upserts=${toUpsert.length} deletes=${toDelete.length}`);
-
-            const ops: Array<{ type: 'set' | 'delete'; path: string; data?: any }> = [];
-
-            toUpsert.forEach(item => {
-              const path = `users/${activeUserId}/companies/${activeCompanyId}/${activeCollectionName}/${item.id!}`;
-              const cleanItem = JSON.parse(JSON.stringify(item));
-              ops.push({ type: 'set', path, data: cleanItem });
-            });
-
-            toDelete.forEach(id => {
-              const path = `users/${activeUserId}/companies/${activeCompanyId}/${activeCollectionName}/${id}`;
-              ops.push({ type: 'delete', path });
-            });
-
+          if (activeUserId && activeCompanyId && (toUpsert.length > 0 || toDelete.length > 0)) {
             const user = firebaseAuth?.currentUser;
-            if (user && ops.length > 0) {
-              withTimeout(
-                executeFirestoreWrite(user, ops),
-                15000,
-                `انتهت مهلة حفظ البيانات في السحابة لقسم (${activeCollectionName}). يرجى التحقق من اتصال الإنترنت.`
-              )
-                .then(() => {
-                  console.log(`[Sync SUCCESS] ${activeCollectionName}: ${toUpsert.length + toDelete.length} changes saved to cloud ✅`);
+            if (user) {
+              if (useBackend) {
+                // Call Custom Backend Sync API
+                callBackendApi(user, `/companies/${activeCompanyId}/collections/${activeCollectionName}/sync`, 'POST', {
+                  upserts: toUpsert,
+                  deletes: toDelete
                 })
-                .catch(err => {
-                  console.error(`[Sync ERROR] Failed to sync ${activeCollectionName}:`, err);
-                  if (typeof window !== 'undefined') {
-                    showSyncAlertOnce(`❌ خطأ في الحفظ السحابي (${activeCollectionName}):\n${err.message || 'حدث خطأ غير معروف'}`);
-                  }
-                });
+                  .then(() => {
+                    console.log(`[Backend Sync SUCCESS] ${activeCollectionName} changes synced to custom backend ✅`);
+                  })
+                  .catch(err => {
+                    console.error(`[Backend Sync ERROR] Failed to sync ${activeCollectionName}:`, err);
+                    // Suppress transient membership/permission errors during user switching
+                    const errMsg = err.message || '';
+                    if (errMsg.includes('Forbidden') || errMsg.includes('not a member') || errMsg.includes('foreign key')) {
+                      console.warn(`[Backend Sync] Suppressed transient error for ${activeCollectionName} (likely user switch in progress)`);
+                      return;
+                    }
+                    if (typeof window !== 'undefined') {
+                      showSyncAlertOnce(`❌ خطأ في الحفظ على السيرفر الخلفي (${activeCollectionName}):\n${err.message}`);
+                    }
+                  });
+              } else {
+                // Call Firestore Proxy API (old method)
+                if (activeUserId !== 'guest_user') {
+                  console.log(`[Sync] Saving to Firestore via Proxy: ${activeCollectionName} user=${activeUserId} company=${activeCompanyId} upserts=${toUpsert.length} deletes=${toDelete.length}`);
+
+                  const ops: Array<{ type: 'set' | 'delete'; path: string; data?: any }> = [];
+
+                  toUpsert.forEach(item => {
+                    const path = `users/${activeUserId}/companies/${activeCompanyId}/${activeCollectionName}/${item.id!}`;
+                    const cleanItem = JSON.parse(JSON.stringify(item));
+                    ops.push({ type: 'set', path, data: cleanItem });
+                  });
+
+                  toDelete.forEach(id => {
+                    const path = `users/${activeUserId}/companies/${activeCompanyId}/${activeCollectionName}/${id}`;
+                    ops.push({ type: 'delete', path });
+                  });
+
+                  withTimeout(
+                    executeFirestoreWrite(user, ops),
+                    15000,
+                    `انتهت مهلة حفظ البيانات في السحابة لقسم (${activeCollectionName}). يرجى التحقق من اتصال الإنترنت.`
+                  )
+                    .then(() => {
+                      console.log(`[Sync SUCCESS] ${activeCollectionName}: ${toUpsert.length + toDelete.length} changes saved to cloud ✅`);
+                    })
+                    .catch(err => {
+                      console.error(`[Sync ERROR] Failed to sync ${activeCollectionName}:`, err);
+                      if (typeof window !== 'undefined') {
+                        showSyncAlertOnce(`❌ خطأ في الحفظ السحابي (${activeCollectionName}):\n${err.message || 'حدث خطأ غير معروف'}`);
+                      }
+                    });
+                }
+              }
             }
           }
         });

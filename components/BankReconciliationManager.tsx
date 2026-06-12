@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   ArrowRight,
@@ -21,7 +21,7 @@ import DocumentActions from './DocumentActions';
 import { BankMatchSuggestion, TransactionType } from '../types';
 import { buildBankMatchSuggestions } from '../utils/bankAutoMatch';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
-import { downloadElementAsPdf, exportElementAsCsv, extractElementReadableText, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { downloadElementAsPdf, exportElementAsCsv, extractElementReadableText, settleElementBeforeSnapshot, printHtmlContent } from '../utils/documentExport';
 import { openDrilldown } from '../utils/drilldown';
 import {
   BANK_STATEMENT_PROFILES,
@@ -537,15 +537,7 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
       </html>
     `;
 
-    const reportWindow = window.open('', '_blank');
-    if (!reportWindow) {
-      alert(tr('تعذر فتح نافذة الطباعة', 'Could not open print window.'));
-      return;
-    }
-    reportWindow.document.write(html);
-    reportWindow.document.close();
-    reportWindow.focus();
-    reportWindow.print();
+    printHtmlContent(html);
   };
 
   const reconciliationTitle = tr('كشف مطابقة البنك', 'Bank Reconciliation Statement');

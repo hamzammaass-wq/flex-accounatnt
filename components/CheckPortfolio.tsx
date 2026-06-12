@@ -5,6 +5,7 @@ import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
 import { openDrilldown } from '../utils/drilldown';
+import { printHtmlContent } from '../utils/documentExport';
 import {
     AlertTriangle,
     ArrowRightLeft,
@@ -842,11 +843,6 @@ const CheckPortfolio: React.FC = () => {
         const { check, related, sourceContactName, primaryContactName, endorseeName, depositedBankName, clearTx } = data;
         const finalSettlementAccount = check.type === 'INCOMING' ? clearTx?.debitAccountId : clearTx?.creditAccountId;
         const timeline = buildCheckTimeline(checkId);
-        const printWindow = window.open('', '_blank', 'width=1100,height=800');
-        if (!printWindow) {
-            alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-            return;
-        }
 
         const timelineRows = timeline.length > 0
             ? timeline.map((step, index) => `
@@ -958,11 +954,7 @@ const CheckPortfolio: React.FC = () => {
             </html>
         `;
 
-        printWindow.document.open();
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.focus();
-        setTimeout(() => printWindow.print(), 250);
+        printHtmlContent(html);
     };
 
     const selectedCheckFlow = showCheckDetailsId ? getCheckFlowSummary(showCheckDetailsId) : null;
@@ -1014,7 +1006,7 @@ const CheckPortfolio: React.FC = () => {
                         <EnglishDateInput
                             value={dueDateFilterFrom}
                             onChange={setDueDateFilterFrom}
-                            displayFormat="YMD"
+                            displayFormat="DMY"
                             wrapperClassName="min-w-0"
                             className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[11px] font-black outline-none"
                             aria-label={tr('من تاريخ الاستحقاق', 'From due date')}
@@ -1025,7 +1017,7 @@ const CheckPortfolio: React.FC = () => {
                         <EnglishDateInput
                             value={dueDateFilterTo}
                             onChange={setDueDateFilterTo}
-                            displayFormat="YMD"
+                            displayFormat="DMY"
                             wrapperClassName="min-w-0"
                             className="h-10 rounded-xl border border-gray-100 bg-gray-50 px-2.5 text-[11px] font-black outline-none"
                             aria-label={tr('إلى تاريخ الاستحقاق', 'To due date')}

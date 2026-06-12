@@ -654,7 +654,7 @@ const FixedAssetsManager: React.FC = () => {
                             <EnglishDateInput
                                 value={assetFromDateFilter}
                                 onChange={setAssetFromDateFilter}
-                                displayFormat="YMD"
+                                displayFormat="DMY"
                                 wrapperClassName="w-full"
                                 className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none dir-ltr"
                                 placeholder={tr('من تاريخ شراء', 'From purchase date')}
@@ -662,7 +662,7 @@ const FixedAssetsManager: React.FC = () => {
                             <EnglishDateInput
                                 value={assetToDateFilter}
                                 onChange={setAssetToDateFilter}
-                                displayFormat="YMD"
+                                displayFormat="DMY"
                                 wrapperClassName="w-full"
                                 className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-[11px] font-black outline-none dir-ltr"
                                 placeholder={tr('إلى تاريخ شراء', 'To purchase date')}

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
+import { printHtmlContent } from '../utils/documentExport';
 
 interface VoucherManagerProps {
     type: 'RECEIPT' | 'PAYMENT';
@@ -422,13 +423,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
     const printVoucherBrowser = (voucherId: string, parts: Transaction[]) => {
         const html = buildVoucherPrintHtml(voucherId, parts, true);
         if (!html) return;
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-            return;
-        }
-        printWindow.document.write(html);
-        printWindow.document.close();
+        printHtmlContent(html);
     };
 
     const buildThermalVoucherPayload = (voucherId: string, parts: Transaction[]) => {
@@ -693,7 +688,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                             <EnglishDateInput
                                 value={fromDateFilter}
                                 onChange={setFromDateFilter}
-                                displayFormat="YMD"
+                                displayFormat="DMY"
                                 wrapperClassName="w-full"
                                 className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr"
                                 placeholder={tr('من تاريخ', 'From date')}
@@ -705,7 +700,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                             <EnglishDateInput
                                 value={toDateFilter}
                                 onChange={setToDateFilter}
-                                displayFormat="YMD"
+                                displayFormat="DMY"
                                 wrapperClassName="w-full"
                                 className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr"
                                 placeholder={tr('إلى تاريخ', 'To date')}
@@ -765,7 +760,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
             </ResponsiveDialog>
 
             <div className="space-y-2 sm:space-y-2.5">
-                <div className={`hidden md:grid items-center gap-3 rounded-[1rem] border border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 ${isEnglish ? 'grid-cols-[6.4rem_minmax(0,1fr)_4.1rem]' : 'grid-cols-[4.1rem_minmax(0,1fr)_6.4rem]'}`}>
+                <div className={`hidden md:grid items-center gap-3 rounded-[1rem] border border-slate-200 bg-slate-100 px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 ${isEnglish ? 'grid-cols-[6.4rem_minmax(0,1fr)_8rem]' : 'grid-cols-[8rem_minmax(0,1fr)_6.4rem]'}`}>
                     <div className={`${isEnglish ? 'text-right' : 'text-left'}`}>{tr('المرجع', 'Reference')}</div>
                     <div>{tr('الطرف والبيان', 'Contact and note')}</div>
                     <div className="text-center">{tr('القيمة', 'Amount')}</div>
@@ -801,13 +796,13 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                     onClick={() => setSelectedVoucherId(isExpanded ? null : id)}
                                     className="cursor-pointer p-2.5 sm:p-3.5"
                                 >
-                                    <div className={`grid items-start gap-2 sm:gap-3 ${isEnglish ? 'grid-cols-[5.1rem_minmax(0,1fr)_3.2rem] sm:grid-cols-[6.4rem_minmax(0,1fr)_4.4rem]' : 'grid-cols-[3.2rem_minmax(0,1fr)_5.1rem] sm:grid-cols-[4.4rem_minmax(0,1fr)_6.4rem]'}`}>
-                                        <div className={`flex flex-col gap-1 ${isEnglish ? 'order-3 items-end' : 'order-1 items-start'}`}>
-                                            <div className={`flex flex-wrap gap-1 ${isEnglish ? 'justify-end' : 'justify-start'} sm:gap-1.5`}>
-                                                <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black sm:px-3 sm:py-1 sm:text-[11px] ${isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
+                                    <div className={`grid items-start gap-2 sm:gap-3 ${isEnglish ? 'grid-cols-[5.1rem_minmax(0,1fr)_minmax(6.6rem,7.4rem)] sm:grid-cols-[6.4rem_minmax(0,1fr)_8rem]' : 'grid-cols-[minmax(6.6rem,7.4rem)_minmax(0,1fr)_5.1rem] sm:grid-cols-[8rem_minmax(0,1fr)_6.4rem]'}`}>
+                                        <div className={`min-w-0 ${isEnglish ? 'order-3 text-right' : 'order-1 text-left'}`}>
+                                            <div className={`flex max-w-full flex-col gap-1 ${isEnglish ? 'items-end' : 'items-start'} sm:gap-1.5`}>
+                                                <span className={`max-w-full rounded-full px-1.5 py-0.5 text-[9px] font-black leading-4 sm:px-3 sm:py-1 sm:text-[11px] ${isReceipt ? 'border border-emerald-100 bg-emerald-50 text-emerald-700' : 'border border-rose-100 bg-rose-50 text-rose-700'}`}>
                                                     {tr('مرحل', 'Posted')}
                                                 </span>
-                                                <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-black text-slate-500 sm:px-3 sm:py-1 sm:text-[11px]">
+                                                <span className="block max-w-full truncate rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-black leading-4 text-slate-500 sm:px-3 sm:py-1 sm:text-[11px]" title={id}>
                                                     {id}
                                                 </span>
                                             </div>
@@ -825,7 +820,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                                                         <span>{tr('الطرف', 'Contact')}</span>
                                                     </div>
                                                     <div
-                                                        className="mt-0.5 text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base cursor-pointer hover:text-indigo-600"
+                                                        className="mt-0.5 max-w-full break-words text-[1.02rem] font-black leading-6 text-slate-900 sm:mt-1 sm:text-base cursor-pointer hover:text-indigo-600"
                                                         onClick={(event) => event.stopPropagation()}
                                                         onDoubleClick={(event) => {
                                                             event.stopPropagation();

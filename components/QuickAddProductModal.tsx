@@ -345,9 +345,9 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       size="xl"
       zIndexClassName="z-[300]"
       backdropClassName="bg-black/70 backdrop-blur-md"
-      panelClassName="bg-white rounded-[2rem] p-3 sm:p-4 shadow-2xl !overflow-hidden"
+      panelClassName="product-definition-dialog-panel bg-white rounded-[2rem] p-3 sm:p-4 shadow-2xl !overflow-hidden"
     >
-      <form data-testid="products-form" onSubmit={handleSubmit} className="animate-in zoom-in-95 flex max-h-[calc(100dvh-2.5rem)] flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
+      <form data-testid="products-form" onSubmit={handleSubmit} className="product-definition-form animate-in zoom-in-95 flex flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
         <div className="flex justify-between items-center gap-3 mb-2.5">
           <h3 className="font-black text-gray-800 text-lg">{title}</h3>
           <button type="button" onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400">

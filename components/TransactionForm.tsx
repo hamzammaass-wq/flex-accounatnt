@@ -21,6 +21,7 @@ import {
     Save, FileText, FileSpreadsheet, Share2, MessageSquareText, MessageCircle
 } from 'lucide-react';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { translateDocumentNumber } from '../utils/i18n';
 import { getInvoiceAllocatedAmount, getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -38,7 +39,7 @@ import {
     isInvoiceTaxApplied,
     resolveInvoiceTaxMode
 } from '../utils/invoiceTax';
-import { downloadWorkbookFile, sanitizeDownloadName } from '../utils/documentExport';
+import { downloadWorkbookFile, sanitizeDownloadName, printHtmlContent } from '../utils/documentExport';
 
 export type TransactionTabType = 'SALES' | 'SALES_RETURN' | 'QUOTATION' | 'PURCHASES' | 'PURCHASE_RETURN' | 'EXPENSES' | 'VOUCHERS' | 'JOURNAL' | 'IMPORT_EXPENSES' | 'MANUAL_PURCHASE';
 
@@ -1071,13 +1072,16 @@ const InvoiceScreen: React.FC<{
     }, [isQuotation, isReturn, isPurchaseReturn, isImportExpenses, isExpenses, isPurchase]);
 
     const getNextStockTransferNumber = (transfers: StockTransfer[]) => {
-        const currentYear = new Date().getFullYear();
+        const currentYear = String(new Date().getFullYear()).slice(-2);
         const prefix = `TRF-${currentYear}-`;
 
         const transferNumbers = new Set<string>();
         transfers.forEach(t => {
-            if (t.transferNumber && t.transferNumber.startsWith(prefix)) {
-                transferNumbers.add(t.transferNumber);
+            if (t.transferNumber) {
+                const engNum = translateDocumentNumber(t.transferNumber, true);
+                if (engNum.startsWith(prefix)) {
+                    transferNumbers.add(engNum);
+                }
             }
         });
 
@@ -1096,13 +1100,16 @@ const InvoiceScreen: React.FC<{
     };
 
     const getNextInvoiceNumber = useCallback((prefix: string) => {
-        const currentYear = new Date().getFullYear();
+        const currentYear = String(new Date().getFullYear()).slice(-2);
         const yearPrefix = `${prefix}-${currentYear}-`;
 
         const invoiceNumbers = new Set<string>();
         invoices.forEach(inv => {
-            if (inv.invoiceNumber && inv.invoiceNumber.startsWith(yearPrefix)) {
-                invoiceNumbers.add(inv.invoiceNumber);
+            if (inv.invoiceNumber) {
+                const engNum = translateDocumentNumber(inv.invoiceNumber, true);
+                if (engNum.startsWith(yearPrefix)) {
+                    invoiceNumbers.add(engNum);
+                }
             }
         });
 
@@ -1455,13 +1462,13 @@ const InvoiceScreen: React.FC<{
         : paymentAccountId;
 
     useEffect(() => {
-        if (isExpenseStyle || isQuotation) return;
+        if (isExpenseStyle) return;
         const preferredWarehouseId = resolvePreferredWarehouseId();
         const warehouseExists = warehouseId && warehouses.some(w => w.id === warehouseId);
         if (!warehouseExists) {
             setWarehouseId(preferredWarehouseId);
         }
-    }, [warehouses, warehouseId, isExpenseStyle, isQuotation, mainWarehouse]);
+    }, [warehouses, warehouseId, isExpenseStyle, mainWarehouse]);
 
     useEffect(() => {
         if (isQuotation || paymentType !== 'CASH') return;
@@ -1861,10 +1868,23 @@ const InvoiceScreen: React.FC<{
     const getEffectiveInvoiceNumber = () => invoiceNumber.trim() || editingInvoice?.invoiceNumber || generateInvoiceNumber();
     const getWarehouseStockQuantity = (product?: Product | null, targetWarehouseId?: string) => {
         if (!product || isServiceProduct(product)) return 0;
-        if (targetWarehouseId) {
-            return product.warehouseStock?.find(entry => entry.warehouseId === targetWarehouseId)?.quantity ?? 0;
-        }
-        return product.stock ?? 0;
+        const currentWHStock = product.warehouseStock || [];
+        const res = (() => {
+            if (targetWarehouseId) {
+                const entry = currentWHStock.find(entry => entry.warehouseId === targetWarehouseId);
+                if (entry) return entry.quantity;
+                
+                const isTargetMain = targetWarehouseId === 'wh_main' || 
+                                     warehouses.find(w => w.id === targetWarehouseId)?.isMain ||
+                                     (warehouses.length > 0 && warehouses[0].id === targetWarehouseId);
+                if (isTargetMain) {
+                    return product.stock ?? 0;
+                }
+                if (currentWHStock.length > 0) return 0;
+            }
+            return product.stock ?? 0;
+        })();
+        return res;
     };
     const getRequestedStockQuantity = (
         productId?: string,
@@ -2167,11 +2187,6 @@ const InvoiceScreen: React.FC<{
 
     const handlePrintPreview = () => {
         const draft = buildDraftInvoice();
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-            return;
-        }
         try {
             const printDir = isEnglish ? 'ltr' : 'rtl';
             const printLang = isEnglish ? 'en' : 'ar';
@@ -2194,8 +2209,7 @@ const InvoiceScreen: React.FC<{
             const notesBlock = notes.trim()
                 ? `<div class="notes"><strong>${escapeHtml(tr('التفاصيل', 'Details'))}:</strong> ${escapeHtml(notes.trim()).replace(/\n/g, '<br />')}</div>`
                 : '';
-            printWindow.document.open();
-            printWindow.document.write(`
+            const html = `
                 <!DOCTYPE html>
                 <html dir="${printDir}" lang="${printLang}">
                     <head>
@@ -2276,15 +2290,11 @@ const InvoiceScreen: React.FC<{
                                 </div>
                             </div>
                         </div>
-                        <script>window.onload = function () { window.print(); };</script>
                     </body>
                 </html>
-            `);
-            printWindow.document.close();
+            `;
+            printHtmlContent(html);
         } catch {
-            if (!printWindow.closed) {
-                printWindow.close();
-            }
             alert(tr('تعذر تجهيز معاينة الفاتورة للطباعة الآن.', 'Could not prepare the invoice preview for printing right now.'));
         }
     };
@@ -3715,13 +3725,16 @@ const VoucherScreen: React.FC<{
     const voucherReference = useMemo(() => {
         if (initialVoucherId) return initialVoucherId;
 
-        const currentYear = new Date().getFullYear(); // e.g. 2026
+        const currentYear = String(new Date().getFullYear()).slice(-2); // e.g. 26
         const prefix = `${voucherType === 'RECEIPT' ? 'REC' : 'PAY'}-${currentYear}-`;
 
         const voucherIds = new Set<string>();
         transactions.forEach(tx => {
-            if (tx.voucherId && tx.voucherId.startsWith(prefix)) {
-                voucherIds.add(tx.voucherId);
+            if (tx.voucherId) {
+                const engId = translateDocumentNumber(tx.voucherId, true);
+                if (engId.startsWith(prefix)) {
+                    voucherIds.add(engId);
+                }
             }
         });
 
@@ -4176,11 +4189,6 @@ const VoucherScreen: React.FC<{
                 ? tr('عميل نقدي', 'Walk-in Customer')
                 : tr('مورد عام', 'Generic Supplier'));
         const rows = buildVoucherExportRows();
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-            return;
-        }
         try {
             const printDir = isEnglish ? 'ltr' : 'rtl';
             const printLang = isEnglish ? 'en' : 'ar';
@@ -4198,8 +4206,7 @@ const VoucherScreen: React.FC<{
                 `).join('')
                 : `<tr><td colspan="6">${escapeVoucherHtml(tr('لا توجد بنود بعد.', 'No lines yet.'))}</td></tr>`;
 
-            printWindow.document.open();
-            printWindow.document.write(`
+            const html = `
                 <!doctype html>
                 <html dir="${printDir}" lang="${printLang}">
                 <head>
@@ -4251,15 +4258,11 @@ const VoucherScreen: React.FC<{
                         <tbody>${rowsHtml}</tbody>
                     </table>
                     ${description.trim() ? `<div class="notes"><strong>${escapeVoucherHtml(tr('البيان', 'Description'))}:</strong> ${escapeVoucherHtml(description.trim())}</div>` : ''}
-                    <script>window.onload = function () { window.print(); };</script>
                 </body>
                 </html>
-            `);
-            printWindow.document.close();
+            `;
+            printHtmlContent(html);
         } catch {
-            if (!printWindow.closed) {
-                printWindow.close();
-            }
             alert(tr('تعذر تجهيز السند للطباعة الآن.', 'Could not prepare the voucher for printing right now.'));
         }
     };
@@ -5214,13 +5217,16 @@ const JournalScreen: React.FC<{
     const journalReference = useMemo(() => {
         if (initialJournalId) return initialJournalId;
 
-        const currentYear = new Date().getFullYear(); // e.g. 2026
-        const prefix = `JRN-${currentYear}-`; // e.g. "JRN-2026-"
+        const currentYear = String(new Date().getFullYear()).slice(-2); // e.g. 26
+        const prefix = `JRN-${currentYear}-`; // e.g. "JRN-26-"
 
         const voucherIds = new Set<string>();
         transactions.forEach(tx => {
-            if (tx.voucherId && tx.voucherId.startsWith(prefix)) {
-                voucherIds.add(tx.voucherId);
+            if (tx.voucherId) {
+                const engId = translateDocumentNumber(tx.voucherId, true);
+                if (engId.startsWith(prefix)) {
+                    voucherIds.add(engId);
+                }
             }
         });
 

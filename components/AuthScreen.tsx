@@ -318,6 +318,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
           }
         }
       } catch (error) {
+        console.error('[Redirect Auth Error]', error);
         if (!cancelled) {
           setErrorMessage(getFirebaseErrorMessage(error, appLanguage));
         }
@@ -517,6 +518,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
         throw error;
       }
     } catch (error: any) {
+      console.error('[Google Sign-In Error]', error);
       if (authMode === 'REGISTER') {
 
       }
@@ -840,29 +842,50 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
               </div>
 
               <div className="text-center text-[11px] text-slate-500 font-bold leading-6">
-                <button
-                  type="button"
-                  onClick={() => setInfoMode('POLICY')}
+                <a
+                  href="/pricing.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-slate-700 transition-colors"
+                >
+                  {appLanguage === 'AR' ? 'الأسعار' : 'Pricing'}
+                </a>
+                <span className="mx-2 text-slate-400">|</span>
+                <a
+                  href="/privacy-policy.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="underline hover:text-slate-700 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'سياسة الخصوصية' : 'Privacy Policy'}
-                </button>
+                </a>
                 <span className="mx-2 text-slate-400">|</span>
-                <button
-                  type="button"
-                  onClick={() => setInfoMode('USAGE_GUIDE')}
+                <a
+                  href="/terms-of-service.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="underline hover:text-slate-700 transition-colors"
                 >
-                  {appLanguage === 'AR' ? 'دليل الاستخدام' : 'Usage Guide'}
-                </button>
+                  {appLanguage === 'AR' ? 'شروط الخدمة' : 'Terms of Service'}
+                </a>
                 <span className="mx-2 text-slate-400">|</span>
-                <button
-                  type="button"
-                  onClick={() => window.open('/account-deletion.html', '_blank', 'noopener,noreferrer')}
+                <a
+                  href="/refund-policy.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-slate-700 transition-colors"
+                >
+                  {appLanguage === 'AR' ? 'سياسة الاسترجاع' : 'Refund Policy'}
+                </a>
+                <span className="mx-2 text-slate-400">|</span>
+                <a
+                  href="/account-deletion.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="underline hover:text-slate-700 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'حذف الحساب' : 'Account Deletion'}
-                </button>
+                </a>
               </div>
 
             </>

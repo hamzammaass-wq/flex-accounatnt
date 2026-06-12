@@ -466,7 +466,7 @@ const OpeningBalancesManager: React.FC = () => {
           <EnglishDateInput
             value={openingDate}
             onChange={setOpeningDate}
-            displayFormat="YMD"
+            displayFormat="DMY"
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black outline-none dir-ltr"
             aria-label={tr('تاريخ القيد الافتتاحي', 'Opening entry date')}
           />

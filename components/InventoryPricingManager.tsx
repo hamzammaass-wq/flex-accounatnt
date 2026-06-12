@@ -4,7 +4,7 @@ import { useAccounting } from '../contexts/AccountingContext';
 import DocumentActions from './DocumentActions';
 import { Product } from '../types';
 import { getDisplayContactName, getDisplayItemGroupName, getDisplayProductName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, extractElementReadableText, sanitizeDownloadName } from '../utils/documentExport';
+import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, extractElementReadableText, sanitizeDownloadName, printHtmlContent } from '../utils/documentExport';
 import { ProductPricingSnapshot, resolveProductPricing } from '../utils/productPricing';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { openDrilldown } from '../utils/drilldown';
@@ -601,16 +601,7 @@ const InventoryPricingManager: React.FC = () => {
       setStatusMessage(tr('لا توجد أصناف معروضة للطباعة حاليًا.', 'There are no visible items to print right now.'));
       return;
     }
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert(tr('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-      return;
-    }
-
-    printWindow.document.open();
-    printWindow.document.write(buildPricingReportHtml(true));
-    printWindow.document.close();
+    printHtmlContent(buildPricingReportHtml(true));
   };
 
   const handleSavePricingSnapshot = async () => {

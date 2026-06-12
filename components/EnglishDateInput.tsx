@@ -428,35 +428,56 @@ const EnglishDateInput: React.FC<EnglishDateInputProps> = ({
                 disabled={disabled}
                 className={inputClassName}
                 aria-invalid={isLocallyInvalid || rest['aria-invalid']}
-            />
-            <input
-                ref={nativeDateInputRef}
-                type="date"
-                value={value || ''}
-                onChange={event => {
-                    const nextValue = event.target.value;
-                    onChange(nextValue);
-                    setDisplayValue(formatIsoDateForDisplay(nextValue, displayFormat));
-                    setIsLocallyInvalid(false);
+                style={{
+                    paddingLeft: showCalendarButton ? '2.5rem' : undefined,
+                    ...rest.style
                 }}
-                tabIndex={-1}
-                aria-hidden="true"
-                disabled={disabled}
-                className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 pointer-events-none"
             />
-            {showCalendarButton && (
-                <button
-                    type="button"
-                    onClick={() => openNativeDatePicker(nativeDateInputRef.current)}
-                    className={[
-                        'absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-blue-500 bg-blue-50 hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:pointer-events-none',
-                        calendarButtonClassName
-                    ].filter(Boolean).join(' ')}
+            {showCalendarButton ? (
+                <div className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 pointer-events-auto">
+                    <button
+                        type="button"
+                        tabIndex={-1}
+                        className={[
+                            'w-full h-full flex items-center justify-center rounded-lg text-blue-500 bg-blue-50 hover:bg-blue-100 transition-colors disabled:opacity-50',
+                            calendarButtonClassName
+                        ].filter(Boolean).join(' ')}
+                        disabled={disabled}
+                        aria-label="Pick date"
+                        onClick={() => openNativeDatePicker(nativeDateInputRef.current)}
+                    >
+                        <CalendarIcon size={14} className={calendarIconClassName} />
+                    </button>
+                    <input
+                        ref={nativeDateInputRef}
+                        type="date"
+                        value={value || ''}
+                        onChange={event => {
+                            const nextValue = event.target.value;
+                            onChange(nextValue);
+                            setDisplayValue(formatIsoDateForDisplay(nextValue, displayFormat));
+                            setIsLocallyInvalid(false);
+                        }}
+                        disabled={disabled}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-none"
+                    />
+                </div>
+            ) : (
+                <input
+                    ref={nativeDateInputRef}
+                    type="date"
+                    value={value || ''}
+                    onChange={event => {
+                        const nextValue = event.target.value;
+                        onChange(nextValue);
+                        setDisplayValue(formatIsoDateForDisplay(nextValue, displayFormat));
+                        setIsLocallyInvalid(false);
+                    }}
+                    tabIndex={-1}
+                    aria-hidden="true"
                     disabled={disabled}
-                    aria-label="Pick date"
-                >
-                    <CalendarIcon size={14} className={calendarIconClassName} />
-                </button>
+                    className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 pointer-events-none"
+                />
             )}
         </div>
     );

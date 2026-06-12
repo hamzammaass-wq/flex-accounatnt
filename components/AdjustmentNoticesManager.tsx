@@ -16,6 +16,7 @@ import {
 import { useAccounting } from '../contexts/AccountingContext';
 import { Invoice, TransactionType } from '../types';
 import { getInvoiceRemainingBase } from '../utils/invoiceSettlement';
+import { printHtmlContent } from '../utils/documentExport';
 import EnglishDateInput from './EnglishDateInput';
 import { getDisplayContactName } from '../utils/displayNames';
 import { openDrilldown } from '../utils/drilldown';
@@ -231,7 +232,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     }
 
     const getNextNoticeNumber = (pref: string) => {
-      const currentYear = new Date().getFullYear();
+      const currentYear = String(new Date().getFullYear()).slice(-2);
       const yearPrefix = `${pref}-${currentYear}-`;
 
       const noticeNumbers = new Set<string>();
@@ -319,8 +320,6 @@ const AdjustmentNoticesManager: React.FC = () => {
   };
 
   const handlePrintNotice = (inv: Invoice) => {
-    const win = window.open('', '_blank');
-    if (!win) return;
     const linked = inv.linkedInvoiceId ? invoices.find(i => i.id === inv.linkedInvoiceId) : undefined;
     const contact = contacts.find(c => c.id === inv.customerId);
     const title = inv.category === 'customer_credit_note'
@@ -357,8 +356,7 @@ const AdjustmentNoticesManager: React.FC = () => {
   <script>window.onload=()=>window.print()</script>
 </body>
 </html>`;
-    win.document.write(html);
-    win.document.close();
+    printHtmlContent(html);
   };
 
   const getNoticeTypeLabel = (inv: Invoice) =>
@@ -477,7 +475,7 @@ const AdjustmentNoticesManager: React.FC = () => {
             onChange={setFromDateFilter}
             className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
             wrapperClassName="w-full"
-            displayFormat="YMD"
+            displayFormat="DMY"
             placeholder={tr('من تاريخ', 'From date')}
           />
           <EnglishDateInput
@@ -485,7 +483,7 @@ const AdjustmentNoticesManager: React.FC = () => {
             onChange={setToDateFilter}
             className="w-full p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
             wrapperClassName="w-full"
-            displayFormat="YMD"
+            displayFormat="DMY"
             placeholder={tr('إلى تاريخ', 'To date')}
           />
         </div>

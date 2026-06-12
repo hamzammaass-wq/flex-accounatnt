@@ -273,7 +273,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
               <EnglishDateInput
                 value={fromDateFilter}
                 onChange={setFromDateFilter}
-                displayFormat="YMD"
+                displayFormat="DMY"
                 wrapperClassName="w-full"
                 className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr"
                 placeholder={tr('من تاريخ', 'From date')}
@@ -285,7 +285,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
               <EnglishDateInput
                 value={toDateFilter}
                 onChange={setToDateFilter}
-                displayFormat="YMD"
+                displayFormat="DMY"
                 wrapperClassName="w-full"
                 className="w-full rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white dir-ltr"
                 placeholder={tr('إلى تاريخ', 'To date')}

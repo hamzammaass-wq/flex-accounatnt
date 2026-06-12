@@ -1,5 +1,11 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+const firebaseAuthenticationConfig = {
+  skipNativeAuth: true,
+  providers: ['google.com'],
+  clientId: '879535686153-1oc4qb6hkfimcnfl3il5edri8idaeska.apps.googleusercontent.com',
+};
+
 const config: CapacitorConfig = {
   appId: 'com.smartaccountant.erp',
   appName: 'المحاسب الذكي (AIFLEX Smart Accountant)',
@@ -12,11 +18,7 @@ const config: CapacitorConfig = {
       resize: 'body',
       resizeOnFullScreen: true,
     },
-    FirebaseAuthentication: {
-      skipNativeAuth: true,
-      providers: ['google.com'],
-      clientId: '879535686153-1oc4qb6hkfimcnfl3il5edri8idaeska.apps.googleusercontent.com',
-    },
+    FirebaseAuthentication: firebaseAuthenticationConfig,
   },
 };
 

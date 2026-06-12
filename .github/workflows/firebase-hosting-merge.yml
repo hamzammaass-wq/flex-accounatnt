@@ -113,7 +113,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: .
+          path: dist
       - run: npx playwright install --with-deps chromium
       - name: Run smoke E2E with Playwright Test
         env:
@@ -160,7 +160,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: .
+          path: dist
       - run: npx playwright install --with-deps chromium
       - name: Run critical E2E with Playwright Test
         env:
@@ -200,7 +200,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: .
+          path: dist
       - id: firebase_live_deploy
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:

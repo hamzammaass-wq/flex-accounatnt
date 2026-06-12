@@ -1,4 +1,5 @@
 import { CompanySettings } from '../types';
+import { toEnglishDigits } from './forceEnglishDigits';
 
 export type AppLanguage = CompanySettings['language'];
 type LocaleLanguage = 'ar' | 'en';
@@ -226,4 +227,95 @@ export const getDateLocale = (language: AppLanguage): string => {
 
 export const getNumberLocale = (language: AppLanguage): string => {
   return normalizeAppLanguage(language) === 'AR' ? 'ar-SA-u-nu-latn' : 'en-US';
+};
+
+export const translateDocumentNumber = (docNum: string, isEnglish: boolean): string => {
+  if (!docNum) return '';
+  let result = docNum;
+  if (isEnglish) {
+    // Translate Arabic coding/abbreviation to English
+    const mappings: Array<[RegExp, string]> = [
+      [/ف\.\s*مبيعات/g, 'INV'],
+      [/فاتورة\s+مبيعات/g, 'INV'],
+      [/سند\s+قبض/g, 'REC'],
+      [/قبض/g, 'REC'],
+      [/إشعارات/g, 'D/C Note'],
+      [/إشعار/g, 'D/C Note'],
+      [/م\.\s*مبيعات/g, 'SRTN'],
+      [/مرتجع\s+مبيعات/g, 'SRTN'],
+      [/سند\s+صرف/g, 'PAY'],
+      [/صرف/g, 'PAY'],
+      [/قيد/g, 'JRN'],
+      [/تحويل/g, 'TRF'],
+      [/ف\.\s*مشتريات/g, 'PINV'],
+      [/فاتورة\s+مشتريات/g, 'PINV'],
+      [/م\.\s*مشتريات/g, 'PRTN'],
+      [/مرتجع\s+مشتريات/g, 'PRTN']
+    ];
+    for (const [pattern, replacement] of mappings) {
+      result = result.replace(pattern, replacement);
+    }
+  } else {
+    // Translate English coding/abbreviation to Arabic
+    const mappings: Array<[RegExp, string]> = [
+      [/SINVOICE/gi, 'ف. مبيعات'],
+      [/\bSINV\b/gi, 'ف. مبيعات'],
+      [/\bINV\b/gi, 'ف. مبيعات'],
+      [/\bREC\b/gi, 'قبض'],
+      [/\bRV\b/gi, 'قبض'],
+      [/D\/C\s+Note/gi, 'إشعارات'],
+      [/SALESRET/gi, 'م. مبيعات'],
+      [/\bSRTN\b/gi, 'م. مبيعات'],
+      [/\bSRET\b/gi, 'م. مبيعات'],
+      [/\bPAY\b/gi, 'صرف'],
+      [/\bPV\b/gi, 'صرف'],
+      [/\bJRN\b/gi, 'قيد'],
+      [/\bJV\b/gi, 'قيد'],
+      [/\bTRF\b/gi, 'تحويل'],
+      [/PINVOICE/gi, 'ف. مشتريات'],
+      [/\bPINV\b/gi, 'ف. مشتريات'],
+      [/PURCHRET/gi, 'م. مشتريات'],
+      [/\bPRTN\b/gi, 'م. مشتريات'],
+      [/\bPRET\b/gi, 'م. مشتريات']
+    ];
+    for (const [pattern, replacement] of mappings) {
+      result = result.replace(pattern, replacement);
+    }
+  }
+  result = result.replace(/-20(\d{2})-/g, '-$1-');
+  return result;
+};
+
+const normalizeDocumentNumberSearchText = (value: string): string => {
+  return toEnglishDigits(String(value || ''))
+    .replace(/^#+/, '')
+    .trim()
+    .toLowerCase();
+};
+
+export const getDocumentNumberSearchVariants = (docNum: string): string[] => {
+  const raw = String(docNum || '').trim();
+  if (!raw) return [];
+  const variants = [
+    raw,
+    translateDocumentNumber(raw, true),
+    translateDocumentNumber(raw, false)
+  ];
+  return Array.from(new Set(variants.filter(Boolean)));
+};
+
+export const matchesDocumentNumberSearch = (docNum: string, query: string): boolean => {
+  const queryVariants = getDocumentNumberSearchVariants(query)
+    .map(normalizeDocumentNumberSearchText)
+    .filter(Boolean);
+
+  if (queryVariants.length === 0) return true;
+
+  const documentVariants = getDocumentNumberSearchVariants(docNum)
+    .map(normalizeDocumentNumberSearchText)
+    .filter(Boolean);
+
+  return documentVariants.some(documentVariant =>
+    queryVariants.some(queryVariant => documentVariant.includes(queryVariant))
+  );
 };

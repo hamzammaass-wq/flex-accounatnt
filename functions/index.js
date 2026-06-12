@@ -4,6 +4,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { logger } from 'firebase-functions';
 import { onRequest } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2';
+import crypto from 'crypto';
 
 initializeApp();
 
@@ -34,8 +35,8 @@ const unixSecondsToIso = (value) => {
 const nowIso = () => new Date().toISOString();
 
 const pricingForCycle = () => ({
-  basePriceUsd: 20,
-  extraCompanyPriceUsd: 5,
+  basePriceUsd: 100,
+  extraCompanyPriceUsd: 20,
   interval: 'year'
 });
 
@@ -315,7 +316,7 @@ const getAndroidPublisherClient = async () => {
   return google.androidpublisher({ version: 'v3', auth });
 };
 
-export const appleSubscriptionNotifications = onRequest(async (req, res) => {
+export const appleSubscriptionNotifications = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
     return;
@@ -369,7 +370,7 @@ export const appleSubscriptionNotifications = onRequest(async (req, res) => {
   res.json({ received: true });
 });
 
-export const googlePlaySubscriptionNotifications = onRequest(async (req, res) => {
+export const googlePlaySubscriptionNotifications = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   const { payload: rawPayload, messageId } = extractGooglePushEnvelope(req.body);
   const subscriptionNotification = rawPayload.subscriptionNotification || {};
   const purchaseToken = String(subscriptionNotification.purchaseToken || '').trim();
@@ -448,7 +449,168 @@ export const googlePlaySubscriptionNotifications = onRequest(async (req, res) =>
   }
 });
 
-export const submitAccountDeletionRequest = onRequest(async (req, res) => {
+const PADDLE_WEBHOOK_SECRET = String(process.env.PADDLE_WEBHOOK_SECRET || '').trim();
+
+const mapPaddleStatus = (status) => {
+  switch (String(status || '').trim().toLowerCase()) {
+    case 'active':
+    case 'trialing':
+      return 'ACTIVE';
+    case 'past_due':
+    case 'paused':
+      return 'SUSPENDED';
+    case 'canceled':
+      return 'EXPIRED';
+    default:
+      return 'ACTIVE';
+  }
+};
+
+const verifyPaddleSignature = (req) => {
+  if (!PADDLE_WEBHOOK_SECRET) {
+    logger.warn('PADDLE_WEBHOOK_SECRET is not configured. Webhook signature check is bypassed.');
+    return true;
+  }
+
+  const signatureHeader = req.headers['paddle-signature'] || '';
+  if (!signatureHeader) return false;
+
+  const parts = signatureHeader.split(';');
+  let ts = '';
+  let h1 = '';
+  for (const part of parts) {
+    const [key, val] = part.split('=');
+    if (key === 'ts') ts = val;
+    if (key === 'h1') h1 = val;
+  }
+
+  if (!ts || !h1) return false;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const tsDiff = Math.abs(nowSeconds - Number(ts));
+  if (tsDiff > 300) {
+    logger.warn('Paddle webhook signature expired', { ts, nowSeconds });
+    return false;
+  }
+
+  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : '';
+  const payload = `${ts}:${rawBody}`;
+
+  const computedH1 = crypto
+    .createHmac('sha256', PADDLE_WEBHOOK_SECRET)
+    .update(payload)
+    .digest('hex');
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(computedH1, 'hex'), Buffer.from(h1, 'hex'));
+  } catch {
+    return false;
+  }
+};
+
+export const paddleSubscriptionNotifications = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
+  if (req.method !== 'POST') {
+    res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  // 1. Verify webhook signature
+  if (!verifyPaddleSignature(req)) {
+    logger.error('Invalid Paddle webhook signature');
+    res.status(401).send('Unauthorized: Invalid Signature');
+    return;
+  }
+
+  const payload = req.body || {};
+  const eventId = String(payload.event_id || '').trim();
+  const eventType = String(payload.event_type || 'UNKNOWN').trim();
+  const data = payload.data || {};
+  const customData = data.custom_data || {};
+  const userId = String(customData.userId || '').trim();
+
+  // 2. Log event receipt
+  const eventRecord = await writeBillingEventOnce({
+    provider: 'PADDLE',
+    eventId: eventId || String(Date.now()),
+    type: eventType,
+    summary: {
+      subscriptionId: data.id || undefined,
+      userId: userId || undefined
+    },
+    raw: payload
+  });
+
+  if (!eventRecord.isNew) {
+    res.json({ received: true, duplicate: true });
+    return;
+  }
+
+  // 3. Check if this is a subscription-related event we want to handle
+  const subscriptionEvents = [
+    'subscription.created',
+    'subscription.updated',
+    'subscription.activated',
+    'subscription.canceled'
+  ];
+
+  if (!subscriptionEvents.includes(eventType)) {
+    await eventRecord.ref.set({
+      status: 'IGNORED_EVENT_TYPE',
+      processedAt: nowIso()
+    }, { merge: true });
+    res.json({ received: true, ignored: true });
+    return;
+  }
+
+  if (!userId) {
+    logger.warn('Paddle subscription event missing custom_data.userId', { eventId, eventType });
+    await eventRecord.ref.set({
+      status: 'PENDING_ACCOUNT_LINK',
+      processedAt: nowIso()
+    }, { merge: true });
+    res.json({ received: true, pendingAccountLink: true });
+    return;
+  }
+
+  try {
+    const desiredCompanyCount = Number(customData.desiredCompanyCount) || 1;
+    const userEmail = String(customData.userEmail || '').trim() || undefined;
+
+    // Synchronize workspace subscription
+    await applyWorkspaceSubscriptionState({
+      userId,
+      userEmail,
+      status: mapPaddleStatus(data.status),
+      provider: 'PADDLE',
+      billingCycle: 'YEARLY',
+      desiredCompanyCount,
+      startedAt: data.current_billing_period?.starts_at || null,
+      renewalDate: data.current_billing_period?.ends_at || null,
+      expiresAt: data.current_billing_period?.ends_at || null,
+      providerCustomerId: data.customer_id || null,
+      providerSubscriptionId: data.id || null,
+      providerProductId: data.items?.[0]?.price_id || null
+    });
+
+    await eventRecord.ref.set({
+      status: 'PROCESSED',
+      processedAt: nowIso()
+    }, { merge: true });
+
+    res.json({ received: true, processed: true });
+  } catch (error) {
+    logger.error('Paddle webhook handling failed', error);
+    await eventRecord.ref.set({
+      status: 'ERROR',
+      processedAt: nowIso(),
+      errorMessage: String(error?.message || error || 'Processing failed')
+    }, { merge: true });
+    res.status(500).json({ received: false, error: 'Processing failed' });
+  }
+});
+
+
+export const submitAccountDeletionRequest = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   applyPublicApiCors(res);
 
   if (req.method === 'OPTIONS') {
@@ -539,7 +701,7 @@ export const submitAccountDeletionRequest = onRequest(async (req, res) => {
   }
 });
 
-export const firestoreWriteProxy = onRequest(async (req, res) => {
+export const firestoreWriteProxy = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   applyPublicApiCors(res);
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -603,3 +765,9 @@ export const firestoreWriteProxy = onRequest(async (req, res) => {
     res.status(500).json({ ok: false, error: error.message || 'Internal Error' });
   }
 });
+
+// Import compiled Relational Backend Express app
+import { app as relationalBackendApp } from './backend-dist/index.js';
+
+// Export Relational Backend API as a Firebase Cloud Function
+export const api = onRequest({ cors: true, timeoutSeconds: 60, invoker: 'public' }, relationalBackendApp);

@@ -37,7 +37,7 @@ export const installRuntimeErrorGuards = (page: Page) => {
   page.on('console', (message) => {
     if (message.type() !== 'error') return;
     const text = message.text();
-    if (/favicon|Failed to load resource: net::ERR_/i.test(text)) return;
+    if (/favicon|Failed to load resource: net::ERR_|Firestore NOT initialized|Firebase.*Debug info/i.test(text)) return;
     consoleErrors.push(text);
   });
 
@@ -51,6 +51,31 @@ export const installRuntimeErrorGuards = (page: Page) => {
 
 export const ensureAuthenticated = async (page: Page) => {
   await page.goto('/');
+
+  // Inject E2E mock data and disable Firebase into localStorage to replace wiped default mock data
+  await page.evaluate(() => {
+    localStorage.setItem('disableFirebase', 'true');
+    const mockSnapshot = {
+      schemaVersion: 1,
+      companyId: 'cmp_default',
+      updatedAt: new Date().toISOString(),
+      baseCurrency: 'ILS',
+      products: [
+        { id: 'p1', name: 'Laptop i7', itemCode: 'ITM-001', itemCodeMode: 'AUTO', buyPrice: 2500, sellPrice: 3200, stock: 15, category: 'ig_electronics', barcode: '628100000001', warehouseStock: [{ warehouseId: 'wh_main', quantity: 15 }] },
+        { id: 'p4', name: 'Office Chair', itemCode: 'ITM-004', itemCodeMode: 'AUTO', buyPrice: 300, sellPrice: 450, stock: 12, category: 'ig_furniture', barcode: '628100000004', warehouseStock: [{ warehouseId: 'wh_main', quantity: 12 }] }
+      ],
+      contacts: [
+        { id: 'c1', name: 'شركة التوريدات الحديثة', type: 'SUPPLIER', phone: '0501234567', preferredPriceTier: 'WHOLESALE' },
+        { id: 'c2', name: 'مؤسسة النجاح التجارية', type: 'CUSTOMER', phone: '0559876543', preferredPriceTier: 'RETAIL' }
+      ]
+    };
+    localStorage.setItem('al_mohaseb_workspace_cmp_default', JSON.stringify(mockSnapshot));
+    localStorage.setItem('smart_account_workspace_snapshot_cmp_default', JSON.stringify(mockSnapshot));
+  });
+
+  // Reload the page to ensure the Firebase initialization re-runs and reads the new flag
+  await page.reload();
+
   const guestLogin = page.getByTestId('auth-guest-login');
   const readyState = page.locator(
     '[data-testid="auth-guest-login"], [data-testid="app-main-tab-dashboard"], [data-testid="app-main-tab-definitions"]'

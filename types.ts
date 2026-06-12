@@ -619,8 +619,8 @@ export type CloudSubscriptionCodeStatus = 'AVAILABLE' | 'USED' | 'CANCELLED' | '
 export type WorkspaceOfferCodeStatus = 'AVAILABLE' | 'USED' | 'CANCELLED' | 'EXPIRED';
 export type WorkspaceOfferCodeKind = 'DISCOUNT_PERCENT' | 'FREE_DAYS' | 'LIFETIME';
 export type SubscriptionBillingCycle = 'YEARLY';
-export type SubscriptionProvider = 'NONE' | 'TRIAL' | 'MANUAL' | 'PALPAY' | 'APPLE' | 'GOOGLE';
-export type SubscriptionCheckoutProvider = 'PALPAY' | 'APPLE' | 'GOOGLE';
+export type SubscriptionProvider = 'NONE' | 'TRIAL' | 'MANUAL' | 'PALPAY' | 'APPLE' | 'GOOGLE' | 'PADDLE';
+export type SubscriptionCheckoutProvider = 'PALPAY' | 'APPLE' | 'GOOGLE' | 'PADDLE';
 export type SubscriptionCheckoutMode = 'EXTERNAL_URL' | 'STORE_PRODUCT';
 
 export interface SubscriptionDeviceBinding {
@@ -726,6 +726,7 @@ export interface SubscriptionProviderAvailability {
   palpayReady: boolean;
   appleReady: boolean;
   googleReady: boolean;
+  paddleReady: boolean;
 }
 
 export interface WorkspaceSubscriptionQuote {

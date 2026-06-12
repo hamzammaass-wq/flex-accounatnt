@@ -59,9 +59,7 @@ const ResponsiveOverlay: React.FC<ResponsiveOverlayProps> = ({
       ? { height: fullHeightWithKeyboard, maxHeight: fullHeightWithKeyboard }
       : isDialog
         ? { maxHeight: `calc(100dvh - ${keyboardInsetVar} - 1.5rem)` }
-        : isFullscreen
-          ? { height: fullHeightWithKeyboard, maxHeight: fullHeightWithKeyboard }
-          : {}
+        : {}
     : {};
   const interactivePanelStyle: React.CSSProperties = canSwipeClose && swipeOffsetY > 0
     ? {

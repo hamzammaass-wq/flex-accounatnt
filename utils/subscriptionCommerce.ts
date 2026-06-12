@@ -16,12 +16,15 @@ const DEFAULT_PLAN: CompanySubscriptionPlan = 'BASIC';
 const DEFAULT_CYCLE: SubscriptionBillingCycle = 'YEARLY';
 
 const PRICING: Record<SubscriptionBillingCycle, { basePriceUsd: number; extraCompanyPriceUsd: number }> = {
-  YEARLY: { basePriceUsd: 20, extraCompanyPriceUsd: 5 }
+  YEARLY: { basePriceUsd: 100, extraCompanyPriceUsd: 20 }
 };
 
 const PALPAY_CHECKOUT_URL = String(import.meta.env.VITE_PALPAY_CHECKOUT_URL || '').trim();
 const APPLE_PRODUCT_PREFIX = String(import.meta.env.VITE_APPLE_SUBSCRIPTION_PRODUCT_PREFIX || '').trim();
 const GOOGLE_PRODUCT_PREFIX = String(import.meta.env.VITE_GOOGLE_SUBSCRIPTION_PRODUCT_PREFIX || '').trim();
+const PADDLE_CLIENT_TOKEN = String(import.meta.env.VITE_PADDLE_CLIENT_TOKEN || '').trim();
+const PADDLE_BASE_PRICE_ID = String(import.meta.env.VITE_PADDLE_BASE_PRICE_ID || '').trim();
+const PADDLE_EXTRA_PRICE_ID = String(import.meta.env.VITE_PADDLE_EXTRA_PRICE_ID || '').trim();
 
 const isValidStatus = (value: unknown): value is CompanySubscriptionStatus => (
   value === 'TRIAL' || value === 'ACTIVE' || value === 'EXPIRED' || value === 'SUSPENDED'
@@ -42,6 +45,7 @@ const isValidProvider = (value: unknown): value is SubscriptionProvider => (
   || value === 'PALPAY'
   || value === 'APPLE'
   || value === 'GOOGLE'
+  || value === 'PADDLE'
 );
 
 const normalizeOptionalIsoDate = (value: unknown): string | undefined => {
@@ -100,7 +104,8 @@ const buildCheckoutUrl = (baseUrl: string, quote: WorkspaceSubscriptionQuote): s
 export const getSubscriptionProviderAvailability = (): SubscriptionProviderAvailability => ({
   palpayReady: Boolean(PALPAY_CHECKOUT_URL),
   appleReady: Boolean(APPLE_PRODUCT_PREFIX),
-  googleReady: Boolean(GOOGLE_PRODUCT_PREFIX)
+  googleReady: Boolean(GOOGLE_PRODUCT_PREFIX),
+  paddleReady: Boolean(PADDLE_CLIENT_TOKEN)
 });
 
 export const buildDefaultWorkspaceSubscription = (input?: {
@@ -286,6 +291,16 @@ export const buildWorkspaceSubscriptionQuote = (input: {
       providerReady: availability.palpayReady,
       checkoutMode: checkoutUrl ? 'EXTERNAL_URL' : undefined,
       checkoutUrl,
+      offerCode: String(input.offerCode || '').trim() || undefined
+    };
+  }
+
+  if (input.provider === 'PADDLE') {
+    return {
+      ...quote,
+      providerReady: availability.paddleReady,
+      checkoutMode: PADDLE_BASE_PRICE_ID ? 'STORE_PRODUCT' : undefined,
+      productId: PADDLE_BASE_PRICE_ID || undefined,
       offerCode: String(input.offerCode || '').trim() || undefined
     };
   }

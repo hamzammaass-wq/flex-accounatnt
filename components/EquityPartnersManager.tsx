@@ -3,6 +3,7 @@ import { BarChart3, FileText, Layers3, Percent, Plus, Printer, Wallet } from 'lu
 import { useAccounting } from '../contexts/AccountingContext';
 import EnglishDateInput from './EnglishDateInput';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
+import { printHtmlContent } from '../utils/documentExport';
 import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNames';
 import {
   buildAccountBalanceMap,
@@ -436,13 +437,7 @@ const EquityPartnersManager: React.FC = () => {
     if (!ledgerPartnerId) return;
     const html = buildPartnerLedgerPrintHtml(ledgerPartnerId, true);
     if (!html) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-      return;
-    }
-    printWindow.document.write(html);
-    printWindow.document.close();
+    printHtmlContent(html);
   };
 
   const capitalEntries = useMemo(() => transactions
@@ -768,7 +763,7 @@ const EquityPartnersManager: React.FC = () => {
               <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(capitalAmount)} onChange={e => setCapitalAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('مبلغ رأس المال', 'Capital amount')} className={`${inputClass} col-span-2 md:col-span-2 dir-ltr text-right`} />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <EnglishDateInput value={capitalDate} onChange={setCapitalDate} displayFormat="YMD" className={`${inputClass} text-[11px] dir-ltr`} />
+              <EnglishDateInput value={capitalDate} onChange={setCapitalDate} displayFormat="DMY" className={`${inputClass} text-[11px] dir-ltr`} />
               <input type="text" min="0" max="100" inputMode="decimal" lang={englishNumberLang} value={englishDigits(capitalSharePercent)} onChange={e => setCapitalSharePercent(normalizeDecimalInput(e.target.value))} placeholder={tr('نسبة المشاركة %', 'Share %')} className={`${inputClass} dir-ltr text-right`} />
               <input value={capitalPartnerType} onChange={e => setCapitalPartnerType(e.target.value)} placeholder={tr('نوع الشريك (اختياري)', 'Partner type (optional)')} className={inputClass} />
               <select value={capitalFundingAccountId} onChange={e => setCapitalFundingAccountId(e.target.value)} className={`${inputClass} text-[11px]`}>{fundingAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select>
@@ -782,8 +777,8 @@ const EquityPartnersManager: React.FC = () => {
           <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               <select value={capitalFilterPartnerId} onChange={e => setCapitalFilterPartnerId(e.target.value)} className={`${inputClass} col-span-2 md:col-span-1 text-[11px]`}><option value="ALL">{tr('كل الشركاء', 'All partners')}</option>{partners.map(p => <option key={p.id} value={p.id}>{displayContactName(p)}</option>)}</select>
-              <EnglishDateInput value={capitalFilterFrom} onChange={setCapitalFilterFrom} displayFormat="YMD" placeholder={tr('من تاريخ', 'From date')} className={`${inputClass} text-[11px] dir-ltr`} />
-              <EnglishDateInput value={capitalFilterTo} onChange={setCapitalFilterTo} displayFormat="YMD" placeholder={tr('إلى تاريخ', 'To date')} className={`${inputClass} text-[11px] dir-ltr`} />
+              <EnglishDateInput value={capitalFilterFrom} onChange={setCapitalFilterFrom} displayFormat="DMY" placeholder={tr('من تاريخ', 'From date')} className={`${inputClass} text-[11px] dir-ltr`} />
+              <EnglishDateInput value={capitalFilterTo} onChange={setCapitalFilterTo} displayFormat="DMY" placeholder={tr('إلى تاريخ', 'To date')} className={`${inputClass} text-[11px] dir-ltr`} />
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-[12px] font-black">
@@ -942,7 +937,7 @@ const EquityPartnersManager: React.FC = () => {
               <EnglishDateInput
                 value={distDate}
                 onChange={setDistDate}
-                displayFormat="YMD"
+                displayFormat="DMY"
                 className={`${inputClass} text-[11px] dir-ltr`}
               />
             </div>
@@ -1051,7 +1046,7 @@ const EquityPartnersManager: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(settlementAmount)} onChange={e => setSettlementAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('المبلغ', 'Amount')} className={`${inputClass} dir-ltr text-right`} />
-              <EnglishDateInput value={settlementDate} onChange={setSettlementDate} displayFormat="YMD" className={`${inputClass} text-[11px] dir-ltr`} />
+              <EnglishDateInput value={settlementDate} onChange={setSettlementDate} displayFormat="DMY" className={`${inputClass} text-[11px] dir-ltr`} />
               <input value={settlementReason} onChange={e => setSettlementReason(e.target.value)} placeholder={tr('السبب (إلزامي)', 'Reason (required)')} className={inputClass} />
               <input value={settlementNote} onChange={e => setSettlementNote(e.target.value)} placeholder={tr('ملاحظة', 'Note')} className={inputClass} />
             </div>
@@ -1066,7 +1061,7 @@ const EquityPartnersManager: React.FC = () => {
                 <option value="CUSTOM_RATIO">{tr('حسب نسبة مخصصة', 'By custom ratio')}</option>
               </select>
               <input type="text" min="0" inputMode="decimal" lang={englishNumberLang} value={englishDigits(bulkAmount)} onChange={e => setBulkAmount(normalizeDecimalInput(e.target.value))} placeholder={tr('المبلغ الإجمالي', 'Total amount')} className={`${inputClass} dir-ltr text-right`} />
-              <EnglishDateInput value={bulkDate} onChange={setBulkDate} displayFormat="YMD" className={`${inputClass} text-[11px] dir-ltr`} />
+              <EnglishDateInput value={bulkDate} onChange={setBulkDate} displayFormat="DMY" className={`${inputClass} text-[11px] dir-ltr`} />
               <select value={bulkSourceAccountId} onChange={e => setBulkSourceAccountId(e.target.value)} className={`${inputClass} col-span-2 md:col-span-1 text-[11px]`}>
                 {equityAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
               </select>

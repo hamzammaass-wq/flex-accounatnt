@@ -21,11 +21,26 @@ const firebaseFunctionsRegion = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_R
 
 export const isFirebaseAuthEnabled = Boolean(
   firebaseApiKey && firebaseAuthDomain && firebaseProjectId && firebaseAppId
-);
+) && (typeof window === 'undefined' || window.localStorage.getItem('disableFirebase') !== 'true');
+
+const getDynamicAuthDomain = () => {
+  if (typeof window === 'undefined') return firebaseAuthDomain;
+  const hostname = window.location.hostname;
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.startsWith('192.168.') ||
+    hostname.startsWith('10.') ||
+    hostname.endsWith('.local')
+  ) {
+    return firebaseAuthDomain;
+  }
+  return hostname;
+};
 
 const firebaseConfig = {
   apiKey: firebaseApiKey,
-  authDomain: firebaseAuthDomain,
+  authDomain: getDynamicAuthDomain(),
   projectId: firebaseProjectId,
   storageBucket: firebaseStorageBucket,
   messagingSenderId: firebaseMessagingSenderId,
@@ -38,15 +53,20 @@ export const firebaseApp = isFirebaseAuthEnabled
     : initializeApp(firebaseConfig)
   : null;
 
+let cachedAuth: Auth | null = null;
+
 export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
   ? (function() {
+      if (cachedAuth) return cachedAuth;
       try {
-        return initializeAuth(firebaseApp, { 
+        cachedAuth = initializeAuth(firebaseApp, { 
           persistence: browserLocalPersistence,
           popupRedirectResolver: browserPopupRedirectResolver
         });
+        return cachedAuth;
       } catch (e) {
-        return getAuth(firebaseApp);
+        cachedAuth = getAuth(firebaseApp);
+        return cachedAuth;
       }
     })()
   : null;
@@ -60,15 +80,19 @@ if (typeof window !== 'undefined') {
   if (firebaseDb) {
     console.log('[Firebase] ✅ Firestore connected successfully to project:', firebaseProjectId);
   } else {
-    console.error('[Firebase] ❌ Firestore NOT initialized! Check environment variables.');
-    console.error('[Firebase] Debug info:', {
-      hasApiKey: !!firebaseApiKey,
-      hasAuthDomain: !!firebaseAuthDomain,
-      hasProjectId: !!firebaseProjectId,
-      hasAppId: !!firebaseAppId,
-      isAuthEnabled: isFirebaseAuthEnabled,
-      hasApp: !!firebaseApp
-    });
+    if (window.localStorage.getItem('disableFirebase') === 'true') {
+      console.log('[Firebase] Firestore is intentionally disabled via localStorage flag.');
+    } else {
+      console.error('[Firebase] ❌ Firestore NOT initialized! Check environment variables.');
+      console.error('[Firebase] Debug info:', {
+        hasApiKey: !!firebaseApiKey,
+        hasAuthDomain: !!firebaseAuthDomain,
+        hasProjectId: !!firebaseProjectId,
+        hasAppId: !!firebaseAppId,
+        isAuthEnabled: isFirebaseAuthEnabled,
+        hasApp: !!firebaseApp
+      });
+    }
   }
 }
 
@@ -99,7 +123,11 @@ export const executeFirestoreWrite = async (
 ): Promise<void> => {
   if (!currentUser) throw new Error('User not authenticated');
   const token = await currentUser.getIdToken();
-  const response = await fetch('/api/firestore-write-proxy', {
+  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+  const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+  const url = useBackend ? `${backendApiUrl}/firestore-write-proxy` : '/api/firestore-write-proxy';
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -112,3 +140,29 @@ export const executeFirestoreWrite = async (
     throw new Error(errData.error || `HTTP error ${response.status}`);
   }
 };
+
+
+export const callBackendApi = async (
+  currentUser: any,
+  endpoint: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+  body?: any
+): Promise<any> => {
+  if (!currentUser) throw new Error('User not authenticated');
+  const token = await currentUser.getIdToken();
+  const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+  const response = await fetch(`${backendApiUrl}${endpoint}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP error ${response.status}`);
+  }
+  return response.json();
+};
+

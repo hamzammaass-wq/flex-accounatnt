@@ -419,7 +419,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                             <EnglishDateInput
                                 value={distributionFromDateFilter}
                                 onChange={setDistributionFromDateFilter}
-                                displayFormat="YMD"
+                                displayFormat="DMY"
                                 wrapperClassName="w-full"
                                 className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
                                 placeholder={tr('من تاريخ', 'From date')}
@@ -427,7 +427,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                             <EnglishDateInput
                                 value={distributionToDateFilter}
                                 onChange={setDistributionToDateFilter}
-                                displayFormat="YMD"
+                                displayFormat="DMY"
                                 wrapperClassName="w-full"
                                 className="w-full h-10 px-3 rounded-xl bg-gray-50 border border-gray-200 text-xs font-black outline-none dir-ltr"
                                 placeholder={tr('إلى تاريخ', 'To date')}

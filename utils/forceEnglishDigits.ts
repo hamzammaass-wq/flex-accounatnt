@@ -358,22 +358,78 @@ export const forceEnglishDigits = (): void => {
     normalizeElementDigitAttributes(target);
   };
 
+  const handleBeforeInput = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+    if (!isNumericField(target)) return;
+
+    const data = (event as any).data;
+    if (!data || !hasArabicDigits(data)) return;
+
+    const converted = toEnglishDigits(data);
+    event.preventDefault();
+
+    try {
+      document.execCommand('insertText', false, converted);
+    } catch {
+      const start = target.selectionStart ?? 0;
+      const end = target.selectionEnd ?? 0;
+      const val = target.value;
+      const nextVal = val.slice(0, start) + converted + val.slice(end);
+      target.value = nextVal;
+      const pos = start + converted.length;
+      try {
+        target.setSelectionRange(pos, pos);
+      } catch {
+        // ignore
+      }
+      target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    }
+  };
+
+  const handlePaste = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+    if (!isNumericField(target)) return;
+
+    const clipboardData = (event as any).clipboardData || (window as any).clipboardData;
+    if (!clipboardData) return;
+
+    const text = clipboardData.getData('text');
+    if (!text || !hasArabicDigits(text)) return;
+
+    const converted = toEnglishDigits(text);
+    event.preventDefault();
+
+    try {
+      document.execCommand('insertText', false, converted);
+    } catch {
+      const start = target.selectionStart ?? 0;
+      const end = target.selectionEnd ?? 0;
+      const val = target.value;
+      const nextVal = val.slice(0, start) + converted + val.slice(end);
+      target.value = nextVal;
+      const pos = start + converted.length;
+      try {
+        target.setSelectionRange(pos, pos);
+      } catch {
+        // ignore
+      }
+      target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    }
+
+    queueMicrotask(() => {
+      enforceNumericFieldAttributes(target);
+      normalizeFieldValue(target);
+      normalizeElementDigitAttributes(target);
+    });
+  };
+
+  document.addEventListener('beforeinput', handleBeforeInput, true);
   document.addEventListener('input', normalizeFromEvent, true);
   document.addEventListener('change', normalizeFromEvent, true);
   document.addEventListener('focusin', normalizeFromEvent, true);
-  document.addEventListener(
-    'paste',
-    (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
-      queueMicrotask(() => {
-        enforceNumericFieldAttributes(target);
-        normalizeFieldValue(target);
-        normalizeElementDigitAttributes(target);
-      });
-    },
-    true
-  );
+  document.addEventListener('paste', handlePaste, true);
 
   document.documentElement.style.fontVariantNumeric = 'tabular-nums';
   document.documentElement.style.setProperty('-webkit-text-size-adjust', '100%');

@@ -432,6 +432,13 @@ export const downloadElementAsHtml = (element: HTMLElement | null, options: Html
 export const printElementContent = (element: HTMLElement | null, options: PrintElementOptions) => {
   if (!element || typeof window === 'undefined') return false;
 
+  // If a targetWindow was pre-opened, close it to avoid blank tabs/pages
+  if (options.targetWindow && !options.targetWindow.closed) {
+    try {
+      options.targetWindow.close();
+    } catch {}
+  }
+
   const clone = stripInteractiveElements(element);
   expandSnapshotLayout(clone);
 
@@ -440,14 +447,25 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
   const pageOrientation = options.pageOrientation || 'portrait';
   const hasStatementPrintFooter = Boolean(clone.querySelector('.statement-classic-sheet'));
   const stylesMarkup = collectPrintStylesMarkup();
-  const printWindow = options.targetWindow && !options.targetWindow.closed
-    ? options.targetWindow
-    : window.open('', '_blank');
-  if (!printWindow) return false;
 
-  const autoCloseScript = options.autoCloseAfterPrint === false
-    ? ''
-    : 'window.onafterprint = () => window.close();';
+  // Create a hidden iframe for print-in-place
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.outline = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.zIndex = '-1';
+  iframe.style.visibility = 'hidden';
+  document.body.appendChild(iframe);
+
+  const printWindow = iframe.contentWindow;
+  if (!printWindow) {
+    document.body.removeChild(iframe);
+    return false;
+  }
+
   const printLocale = getStatementPrintLocale(lang);
   const printFooterPageLabel = lang.toLowerCase().startsWith('ar') ? 'الصفحة' : 'Page';
   const printFooterOfLabel = lang.toLowerCase().startsWith('ar') ? 'من' : 'of';
@@ -486,8 +504,13 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         font-family: ${dir === 'rtl' ? "'Tajawal', Arial, sans-serif" : "'Segoe UI', Arial, sans-serif"};
         margin: 0;
         padding: 24px;
-        background: #f8fafc;
+        background: #ffffff;
         color: #0f172a;
+      }
+      @media print {
+        .no-print {
+          display: none !important;
+        }
       }
       [data-document-actions], button {
         display: none !important;
@@ -779,20 +802,26 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         break-inside: avoid !important;
         page-break-inside: avoid !important;
       }
-      .report-print-statement .statement-inline-table {
+      .report-print-statement .statement-inline-table,
+      .report-print-statement .statement-classic-inline-table {
         width: 100% !important;
         table-layout: fixed !important;
         border-collapse: collapse !important;
       }
       .report-print-statement .statement-inline-table th,
-      .report-print-statement .statement-inline-table td {
+      .report-print-statement .statement-inline-table td,
+      .report-print-statement .statement-classic-inline-table th,
+      .report-print-statement .statement-classic-inline-table td {
         padding: 6px 7px !important;
         font-size: 10px !important;
         line-height: 1.4 !important;
+        letter-spacing: normal !important;
       }
-      .report-print-statement .statement-inline-value {
+      .report-print-statement .statement-inline-value,
+      .report-print-statement .statement-classic-inline-value {
         white-space: nowrap !important;
         font-variant-numeric: tabular-nums !important;
+        letter-spacing: normal !important;
       }
       .report-print-statement .statement-report-table.statement-report-table--with-voucher th:nth-child(2),
       .report-print-statement .statement-report-table.statement-report-table--with-voucher td:nth-child(2) {
@@ -1131,6 +1160,13 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         });
       };
 
+      const doPrint = () => {
+        window.focus();
+        setTimeout(() => {
+          window.print();
+        }, 120);
+      };
+
       window.onload = async () => {
         try {
           if (document.fonts?.ready) {
@@ -1140,12 +1176,10 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
             ]);
           }
         } catch {}
-        await waitForRenderPass(2, 140);
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         syncStatementFooterMeta();
-        window.focus();
-        setTimeout(() => window.print(), 120);
+        doPrint();
       };
-      ${autoCloseScript}
     </script>
   </body>
 </html>`;
@@ -1154,9 +1188,106 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
     printWindow.document.open();
     printWindow.document.write(html);
     printWindow.document.close();
-    printWindow.focus();
+
+    const cleanup = () => {
+      setTimeout(() => {
+        if (iframe.parentNode) {
+          document.body.removeChild(iframe);
+        }
+      }, 1000);
+    };
+
+    printWindow.addEventListener('afterprint', cleanup);
+
+    // Safety fallback: remove after 20 seconds
+    setTimeout(() => {
+      if (iframe.parentNode) {
+        document.body.removeChild(iframe);
+      }
+    }, 20000);
+
     return true;
   } catch {
+    if (iframe.parentNode) {
+      document.body.removeChild(iframe);
+    }
+    return false;
+  }
+};
+
+export const printHtmlContent = (html: string, options?: { targetWindow?: Window | null }) => {
+  if (typeof window === 'undefined') return false;
+
+  // Close targetWindow if it was passed to avoid blank tabs
+  if (options?.targetWindow && !options.targetWindow.closed) {
+    try {
+      options.targetWindow.close();
+    } catch {}
+  }
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.outline = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.zIndex = '-1';
+  iframe.style.visibility = 'hidden';
+  document.body.appendChild(iframe);
+
+  const printWindow = iframe.contentWindow;
+  if (!printWindow) {
+    document.body.removeChild(iframe);
+    return false;
+  }
+
+  try {
+    let finalHtml = html;
+    if (!html.includes('window.print()')) {
+      const printScript = `
+        <script>
+          window.onload = () => {
+            window.focus();
+            setTimeout(() => {
+              window.print();
+            }, 150);
+          };
+        </script>
+      `;
+      if (html.includes('</body>')) {
+        finalHtml = html.replace('</body>', `${printScript}</body>`);
+      } else {
+        finalHtml = html + printScript;
+      }
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(finalHtml);
+    printWindow.document.close();
+
+    const cleanup = () => {
+      setTimeout(() => {
+        if (iframe.parentNode) {
+          document.body.removeChild(iframe);
+        }
+      }, 1000);
+    };
+
+    printWindow.addEventListener('afterprint', cleanup);
+
+    // Safety fallback: remove after 20 seconds
+    setTimeout(() => {
+      if (iframe.parentNode) {
+        document.body.removeChild(iframe);
+      }
+    }, 20000);
+
+    return true;
+  } catch {
+    if (iframe.parentNode) {
+      document.body.removeChild(iframe);
+    }
     return false;
   }
 };
@@ -1207,6 +1338,16 @@ const expandSnapshotLayout = (root: HTMLElement) => {
     node.style.minWidth = '0';
     node.style.maxWidth = '100%';
   });
+
+  const isRtl = root.dir === 'rtl' || root.getAttribute('dir') === 'rtl' || root.closest('[dir="rtl"]') !== null || document.documentElement.dir === 'rtl';
+  if (isRtl) {
+    root.style.setProperty('letter-spacing', 'normal', 'important');
+    root.querySelectorAll('*').forEach(node => {
+      if (node instanceof HTMLElement) {
+        node.style.setProperty('letter-spacing', 'normal', 'important');
+      }
+    });
+  }
 };
 
 const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) => {
@@ -1265,11 +1406,60 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   Array.from(document.head.querySelectorAll('style, link[rel="stylesheet"]')).forEach(node => {
     styleHost.appendChild(node.cloneNode(true));
   });
-  // Ensure Tajawal Arabic font is explicitly available to the snapshot host
   const fontFace = document.createElement('style');
-  const snapshotSupportStyles = hasClassicStatementLayout
-    ? ''
-    : `
+  const classicOverrides = hasClassicStatementLayout
+    ? `
+    /* Classic Statement print-equivalence overrides for PDF export */
+    .statement-classic-sheet {
+      border-radius: 0 !important;
+      border: 1px solid #111827 !important;
+      box-shadow: none !important;
+      background: #ffffff !important;
+    }
+    .statement-classic-header {
+      padding: 12px 14px 10px !important;
+    }
+    .statement-classic-title {
+      font-size: 22px !important;
+    }
+    .statement-classic-table--paper {
+      min-width: 100% !important;
+    }
+    .statement-classic-check-image {
+      width: 96px !important;
+      height: 60px !important;
+    }
+    .statement-classic-table th,
+    .statement-classic-table td,
+    .statement-classic-inline-table th,
+    .statement-classic-inline-table td {
+      color: #111827 !important;
+    }
+    .statement-classic-table td,
+    .directory-statement-table.statement-classic-table--paper th,
+    .directory-statement-table.statement-classic-table--paper td,
+    .statement-report-table.statement-classic-table--paper th,
+    .statement-report-table.statement-classic-table--paper td {
+      font-size: 11px !important;
+      padding: 0.45rem 0.35rem !important;
+    }
+    .statement-classic-inline-table th,
+    .statement-classic-inline-table td {
+      font-size: 9px !important;
+    }
+    .statement-classic-company-name {
+      font-size: 14px !important;
+    }
+    .statement-classic-fill-row td {
+      height: 40px !important;
+    }
+    .statement-classic-footer {
+      display: none !important;
+    }
+    `
+    : '';
+
+  const snapshotSupportStyles = `
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: ${dir === 'rtl' ? 'right' : 'left'}; vertical-align: top; font-size: 12px; line-height: 1.45; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
     .statement-mobile-viewport,
@@ -1335,11 +1525,71 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
       word-break: keep-all !important;
       overflow-wrap: normal !important;
       font-variant-numeric: tabular-nums !important;
+      letter-spacing: normal !important;
     }
+    .statement-inline-table,
+    .statement-classic-inline-table,
+    .directory-statement-detail-table {
+      width: 100% !important;
+      table-layout: fixed !important;
+      border-collapse: collapse !important;
+      letter-spacing: normal !important;
+    }
+    .statement-inline-table th,
+    .statement-inline-table td,
+    .statement-classic-inline-table th,
+    .statement-classic-inline-table td,
+    .directory-statement-detail-table th,
+    .directory-statement-detail-table td {
+      font-size: 10px !important;
+      line-height: 1.4 !important;
+      padding: 6px 7px !important;
+      letter-spacing: normal !important;
+    }
+    .statement-classic-inline-table thead th:nth-child(2),
+    .statement-classic-inline-table thead th:nth-child(3),
+    .statement-classic-inline-table thead th:nth-child(4),
+    .statement-classic-inline-table td:nth-child(2),
+    .statement-classic-inline-table td:nth-child(3),
+    .statement-classic-inline-table td:nth-child(4) {
+      font-size: 10px !important;
+      letter-spacing: normal !important;
+      padding-inline: 0.16rem !important;
+    }
+    .statement-classic-inline-table thead th:nth-child(1),
+    .statement-classic-inline-table td:nth-child(1) {
+      font-size: 10px !important;
+      line-height: 1.4 !important;
+      padding-inline: 0.16rem !important;
+      letter-spacing: normal !important;
+    }
+    .statement-classic-inline-table--voucher thead th,
+    .statement-classic-inline-table--voucher td {
+      font-size: 10px !important;
+      line-height: 1.4 !important;
+      letter-spacing: normal !important;
+    }
+    .statement-classic-document-number,
+    .statement-classic-secondary,
+    .statement-classic-note-line,
+    .statement-classic-voucher-check-meta {
+      font-size: 10px !important;
+      line-height: 1.4 !important;
+      letter-spacing: normal !important;
+    }
+    ${classicOverrides}
   `;
   fontFace.textContent = `
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=block');
-    * { font-family: ${dir === 'rtl' ? "'Tajawal', Arial, sans-serif" : "'Segoe UI', Arial, sans-serif"}; }
+    :root, body, [dir="rtl"], [dir="ltr"] {
+      --font-app-ar: 'Tajawal', Arial, sans-serif !important;
+      --font-app-en: 'Segoe UI', Arial, sans-serif !important;
+      letter-spacing: normal !important;
+    }
+    * {
+      font-family: ${dir === 'rtl' ? "'Tajawal', Arial, sans-serif" : "'Segoe UI', Arial, sans-serif"} !important;
+      letter-spacing: normal !important;
+    }
     .dir-ltr { direction: ltr; unicode-bidi: embed; }
     ${snapshotSupportStyles}
   `;

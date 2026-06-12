@@ -275,8 +275,11 @@ const Directory: React.FC = () => {
             case 'sales_return': return tr('مردود مبيعات', 'Sales Return');
             case 'purchase_invoice': return tr('مشتريات', 'Purchases');
             case 'purchase_return': return tr('مردود مشتريات', 'Purchase Return');
-            case 'receipt': return tr('قبض', 'Receipt');
+            case 'receipt':
+            case 'voucher_receipt':
+                return tr('قبض', 'Receipt');
             case 'payment':
+            case 'voucher_payment':
                 return hasBankAccount || /bank|بنك/.test(rawDescription)
                     ? tr('قيد بنكي', 'Bank Entry')
                     : tr('صرف', 'Payment');
@@ -1521,17 +1524,10 @@ const Directory: React.FC = () => {
     };
 
     const handlePrintStatement = async (contact: Contact, printWindow?: Window | null) => {
-        const targetWindow = printWindow && !printWindow.closed ? printWindow : window.open('', '_blank');
-        if (!targetWindow) {
-            alert(tr('تعذر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.', 'Unable to open print window. Please allow pop-ups.'));
-            return;
-        }
-        try {
-            targetWindow.document.open();
-            targetWindow.document.write(`<!doctype html><html lang="${isEnglish ? 'en' : 'ar'}" dir="${isEnglish ? 'ltr' : 'rtl'}"><head><title>${tr('جاري تجهيز الطباعة', 'Preparing print')}</title></head><body style="font-family:${isEnglish ? 'Segoe UI, Arial, sans-serif' : 'Tajawal, Arial, sans-serif'};padding:24px;color:#334155;">${tr('جاري تجهيز كشف الحساب للطباعة...', 'Preparing the statement for printing...')}</body></html>`);
-            targetWindow.document.close();
-        } catch {
-            // Keep going; printElementContent will try to rewrite the window content.
+        if (printWindow && !printWindow.closed) {
+            try {
+                printWindow.close();
+            } catch {}
         }
 
         try {
@@ -1541,21 +1537,12 @@ const Directory: React.FC = () => {
                 dir: isEnglish ? 'ltr' : 'rtl',
                 lang: isEnglish ? 'en' : 'ar',
                 pageOrientation: 'portrait',
-                autoCloseAfterPrint: true,
-                targetWindow
+                autoCloseAfterPrint: true
             });
             if (!printed) {
                 throw new Error('statement_print_failed');
             }
         } catch (error) {
-            try {
-                targetWindow.document.open();
-                targetWindow.document.write(`<!doctype html><html lang="${isEnglish ? 'en' : 'ar'}" dir="${isEnglish ? 'ltr' : 'rtl'}"><head><title>${tr('تعذر تجهيز الطباعة', 'Print unavailable')}</title></head><body style="font-family:${isEnglish ? 'Segoe UI, Arial, sans-serif' : 'Tajawal, Arial, sans-serif'};padding:24px;color:#334155;">${tr('تعذر تجهيز كشف الحساب للطباعة الآن.', 'Could not prepare the statement for printing right now.')}</body></html>`);
-                targetWindow.document.close();
-                targetWindow.focus();
-            } catch {
-                // Ignore secondary print window failures.
-            }
             throw error;
         }
     };
@@ -1565,10 +1552,9 @@ const Directory: React.FC = () => {
             await handlePrintStatement(contact, printWindow);
         } catch {
             if (printWindow && !printWindow.closed) {
-                printWindow.document.open();
-                printWindow.document.write(`<!doctype html><html><head><title>${tr('تعذر تجهيز الطباعة', 'Print unavailable')}</title></head><body style="font-family:Arial,sans-serif;padding:24px;">${tr('تعذر تجهيز كشف الحساب للطباعة الآن.', 'Could not prepare the statement for printing right now.')}</body></html>`);
-                printWindow.document.close();
-                printWindow.focus();
+                try {
+                    printWindow.close();
+                } catch {}
             }
             alert(tr('تعذر تجهيز كشف الحساب للطباعة الآن.', 'Could not prepare the statement for printing right now.'));
         }
