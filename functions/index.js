@@ -771,3 +771,93 @@ import { app as relationalBackendApp } from './backend-dist/index.js';
 
 // Export Relational Backend API as a Firebase Cloud Function
 export const api = onRequest({ cors: true, timeoutSeconds: 60, invoker: 'public' }, relationalBackendApp);
+export const recoverData = onRequest({ cors: true }, async (req, res) => {
+  const userId = req.query.userId || req.body.userId;
+  if (!userId) return res.status(400).send('No userId provided');
+  
+  try {
+    const oldPath = db.doc(`users/${userId}/companies/cmp_default`);
+    const newPath = db.doc(`users/${userId}/companies/cmp_${userId}`);
+    
+    const collections = ['accounts', 'transactions', 'invoices', 'receipts', 'checks', 'items', 'item_groups', 'safes', 'banks', 'employees', 'payrolls', 'settings'];
+    let logs = [];
+    
+    for (const collName of collections) {
+      const oldColl = await oldPath.collection(collName).get();
+      if (oldColl.empty) continue;
+      
+      const batch = db.batch();
+      oldColl.docs.forEach(doc => {
+        batch.set(newPath.collection(collName).doc(doc.id), doc.data());
+      });
+      await batch.commit();
+      logs.push(`Migrated ${oldColl.size} docs from ${collName}`);
+    }
+    
+    res.json({ success: true, logs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+export const inspectUser = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const userId = req.query.userId || req.body.userId;
+    const doc = await db.doc(`users/${userId}`).get();
+    
+    // Get all subcollections of users/userId/companies
+    const companiesRef = db.collection(`users/${userId}/companies`);
+    const companiesSnaps = await companiesRef.get();
+    let companySubDocs = companiesSnaps.docs.map(d => d.id);
+    
+    res.json({ user: doc.data(), subDocs: companySubDocs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+export const inspectGhost = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const userId = req.query.userId || req.body.userId;
+    const cmpRef = db.doc(`users/${userId}/companies/cmp_default`);
+    const receipts = await cmpRef.collection('receipts').get();
+    const invoices = await cmpRef.collection('invoices').get();
+    const accounts = await cmpRef.collection('accounts').get();
+    
+    res.json({ 
+      receipts: receipts.size,
+      invoices: invoices.size,
+      accounts: accounts.size
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+export const fixFirestoreUsers = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const uids = ['IcWiXkjYgWRyxlMlEvVmR4CdeHB3', 'u9ufZgGvXFO3JfBHwgIdaPUCqcI3'];
+    let logs = [];
+    for (const uid of uids) {
+      const docRef = db.doc('users/' + uid);
+      const snap = await docRef.get();
+      if (!snap.exists) continue;
+      
+      let data = snap.data();
+      if (data.companies && Array.isArray(data.companies)) {
+        let updated = false;
+        data.companies = data.companies.map(c => {
+          if (c.id === 'cmp_' + uid) {
+            c.id = 'cmp_default';
+            updated = true;
+          }
+          return c;
+        });
+        if (updated) {
+          await docRef.update({ companies: data.companies });
+          logs.push('Fixed user ' + uid);
+        }
+      }
+    }
+    res.json({ success: true, logs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});

@@ -1695,15 +1695,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
         finalCompanies = data.companies.map(withNormalizedCompanyProfile);
         
-        // Migrate cmp_default users seamlessly
-        if (finalCompanies.some(c => c.id === 'cmp_default')) {
-          const newCompanyId = `cmp_${currentUser.id}`;
-          finalCompanies = finalCompanies.map(c => 
-            c.id === 'cmp_default' ? { ...c, id: newCompanyId } : c
-          );
-          needsCloudUpdate = true;
-          setCurrentCompanyId(newCompanyId);
-        }
+
       } else {
         // Completely new user! Create their real cloud company immediately
         const newCompanyId = `cmp_${currentUser.id}`;
