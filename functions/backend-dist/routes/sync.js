@@ -81,14 +81,14 @@ router.get('/:collectionName', verifyCompanyMembership, async (req, res) => {
         let result;
         if (collectionName === 'transactions') {
             result = await query(`SELECT t.*, 
-          COALESCE((SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.entry_id = t.id), '[]'::json) as lines
+          COALESCE((SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.company_id = t.company_id AND jl.entry_id = t.id), '[]'::json) as lines
          FROM journal_entries t
          WHERE t.company_id = $1
          ORDER BY t.date DESC, t.created_at DESC`, [companyId]);
         }
         else if (collectionName === 'invoices') {
             result = await query(`SELECT i.*, 
-          COALESCE((SELECT json_agg(item.*) FROM invoice_items item WHERE item.invoice_id = i.id), '[]'::json) as items
+          COALESCE((SELECT json_agg(item.*) FROM invoice_items item WHERE item.company_id = i.company_id AND item.invoice_id = i.id), '[]'::json) as items
          FROM invoices i
          WHERE i.company_id = $1
          ORDER BY i.date DESC, i.created_at DESC`, [companyId]);
@@ -96,13 +96,13 @@ router.get('/:collectionName', verifyCompanyMembership, async (req, res) => {
         else if (collectionName === 'products') {
             result = await query(`SELECT p.*,
           COALESCE((SELECT json_agg(json_build_object('warehouseId', pws.warehouse_id, 'quantity', pws.quantity))
-           FROM product_warehouse_stock pws WHERE pws.product_id = p.id), '[]'::json) as "warehouseStock"
+           FROM product_warehouse_stock pws WHERE pws.company_id = p.company_id AND pws.product_id = p.id), '[]'::json) as "warehouseStock"
          FROM products p
          WHERE p.company_id = $1`, [companyId]);
         }
         else if (collectionName === 'stockTransfers') {
             result = await query(`SELECT st.*,
-          COALESCE((SELECT json_agg(sti.*) FROM stock_transfer_items sti WHERE sti.transfer_id = st.id), '[]'::json) as items
+          COALESCE((SELECT json_agg(sti.*) FROM stock_transfer_items sti WHERE sti.company_id = st.company_id AND sti.transfer_id = st.id), '[]'::json) as items
          FROM stock_transfers st
          WHERE st.company_id = $1`, [companyId]);
         }
@@ -563,7 +563,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                     }
                     await client.query(`INSERT INTO accounts (id, company_id, code, name, type, parent_id, is_group, currency, balance, is_active)
              VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET code = EXCLUDED.code, name = EXCLUDED.name, type = EXCLUDED.type, parent_id = NULL,
                  is_group = EXCLUDED.is_group, currency = EXCLUDED.currency, balance = EXCLUDED.balance, is_active = EXCLUDED.is_active`, [targetId, companyId, item.code, item.name, item.type, !!item.isGroup, item.currency, Number(item.balance || 0), item.isActive !== false]);
                 }
@@ -593,7 +593,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                     if (collectionName === 'contacts') {
                         await client.query(`INSERT INTO contacts (id, company_id, name, type, phone, address, preferred_price_tier, linked_account_id, current_account_id, capital_account_id, drawings_account_id)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-               ON CONFLICT (id) DO UPDATE
+               ON CONFLICT (company_id, id) DO UPDATE
                SET name = EXCLUDED.name, type = EXCLUDED.type, phone = EXCLUDED.phone, address = EXCLUDED.address,
                    preferred_price_tier = EXCLUDED.preferred_price_tier, linked_account_id = EXCLUDED.linked_account_id,
                    current_account_id = EXCLUDED.current_account_id, capital_account_id = EXCLUDED.capital_account_id, drawings_account_id = EXCLUDED.drawings_account_id`, [
@@ -611,25 +611,25 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                         ]);
                     }
                     else if (collectionName === 'employeeContracts') {
-                        await client.query(`INSERT INTO employee_contracts (id, employee_id, contract_type, start_date, end_date, status, notes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT (id) DO UPDATE
+                        await client.query(`INSERT INTO employee_contracts (id, company_id, employee_id, contract_type, start_date, end_date, status, notes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (company_id, id) DO UPDATE
                SET contract_type = EXCLUDED.contract_type, start_date = EXCLUDED.start_date,
-                   end_date = EXCLUDED.end_date, status = EXCLUDED.status, notes = EXCLUDED.notes`, [item.id, item.employeeId, item.contractType || 'OPEN_ENDED', parseDate(item.startDate), parseDate(item.endDate), item.status || 'ACTIVE', item.notes || null]);
+                   end_date = EXCLUDED.end_date, status = EXCLUDED.status, notes = EXCLUDED.notes`, [item.id, companyId, item.employeeId, item.contractType || 'OPEN_ENDED', parseDate(item.startDate), parseDate(item.endDate), item.status || 'ACTIVE', item.notes || null]);
                     }
                     else if (collectionName === 'employeeLeaveRequests') {
-                        await client.query(`INSERT INTO employee_leave_requests (id, employee_id, leave_type, status, effective_from, effective_to, days, note, deduct_from_payroll)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               ON CONFLICT (id) DO UPDATE
+                        await client.query(`INSERT INTO employee_leave_requests (id, company_id, employee_id, leave_type, status, effective_from, effective_to, days, note, deduct_from_payroll)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               ON CONFLICT (company_id, id) DO UPDATE
                SET leave_type = EXCLUDED.leave_type, status = EXCLUDED.status, effective_from = EXCLUDED.effective_from,
-                   effective_to = EXCLUDED.effective_to, days = EXCLUDED.days, note = EXCLUDED.note, deduct_from_payroll = EXCLUDED.deduct_from_payroll`, [item.id, item.employeeId, item.leaveType, item.status || 'PENDING', parseDate(item.effectiveFrom), parseDate(item.effectiveTo), Number(item.days || 0), item.note || null, !!item.deductFromPayroll]);
+                   effective_to = EXCLUDED.effective_to, days = EXCLUDED.days, note = EXCLUDED.note, deduct_from_payroll = EXCLUDED.deduct_from_payroll`, [item.id, companyId, item.employeeId, item.leaveType, item.status || 'PENDING', parseDate(item.effectiveFrom), parseDate(item.effectiveTo), Number(item.days || 0), item.note || null, !!item.deductFromPayroll]);
                     }
                     else if (collectionName === 'employeeRecurringDeductions') {
-                        await client.query(`INSERT INTO employee_recurring_deductions (id, employee_id, type, status, label, amount, effective_from, effective_to)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               ON CONFLICT (id) DO UPDATE
+                        await client.query(`INSERT INTO employee_recurring_deductions (id, company_id, employee_id, type, status, label, amount, effective_from, effective_to)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               ON CONFLICT (company_id, id) DO UPDATE
                SET type = EXCLUDED.type, status = EXCLUDED.status, label = EXCLUDED.label,
-                   amount = EXCLUDED.amount, effective_from = EXCLUDED.effective_from, effective_to = EXCLUDED.effective_to`, [item.id, item.employeeId, item.type, item.status || 'ACTIVE', item.label, Number(item.amount || 0), parseDate(item.effectiveFrom), parseDate(item.effectiveTo)]);
+                   amount = EXCLUDED.amount, effective_from = EXCLUDED.effective_from, effective_to = EXCLUDED.effective_to`, [item.id, companyId, item.employeeId, item.type, item.status || 'ACTIVE', item.label, Number(item.amount || 0), parseDate(item.effectiveFrom), parseDate(item.effectiveTo)]);
                     }
                     else if (collectionName === 'users') {
                         await client.query(`INSERT INTO users (id, email, name, picture, role)
@@ -678,7 +678,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                         // Insert/Update Transaction Header
                         await client.query(`INSERT INTO journal_entries (id, company_id, voucher_id, amount, description, category, type, date, invoice_id, contact_id, employee_id, asset_id, check_id, currency, exchange_rate, status, reversal_of_id, reversed_by_id, is_reversal)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET voucher_id = EXCLUDED.voucher_id, amount = EXCLUDED.amount, description = EXCLUDED.description,
                  category = EXCLUDED.category, type = EXCLUDED.type, date = EXCLUDED.date, status = EXCLUDED.status,
                  invoice_id = EXCLUDED.invoice_id, contact_id = EXCLUDED.contact_id, employee_id = EXCLUDED.employee_id,
@@ -691,10 +691,11 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                             item.status || 'POSTED', item.reversalOfId || null, item.reversedById || null, !!item.isReversal
                         ]);
                         // Clear lines and re-insert
-                        await client.query(`DELETE FROM journal_lines WHERE entry_id = $1`, [item.id]);
+                        await client.query(`DELETE FROM journal_lines WHERE company_id = $1 AND entry_id = $2`, [companyId, item.id]);
                         for (const line of lines) {
-                            await client.query(`INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency, exchange_rate, note)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)`, [
+                            await client.query(`INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
+                                companyId,
                                 item.id,
                                 prefixAccountId(companyId, line.accountId),
                                 Number(line.debit || 0),
@@ -708,7 +709,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                     else if (collectionName === 'invoices') {
                         await client.query(`INSERT INTO invoices (id, company_id, invoice_number, customer_id, linked_invoice_id, type, category, date, due_date, sub_total, tax_rate, tax_amount, tax_mode, discount_amount, total_amount, status, posting_status, payment_type, payment_account_id, is_partner_drawings, partner_drawings_mode, notes, currency, exchange_rate, warehouse_id, reversal_of_id, reversed_by_id, is_reversal)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET invoice_number = EXCLUDED.invoice_number, customer_id = EXCLUDED.customer_id, linked_invoice_id = EXCLUDED.linked_invoice_id,
                  type = EXCLUDED.type, category = EXCLUDED.category, date = EXCLUDED.date, due_date = EXCLUDED.due_date,
                  sub_total = EXCLUDED.sub_total, tax_rate = EXCLUDED.tax_rate, tax_amount = EXCLUDED.tax_amount, tax_mode = EXCLUDED.tax_mode,
@@ -727,11 +728,11 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                             item.reversedById || null, !!item.isReversal
                         ]);
                         // Clear items and re-insert
-                        await client.query(`DELETE FROM invoice_items WHERE invoice_id = $1`, [item.id]);
+                        await client.query(`DELETE FROM invoice_items WHERE company_id = $1 AND invoice_id = $2`, [companyId, item.id]);
                         if (Array.isArray(item.items)) {
                             for (const details of item.items) {
-                                await client.query(`INSERT INTO invoice_items (id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [details.id, item.id, details.productId || null, prefixAccountId(companyId, details.accountId), details.description || '', Number(details.quantity || 0), Number(details.unitPrice || 0), Number(details.total || 0), !!details.returned, details.width ? Number(details.width) : null, details.length ? Number(details.length) : null]);
+                                await client.query(`INSERT INTO invoice_items (id, company_id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, [details.id, companyId, item.id, details.productId || null, prefixAccountId(companyId, details.accountId), details.description || '', Number(details.quantity || 0), Number(details.unitPrice || 0), Number(details.total || 0), !!details.returned, details.width ? Number(details.width) : null, details.length ? Number(details.length) : null]);
                             }
                         }
                     }
@@ -750,7 +751,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
               $16, $17, $18, $19, 
               $20, $21, $22, $23, $24, $25
              )
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET name = EXCLUDED.name,
                  kind = EXCLUDED.kind,
                  category = EXCLUDED.category,
@@ -784,26 +785,26 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                         ]);
                         // Update warehouse stock breakdown
                         if (Array.isArray(item.warehouseStock)) {
-                            await client.query(`DELETE FROM product_warehouse_stock WHERE product_id = $1`, [item.id]);
+                            await client.query(`DELETE FROM product_warehouse_stock WHERE company_id = $1 AND product_id = $2`, [companyId, item.id]);
                             for (const ws of item.warehouseStock) {
-                                await client.query(`INSERT INTO product_warehouse_stock (product_id, warehouse_id, quantity)
-                 VALUES ($1, $2, $3)`, [item.id, ws.warehouseId, Number(ws.quantity || 0)]);
+                                await client.query(`INSERT INTO product_warehouse_stock (company_id, product_id, warehouse_id, quantity)
+                 VALUES ($1, $2, $3, $4)`, [companyId, item.id, ws.warehouseId, Number(ws.quantity || 0)]);
                             }
                         }
                     }
                     else if (collectionName === 'stockTransfers') {
                         await client.query(`INSERT INTO stock_transfers (id, company_id, transfer_number, date, from_warehouse_id, to_warehouse_id, notes, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET transfer_number = EXCLUDED.transfer_number, date = EXCLUDED.date,
                  from_warehouse_id = EXCLUDED.from_warehouse_id, to_warehouse_id = EXCLUDED.to_warehouse_id,
                  notes = EXCLUDED.notes, status = EXCLUDED.status`, [item.id, companyId, item.transferNumber, new Date(item.date), item.fromWarehouseId, item.toWarehouseId, item.notes || '', item.status || 'DRAFT']);
                         // Clear items and re-insert
-                        await client.query(`DELETE FROM stock_transfer_items WHERE transfer_id = $1`, [item.id]);
+                        await client.query(`DELETE FROM stock_transfer_items WHERE company_id = $1 AND transfer_id = $2`, [companyId, item.id]);
                         if (Array.isArray(item.items)) {
                             for (const detail of item.items) {
-                                await client.query(`INSERT INTO stock_transfer_items (transfer_id, product_id, quantity, description)
-                 VALUES ($1, $2, $3, $4)`, [item.id, detail.productId, Number(detail.quantity || 0), detail.description || null]);
+                                await client.query(`INSERT INTO stock_transfer_items (company_id, transfer_id, product_id, quantity, description)
+                 VALUES ($1, $2, $3, $4, $5)`, [companyId, item.id, detail.productId, Number(detail.quantity || 0), detail.description || null]);
                             }
                         }
                     }
@@ -812,7 +813,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
               id, company_id, name, default_useful_life, depreciation_rate, description, 
               asset_account_id, accumulated_depreciation_account_id, depreciation_expense_account_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET name = EXCLUDED.name,
                  default_useful_life = EXCLUDED.default_useful_life,
                  depreciation_rate = EXCLUDED.depreciation_rate,
@@ -834,7 +835,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                     else if (collectionName === 'employees') {
                         await client.query(`INSERT INTO employees (id, company_id, name, code, department_id, position, hire_date, salary_type, pay_basis, basic_salary, daily_work_hours, hourly_rate, status, phone)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-             ON CONFLICT (id) DO UPDATE
+             ON CONFLICT (company_id, id) DO UPDATE
              SET name = EXCLUDED.name, code = EXCLUDED.code, department_id = EXCLUDED.department_id,
                  position = EXCLUDED.position, hire_date = EXCLUDED.hire_date, salary_type = EXCLUDED.salary_type,
                  pay_basis = EXCLUDED.pay_basis, basic_salary = EXCLUDED.basic_salary, daily_work_hours = EXCLUDED.daily_work_hours,
@@ -866,7 +867,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                         const queryText = `
             INSERT INTO ${dbTable} (${columns.join(', ')})
             VALUES (${placeholders.join(', ')})
-            ON CONFLICT (id) DO UPDATE
+            ON CONFLICT (company_id, id) DO UPDATE
             SET ${columns.filter(c => c !== 'id' && c !== 'company_id').map((c, i) => `${c} = EXCLUDED.${c}`).join(', ')}
           `;
                         await client.query(queryText, values);

@@ -20,7 +20,7 @@ import { buildProductPricingPatch } from '../utils/productPricing';
 import { isStockProduct, normalizeProductInventoryFields } from '../utils/productKind';
 import { isProfitLossAccount } from '../utils/fiscalYear';
 import { DEFAULT_BRAND_MARK_URL, normalizeBrandLogoUrl } from '../utils/brandAssets';
-import { detectPreferredAppLanguage, normalizeAppLanguage } from '../utils/i18n';
+import { detectPreferredAppLanguage, normalizeAppLanguage, isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
 import { coerceCompanyBooleanSetting, normalizeCompanyDisplaySettings, normalizeInvoiceTaxSettings } from '../utils/companySettings';
 import {
   findCompanyProfileNameConflict,
@@ -977,6 +977,22 @@ const STORAGE_KEYS = {
 
 const GUEST_USER_ID = 'guest_user';
 
+const generateUniqueAccountCode = async (db: any, email: string): Promise<string> => {
+  let code = '';
+  let isUnique = false;
+  let attempts = 0;
+  while (!isUnique && attempts < 10) {
+    code = Math.floor(100000 + Math.random() * 900000).toString();
+    const docRef = doc(db, 'account_codes', code);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      isUnique = true;
+    }
+    attempts++;
+  }
+  return code;
+};
+
 const isGuestUser = (user: User | null | undefined): user is User => (
   Boolean(user && user.id === GUEST_USER_ID)
 );
@@ -1691,6 +1707,49 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       let data = snapshot.exists() ? snapshot.data() : null;
       let finalCompanies: CompanyProfile[] = [];
       let needsCloudUpdate = false;
+
+      if (currentUser && !isGuestUser(currentUser)) {
+        const email = currentUser.email || '';
+        const isCode = isCodeEmail(email);
+        let accountCode = (data && data.accountCode) || '';
+
+        if (isCode) {
+          accountCode = extractCodeFromEmail(email);
+        }
+
+        if (!accountCode && email) {
+          try {
+            const generatedCode = await generateUniqueAccountCode(firebaseDb, email);
+            if (generatedCode) {
+              const codeDocRef = doc(firebaseDb, 'account_codes', generatedCode);
+              await setDoc(codeDocRef, {
+                email,
+                userId: currentUser.id,
+                createdAt: new Date().toISOString()
+              });
+              needsCloudUpdate = true;
+              data = { ...data, accountCode: generatedCode };
+              accountCode = generatedCode;
+            }
+          } catch (err) {
+            console.error('[Account Code Generation Error]', err);
+          }
+        } else if (accountCode && data && !data.accountCode) {
+          needsCloudUpdate = true;
+          data = { ...data, accountCode };
+        }
+
+        if (accountCode) {
+          setCurrentUser(prev => {
+            if (prev && prev.accountCode !== accountCode) {
+              const next = { ...prev, accountCode };
+              localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(next));
+              return next;
+            }
+            return prev;
+          });
+        }
+      }
 
       if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
         finalCompanies = data.companies.map(withNormalizedCompanyProfile);
@@ -6946,7 +7005,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       : employee
   ));
 
-  const addUser = (user: Omit<User, 'id'>) => setUsers(prev => [...prev, { ...user, id: Math.random().toString(36).substr(2, 9) }]);
+  const addUser = (user: Omit<User, 'id'> & { id?: string }) => setUsers(prev => [...prev, { ...user, id: user.id || Math.random().toString(36).substr(2, 9) } as User]);
   const updateUser = (id: string, user: Partial<User>) => setUsers(prev => prev.map(u => u.id === id ? { ...u, ...user } : u));
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
 

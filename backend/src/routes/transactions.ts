@@ -16,7 +16,7 @@ router.get('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res: 
   try {
     const result = await query(
       `SELECT t.*, 
-        (SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.entry_id = t.id) as lines
+        (SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.company_id = t.company_id AND jl.entry_id = t.id) as lines
        FROM journal_entries t
        WHERE t.company_id = $1
        ORDER BY t.date DESC, t.created_at DESC`,
@@ -99,9 +99,10 @@ router.post('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res:
     for (const line of lines) {
       const prefixedAccountId = prefixAccountId(companyId, line.accountId);
       await client.query(
-        `INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency, exchange_rate, note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        `INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
+          companyId,
           id,
           prefixedAccountId,
           Number(line.debit || 0),
@@ -164,8 +165,8 @@ router.post('/:transactionId/reverse', verifyCompanyMembership, async (req: Auth
 
     // 2. Get original transaction lines
     const originalLines = await client.query(
-      `SELECT * FROM journal_lines WHERE entry_id = $1`,
-      [transactionId]
+      `SELECT * FROM journal_lines WHERE company_id = $1 AND entry_id = $2`,
+      [companyId, transactionId]
     );
 
     // 3. Create reversal header (debits and credits swapped)
@@ -203,9 +204,10 @@ router.post('/:transactionId/reverse', verifyCompanyMembership, async (req: Auth
       const revCredit = Number(originalLine.debit || 0);
 
       await client.query(
-        `INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency, exchange_rate, note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        `INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
+          companyId,
           reversalId,
           originalLine.account_id,
           revDebit,

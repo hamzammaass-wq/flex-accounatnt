@@ -135,6 +135,11 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    match /account_codes/{codeId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+    }
+
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }

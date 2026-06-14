@@ -30,8 +30,8 @@ router.get('/', verifyCompanyMembership, async (req, res) => {
              END
            )
            FROM journal_lines jl
-           JOIN journal_entries je ON jl.entry_id = je.id
-           WHERE jl.account_id = a.id AND je.status = 'POSTED'
+           JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
+           WHERE jl.company_id = $1 AND jl.account_id = a.id AND je.status = 'POSTED'
          ), 0) as balance
        FROM accounts a
        WHERE a.company_id = $1
@@ -133,7 +133,7 @@ router.delete('/:accountId', verifyCompanyMembership, async (req, res) => {
     try {
         const prefixedAccountId = prefixAccountId(companyId, accountId);
         // 1. Verify that the account has no journal lines posted to it
-        const jLinesCheck = await query(`SELECT 1 FROM journal_lines WHERE account_id = $1 LIMIT 1`, [prefixedAccountId]);
+        const jLinesCheck = await query(`SELECT 1 FROM journal_lines WHERE company_id = $1 AND account_id = $2 LIMIT 1`, [companyId, prefixedAccountId]);
         if (jLinesCheck.rows.length > 0) {
             return res.status(400).json({
                 error: 'Cannot delete account because it has active transaction history. Deactivate it instead.'

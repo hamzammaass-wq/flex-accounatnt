@@ -16,7 +16,7 @@ router.get('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res: 
   try {
     const result = await query(
       `SELECT i.*, 
-        (SELECT json_agg(item.*) FROM invoice_items item WHERE item.invoice_id = i.id) as items
+        (SELECT json_agg(item.*) FROM invoice_items item WHERE item.company_id = i.company_id AND item.invoice_id = i.id) as items
        FROM invoices i
        WHERE i.company_id = $1
        ORDER BY i.date DESC, i.created_at DESC`,
@@ -78,7 +78,7 @@ router.post('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res:
         payment_type, payment_account_id, is_partner_drawings, partner_drawings_mode, notes, currency,
         exchange_rate, warehouse_id, reversal_of_id, reversed_by_id, is_reversal
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
-       ON CONFLICT (id) DO UPDATE
+       ON CONFLICT (company_id, id) DO UPDATE
        SET invoice_number = EXCLUDED.invoice_number, customer_id = EXCLUDED.customer_id,
            linked_invoice_id = EXCLUDED.linked_invoice_id, type = EXCLUDED.type, category = EXCLUDED.category,
            date = EXCLUDED.date, due_date = EXCLUDED.due_date, sub_total = EXCLUDED.sub_total,
@@ -121,15 +121,16 @@ router.post('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res:
     );
 
     // 2. Clear existing items first (in case of update)
-    await client.query(`DELETE FROM invoice_items WHERE invoice_id = $1`, [id]);
+    await client.query(`DELETE FROM invoice_items WHERE company_id = $1 AND invoice_id = $2`, [companyId, id]);
 
     // 3. Insert items
     for (const item of items) {
       await client.query(
-        `INSERT INTO invoice_items (id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO invoice_items (id, company_id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           item.id,
+          companyId,
           id,
           item.productId || null,
           prefixAccountId(companyId, item.accountId),
@@ -195,7 +196,7 @@ router.post('/settlements', verifyCompanyMembership, async (req: AuthenticatedRe
       `INSERT INTO invoice_settlements (
         id, company_id, invoice_id, voucher_id, contact_id, date, amount, amount_base, currency, exchange_rate, source_type, note
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (id) DO UPDATE
+       ON CONFLICT (company_id, id) DO UPDATE
        SET amount = EXCLUDED.amount, amount_base = EXCLUDED.amount_base, note = EXCLUDED.note
        RETURNING *`,
       [

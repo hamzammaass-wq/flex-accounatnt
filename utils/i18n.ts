@@ -319,3 +319,14 @@ export const matchesDocumentNumberSearch = (docNum: string, query: string): bool
     queryVariants.some(queryVariant => documentVariant.includes(queryVariant))
   );
 };
+
+export const isCodeEmail = (email: string | undefined | null): boolean => {
+  return email ? /^code_[a-zA-Z0-9_.-]+@smart\.local$/.test(email) : false;
+};
+
+export const extractCodeFromEmail = (email: string | undefined | null): string => {
+  if (!email) return '';
+  const match = email.match(/^code_([a-zA-Z0-9_.-]+)@smart\.local$/);
+  return match ? match[1] : email;
+};
+

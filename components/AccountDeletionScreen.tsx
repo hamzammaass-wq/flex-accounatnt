@@ -12,6 +12,7 @@ import {
 import { deleteDoc, doc } from 'firebase/firestore';
 import { useAccounting } from '../contexts/AccountingContext';
 import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled } from '../firebaseClient';
+import { isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
 
 interface AccountDeletionScreenProps {
   language: 'AR' | 'EN';
@@ -254,8 +255,24 @@ const AccountDeletionScreen: React.FC<AccountDeletionScreenProps> = ({ language,
           </div>
 
           <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold leading-7 text-slate-600">
-            <div>{tr('الحساب الحالي', 'Current account')}: <span className="dir-ltr inline-block text-left">{currentUser?.email || '-'}</span></div>
-            <div>{tr('طريقة الدخول', 'Sign-in method')}: {authProvider === 'password' ? tr('بريد إلكتروني وكلمة مرور', 'Email and password') : authProvider === 'google' ? 'Google' : tr('غير محددة', 'Unknown')}</div>
+            <div>
+              {isCodeEmail(currentUser?.email) ? (
+                <>{tr('كود الحساب الحالي', 'Current account code')}: <span className="dir-ltr inline-block text-left">{extractCodeFromEmail(currentUser?.email)}</span></>
+              ) : (
+                <>{tr('الحساب الحالي', 'Current account')}: <span className="dir-ltr inline-block text-left">{currentUser?.email || '-'}</span></>
+              )}
+            </div>
+            <div>
+              {tr('طريقة الدخول', 'Sign-in method')}: {
+                isCodeEmail(currentUser?.email) 
+                  ? tr('كود الحساب وكلمة المرور', 'Account code and password')
+                  : authProvider === 'password'
+                    ? tr('بريد إلكتروني وكلمة مرور', 'Email and password')
+                    : authProvider === 'google'
+                      ? 'Google'
+                      : tr('غير محددة', 'Unknown')
+              }
+            </div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-black leading-6 text-amber-800">

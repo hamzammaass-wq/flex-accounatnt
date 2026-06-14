@@ -36,13 +36,13 @@ router.get('/trial-balance', verifyCompanyMembership, async (req, res) => {
             END
           )
           FROM journal_lines jl2
-          JOIN journal_entries je2 ON jl2.entry_id = je2.id
-          WHERE jl2.account_id = a.id AND je2.status = 'POSTED'
+          JOIN journal_entries je2 ON jl2.company_id = je2.company_id AND jl2.entry_id = je2.id
+          WHERE jl2.company_id = $1 AND jl2.account_id = a.id AND je2.status = 'POSTED'
         ), 0) as current_balance,
         (COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)) as period_balance
        FROM accounts a
-       LEFT JOIN journal_lines jl ON a.id = jl.account_id
-       LEFT JOIN journal_entries je ON jl.entry_id = je.id AND je.date >= $2 AND je.date <= $3
+       LEFT JOIN journal_lines jl ON jl.company_id = a.company_id AND jl.account_id = a.id
+       LEFT JOIN journal_entries je ON je.company_id = jl.company_id AND je.id = jl.entry_id AND je.date >= $2 AND je.date <= $3
        WHERE a.company_id = $1
        GROUP BY a.id, a.code, a.name, a.type, a.currency
        ORDER BY a.code ASC`, [companyId, startDate, endDate]);
@@ -67,16 +67,16 @@ router.get('/ledger-card/:accountId', verifyCompanyMembership, async (req, res) 
         const openingResult = await query(`SELECT 
         COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) as opening_balance
        FROM journal_lines jl
-       JOIN journal_entries je ON jl.entry_id = je.id
-       WHERE je.company_id = $1 AND jl.account_id = $2 AND je.date < $3`, [companyId, prefixedAccountId, startDate]);
+       JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
+       WHERE jl.company_id = $1 AND je.company_id = $1 AND jl.account_id = $2 AND je.date < $3`, [companyId, prefixedAccountId, startDate]);
         const openingBalance = Number(openingResult.rows[0]?.opening_balance || 0);
         // Get period details
         const detailsResult = await query(`SELECT 
         je.id as transaction_id, je.date, je.voucher_id, je.description,
         jl.debit, jl.credit, jl.note, je.currency, je.exchange_rate
        FROM journal_lines jl
-       JOIN journal_entries je ON jl.entry_id = je.id
-       WHERE je.company_id = $1 AND jl.account_id = $2 AND je.date >= $3 AND je.date <= $4
+       JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
+       WHERE jl.company_id = $1 AND je.company_id = $1 AND jl.account_id = $2 AND je.date >= $3 AND je.date <= $4
        ORDER BY je.date ASC, je.created_at ASC`, [companyId, prefixedAccountId, startDate, endDate]);
         res.json({
             openingBalance,

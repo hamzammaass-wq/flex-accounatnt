@@ -140,7 +140,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO contacts (id, company_id, name, type, phone, address, preferred_price_tier, linked_account_id, current_account_id, capital_account_id, drawings_account_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-           ON CONFLICT (id) DO UPDATE
+           ON CONFLICT (company_id, id) DO UPDATE
            SET name = EXCLUDED.name, type = EXCLUDED.type, phone = EXCLUDED.phone, address = EXCLUDED.address,
                linked_account_id = EXCLUDED.linked_account_id, current_account_id = EXCLUDED.current_account_id,
                capital_account_id = EXCLUDED.capital_account_id, drawings_account_id = EXCLUDED.drawings_account_id`,
@@ -167,7 +167,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO warehouses (id, company_id, name, location, manager, is_main)
            VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [w.id, companyId, w.name, w.location || '', w.manager || '', !!w.isMain]
         );
       }
@@ -179,7 +179,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO products (id, company_id, name, kind, category, buy_price, sell_price, wholesale_price, retail_price, stock, barcode, item_code, expiry_date, unit_id, fifo_layers)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [
             p.id,
             companyId,
@@ -203,10 +203,10 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         const breakdown = p.warehouseStock || [];
         for (const b of breakdown) {
           await pgClient.query(
-            `INSERT INTO product_warehouse_stock (product_id, warehouse_id, quantity)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (product_id, warehouse_id) DO UPDATE SET quantity = EXCLUDED.quantity`,
-            [p.id, b.warehouseId, Number(b.quantity || 0)]
+            `INSERT INTO product_warehouse_stock (company_id, product_id, warehouse_id, quantity)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (company_id, product_id, warehouse_id) DO UPDATE SET quantity = EXCLUDED.quantity`,
+            [companyId, p.id, b.warehouseId, Number(b.quantity || 0)]
           );
         }
       }
@@ -237,7 +237,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO journal_entries (id, company_id, voucher_id, amount, description, category, type, date, invoice_id, contact_id, employee_id, asset_id, check_id, currency, exchange_rate, status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [
             t.id,
             companyId,
@@ -261,10 +261,10 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         // Insert Lines
         for (const line of lines) {
           await pgClient.query(
-            `INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency, exchange_rate, note)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT DO NOTHING`,
-            [t.id, prefixAccountId(companyId, line.accountId), line.debit, line.credit, t.currency || baseCurrency, Number(t.exchangeRate || 1.0), line.note]
+            [companyId, t.id, prefixAccountId(companyId, line.accountId), line.debit, line.credit, t.currency || baseCurrency, Number(t.exchangeRate || 1.0), line.note]
           );
         }
       }
@@ -276,7 +276,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO invoices (id, company_id, invoice_number, customer_id, linked_invoice_id, type, category, date, due_date, sub_total, tax_rate, tax_amount, tax_mode, discount_amount, total_amount, status, posting_status, payment_type, payment_account_id, is_partner_drawings, partner_drawings_mode, notes, currency, exchange_rate, warehouse_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [
             inv.id,
             companyId,
@@ -310,11 +310,12 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         const items = inv.items || [];
         for (const item of items) {
           await pgClient.query(
-            `INSERT INTO invoice_items (id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-             ON CONFLICT (id) DO NOTHING`,
+            `INSERT INTO invoice_items (id, company_id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             ON CONFLICT (company_id, id) DO NOTHING`,
             [
               item.id,
+              companyId,
               inv.id,
               item.productId || null,
               prefixAccountId(companyId, item.accountId),
@@ -337,7 +338,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO invoice_settlements (id, company_id, invoice_id, voucher_id, contact_id, date, amount, amount_base, currency, exchange_rate, source_type, note)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [
             set.id,
             companyId,
@@ -362,7 +363,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO employees (id, company_id, name, code, department_id, position, hire_date, salary_type, pay_basis, basic_salary, daily_work_hours, hourly_rate, status, phone)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-           ON CONFLICT (id) DO UPDATE
+           ON CONFLICT (company_id, id) DO UPDATE
            SET name = EXCLUDED.name, position = EXCLUDED.position, status = EXCLUDED.status`,
           [
             emp.id,
@@ -390,7 +391,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO fixed_assets (id, company_id, name, purchase_date, cost, salvage_value, life_in_years, description, status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [
             asset.id,
             companyId,
@@ -412,7 +413,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await pgClient.query(
           `INSERT INTO checks (id, company_id, check_number, bank_name, due_date, amount, status, contact_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (company_id, id) DO NOTHING`,
           [
             check.id,
             companyId,

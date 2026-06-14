@@ -14,8 +14,9 @@ import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { BadgeCheck, Building2, CheckCircle2, Clock3, KeyRound, Lock, Mail, ShieldCheck, User } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
-import { firebaseAuth, isFirebaseAuthEnabled } from '../firebaseClient';
-import { translate } from '../utils/i18n';
+import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled } from '../firebaseClient';
+import { doc, getDoc } from 'firebase/firestore';
+import { translate, isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
 import { clearWorkspaceSnapshotStorage, hasAnyWorkspaceSnapshotRecord } from '../utils/workspaceSnapshotStorage';
 import PolicyGuideScreen from './PolicyGuideScreen';
 import authScreenLogo from '../AI FLEX LOGO.png';
@@ -162,6 +163,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
   const [regPassword, setRegPassword] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginType, setLoginType] = useState<'EMAIL' | 'CODE'>('EMAIL');
+  const [registerType, setRegisterType] = useState<'EMAIL' | 'CODE'>('EMAIL');
+  const [loginCode, setLoginCode] = useState('');
+  const [regCode, setRegCode] = useState('');
   const [guestDataPreference] = useState<GuestDataPreference>('KEEP');
   const [hasGuestWorkspaceData, setHasGuestWorkspaceData] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
@@ -372,7 +377,27 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     setInfoMessage('');
 
     try {
-      const credential = await createUserWithEmailAndPassword(firebaseAuth, regEmail.trim(), regPassword);
+      let emailToUse = regEmail.trim();
+      if (registerType === 'CODE') {
+        const trimmedCode = regCode.trim();
+        if (!trimmedCode) {
+          setErrorMessage(appLanguage === 'AR' ? 'يرجى إدخال كود الحساب.' : 'Please enter the account code.');
+          setLoading(false);
+          return;
+        }
+        if (!/^[a-zA-Z0-9_.-]{3,}$/.test(trimmedCode)) {
+          setErrorMessage(
+            appLanguage === 'AR'
+              ? 'يجب أن يتكون كود الحساب من 3 أحرف أو أرقام على الأقل، بدون مسافات أو رموز خاصة.'
+              : 'Account code must be at least 3 characters or numbers, without spaces or special characters.'
+          );
+          setLoading(false);
+          return;
+        }
+        emailToUse = `code_${trimmedCode.toLowerCase()}@smart.local`;
+      }
+
+      const credential = await createUserWithEmailAndPassword(firebaseAuth, emailToUse, regPassword);
       const fullName = regFullName.trim();
       if (fullName) {
         await updateProfile(credential.user, { displayName: fullName });
@@ -408,7 +433,30 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     setInfoMessage('');
 
     try {
-      await signInWithEmailAndPassword(firebaseAuth, loginEmail.trim(), loginPassword);
+      let emailToUse = loginEmail.trim();
+      if (loginType === 'CODE') {
+        const trimmedCode = loginCode.trim().toLowerCase();
+        if (!trimmedCode) {
+          setErrorMessage(appLanguage === 'AR' ? 'يرجى إدخال كود الحساب.' : 'Please enter the account code.');
+          setLoading(false);
+          return;
+        }
+
+        let mappedEmail = '';
+        try {
+          if (firebaseDb) {
+            const snap = await getDoc(doc(firebaseDb, 'account_codes', trimmedCode));
+            if (snap.exists()) {
+              mappedEmail = snap.data().email || '';
+            }
+          }
+        } catch (dbErr) {
+          console.warn('[Account Code Lookup Failed]', dbErr);
+        }
+
+        emailToUse = mappedEmail || `code_${trimmedCode}@smart.local`;
+      }
+      await signInWithEmailAndPassword(firebaseAuth, emailToUse, loginPassword);
       const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
       if (hasGuestWorkspaceData) {
         await applyGuestDataDecision(guestDataPreference);
@@ -712,20 +760,52 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
             <>
               {authMode === 'LOGIN' ? (
                 <form onSubmit={handleLogin} className="space-y-4">
+                  <div className="grid grid-cols-2 bg-slate-50 border border-slate-100 rounded-xl p-1 gap-1 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setLoginType('EMAIL')}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${loginType === 'EMAIL' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLoginType('CODE')}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${loginType === 'CODE' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
+                    </button>
+                  </div>
                   <div className="space-y-3">
-                    <div className="relative">
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <Mail className="w-4 h-4 text-gray-400" />
+                    {loginType === 'EMAIL' ? (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                          <Mail className="w-4 h-4 text-gray-400" />
+                        </div>
+                        <input
+                          type="email"
+                          required
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
+                        />
                       </div>
-                      <input
-                        type="email"
-                        required
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
-                      />
-                    </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                          <KeyRound className="w-4 h-4 text-gray-400" />
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          value={loginCode}
+                          onChange={(e) => setLoginCode(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          placeholder={appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
+                        />
+                      </div>
+                    )}
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                         <Lock className="w-4 h-4 text-gray-400" />
@@ -751,6 +831,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                 </form>
               ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
+                  <div className="grid grid-cols-2 bg-slate-50 border border-slate-100 rounded-xl p-1 gap-1 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setRegisterType('EMAIL')}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${registerType === 'EMAIL' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRegisterType('CODE')}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${registerType === 'CODE' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
+                    </button>
+                  </div>
                   <div className="space-y-3">
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
@@ -778,19 +874,35 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                         placeholder={appLanguage === 'AR' ? 'الاسم الكامل' : 'Full name'}
                       />
                     </div>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <Mail className="w-4 h-4 text-gray-400" />
+                    {registerType === 'EMAIL' ? (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                          <Mail className="w-4 h-4 text-gray-400" />
+                        </div>
+                        <input
+                          type="email"
+                          required
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
+                        />
                       </div>
-                      <input
-                        type="email"
-                        required
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
-                        placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
-                      />
-                    </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                          <KeyRound className="w-4 h-4 text-gray-400" />
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          value={regCode}
+                          onChange={(e) => setRegCode(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          placeholder={appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
+                        />
+                      </div>
+                    )}
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                         <Lock className="w-4 h-4 text-gray-400" />

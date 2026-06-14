@@ -14,7 +14,7 @@ router.get('/', verifyCompanyMembership, async (req, res) => {
     const { companyId } = req.params;
     try {
         const result = await query(`SELECT t.*, 
-        (SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.entry_id = t.id) as lines
+        (SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.company_id = t.company_id AND jl.entry_id = t.id) as lines
        FROM journal_entries t
        WHERE t.company_id = $1
        ORDER BY t.date DESC, t.created_at DESC`, [companyId]);
@@ -69,8 +69,9 @@ router.post('/', verifyCompanyMembership, async (req, res) => {
         // 2. Insert lines and update account balances
         for (const line of lines) {
             const prefixedAccountId = prefixAccountId(companyId, line.accountId);
-            await client.query(`INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency, exchange_rate, note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [
+            await client.query(`INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
+                companyId,
                 id,
                 prefixedAccountId,
                 Number(line.debit || 0),
@@ -118,7 +119,7 @@ router.post('/:transactionId/reverse', verifyCompanyMembership, async (req, res)
             return res.status(400).json({ error: 'Transaction is already a reversal or has already been reversed' });
         }
         // 2. Get original transaction lines
-        const originalLines = await client.query(`SELECT * FROM journal_lines WHERE entry_id = $1`, [transactionId]);
+        const originalLines = await client.query(`SELECT * FROM journal_lines WHERE company_id = $1 AND entry_id = $2`, [companyId, transactionId]);
         // 3. Create reversal header (debits and credits swapped)
         await client.query(`INSERT INTO journal_entries (
         id, company_id, voucher_id, amount, description, category, type, date,
@@ -148,8 +149,9 @@ router.post('/:transactionId/reverse', verifyCompanyMembership, async (req, res)
             // Swapping credit to debit and debit to credit
             const revDebit = Number(originalLine.credit || 0);
             const revCredit = Number(originalLine.debit || 0);
-            await client.query(`INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency, exchange_rate, note)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [
+            await client.query(`INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
+                companyId,
                 reversalId,
                 originalLine.account_id,
                 revDebit,

@@ -27,6 +27,7 @@ import {
   BookOpen,
   Trash2,
   User,
+  Users,
   AlertTriangle
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
@@ -45,8 +46,9 @@ import EnglishDateInput from './EnglishDateInput';
 import PolicyGuideScreen from './PolicyGuideScreen';
 import AccountDeletionScreen from './AccountDeletionScreen';
 import { useAccounting } from '../contexts/AccountingContext';
+import { updatePassword, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential } from 'firebase/auth';
 import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
-import { normalizeAppLanguage, translate } from '../utils/i18n';
+import { normalizeAppLanguage, translate, isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { compressImageFile } from '../utils/imageCompression';
 import { applyAppTheme } from '../utils/appTheme';
@@ -110,6 +112,7 @@ type BooleanSettingKey =
 export type SettingsMode =
   | 'MENU'
   | 'USER_ACCOUNT'
+  | 'USER_MANAGEMENT'
   | 'COMPANIES'
   | 'SUBSCRIPTION'
   | 'SUBSCRIPTION_REPORTS'
@@ -388,7 +391,11 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     setInvoices,
     setProducts,
     setImportExpenseDistributions,
-    updateCheck
+    updateCheck,
+    users,
+    addUser,
+    updateUser,
+    deleteUser
   } = useAccounting();
   const appLanguage = companySettings.language ?? 'AR';
   const isEnglish = appLanguage !== 'AR';
@@ -460,6 +467,25 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [workspaceOfferCodeDraft, setWorkspaceOfferCodeDraft] = useState('');
   const [workspaceOfferStatusMessage, setWorkspaceOfferStatusMessage] = useState('');
   const [workspaceOfferBusy, setWorkspaceOfferBusy] = useState(false);
+
+  // User Change Password State
+  const [userCurrentPassword, setUserCurrentPassword] = useState('');
+  const [userNewPassword, setUserNewPassword] = useState('');
+  const [userConfirmPassword, setUserConfirmPassword] = useState('');
+  const [userPassStatus, setUserPassStatus] = useState('');
+  const [userPassLoading, setUserPassLoading] = useState(false);
+
+  // Admin User Management State
+  const [adminNewUserCode, setAdminNewUserCode] = useState('');
+  const [adminNewUserFullName, setAdminNewUserFullName] = useState('');
+  const [adminNewUserPassword, setAdminNewUserPassword] = useState('');
+  const [adminNewUserRole, setAdminNewUserRole] = useState<UserRole>('ACCOUNTANT');
+  const [adminUserMgmtStatus, setAdminUserMgmtStatus] = useState('');
+  const [adminUserMgmtLoading, setAdminUserMgmtLoading] = useState(false);
+  const [adminSelectedUserForPasswordReset, setAdminSelectedUserForPasswordReset] = useState('');
+  const [adminResetPasswordValue, setAdminResetPasswordValue] = useState('');
+  const [adminResetPasswordLoading, setAdminResetPasswordLoading] = useState(false);
+  const [adminResetPasswordStatus, setAdminResetPasswordStatus] = useState('');
   const [workspaceOfferKindDraft, setWorkspaceOfferKindDraft] = useState<WorkspaceOfferCodeKind>('DISCOUNT_PERCENT');
   const [workspaceOfferDiscountDraft, setWorkspaceOfferDiscountDraft] = useState('25');
   const [workspaceOfferFreeDaysDraft, setWorkspaceOfferFreeDaysDraft] = useState('30');
@@ -1826,6 +1852,174 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     alert(tr('تم حفظ الشعار بنجاح.', 'Logo updated successfully.'));
   };
 
+  const hasPasswordProvider = useMemo(() => {
+    if (!firebaseAuth?.currentUser) return false;
+    return firebaseAuth.currentUser.providerData.some(p => p.providerId === 'password');
+  }, [firebaseAuth?.currentUser]);
+
+  const handleUserPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firebaseAuth?.currentUser) return;
+    
+    if (userNewPassword.length < 6) {
+      setUserPassStatus(tr('يجب أن تكون كلمة المرور 6 أحرف على الأقل.', 'Password must be at least 6 characters.'));
+      return;
+    }
+    if (userNewPassword !== userConfirmPassword) {
+      setUserPassStatus(tr('كلمتا المرور غير متطابقتين.', 'Passwords do not match.'));
+      return;
+    }
+
+    setUserPassLoading(true);
+    setUserPassStatus('');
+
+    try {
+      const email = firebaseAuth.currentUser.email || '';
+      if (hasPasswordProvider) {
+        // Reauthenticate
+        const credential = EmailAuthProvider.credential(email, userCurrentPassword);
+        await reauthenticateWithCredential(firebaseAuth.currentUser, credential);
+        await updatePassword(firebaseAuth.currentUser, userNewPassword);
+        setUserPassStatus(tr('تم تحديث كلمة المرور بنجاح!', 'Password updated successfully!'));
+      } else {
+        // Link credential (Google user setting password)
+        const credential = EmailAuthProvider.credential(email, userNewPassword);
+        await linkWithCredential(firebaseAuth.currentUser, credential);
+        setUserPassStatus(tr('تم إنشاء كلمة مرور للحساب بنجاح!', 'Password created for this account successfully!'));
+      }
+      setUserCurrentPassword('');
+      setUserNewPassword('');
+      setUserConfirmPassword('');
+    } catch (err: any) {
+      console.error('[Change Password Error]', err);
+      let errMsg = err.message || '';
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        errMsg = tr('كلمة المرور الحالية غير صحيحة.', 'Current password is incorrect.');
+      }
+      setUserPassStatus(`${tr('فشل تحديث كلمة المرور:', 'Failed to update password:')} ${errMsg}`);
+    } finally {
+      setUserPassLoading(false);
+    }
+  };
+
+  const handleAdminCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firebaseAuth?.currentUser) return;
+
+    if (!adminNewUserCode.trim()) {
+      setAdminUserMgmtStatus(tr('يرجى إدخال كود الحساب.', 'Please enter the account code.'));
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]{3,}$/.test(adminNewUserCode.trim())) {
+      setAdminUserMgmtStatus(tr('يجب أن يتكون كود الحساب من 3 أحرف أو أرقام على الأقل، بدون مسافات أو رموز خاصة.', 'Account code must be at least 3 characters or numbers, without spaces or special characters.'));
+      return;
+    }
+    if (!adminNewUserFullName.trim()) {
+      setAdminUserMgmtStatus(tr('يرجى إدخال الاسم الكامل.', 'Please enter the full name.'));
+      return;
+    }
+    if (adminNewUserPassword.length < 6) {
+      setAdminUserMgmtStatus(tr('يجب أن تكون كلمة المرور 6 أحرف على الأقل.', 'Password must be at least 6 characters.'));
+      return;
+    }
+
+    setAdminUserMgmtLoading(true);
+    setAdminUserMgmtStatus('');
+
+    try {
+      const token = await firebaseAuth.currentUser.getIdToken();
+      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      
+      const response = await fetch(`${backendApiUrl}/companies/${currentCompanyId}/users/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          accountCode: adminNewUserCode.trim(),
+          fullName: adminNewUserFullName.trim(),
+          password: adminNewUserPassword,
+          role: adminNewUserRole,
+          companyName: currentCompany?.name || 'Company'
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        if (resData.error === 'ACCOUNT_CODE_EXISTS') {
+          throw new Error(tr('كود الحساب هذا مستخدم بالفعل.', 'This account code is already in use.'));
+        }
+        throw new Error(resData.error || 'Failed to create user');
+      }
+
+      // User created successfully on auth and Firestore profile initialized!
+      addUser({
+        id: resData.uid,
+        name: adminNewUserFullName.trim(),
+        email: resData.email,
+        role: adminNewUserRole,
+        status: 'ACTIVE'
+      });
+
+      setAdminUserMgmtStatus(tr('تم إنشاء المستخدم الجديد بنجاح!', 'New user created successfully!'));
+      setAdminNewUserCode('');
+      setAdminNewUserFullName('');
+      setAdminNewUserPassword('');
+    } catch (err: any) {
+      console.error('[Admin Create User Error]', err);
+      setAdminUserMgmtStatus(`${tr('فشل إنشاء المستخدم:', 'Failed to create user:')} ${err.message}`);
+    } finally {
+      setAdminUserMgmtLoading(false);
+    }
+  };
+
+  const handleAdminChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firebaseAuth?.currentUser || !adminSelectedUserForPasswordReset) return;
+
+    if (adminResetPasswordValue.length < 6) {
+      setAdminResetPasswordStatus(tr('يجب أن تكون كلمة المرور 6 أحرف على الأقل.', 'Password must be at least 6 characters.'));
+      return;
+    }
+
+    setAdminResetPasswordLoading(true);
+    setAdminResetPasswordStatus('');
+
+    try {
+      const token = await firebaseAuth.currentUser.getIdToken();
+      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      
+      const response = await fetch(`${backendApiUrl}/companies/${currentCompanyId}/users/${adminSelectedUserForPasswordReset}/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          newPassword: adminResetPasswordValue
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Failed to change password');
+      }
+
+      setAdminResetPasswordStatus(tr('تم تغيير كلمة المرور بنجاح!', 'Password changed successfully!'));
+      setAdminResetPasswordValue('');
+      setTimeout(() => {
+        setAdminSelectedUserForPasswordReset('');
+        setAdminResetPasswordStatus('');
+      }, 2000);
+    } catch (err: any) {
+      console.error('[Admin Change Password Error]', err);
+      setAdminResetPasswordStatus(`${tr('فشل تغيير كلمة المرور:', 'Failed to change password:')} ${err.message}`);
+    } finally {
+      setAdminResetPasswordLoading(false);
+    }
+  };
+
   const filteredAuditLogs = useMemo(() => {
     const query = auditSearch.trim().toLowerCase();
     if (!query) return auditLogs;
@@ -1858,8 +2052,12 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         </div>
         
         <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-bold text-gray-500">{tr('البريد الإلكتروني', 'Email')}</label>
-          <div className="text-sm font-black text-gray-900">{currentUser?.email || '-'}</div>
+          <label className="text-[11px] font-bold text-gray-500">
+            {isCodeEmail(currentUser?.email) ? tr('كود الحساب', 'Account Code') : tr('البريد الإلكتروني', 'Email')}
+          </label>
+          <div className="text-sm font-black text-gray-900">
+            {isCodeEmail(currentUser?.email) ? extractCodeFromEmail(currentUser?.email) : (currentUser?.email || '-')}
+          </div>
         </div>
 
         <div className="flex flex-col gap-1">
@@ -1877,7 +2075,287 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             {currentUser?.role === 'ADMIN' ? tr('مدير نظام', 'Admin') : currentUser?.role === 'ACCOUNTANT' ? tr('محاسب', 'Accountant') : tr('مستخدم للعرض', 'Viewer')}
           </div>
         </div>
+
+        <div className="pt-4 border-t border-gray-100 space-y-3">
+          <h4 className="text-xs font-black text-gray-700">
+            {hasPasswordProvider ? tr('تغيير كلمة المرور', 'Change Password') : tr('إنشاء كلمة مرور للحساب', 'Create Account Password')}
+          </h4>
+          
+          {userPassStatus && (
+            <div className={`text-[11px] font-bold p-2.5 rounded-lg border text-center ${
+              userPassStatus.includes('نجاح') || userPassStatus.includes('success')
+                ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                : 'bg-rose-50 border-rose-100 text-rose-700'
+            }`}>
+              {userPassStatus}
+            </div>
+          )}
+
+          <form onSubmit={handleUserPasswordSubmit} className="space-y-3">
+            {hasPasswordProvider && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-500">{tr('كلمة المرور الحالية', 'Current Password')}</label>
+                <input
+                  type="password"
+                  required
+                  value={userCurrentPassword}
+                  onChange={(e) => setUserCurrentPassword(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  placeholder={tr('أدخل كلمة المرور الحالية', 'Enter current password')}
+                />
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-500">{tr('كلمة المرور الجديدة', 'New Password')}</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={userNewPassword}
+                  onChange={(e) => setUserNewPassword(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  placeholder={tr('6 أحرف على الأقل', 'At least 6 characters')}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-500">{tr('تأكيد كلمة المرور الجديدة', 'Confirm New Password')}</label>
+                <input
+                  type="password"
+                  required
+                  value={userConfirmPassword}
+                  onChange={(e) => setUserConfirmPassword(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  placeholder={tr('تأكيد كلمة المرور', 'Confirm password')}
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={userPassLoading}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center justify-center transition-all disabled:opacity-75"
+            >
+              {userPassLoading ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                hasPasswordProvider ? tr('حفظ التغييرات', 'Save Changes') : tr('تفعيل كلمة المرور', 'Enable Password')
+              )}
+            </button>
+          </form>
+        </div>
       </div>
+    </div>
+  );
+
+
+  const renderUserManagementForm = () => (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-6 animate-in fade-in">
+      <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+        <div className="flex items-center gap-2">
+          <Users className="w-5 h-5 text-indigo-600" />
+          <h3 className="text-sm font-black text-gray-800">{tr('إدارة المستخدمين', 'User Management')}</h3>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMode('MENU')}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 transition-all"
+        >
+          <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+          {tr('عودة', 'Back')}
+        </button>
+      </div>
+
+      {/* Create User Form */}
+      <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl space-y-3">
+        <h4 className="text-xs font-black text-gray-700">{tr('إنشاء مستخدم جديد بكود الحساب', 'Create New User via Account Code')}</h4>
+        
+        {adminUserMgmtStatus && (
+          <div className={`text-[11px] font-bold p-2.5 rounded-lg border text-center ${
+            adminUserMgmtStatus.includes('نجاح') || adminUserMgmtStatus.includes('success')
+              ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+              : 'bg-rose-50 border-rose-100 text-rose-700'
+          }`}>
+            {adminUserMgmtStatus}
+          </div>
+        )}
+
+        <form onSubmit={handleAdminCreateUser} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-gray-500">{tr('كود الحساب', 'Account Code')}</label>
+            <input
+              type="text"
+              required
+              value={adminNewUserCode}
+              onChange={(e) => setAdminNewUserCode(e.target.value)}
+              className="bg-white border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
+              placeholder={tr('مثال: user123', 'e.g. user123')}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-gray-500">{tr('الاسم الكامل', 'Full Name')}</label>
+            <input
+              type="text"
+              required
+              value={adminNewUserFullName}
+              onChange={(e) => setAdminNewUserFullName(e.target.value)}
+              className="bg-white border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
+              placeholder={tr('الاسم الكامل للمستخدم', 'Full name of user')}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-gray-500">{tr('كلمة المرور', 'Password')}</label>
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={adminNewUserPassword}
+              onChange={(e) => setAdminNewUserPassword(e.target.value)}
+              className="bg-white border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
+              placeholder={tr('6 أحرف على الأقل', 'At least 6 characters')}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-gray-500">{tr('الصلاحية', 'Role')}</label>
+            <select
+              value={adminNewUserRole}
+              onChange={(e) => setAdminNewUserRole(e.target.value as UserRole)}
+              className="bg-white border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-2.5"
+            >
+              <option value="ACCOUNTANT">{tr('محاسب (Accountant)', 'Accountant')}</option>
+              <option value="VIEWER">{tr('عرض فقط (Viewer)', 'Viewer')}</option>
+              <option value="ADMIN">{tr('مدير نظام (Admin)', 'Admin')}</option>
+            </select>
+          </div>
+          <div className="md:col-span-2 pt-2">
+            <button
+              type="submit"
+              disabled={adminUserMgmtLoading}
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center transition-all disabled:opacity-75"
+            >
+              {adminUserMgmtLoading ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                tr('إنشاء مستخدم', 'Create User')
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Users List & Actions */}
+      <div className="space-y-3">
+        <h4 className="text-xs font-black text-gray-700">{tr('المستخدمون الحاليون', 'Current Users')}</h4>
+        <div className="overflow-x-auto border border-gray-100 rounded-2xl">
+          <table className="w-full text-xs text-right text-gray-500">
+            <thead className="text-[10px] text-gray-700 uppercase bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="p-3 text-right">{tr('الاسم', 'Name')}</th>
+                <th className="p-3 text-right">{tr('المعرف / البريد', 'ID / Email')}</th>
+                <th className="p-3 text-right">{tr('الصلاحية', 'Role')}</th>
+                <th className="p-3 text-center">{tr('العمليات', 'Actions')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {users.map((u) => {
+                const isCode = isCodeEmail(u.email);
+                const displayEmail = isCode ? extractCodeFromEmail(u.email) : u.email;
+                return (
+                  <tr key={u.id} className="hover:bg-gray-50/50">
+                    <td className="p-3 font-bold text-gray-800">{u.name}</td>
+                    <td className="p-3 text-gray-600 dir-ltr text-right">{displayEmail}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : u.role === 'ACCOUNTANT' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {u.role === 'ADMIN' ? tr('مدير', 'Admin') : u.role === 'ACCOUNTANT' ? tr('محاسب', 'Accountant') : tr('عرض', 'Viewer')}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminSelectedUserForPasswordReset(u.id);
+                          setAdminResetPasswordStatus('');
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-bold underline"
+                      >
+                        {tr('تغيير كلمة المرور', 'Change Password')}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="p-4 text-center font-bold text-gray-400">
+                    {tr('لا يوجد مستخدمون حالياً.', 'No users found.')}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Admin Reset Password Modal/Section */}
+      {adminSelectedUserForPasswordReset && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md p-6 rounded-3xl shadow-2xl border border-gray-100 space-y-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-black text-gray-800">
+              {tr('تغيير كلمة المرور للمستخدم', 'Change Password for User')}: {' '}
+              <span className="text-indigo-600">
+                {users.find(u => u.id === adminSelectedUserForPasswordReset)?.name || ''}
+              </span>
+            </h3>
+
+            {adminResetPasswordStatus && (
+              <div className={`text-[11px] font-bold p-2.5 rounded-lg border text-center ${
+                adminResetPasswordStatus.includes('نجاح') || adminResetPasswordStatus.includes('success')
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                  : 'bg-rose-50 border-rose-100 text-rose-700'
+              }`}>
+                {adminResetPasswordStatus}
+              </div>
+            )}
+
+            <form onSubmit={handleAdminChangePassword} className="space-y-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-500">{tr('كلمة المرور الجديدة', 'New Password')}</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={adminResetPasswordValue}
+                  onChange={(e) => setAdminResetPasswordValue(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  placeholder={tr('6 أحرف على الأقل', 'At least 6 characters')}
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminSelectedUserForPasswordReset('')}
+                  className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition-all"
+                >
+                  {tr('إلغاء', 'Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminResetPasswordLoading}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center transition-all disabled:opacity-75"
+                >
+                  {adminResetPasswordLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    tr('تغيير كلمة المرور', 'Change Password')
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -3159,7 +3637,11 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-[12px] font-bold text-gray-700 leading-6">
-            <div>{tr('المستخدم الحالي', 'Current user')}: {currentUser?.email || '-'}</div>
+            <div>
+              {isCodeEmail(currentUser?.email) 
+                ? `${tr('كود الحساب الحالي', 'Current account code')}: ${extractCodeFromEmail(currentUser?.email)}`
+                : `${tr('المستخدم الحالي', 'Current user')}: ${currentUser?.email || '-'}`}
+            </div>
             <div className="dir-ltr text-left">{tr('معرف الجهاز', 'Device ID')}: {deviceBindingId}</div>
             <div>{tr('عدد الأجهزة المسموح', 'Allowed devices')}: {cloudSubscription?.maxDevices || 1}</div>
           </div>
@@ -5172,6 +5654,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const renderContent = () => {
     switch (mode) {
       case 'USER_ACCOUNT': return renderUserAccountForm();
+      case 'USER_MANAGEMENT': return renderUserManagementForm();
       case 'COMPANIES': return renderCompaniesForm();
       case 'SUBSCRIPTION': return renderSubscriptionForm();
       case 'SUBSCRIPTION_REPORTS': return renderSubscriptionReports();
@@ -5245,6 +5728,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             >
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                 <MenuItem icon={<User className="w-6 h-6" />} title={tr('معلومات الحساب', 'Account Information')} desc={tr('الاسم، البريد الإلكتروني، وحالة التسجيل', 'Name, Email, and Registration Status')} color="blue" rtl={rtl} onClick={() => setMode('USER_ACCOUNT')} />
+                {currentUser?.role === 'ADMIN' && (
+                  <MenuItem icon={<Users className="w-6 h-6" />} title={tr('إدارة المستخدمين', 'User Management')} desc={tr('إنشاء مستخدمين جدد وتغيير كلمات المرور الخاصة بهم', 'Create new users and change their passwords')} color="indigo" rtl={rtl} onClick={() => setMode('USER_MANAGEMENT')} />
+                )}
                 <MenuItem icon={<Building2 className="w-6 h-6" />} title={tr('الشركات', 'Companies')} desc={tr('التبديل بين الشركات وإضافة شركة جديدة', 'Switch and manage multiple companies')} color="teal" rtl={rtl} onClick={() => setMode('COMPANIES')} />
                 <MenuItem icon={<ShieldCheck className="w-6 h-6" />} title={tr('إدارة الاشتراك', 'Subscription')} desc={tr('تفعيل الاشتراك، تمديده، وضبط حالة الوصول للشركة الحالية', 'Activate, renew, and control company access status')} color="emerald" rtl={rtl} onClick={() => setMode('SUBSCRIPTION')} />
                 <MenuItem icon={<Building className="w-6 h-6" />} title={t('settings.companyData')} desc={t('settings.companyDesc')} color="blue" rtl={rtl} onClick={() => setMode('COMPANY')} />

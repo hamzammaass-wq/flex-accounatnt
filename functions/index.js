@@ -861,3 +861,93 @@ export const fixFirestoreUsers = onRequest({ cors: true }, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+export const inspectAllFirestoreSubcollections = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const uids = ['IcWiXkjYgWRyxlMlEvVmR4CdeHB3', 'u9ufZgGvXFO3JfBHwgIdaPUCqcI3'];
+    const possibleCompanies = ['cmp_default', 'cmp_IcWiXkjYgWRyxlMlEvVmR4CdeHB3', 'cmp_u9ufZgGvXFO3JfBHwgIdaPUCqcI3'];
+    const collections = ['accounts', 'transactions', 'invoices', 'receipts'];
+    let results = [];
+
+    for (const uid of uids) {
+      for (const compId of possibleCompanies) {
+        let compResult = { userId: uid, companyId: compId, collections: {} };
+        let hasData = false;
+
+        for (const coll of collections) {
+          const snap = await db.collection(`users/${uid}/companies/${compId}/${coll}`).get();
+          compResult.collections[coll] = snap.size;
+          if (snap.size > 0) hasData = true;
+        }
+
+        if (hasData) {
+          results.push(compResult);
+        }
+      }
+    }
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+export const segregateFirestoreUsers = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const logs = [];
+    
+    // User 1: u9ufZgGvXFO3JfBHwgIdaPUCqcI3
+    const u1Ref = db.doc('users/u9ufZgGvXFO3JfBHwgIdaPUCqcI3');
+    const u1Snap = await u1Ref.get();
+    if (u1Snap.exists) {
+      let data = u1Snap.data();
+      if (data.companies && Array.isArray(data.companies)) {
+        data.companies = data.companies.map(c => {
+          if (c.id === 'cmp_IcWiXkjYgWRyxlMlEvVmR4CdeHB3') {
+            c.id = 'cmp_u9ufZgGvXFO3JfBHwgIdaPUCqcI3';
+          }
+          return c;
+        });
+        await u1Ref.update({ companies: data.companies });
+        logs.push('Redirected user u9ufZgGvXFO3JfBHwgIdaPUCqcI3 in Firestore to cmp_u9ufZgGvXFO3JfBHwgIdaPUCqcI3');
+      }
+    }
+
+    // User 2: IcWiXkjYgWRyxlMlEvVmR4CdeHB3
+    const u2Ref = db.doc('users/IcWiXkjYgWRyxlMlEvVmR4CdeHB3');
+    const u2Snap = await u2Ref.get();
+    if (u2Snap.exists) {
+      let data = u2Snap.data();
+      if (data.companies && Array.isArray(data.companies)) {
+        data.companies = data.companies.map(c => {
+          if (c.id === 'cmp_u9ufZgGvXFO3JfBHwgIdaPUCqcI3' || c.id === 'cmp_default') {
+            c.id = 'cmp_IcWiXkjYgWRyxlMlEvVmR4CdeHB3';
+          }
+          return c;
+        });
+        await u2Ref.update({ companies: data.companies });
+        logs.push('Redirected user IcWiXkjYgWRyxlMlEvVmR4CdeHB3 in Firestore to cmp_IcWiXkjYgWRyxlMlEvVmR4CdeHB3');
+      }
+    }
+
+    res.json({ success: true, logs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+export const inspectSubscriptions = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const ids = ['cmp_IcWiXkjYgWRyxlMlEvVmR4CdeHB3', 'cmp_u9ufZgGvXFO3JfBHwgIdaPUCqcI3'];
+    let results = {};
+    for (const id of ids) {
+      const snap = await db.collection('company_subscriptions').doc(id).get();
+      results[id] = snap.exists ? snap.data() : null;
+    }
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
