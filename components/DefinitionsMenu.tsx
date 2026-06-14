@@ -46,6 +46,7 @@ import EnglishDateInput from './EnglishDateInput';
 import PolicyGuideScreen from './PolicyGuideScreen';
 import AccountDeletionScreen from './AccountDeletionScreen';
 import { useAccounting } from '../contexts/AccountingContext';
+import { firebaseAuth } from '../firebaseClient';
 import { updatePassword, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential } from 'firebase/auth';
 import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
 import { normalizeAppLanguage, translate, isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
