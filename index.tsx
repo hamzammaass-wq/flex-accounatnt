@@ -40,6 +40,17 @@ const triggerBootRecoveryReload = () => {
   if (sessionStorage.getItem(BOOT_RECOVERY_KEY) === '1') return;
   sessionStorage.setItem(BOOT_RECOVERY_KEY, '1');
 
+  try {
+    const lastReload = localStorage.getItem('al_mohaseb_last_recovery_reload');
+    if (lastReload) {
+      const diff = Date.now() - Number(lastReload);
+      if (diff < 15000) return;
+    }
+    localStorage.setItem('al_mohaseb_last_recovery_reload', String(Date.now()));
+  } catch {
+    // Ignore storage failures
+  }
+
   void clearRuntimeCaches().finally(() => {
     try {
       const url = new URL(window.location.href);
@@ -164,7 +175,14 @@ const setupBootRecoveryHandlers = () => {
     'error',
     (event) => {
       const target = event.target as EventTarget | null;
-      const isScriptLoadFailure = target instanceof HTMLScriptElement;
+      let isLocalScriptLoadFailure = false;
+      if (target instanceof HTMLScriptElement) {
+        const src = target.src || '';
+        const isLocal = src.startsWith(window.location.origin) || src.startsWith('/') || !/^https?:\/\//i.test(src);
+        if (isLocal) {
+          isLocalScriptLoadFailure = true;
+        }
+      }
       const message = String(event.message || '');
       const source = [event.filename, event.lineno, event.colno].filter(Boolean).join(':');
 
@@ -172,10 +190,10 @@ const setupBootRecoveryHandlers = () => {
         kind: 'window-error',
         message: message || 'Window error',
         stack: event.error instanceof Error ? event.error.stack : undefined,
-        source: source || (isScriptLoadFailure ? 'script-load' : 'window')
+        source: source || (isLocalScriptLoadFailure ? 'script-load' : 'window')
       });
 
-      if (isScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+      if (isLocalScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
         triggerBootRecoveryReload();
       }
     },

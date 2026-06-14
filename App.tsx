@@ -55,6 +55,19 @@ const lazyWithRetry = <T extends React.ComponentType<any>>(
         if (sessionStorage.getItem(BOOT_RECOVERY_KEY) !== '1') {
           sessionStorage.setItem(BOOT_RECOVERY_KEY, '1');
           
+          try {
+            const lastReload = localStorage.getItem('al_mohaseb_last_recovery_reload');
+            if (lastReload) {
+              const diff = Date.now() - Number(lastReload);
+              if (diff < 15000) {
+                throw error;
+              }
+            }
+            localStorage.setItem('al_mohaseb_last_recovery_reload', String(Date.now()));
+          } catch {
+            // Ignore storage failures
+          }
+          
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then((registrations) => {
               registrations.forEach(r => r.unregister().catch(() => {}));

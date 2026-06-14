@@ -29,6 +29,17 @@
           if (attempts >= 1) return;
 
           try {
+            var lastReload = localStorage.getItem('al_mohaseb_last_recovery_reload');
+            if (lastReload) {
+              var diff = Date.now() - Number(lastReload);
+              if (diff < 15000) return;
+            }
+            localStorage.setItem('al_mohaseb_last_recovery_reload', String(Date.now()));
+          } catch (e) {
+            // Ignore storage failures
+          }
+
+          try {
             sessionStorage.setItem(BOOT_RECOVERY_KEY, String(attempts + 1));
           } catch (error) {
             // Ignore storage failures and continue recovery.
@@ -66,7 +77,14 @@
 
         window.addEventListener('error', function (event) {
           var target = event && event.target;
-          var isScriptLoadFailure = typeof HTMLScriptElement !== 'undefined' && target instanceof HTMLScriptElement;
+          var isScriptLoadFailure = false;
+          if (typeof HTMLScriptElement !== 'undefined' && target instanceof HTMLScriptElement) {
+            var src = target.src || '';
+            var isLocal = src.indexOf(window.location.origin) === 0 || src.indexOf('/') === 0 || !/^https?:\/\//i.test(src);
+            if (isLocal) {
+              isScriptLoadFailure = true;
+            }
+          }
           var message = String((event && event.message) || '');
           if (isScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
             recoverBoot();
