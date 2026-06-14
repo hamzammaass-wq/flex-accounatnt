@@ -1923,6 +1923,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const companyDeleteInFlightRef = useRef<Set<string>>(new Set());
   const googleTokenRef = useRef<string>('');
   const googleTokenExpiresAtRef = useRef<number>(0);
+  const lastBackedUpVersionRef = useRef<number | null>(null);
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -9432,6 +9433,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     source: 'MANUAL' | 'AUTO',
     upload?: { uploadedToDrive?: boolean; driveFileId?: string }
   ) => {
+    // Avoid saving the full ciphertext in history since it is never displayed or retrieved,
+    // which prevents LocalStorage quota limits from being exceeded and reduces memory leaks.
+    const cleanPayload: BackupPayloadV1 = {
+      ...payload,
+      cipherText: `[OMITTED_FOR_SPACE: ${payload.cipherText.length} chars]`
+    };
     appendBackupHistoryEntry(
       currentCompanyId,
       {
@@ -9439,7 +9446,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         companyId: currentCompanyId,
         createdAt: payload.createdAt,
         source,
-        payload,
+        payload: cleanPayload,
         driveFileId: upload?.driveFileId,
         uploadedToDrive: Boolean(upload?.uploadedToDrive)
       },
@@ -9718,6 +9725,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           driveFileId: driveFileId || ''
         }
       });
+      lastBackedUpVersionRef.current = syncQueueVersion;
       return makeSuccess();
     } catch (error: any) {
       const message = String(error?.message || 'Automatic backup failed.');
@@ -9834,6 +9842,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         device: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
       };
       setAuditLogs([restoreLog, ...importedAudit].slice(0, 5000));
+      setSyncQueueVersion(prev => prev + 1);
       return true;
     } catch {
       appendAuditLog({
@@ -9924,6 +9933,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   useEffect(() => {
     googleTokenRef.current = '';
     googleTokenExpiresAtRef.current = 0;
+    lastBackedUpVersionRef.current = null;
     setGoogleDriveStatus({ isConnected: false });
   }, [currentCompanyId]);
 
@@ -9941,6 +9951,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     const runIfDue = async () => {
       if (cancelled || autoBackupInFlightRef.current) return;
+      if (lastBackedUpVersionRef.current === syncQueueVersion) return;
       const lastRunAt = Date.parse(String(companySettings.autoBackupLastRunAt || ''));
       const due = !Number.isFinite(lastRunAt) || (Date.now() - lastRunAt) >= frequencyMs;
       if (!due) return;

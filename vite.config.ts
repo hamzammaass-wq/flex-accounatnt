@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
         watch: {
-          ignored: ['**/android/**', '**/ios/**', '**/dist/**', '**/functions/backend-dist/**']
+          ignored: ['**/android/**', '**/ios/**', '**/dist/**', '**/functions/backend-dist/**', '**/*.aab', '**/*.apk']
         }
       },
       build: {
