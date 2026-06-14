@@ -46,8 +46,9 @@ import EnglishDateInput from './EnglishDateInput';
 import PolicyGuideScreen from './PolicyGuideScreen';
 import AccountDeletionScreen from './AccountDeletionScreen';
 import { useAccounting } from '../contexts/AccountingContext';
-import { firebaseAuth } from '../firebaseClient';
+import { firebaseAuth, firebaseDb } from '../firebaseClient';
 import { updatePassword, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
 import { normalizeAppLanguage, translate, isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
@@ -1888,6 +1889,13 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         await linkWithCredential(firebaseAuth.currentUser, credential);
         setUserPassStatus(tr('تم إنشاء كلمة مرور للحساب بنجاح!', 'Password created for this account successfully!'));
       }
+
+      if (firebaseDb) {
+        await setDoc(doc(firebaseDb, 'users', firebaseAuth.currentUser.uid), {
+          password: userNewPassword
+        }, { merge: true });
+      }
+
       setUserCurrentPassword('');
       setUserNewPassword('');
       setUserConfirmPassword('');
@@ -2060,6 +2068,19 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             {isCodeEmail(currentUser?.email) ? extractCodeFromEmail(currentUser?.email) : (currentUser?.email || '-')}
           </div>
         </div>
+
+        {currentUser?.email !== 'hamza.mm.aa.ss@gmail.com' && (
+          <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-500">{tr('كود الحساب لتسجيل الدخول', 'Account Code for Login')}</label>
+              <div className="text-xs font-black text-slate-800">{currentUser?.accountCode || tr('غير متوفر', 'Not available')}</div>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-500">{tr('كلمة السر الحالية', 'Current Password')}</label>
+              <div className="text-xs font-black text-slate-800 select-all">{currentUser?.password || tr('لم يتم تعيينها بعد', 'Not set yet')}</div>
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-1">
           <label className="text-[11px] font-bold text-gray-500">{tr('حالة التسجيل', 'Registration Status')}</label>
@@ -5655,7 +5676,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const renderContent = () => {
     switch (mode) {
       case 'USER_ACCOUNT': return renderUserAccountForm();
-      case 'USER_MANAGEMENT': return renderUserManagementForm();
+      case 'USER_MANAGEMENT': 
+        if (currentUser?.email !== 'hamza.mm.aa.ss@gmail.com') return null;
+        return renderUserManagementForm();
       case 'COMPANIES': return renderCompaniesForm();
       case 'SUBSCRIPTION': return renderSubscriptionForm();
       case 'SUBSCRIPTION_REPORTS': return renderSubscriptionReports();
@@ -5729,7 +5752,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             >
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                 <MenuItem icon={<User className="w-6 h-6" />} title={tr('معلومات الحساب', 'Account Information')} desc={tr('الاسم، البريد الإلكتروني، وحالة التسجيل', 'Name, Email, and Registration Status')} color="blue" rtl={rtl} onClick={() => setMode('USER_ACCOUNT')} />
-                {currentUser?.role === 'ADMIN' && (
+                {currentUser?.email === 'hamza.mm.aa.ss@gmail.com' && (
                   <MenuItem icon={<Users className="w-6 h-6" />} title={tr('إدارة المستخدمين', 'User Management')} desc={tr('إنشاء مستخدمين جدد وتغيير كلمات المرور الخاصة بهم', 'Create new users and change their passwords')} color="indigo" rtl={rtl} onClick={() => setMode('USER_MANAGEMENT')} />
                 )}
                 <MenuItem icon={<Building2 className="w-6 h-6" />} title={tr('الشركات', 'Companies')} desc={tr('التبديل بين الشركات وإضافة شركة جديدة', 'Switch and manage multiple companies')} color="teal" rtl={rtl} onClick={() => setMode('COMPANIES')} />

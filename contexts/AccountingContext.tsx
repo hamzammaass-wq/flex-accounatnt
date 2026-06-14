@@ -1739,16 +1739,26 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           data = { ...data, accountCode };
         }
 
-        if (accountCode) {
-          setCurrentUser(prev => {
-            if (prev && prev.accountCode !== accountCode) {
-              const next = { ...prev, accountCode };
+        const password = (data && data.password) || '';
+        setCurrentUser(prev => {
+          if (prev) {
+            let changed = false;
+            const next = { ...prev };
+            if (next.accountCode !== accountCode) {
+              next.accountCode = accountCode;
+              changed = true;
+            }
+            if (next.password !== password) {
+              next.password = password;
+              changed = true;
+            }
+            if (changed) {
               localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(next));
               return next;
             }
-            return prev;
-          });
-        }
+          }
+          return prev;
+        });
       }
 
       if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {

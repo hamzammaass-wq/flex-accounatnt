@@ -65,43 +65,21 @@ app.post('/api/companies/:companyId/users/:userId/change-password', authenticate
   try {
     let isAuthorized = false;
 
-    // Check if caller is changing their own password
-    if (callerUid === userId) {
+    // Check if caller is changing their own password, or if they are the program owner
+    if (callerUid === userId || req.user?.email === 'hamza.mm.aa.ss@gmail.com') {
       isAuthorized = true;
-    } else {
-      try {
-        // Check PG memberships first
-        const result = await query(
-          `SELECT role FROM memberships WHERE company_id = $1 AND user_id = $2`,
-          [companyId, callerUid]
-        );
-        if (result.rows.length > 0 && result.rows[0].role === 'OWNER') {
-          isAuthorized = true;
-        }
-      } catch (pgErr) {
-        console.warn('[Change Password] PG check failed, falling back to Firestore:', pgErr);
-      }
-
-      // Firestore fallback
-      if (!isAuthorized) {
-        if (companyId === `cmp_${callerUid}`) {
-          isAuthorized = true;
-        } else {
-          const db = admin.firestore();
-          const subDoc = await db.collection('company_subscriptions').doc(companyId).get();
-          if (subDoc.exists && subDoc.data()?.ownerUserId === callerUid) {
-            isAuthorized = true;
-          }
-        }
-      }
     }
 
     if (!isAuthorized) {
-      return res.status(403).json({ error: 'Forbidden: Only company owners can change user passwords' });
+      return res.status(403).json({ error: 'Forbidden: Only the program owner can change user passwords' });
     }
 
     // Update password in Firebase Auth
     await admin.auth().updateUser(userId, { password: newPassword });
+
+    // Update password in Firestore
+    const db = admin.firestore();
+    await db.collection('users').doc(userId).set({ password: newPassword }, { merge: true });
 
     res.json({ ok: true });
   } catch (error: any) {
@@ -129,36 +107,8 @@ app.post('/api/companies/:companyId/users/create', authenticateUser, async (req:
   }
 
   try {
-    let isAuthorized = false;
-
-    // Check PG memberships first
-    try {
-      const result = await query(
-        `SELECT role FROM memberships WHERE company_id = $1 AND user_id = $2`,
-        [companyId, callerUid]
-      );
-      if (result.rows.length > 0 && result.rows[0].role === 'OWNER') {
-        isAuthorized = true;
-      }
-    } catch (pgErr) {
-      console.warn('[Create User] PG check failed, falling back to Firestore:', pgErr);
-    }
-
-    // Firestore fallback
-    if (!isAuthorized) {
-      if (companyId === `cmp_${callerUid}`) {
-        isAuthorized = true;
-      } else {
-        const db = admin.firestore();
-        const subDoc = await db.collection('company_subscriptions').doc(companyId).get();
-        if (subDoc.exists && subDoc.data()?.ownerUserId === callerUid) {
-          isAuthorized = true;
-        }
-      }
-    }
-
-    if (!isAuthorized) {
-      return res.status(403).json({ error: 'Forbidden: Only company owners can create users' });
+    if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+      return res.status(403).json({ error: 'Forbidden: Only the program owner can create users' });
     }
 
     const db = admin.firestore();
@@ -192,7 +142,9 @@ app.post('/api/companies/:companyId/users/create', authenticateUser, async (req:
           id: companyId,
           name: req.body.companyName || 'Company'
         }
-      ]
+      ],
+      accountCode: normalizedCode,
+      password: password
     });
 
     res.json({ ok: true, uid: userRecord.uid, email });

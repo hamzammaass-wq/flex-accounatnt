@@ -826,6 +826,7 @@ export interface User {
   guestTrialStartedAt?: string;
   guestTrialEndsAt?: string;
   accountCode?: string;
+  password?: string;
 }
 
 export interface GoogleDriveStatus {
