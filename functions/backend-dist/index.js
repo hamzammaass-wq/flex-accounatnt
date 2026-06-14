@@ -84,10 +84,17 @@ app.get('/api/admin/users', authenticateUser, async (req, res) => {
         snapshot.forEach(doc => {
             firestoreUsers[doc.id] = doc.data();
         });
+        // Fetch all workspace subscriptions
+        const workspaceSubscriptions = {};
+        const wsSnapshot = await db.collection('workspace_subscriptions').get();
+        wsSnapshot.forEach(doc => {
+            workspaceSubscriptions[doc.id] = doc.data();
+        });
         // Fetch all Auth users
         const authList = await admin.auth().listUsers();
         const mergedUsers = authList.users.map(authUser => {
             const fsData = firestoreUsers[authUser.uid] || {};
+            const wsData = workspaceSubscriptions[authUser.uid] || {};
             const email = authUser.email || fsData.email || '';
             const isCode = email.startsWith('code_') && email.endsWith('@smart.local');
             const accountCode = fsData.accountCode || (isCode ? email.substring(5, email.indexOf('@')) : '');
@@ -98,7 +105,15 @@ app.get('/api/admin/users', authenticateUser, async (req, res) => {
                 role: fsData.role || 'ACCOUNTANT',
                 status: fsData.status || 'ACTIVE',
                 accountCode: accountCode,
-                password: fsData.password || ''
+                password: fsData.password || '',
+                subscription: {
+                    status: wsData.status || 'TRIAL',
+                    plan: wsData.plan || 'TRIAL',
+                    expiresAt: wsData.expiresAt || '',
+                    maxCompanies: wsData.maxCompanies || 1,
+                    lifetimeAccess: wsData.lifetimeAccess || false,
+                    unlimitedCompanies: wsData.unlimitedCompanies || false
+                }
             };
         });
         res.json({ users: mergedUsers });
@@ -106,6 +121,54 @@ app.get('/api/admin/users', authenticateUser, async (req, res) => {
     catch (error) {
         console.error('[List Users Error]', error);
         res.status(500).json({ error: error.message || 'Failed to list users' });
+    }
+});
+app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req, res) => {
+    const { userId } = req.params;
+    const { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies } = req.body;
+    if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+        return res.status(403).json({ error: 'Forbidden: Only the program owner can manage subscriptions' });
+    }
+    try {
+        const db = admin.firestore();
+        // 1. Update/Create workspace subscription
+        const wsRef = db.collection('workspace_subscriptions').doc(userId);
+        const wsUpdate = {
+            userId,
+            plan: plan || 'TRIAL',
+            status: status || 'TRIAL',
+            expiresAt: expiresAt || '',
+            maxCompanies: Number(maxCompanies) || 1,
+            lifetimeAccess: Boolean(lifetimeAccess),
+            unlimitedCompanies: Boolean(unlimitedCompanies),
+            updatedAt: new Date().toISOString()
+        };
+        await wsRef.set(wsUpdate, { merge: true });
+        // 2. Lookup user's default company to sync company_subscriptions
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            const companiesList = userData?.companies || [];
+            if (companiesList.length > 0) {
+                const primaryCompany = companiesList[0];
+                const companyId = primaryCompany.id;
+                const compSubRef = db.collection('company_subscriptions').doc(companyId);
+                await compSubRef.set({
+                    companyId,
+                    subscriptionPlan: plan || 'TRIAL',
+                    subscriptionStatus: status || 'TRIAL',
+                    trialEndsAt: status === 'TRIAL' ? (expiresAt || '') : '',
+                    subscriptionEndsAt: status !== 'TRIAL' ? (expiresAt || '') : '',
+                    lifetimeAccess: Boolean(lifetimeAccess),
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+            }
+        }
+        res.json({ ok: true });
+    }
+    catch (error) {
+        console.error('[Update Subscription Error]', error);
+        res.status(500).json({ error: error.message || 'Failed to update subscription' });
     }
 });
 app.post('/api/companies/:companyId/users/create', authenticateUser, async (req, res) => {

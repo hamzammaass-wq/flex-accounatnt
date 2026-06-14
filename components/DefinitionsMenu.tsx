@@ -521,6 +521,17 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [adminResetPasswordValue, setAdminResetPasswordValue] = useState('');
   const [adminResetPasswordLoading, setAdminResetPasswordLoading] = useState(false);
   const [adminResetPasswordStatus, setAdminResetPasswordStatus] = useState('');
+
+  // Admin Subscription Management State
+  const [adminSelectedUserForSubscription, setAdminSelectedUserForSubscription] = useState<string>('');
+  const [adminSubPlan, setAdminSubPlan] = useState<CompanySubscriptionPlan>('TRIAL');
+  const [adminSubStatus, setAdminSubStatus] = useState<CompanySubscriptionStatus>('TRIAL');
+  const [adminSubExpiresAt, setAdminSubExpiresAt] = useState<string>('');
+  const [adminSubMaxCompanies, setAdminSubMaxCompanies] = useState<number>(1);
+  const [adminSubLifetimeAccess, setAdminSubLifetimeAccess] = useState<boolean>(false);
+  const [adminSubUnlimitedCompanies, setAdminSubUnlimitedCompanies] = useState<boolean>(false);
+  const [adminSubLoading, setAdminSubLoading] = useState<boolean>(false);
+  const [adminSubStatusMessage, setAdminSubStatusMessage] = useState<string>('');
   const [workspaceOfferKindDraft, setWorkspaceOfferKindDraft] = useState<WorkspaceOfferCodeKind>('DISCOUNT_PERCENT');
   const [workspaceOfferDiscountDraft, setWorkspaceOfferDiscountDraft] = useState('25');
   const [workspaceOfferFreeDaysDraft, setWorkspaceOfferFreeDaysDraft] = useState('30');
@@ -2064,6 +2075,52 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     }
   };
 
+  const handleAdminUpdateSubscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firebaseAuth?.currentUser || !adminSelectedUserForSubscription) return;
+
+    setAdminSubLoading(true);
+    setAdminSubStatusMessage('');
+
+    try {
+      const token = await firebaseAuth.currentUser.getIdToken();
+      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      
+      const response = await fetch(`${backendApiUrl}/admin/users/${adminSelectedUserForSubscription}/subscription`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          plan: adminSubPlan,
+          status: adminSubStatus,
+          expiresAt: adminSubExpiresAt,
+          maxCompanies: adminSubMaxCompanies,
+          lifetimeAccess: adminSubLifetimeAccess,
+          unlimitedCompanies: adminSubUnlimitedCompanies
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Failed to update subscription');
+      }
+
+      setAdminSubStatusMessage(tr('تم تحديث الاشتراك بنجاح!', 'Subscription updated successfully!'));
+      fetchGlobalUsers();
+      setTimeout(() => {
+        setAdminSelectedUserForSubscription('');
+        setAdminSubStatusMessage('');
+      }, 1500);
+    } catch (err: any) {
+      console.error('[Admin Update Subscription Error]', err);
+      setAdminSubStatusMessage(`${tr('فشل تحديث الاشتراك:', 'Failed to update subscription:')} ${err.message}`);
+    } finally {
+      setAdminSubLoading(false);
+    }
+  };
+
   const filteredAuditLogs = useMemo(() => {
     const query = auditSearch.trim().toLowerCase();
     if (!query) return auditLogs;
@@ -2313,8 +2370,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               <tr>
                 <th className="p-3 text-right">{tr('الاسم', 'Name')}</th>
                 <th className="p-3 text-right">{tr('المعرف / البريد', 'ID / Email')}</th>
+                <th className="p-3 text-right">{tr('كود الحساب', 'Account Code')}</th>
                 <th className="p-3 text-right">{tr('الصلاحية', 'Role')}</th>
                 <th className="p-3 text-right">{tr('كلمة المرور', 'Password')}</th>
+                <th className="p-3 text-right">{tr('الاشتراك الحالي', 'Subscription')}</th>
                 <th className="p-3 text-center">{tr('العمليات', 'Actions')}</th>
               </tr>
             </thead>
@@ -2326,6 +2385,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                   <tr key={u.id} className="hover:bg-gray-50/50">
                     <td className="p-3 font-bold text-gray-800">{u.name}</td>
                     <td className="p-3 text-gray-600 dir-ltr text-right">{displayEmail}</td>
+                    <td className="p-3 font-bold text-slate-800">{u.accountCode || tr('غير متوفر', 'Not available')}</td>
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : u.role === 'ACCOUNTANT' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
@@ -2334,7 +2394,24 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                       </span>
                     </td>
                     <td className="p-3 text-slate-700 select-all font-mono text-[11px]">{u.password || '-'}</td>
-                    <td className="p-3 text-center">
+                    <td className="p-3 text-slate-700 text-[11px]">
+                      <span className="font-bold text-indigo-600">{u.subscription?.plan || 'TRIAL'}</span>
+                      {' · '}
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                        u.subscription?.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}>{u.subscription?.status || 'TRIAL'}</span>
+                      {u.subscription?.expiresAt && (
+                        <div className="text-[9px] text-gray-400 mt-0.5">
+                          {tr('ينتهي في:', 'Ends on:')} {new Date(u.subscription.expiresAt).toLocaleDateString('en-GB')}
+                        </div>
+                      )}
+                      {u.subscription?.lifetimeAccess && (
+                        <div className="text-[9px] text-emerald-600 font-bold mt-0.5">
+                          {tr('وصول مدى الحياة', 'Lifetime Access')}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-center space-y-1">
                       <button
                         type="button"
                         onClick={() => {
@@ -2343,7 +2420,23 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                         }}
                         className="text-xs text-blue-600 hover:text-blue-800 font-bold underline"
                       >
-                        {tr('تغيير كلمة المرور', 'Change Password')}
+                        {tr('تغيير كلمة المرور', 'Password')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminSelectedUserForSubscription(u.id);
+                          setAdminSubPlan(u.subscription?.plan || 'TRIAL');
+                          setAdminSubStatus(u.subscription?.status || 'TRIAL');
+                          setAdminSubExpiresAt(u.subscription?.expiresAt || '');
+                          setAdminSubMaxCompanies(u.subscription?.maxCompanies || 1);
+                          setAdminSubLifetimeAccess(!!u.subscription?.lifetimeAccess);
+                          setAdminSubUnlimitedCompanies(!!u.subscription?.unlimitedCompanies);
+                          setAdminSubStatusMessage('');
+                        }}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline ml-2"
+                      >
+                        {tr('إدارة الاشتراك', 'Subscription')}
                       </button>
                     </td>
                   </tr>
@@ -2351,7 +2444,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               })}
               {globalUsers.length === 0 && !globalUsersLoading && (
                 <tr>
-                  <td colSpan={5} className="p-4 text-center font-bold text-gray-400">
+                  <td colSpan={7} className="p-4 text-center font-bold text-gray-400">
                     {tr('لا يوجد مستخدمون حالياً.', 'No users found.')}
                   </td>
                 </tr>
@@ -2413,6 +2506,128 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   ) : (
                     tr('تغيير كلمة المرور', 'Change Password')
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Subscription Management Modal */}
+      {adminSelectedUserForSubscription && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md p-6 rounded-3xl shadow-2xl border border-gray-100 space-y-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-black text-gray-800">
+              {tr('إدارة اشتراك المستخدم', 'Manage User Subscription')}: {' '}
+              <span className="text-indigo-600 font-bold">
+                {globalUsers.find(u => u.id === adminSelectedUserForSubscription)?.name || ''}
+              </span>
+            </h3>
+
+            {adminSubStatusMessage && (
+              <div className={`text-[11px] font-bold p-2.5 rounded-lg border text-center ${
+                adminSubStatusMessage.includes('نجاح') || adminSubStatusMessage.includes('success')
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                  : 'bg-rose-50 border-rose-100 text-rose-700'
+              }`}>
+                {adminSubStatusMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleAdminUpdateSubscription} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500">{tr('خطة الاشتراك', 'Subscription Plan')}</label>
+                  <select
+                    value={adminSubPlan}
+                    onChange={(e) => setAdminSubPlan(e.target.value as CompanySubscriptionPlan)}
+                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  >
+                    <option value="TRIAL">{tr('تجريبي (Trial)', 'Trial')}</option>
+                    <option value="BASIC">{tr('أساسي (Basic)', 'Basic')}</option>
+                    <option value="PRO">{tr('احترافي (Pro)', 'Pro')}</option>
+                    <option value="ENTERPRISE">{tr('مؤسسات (Enterprise)', 'Enterprise')}</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500">{tr('حالة الاشتراك', 'Subscription Status')}</label>
+                  <select
+                    value={adminSubStatus}
+                    onChange={(e) => setAdminSubStatus(e.target.value as CompanySubscriptionStatus)}
+                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  >
+                    <option value="TRIAL">{tr('تجريبي', 'Trial')}</option>
+                    <option value="ACTIVE">{tr('نشط', 'Active')}</option>
+                    <option value="SUSPENDED">{tr('موقوف مؤقتاً', 'Suspended')}</option>
+                    <option value="EXPIRED">{tr('منتهي', 'Expired')}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500">{tr('تاريخ نهاية الوصول', 'Access Ends Date')}</label>
+                  <input
+                    type="date"
+                    value={adminSubExpiresAt ? adminSubExpiresAt.split('T')[0] : ''}
+                    onChange={(e) => setAdminSubExpiresAt(e.target.value ? new Date(e.target.value).toISOString() : '')}
+                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500">{tr('أقصى عدد للشركات', 'Max Companies')}</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={adminSubMaxCompanies}
+                    onChange={(e) => setAdminSubMaxCompanies(Number(e.target.value) || 1)}
+                    className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 p-3 bg-slate-50 border border-slate-100 rounded-2xl">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={adminSubLifetimeAccess}
+                    onChange={(e) => setAdminSubLifetimeAccess(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  {tr('وصول مدى الحياة (Lifetime Access)', 'Lifetime Access')}
+                </label>
+
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={adminSubUnlimitedCompanies}
+                    onChange={(e) => setAdminSubUnlimitedCompanies(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  {tr('شركات غير محدودة (Unlimited Companies)', 'Unlimited Companies')}
+                </label>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminSelectedUserForSubscription('')}
+                  className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition-all"
+                >
+                  {tr('إلغاء', 'Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminSubLoading}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center transition-all disabled:opacity-75"
+                >
+                  {adminSubLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    tr('تحديث الاشتراك', 'Update Subscription')
                   )}
                 </button>
               </div>
