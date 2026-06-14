@@ -112,15 +112,50 @@ app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, 
 
     // Fetch all Auth users
     const authList = await admin.auth().listUsers();
-    const mergedUsers = authList.users.map(authUser => {
+    
+    const batch = db.batch();
+    let hasUpdates = false;
+
+    const mergedUsers = [];
+    for (const authUser of authList.users) {
       const fsData = firestoreUsers[authUser.uid] || {};
       const wsData = workspaceSubscriptions[authUser.uid] || {};
       
       const email = authUser.email || fsData.email || '';
       const isCode = email.startsWith('code_') && email.endsWith('@smart.local');
-      const accountCode = fsData.accountCode || (isCode ? email.substring(5, email.indexOf('@')) : '');
+      let accountCode = fsData.accountCode || (isCode ? email.substring(5, email.indexOf('@')) : '');
 
-      return {
+      if (!accountCode && email) {
+        let code = '';
+        let isUnique = false;
+        let attempts = 0;
+        while (!isUnique && attempts < 10) {
+          code = Math.floor(100000 + Math.random() * 900000).toString();
+          const tempDoc = await db.collection('account_codes').doc(code).get();
+          if (!tempDoc.exists) {
+            isUnique = true;
+          }
+          attempts++;
+        }
+        if (isUnique) {
+          accountCode = code;
+          const codeRef = db.collection('account_codes').doc(accountCode);
+          batch.set(codeRef, {
+            email,
+            userId: authUser.uid,
+            createdAt: new Date().toISOString()
+          });
+
+          const userRef = db.collection('users').doc(authUser.uid);
+          batch.set(userRef, {
+            accountCode: accountCode
+          }, { merge: true });
+
+          hasUpdates = true;
+        }
+      }
+
+      mergedUsers.push({
         id: authUser.uid,
         name: authUser.displayName || fsData.name || authUser.email || '',
         email: email,
@@ -136,8 +171,12 @@ app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, 
           lifetimeAccess: wsData.lifetimeAccess || false,
           unlimitedCompanies: wsData.unlimitedCompanies || false
         }
-      };
-    });
+      });
+    }
+
+    if (hasUpdates) {
+      await batch.commit();
+    }
 
     res.json({ users: mergedUsers });
   } catch (error: any) {

@@ -1806,7 +1806,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (needsCloudUpdate) {
         try {
           const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
-          await setDoc(userDocRef, { companies: cleanCompanies }, { merge: true });
+          const docData: any = { companies: cleanCompanies };
+          if (data && data.accountCode) {
+            docData.accountCode = data.accountCode;
+          }
+          if (data && data.password) {
+            docData.password = data.password;
+          }
+          await setDoc(userDocRef, docData, { merge: true });
         } catch (err: any) {
           console.error("Failed to seed new user companies:", err);
           if (typeof window !== 'undefined') {
