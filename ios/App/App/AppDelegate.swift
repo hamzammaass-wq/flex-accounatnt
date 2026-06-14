@@ -40,10 +40,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
-        if GIDSignIn.sharedInstance.handle(url) {
-            return true
-        }
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        let googleHandled = GIDSignIn.sharedInstance.handle(url)
+        let capacitorHandled = ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        return googleHandled || capacitorHandled
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {

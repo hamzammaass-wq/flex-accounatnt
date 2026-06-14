@@ -1,12 +1,14 @@
 import { getApps, getApp, initializeApp } from 'firebase/app';
 import {
   browserLocalPersistence,
+  indexedDBLocalPersistence,
   browserPopupRedirectResolver,
   getAuth,
   initializeAuth,
   setPersistence,
   type Auth
 } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 import { getFirestore, enableIndexedDbPersistence, type Firestore } from 'firebase/firestore';
 import { getFunctions, type Functions } from 'firebase/functions';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
@@ -59,10 +61,16 @@ export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
   ? (function() {
       if (cachedAuth) return cachedAuth;
       try {
-        cachedAuth = initializeAuth(firebaseApp, { 
-          persistence: browserLocalPersistence,
-          popupRedirectResolver: browserPopupRedirectResolver
-        });
+        if (Capacitor.isNativePlatform()) {
+          cachedAuth = initializeAuth(firebaseApp, { 
+            persistence: [indexedDBLocalPersistence, browserLocalPersistence]
+          });
+        } else {
+          cachedAuth = initializeAuth(firebaseApp, { 
+            persistence: browserLocalPersistence,
+            popupRedirectResolver: browserPopupRedirectResolver
+          });
+        }
         return cachedAuth;
       } catch (e) {
         cachedAuth = getAuth(firebaseApp);
