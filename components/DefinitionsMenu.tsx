@@ -180,7 +180,7 @@ const normalizeInventoryValuationMethod = (
 type BrowserNotificationPermission = NotificationPermission | 'unsupported';
 
 const SUBSCRIPTION_STATUS_OPTIONS: CompanySubscriptionStatus[] = ['TRIAL', 'ACTIVE', 'EXPIRED', 'SUSPENDED'];
-const SUBSCRIPTION_PLAN_OPTIONS: CompanySubscriptionPlan[] = ['TRIAL', 'BASIC', 'PRO', 'ENTERPRISE', 'NONE'];
+const SUBSCRIPTION_PLAN_OPTIONS: CompanySubscriptionPlan[] = ['TRIAL', 'BASIC', 'NONE'];
 
 const formatIsoDateInputValue = (value?: string): string => {
   if (!value) return '';
@@ -1698,9 +1698,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
   const getSubscriptionPlanLabel = (plan: CompanySubscriptionPlan) => {
     switch (plan) {
-      case 'BASIC': return tr('أساسية', 'Basic');
-      case 'PRO': return tr('احترافية', 'Pro');
-      case 'ENTERPRISE': return tr('مؤسسات', 'Enterprise');
+      case 'BASIC': return tr('اشتراك مدفوع', 'Paid Subscription');
+      case 'PRO': return tr('اشتراك مدفوع', 'Paid Subscription');
+      case 'ENTERPRISE': return tr('اشتراك مدفوع', 'Paid Subscription');
       case 'NONE': return tr('بدون خطة', 'No plan');
       default: return tr('تجريبية', 'Trial');
     }
@@ -2548,9 +2548,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                     className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2.5"
                   >
                     <option value="TRIAL">{tr('تجريبي (Trial)', 'Trial')}</option>
-                    <option value="BASIC">{tr('أساسي (Basic)', 'Basic')}</option>
-                    <option value="PRO">{tr('احترافي (Pro)', 'Pro')}</option>
-                    <option value="ENTERPRISE">{tr('مؤسسات (Enterprise)', 'Enterprise')}</option>
+                    <option value="BASIC">{tr('اشتراك مدفوع (Paid)', 'Paid')}</option>
                   </select>
                 </div>
 
@@ -4026,10 +4024,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             AIFLEX-BASIC-30
             <br />
             AIFLEX-BASIC-90
-            <br />
-            AIFLEX-PRO-180
-            <br />
-            AIFLEX-ENTERPRISE-365
           </div>
 
           <button
@@ -4161,8 +4155,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 className="w-full p-3 bg-white rounded-xl border border-violet-200 outline-none font-bold"
               >
                 <option value="BASIC">{getSubscriptionPlanLabel('BASIC')}</option>
-                <option value="PRO">{getSubscriptionPlanLabel('PRO')}</option>
-                <option value="ENTERPRISE">{getSubscriptionPlanLabel('ENTERPRISE')}</option>
               </select>
             </div>
             <div>
