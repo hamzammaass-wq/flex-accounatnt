@@ -28,7 +28,9 @@ import {
   Trash2,
   User,
   Users,
-  AlertTriangle
+  AlertTriangle,
+  LifeBuoy,
+  Mail
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
 import CurrencyManager from './CurrencyManager';
@@ -121,6 +123,7 @@ export type SettingsMode =
   | 'POLICY'
   | 'ACCOUNT_DELETE'
   | 'USAGE_GUIDE'
+  | 'SUPPORT'
   | 'COMPANY'
   | 'OPENING_BALANCES'
   | 'ACCOUNTS'
@@ -5930,6 +5933,73 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     </div>
   );
 
+  const renderSupportView = () => (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6 animate-in fade-in max-w-2xl mx-auto">
+      <div className="text-center space-y-2">
+        <div className="mx-auto w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 mb-2">
+          <LifeBuoy className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-black text-gray-800">
+          {tr('الدعم الفني والمساندة', 'Technical Support')}
+        </h3>
+        <p className="text-xs text-gray-500 font-bold max-w-md mx-auto leading-5">
+          {tr(
+            'إذا واجهتك أي مشكلة أو كان لديك استفسار حول استخدام البرنامج، يمكنك التواصل مع فريق الدعم الفني مباشرة.',
+            'If you face any issues or have inquiries about using the app, feel free to contact technical support.'
+          )}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* WhatsApp Card */}
+        <div className="border border-gray-100 rounded-2xl p-5 bg-slate-50 flex flex-col justify-between space-y-4 hover:border-emerald-100 hover:bg-emerald-50/20 transition-all">
+          <div className="space-y-2">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+              <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.709 1.459h.008c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+              </svg>
+            </div>
+            <h4 className="text-sm font-black text-gray-800">
+              {tr('واتساب', 'WhatsApp')}
+            </h4>
+            <p className="text-xs text-gray-500 font-bold dir-ltr text-left">
+              +972 595134770
+            </p>
+          </div>
+          <a
+            href="https://wa.me/972595134770"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-sm transition-all duration-200"
+          >
+            {tr('تواصل عبر واتساب', 'Chat on WhatsApp')}
+          </a>
+        </div>
+
+        {/* Email Card */}
+        <div className="border border-gray-100 rounded-2xl p-5 bg-slate-50 flex flex-col justify-between space-y-4 hover:border-blue-100 hover:bg-blue-50/20 transition-all">
+          <div className="space-y-2">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+              <Mail className="w-5 h-5" />
+            </div>
+            <h4 className="text-sm font-black text-gray-800">
+              {tr('البريد الإلكتروني', 'Email Support')}
+            </h4>
+            <p className="text-xs text-gray-500 font-bold select-all overflow-hidden text-ellipsis">
+              hamza.mm.aa.ss@gmail.com
+            </p>
+          </div>
+          <a
+            href="mailto:hamza.mm.aa.ss@gmail.com"
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-sm transition-all duration-200"
+          >
+            {tr('إرسال بريد إلكتروني', 'Send Email')}
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderContent = () => {
     switch (mode) {
       case 'USER_ACCOUNT': return renderUserAccountForm();
@@ -5942,6 +6012,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       case 'POLICY': return <PolicyGuideScreen mode="POLICY" language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'ACCOUNT_DELETE': return <AccountDeletionScreen language={appLanguage} onBack={() => setMode('MENU')} />;
       case 'USAGE_GUIDE': return <PolicyGuideScreen mode="USAGE_GUIDE" language={appLanguage} onBack={() => setMode('MENU')} />;
+      case 'SUPPORT': return renderSupportView();
       case 'COMPANY': return renderCompanyForm();
       case 'OPENING_BALANCES': return <OpeningBalancesManager />;
       case 'LANGUAGE': return renderLanguageForm();
@@ -6069,6 +6140,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 <MenuItem icon={<ScanBarcode className="w-6 h-6" />} title={tr('قارئ الباركود والطباعة', 'Barcode Reader & Labels')} desc={tr('إعدادات المسح بالباركود وطباعة ملصقات الأصناف', 'Barcode scanning settings and product label printing')} color="orange" rtl={rtl} onClick={() => setMode('BARCODE_DEVICES')} />
                 <MenuItem icon={<Wrench className="w-6 h-6" />} title={tr('قارئ البصمة', 'Fingerprint Reader')} desc={tr('تعريف أجهزة البصمة والرفع المباشر/اليدوي لسجلات الحضور', 'Configure fingerprint devices and direct/manual attendance uploads')} color="indigo" rtl={rtl} onClick={() => setMode('FINGERPRINT_READERS')} />
                 <MenuItem icon={<BookOpen className="w-6 h-6" />} title={tr('دليل الاستخدام', 'Usage Guide')} desc={tr('خطوات سريعة لبدء الاستخدام وإعداد الخيارات الأساسية', 'Quick steps to start using the app and configure core options')} color="purple" rtl={rtl} onClick={() => setMode('USAGE_GUIDE')} />
+                <MenuItem icon={<LifeBuoy className="w-6 h-6" />} title={tr('الدعم الفني', 'Technical Support')} desc={tr('تواصل مع الدعم الفني عبر الواتساب أو البريد الإلكتروني', 'Contact support via WhatsApp or Email')} color="blue" rtl={rtl} onClick={() => setMode('SUPPORT')} />
                 <MenuItem icon={<FileCheck2 className="w-6 h-6" />} title={tr('سياسة الخصوصية', 'Privacy Policy')} desc={tr('شروط الاستخدام وسياسة حماية البيانات الخاصة بالتطبيق', 'Usage terms and data privacy policy for the app')} color="rose" rtl={rtl} onClick={() => setMode('POLICY')} />
                 <MenuItem icon={<Trash2 className="w-6 h-6" />} title={tr('حذف الحساب', 'Delete Account')} desc={tr('حذف حساب الدخول من داخل التطبيق وفتح روابط الحذف والخصوصية العامة', 'Delete the sign-in account inside the app and open the public deletion/privacy links')} color="rose" rtl={rtl} onClick={() => setMode('ACCOUNT_DELETE')} />
                 {subscriptionAdminEnabled && (
