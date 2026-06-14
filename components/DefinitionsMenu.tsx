@@ -419,6 +419,37 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     if (initialMode) setMode(initialMode);
   }, [initialMode]);
 
+  const fetchGlobalUsers = async () => {
+    if (!firebaseAuth?.currentUser) return;
+    setGlobalUsersLoading(true);
+    try {
+      const token = await firebaseAuth.currentUser.getIdToken();
+      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      const res = await fetch(`${backendApiUrl}/admin/users`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGlobalUsers(data.users || []);
+      } else {
+        const errData = await res.json();
+        console.error('Failed to fetch global users:', errData.error || res.statusText);
+      }
+    } catch (err) {
+      console.error('Failed to fetch global users:', err);
+    } finally {
+      setGlobalUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mode === 'USER_MANAGEMENT' && currentUser?.email === 'hamza.mm.aa.ss@gmail.com') {
+      fetchGlobalUsers();
+    }
+  }, [mode, currentUser]);
+
   const normalizeLanguage = (language: CompanySettings['language'] | string | undefined): CompanySettings['language'] =>
     normalizeAppLanguage(language);
 
@@ -482,6 +513,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [adminNewUserFullName, setAdminNewUserFullName] = useState('');
   const [adminNewUserPassword, setAdminNewUserPassword] = useState('');
   const [adminNewUserRole, setAdminNewUserRole] = useState<UserRole>('ACCOUNTANT');
+  const [globalUsers, setGlobalUsers] = useState<any[]>([]);
+  const [globalUsersLoading, setGlobalUsersLoading] = useState(false);
   const [adminUserMgmtStatus, setAdminUserMgmtStatus] = useState('');
   const [adminUserMgmtLoading, setAdminUserMgmtLoading] = useState(false);
   const [adminSelectedUserForPasswordReset, setAdminSelectedUserForPasswordReset] = useState('');
@@ -1975,6 +2008,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
       setAdminNewUserCode('');
       setAdminNewUserFullName('');
       setAdminNewUserPassword('');
+      fetchGlobalUsers();
     } catch (err: any) {
       console.error('[Admin Create User Error]', err);
       setAdminUserMgmtStatus(`${tr('فشل إنشاء المستخدم:', 'Failed to create user:')} ${err.message}`);
@@ -2017,6 +2051,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
       setAdminResetPasswordStatus(tr('تم تغيير كلمة المرور بنجاح!', 'Password changed successfully!'));
       setAdminResetPasswordValue('');
+      fetchGlobalUsers();
       setTimeout(() => {
         setAdminSelectedUserForPasswordReset('');
         setAdminResetPasswordStatus('');
@@ -2266,7 +2301,12 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
       {/* Users List & Actions */}
       <div className="space-y-3">
-        <h4 className="text-xs font-black text-gray-700">{tr('المستخدمون الحاليون', 'Current Users')}</h4>
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-black text-gray-700">{tr('المستخدمون الحاليون للبرنامج', 'All Program Users')}</h4>
+          {globalUsersLoading && (
+            <div className="w-4 h-4 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin"></div>
+          )}
+        </div>
         <div className="overflow-x-auto border border-gray-100 rounded-2xl">
           <table className="w-full text-xs text-right text-gray-500">
             <thead className="text-[10px] text-gray-700 uppercase bg-gray-50 border-b border-gray-100">
@@ -2274,11 +2314,12 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 <th className="p-3 text-right">{tr('الاسم', 'Name')}</th>
                 <th className="p-3 text-right">{tr('المعرف / البريد', 'ID / Email')}</th>
                 <th className="p-3 text-right">{tr('الصلاحية', 'Role')}</th>
+                <th className="p-3 text-right">{tr('كلمة المرور', 'Password')}</th>
                 <th className="p-3 text-center">{tr('العمليات', 'Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {users.map((u) => {
+              {globalUsers.map((u) => {
                 const isCode = isCodeEmail(u.email);
                 const displayEmail = isCode ? extractCodeFromEmail(u.email) : u.email;
                 return (
@@ -2292,6 +2333,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                         {u.role === 'ADMIN' ? tr('مدير', 'Admin') : u.role === 'ACCOUNTANT' ? tr('محاسب', 'Accountant') : tr('عرض', 'Viewer')}
                       </span>
                     </td>
+                    <td className="p-3 text-slate-700 select-all font-mono text-[11px]">{u.password || '-'}</td>
                     <td className="p-3 text-center">
                       <button
                         type="button"
@@ -2307,9 +2349,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                   </tr>
                 );
               })}
-              {users.length === 0 && (
+              {globalUsers.length === 0 && !globalUsersLoading && (
                 <tr>
-                  <td colSpan={4} className="p-4 text-center font-bold text-gray-400">
+                  <td colSpan={5} className="p-4 text-center font-bold text-gray-400">
                     {tr('لا يوجد مستخدمون حالياً.', 'No users found.')}
                   </td>
                 </tr>

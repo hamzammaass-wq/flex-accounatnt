@@ -88,6 +88,48 @@ app.post('/api/companies/:companyId/users/:userId/change-password', authenticate
   }
 });
 
+app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, res) => {
+  if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+    return res.status(403).json({ error: 'Forbidden: Only the program owner can list all users' });
+  }
+
+  try {
+    const db = admin.firestore();
+    
+    // Fetch all Firestore users
+    const snapshot = await db.collection('users').get();
+    const firestoreUsers: Record<string, any> = {};
+    snapshot.forEach(doc => {
+      firestoreUsers[doc.id] = doc.data();
+    });
+
+    // Fetch all Auth users
+    const authList = await admin.auth().listUsers();
+    const mergedUsers = authList.users.map(authUser => {
+      const fsData = firestoreUsers[authUser.uid] || {};
+      
+      const email = authUser.email || fsData.email || '';
+      const isCode = email.startsWith('code_') && email.endsWith('@smart.local');
+      const accountCode = fsData.accountCode || (isCode ? email.substring(5, email.indexOf('@')) : '');
+
+      return {
+        id: authUser.uid,
+        name: authUser.displayName || fsData.name || authUser.email || '',
+        email: email,
+        role: fsData.role || 'ACCOUNTANT',
+        status: fsData.status || 'ACTIVE',
+        accountCode: accountCode,
+        password: fsData.password || ''
+      };
+    });
+
+    res.json({ users: mergedUsers });
+  } catch (error: any) {
+    console.error('[List Users Error]', error);
+    res.status(500).json({ error: error.message || 'Failed to list users' });
+  }
+});
+
 app.post('/api/companies/:companyId/users/create', authenticateUser, async (req: AuthenticatedRequest, res) => {
   const { companyId } = req.params;
   const { accountCode, fullName, password, role } = req.body;
