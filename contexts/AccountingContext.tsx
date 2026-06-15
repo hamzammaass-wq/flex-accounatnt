@@ -37,7 +37,7 @@ import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseS
 import { useFirestoreSyncState, showSyncAlertOnce } from '../hooks/useFirestoreSyncState';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, limit as firestoreLimit } from 'firebase/firestore';
 import { ref as storageRef, uploadString } from 'firebase/storage';
-import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite } from '../firebaseClient';
+import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
 
 // ... (Existing Interfaces)
 
@@ -1698,132 +1698,191 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser, defaultCompanySettings]);
 
   useEffect(() => {
-    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) {
-       setCompaniesLoaded(true);
-       return;
+    if (!currentUser || isGuestUser(currentUser)) {
+      setCompaniesLoaded(true);
+      return;
     }
-    const userDocRef = doc(firebaseDb, 'users', currentUser.id);
-    const unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
-      let data = snapshot.exists() ? snapshot.data() : null;
-      let finalCompanies: CompanyProfile[] = [];
-      let needsCloudUpdate = false;
 
-      if (currentUser && !isGuestUser(currentUser)) {
-        const email = currentUser.email || '';
-        const isCode = isCodeEmail(email);
-        let accountCode = (data && data.accountCode) || '';
+    const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+    let isSubscribed = true;
 
-        if (isCode) {
-          accountCode = extractCodeFromEmail(email);
-        }
+    if (useBackend) {
+      const loadCompaniesFromBackend = async () => {
+        try {
+          console.log('[Backend Sync] Fetching companies for user:', currentUser.id);
+          const fetchedCompanies = await callBackendApi(currentUser, '/companies');
+          if (!isSubscribed) return;
 
-        if (!accountCode && email) {
-          try {
-            const generatedCode = await generateUniqueAccountCode(firebaseDb, email);
-            if (generatedCode) {
-              const codeDocRef = doc(firebaseDb, 'account_codes', generatedCode);
-              await setDoc(codeDocRef, {
-                email,
-                userId: currentUser.id,
-                createdAt: new Date().toISOString()
-              });
-              needsCloudUpdate = true;
-              data = { ...data, accountCode: generatedCode };
-              accountCode = generatedCode;
+          setCompanies(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(fetchedCompanies)) {
+              return fetchedCompanies;
             }
-          } catch (err) {
-            console.error('[Account Code Generation Error]', err);
+            return prev;
+          });
+
+          if (fetchedCompanies.length > 0) {
+            const persistedCompanyId = localStorage.getItem(STORAGE_KEYS.currentCompany);
+            const exists = fetchedCompanies.some((c: any) => c.id === persistedCompanyId);
+            const targetCompanyId = exists ? persistedCompanyId : fetchedCompanies[0].id;
+            setCurrentCompanyId(targetCompanyId);
           }
-        } else if (accountCode && data && !data.accountCode) {
-          needsCloudUpdate = true;
-          data = { ...data, accountCode };
+          setCompaniesLoaded(true);
+        } catch (err: any) {
+          console.error('[Backend Sync] Failed to fetch companies, falling back to Firestore:', err);
+          if (isSubscribed) {
+            setupFirestoreCompaniesListener();
+          }
+        }
+      };
+
+      void loadCompaniesFromBackend();
+    } else {
+      setupFirestoreCompaniesListener();
+    }
+
+    let unsubscribeFirestore: (() => void) | null = null;
+
+    function setupFirestoreCompaniesListener() {
+      if (!firebaseDb) {
+        setCompaniesLoaded(true);
+        return;
+      }
+      const userDocRef = doc(firebaseDb, 'users', currentUser.id);
+      unsubscribeFirestore = onSnapshot(userDocRef, async (snapshot) => {
+        if (!isSubscribed) return;
+        let data = snapshot.exists() ? snapshot.data() : null;
+        let finalCompanies: CompanyProfile[] = [];
+        let needsCloudUpdate = false;
+
+        if (currentUser && !isGuestUser(currentUser)) {
+          const email = currentUser.email || '';
+          const isCode = isCodeEmail(email);
+          let accountCode = (data && data.accountCode) || '';
+
+          if (isCode) {
+            accountCode = extractCodeFromEmail(email);
+          }
+
+          if (!accountCode && email) {
+            try {
+              const generatedCode = await generateUniqueAccountCode(firebaseDb, email);
+              if (generatedCode) {
+                const codeDocRef = doc(firebaseDb, 'account_codes', generatedCode);
+                await setDoc(codeDocRef, {
+                  email,
+                  userId: currentUser.id,
+                  createdAt: new Date().toISOString()
+                });
+                needsCloudUpdate = true;
+                data = { ...data, accountCode: generatedCode };
+                accountCode = generatedCode;
+              }
+            } catch (err) {
+              console.error('[Account Code Generation Error]', err);
+            }
+          } else if (accountCode && data && !data.accountCode) {
+            needsCloudUpdate = true;
+            data = { ...data, accountCode };
+          }
+
+          const password = (data && data.password) || '';
+          setCurrentUser(prev => {
+            if (prev) {
+              let changed = false;
+              const next = { ...prev };
+              if (next.accountCode !== accountCode) {
+                next.accountCode = accountCode;
+                changed = true;
+              }
+              if (next.password !== password) {
+                next.password = password;
+                changed = true;
+              }
+              if (changed) {
+                localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(next));
+                return next;
+              }
+            }
+            return prev;
+          });
         }
 
-        const password = (data && data.password) || '';
-        setCurrentUser(prev => {
-          if (prev) {
-            let changed = false;
-            const next = { ...prev };
-            if (next.accountCode !== accountCode) {
-              next.accountCode = accountCode;
-              changed = true;
-            }
-            if (next.password !== password) {
-              next.password = password;
-              changed = true;
-            }
-            if (changed) {
-              localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(next));
-              return next;
-            }
+        if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
+          finalCompanies = data.companies.map(withNormalizedCompanyProfile);
+        } else {
+          // Completely new user! Create their real cloud company immediately
+          const newCompanyId = `cmp_${currentUser.id}`;
+          let signupName = 'My Company';
+          try {
+             const storedName = localStorage.getItem('al_mohaseb_signup_company_name');
+             if (storedName && storedName.trim()) {
+               signupName = storedName.trim();
+             }
+          } catch {}
+
+          const nowIso = new Date().toISOString();
+          finalCompanies = [{
+            id: newCompanyId,
+            name: signupName,
+            taxNumber: defaultCompanySettings.taxNumber,
+            address: defaultCompanySettings.address,
+            phone: defaultCompanySettings.phone,
+            logoUrl: defaultCompanySettings.logoUrl,
+            createdAt: nowIso,
+            trialEndsAt: addDaysIso(nowIso, 14),
+            subscriptionStatus: 'TRIAL',
+            subscriptionPlan: 'TRIAL',
+            subscriptionStartsAt: nowIso,
+            graceDays: 0
+          }];
+          needsCloudUpdate = true;
+          setCurrentCompanyId(newCompanyId);
+        }
+
+        setCompanies(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(finalCompanies)) {
+            return finalCompanies;
           }
           return prev;
         });
-      }
+        setCompaniesLoaded(true);
 
-      if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
-        finalCompanies = data.companies.map(withNormalizedCompanyProfile);
-        
-
-      } else {
-        // Completely new user! Create their real cloud company immediately
-        const newCompanyId = `cmp_${currentUser.id}`;
-        let signupName = 'My Company';
-        try {
-           const storedName = localStorage.getItem('al_mohaseb_signup_company_name');
-           if (storedName && storedName.trim()) {
-             signupName = storedName.trim();
-           }
-        } catch {}
-
-        const nowIso = new Date().toISOString();
-        finalCompanies = [{
-          id: newCompanyId,
-          name: signupName,
-          taxNumber: defaultCompanySettings.taxNumber,
-          address: defaultCompanySettings.address,
-          phone: defaultCompanySettings.phone,
-          logoUrl: defaultCompanySettings.logoUrl,
-          createdAt: nowIso,
-          trialEndsAt: addDaysIso(nowIso, 14),
-          subscriptionStatus: 'TRIAL',
-          subscriptionPlan: 'TRIAL',
-          subscriptionStartsAt: nowIso,
-          graceDays: 0
-        }];
-        needsCloudUpdate = true;
-        setCurrentCompanyId(newCompanyId);
-      }
-
-      setCompanies(prev => {
-        if (JSON.stringify(prev) !== JSON.stringify(finalCompanies)) {
-          return finalCompanies;
+        if (needsCloudUpdate) {
+          try {
+            const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
+            const docData: any = { companies: cleanCompanies };
+            if (data && data.accountCode) {
+              docData.accountCode = data.accountCode;
+            }
+            if (data && data.password) {
+              docData.password = data.password;
+            }
+            await setDoc(userDocRef, docData, { merge: true });
+          } catch (err: any) {
+            console.error("Failed to seed new user companies:", err);
+            if (typeof window !== 'undefined') {
+              alert(`خطأ في المزامنة السحابية (الشركات): ${err.message || 'حدث خطأ غير معروف'}`);
+            }
+          }
         }
-        return prev;
-      });
-      setCompaniesLoaded(true);
-
-      if (needsCloudUpdate) {
-        try {
-          const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
-          const docData: any = { companies: cleanCompanies };
-          if (data && data.accountCode) {
-            docData.accountCode = data.accountCode;
-          }
-          if (data && data.password) {
-            docData.password = data.password;
-          }
-          await setDoc(userDocRef, docData, { merge: true });
-        } catch (err: any) {
-          console.error("Failed to seed new user companies:", err);
+      }, (error) => {
+        console.error('[Firestore userDoc onSnapshot Error]', error);
+        if (isSubscribed) {
+          setCompaniesLoaded(true); // Prevent UI loading freeze
           if (typeof window !== 'undefined') {
-            alert(`خطأ في المزامنة السحابية (الشركات): ${err.message || 'حدث خطأ غير معروف'}`);
+            showSyncAlertOnce(`مشكلة في تحميل بيانات الحساب من السحابة. تأكد من اتصال الإنترنت أو إيقاف الـ VPN. التفاصيل: ${error.message}`);
           }
         }
+      });
+    }
+
+    return () => {
+      isSubscribed = false;
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
       }
-    });
-    return unsubscribe;
-  }, [currentUser]);
+    };
+  }, [currentUser, firebaseDb]);
 
   useEffect(() => {
     if (!companiesLoaded || !firebaseDb || !currentUser || isGuestUser(currentUser)) return;
@@ -1924,6 +1983,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const googleTokenRef = useRef<string>('');
   const googleTokenExpiresAtRef = useRef<number>(0);
   const lastBackedUpVersionRef = useRef<number | null>(null);
+  const lastSavedSnapshotRef = useRef<CompanyWorkspaceSnapshot | null>(null);
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -7442,8 +7502,37 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       permissions,
       auditLogs
     };
+    const isSnapshotEqual = (a: CompanyWorkspaceSnapshot, b: CompanyWorkspaceSnapshot) => {
+      if (a.baseCurrency !== b.baseCurrency) return false;
+      const settingsA = { ...a.companySettings, autoBackupLastRunAt: undefined };
+      const settingsB = { ...b.companySettings, autoBackupLastRunAt: undefined };
+      if (JSON.stringify(settingsA) !== JSON.stringify(settingsB)) return false;
+      if (JSON.stringify(a.permissions) !== JSON.stringify(b.permissions)) return false;
+      if (JSON.stringify(a.auditLogs) !== JSON.stringify(b.auditLogs)) return false;
+      const collections: Array<keyof CompanyWorkspaceSnapshot> = [
+        'users', 'accounts', 'transactions', 'invoices', 'invoiceSettlements',
+        'importExpenseDistributions', 'products', 'itemGroups', 'units', 'contacts',
+        'employees', 'employeeContracts', 'salaryHistory', 'employeeLeaveRequests',
+        'employeeRecurringDeductions', 'fingerprintDevices', 'fingerprintAttendanceBatches',
+        'departments', 'tickets', 'fixedAssets', 'assetGroups', 'checks', 'currencies',
+        'warehouses', 'stockTransfers', 'boms', 'productionOrders'
+      ];
+      for (const key of collections) {
+        if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return false;
+      }
+      return true;
+    };
+
+    const isRedundant = lastSavedSnapshotRef.current && isSnapshotEqual(snapshot, lastSavedSnapshotRef.current);
     const didPersist = await persistWorkspaceSnapshot(companyId, snapshot);
     if (!didPersist) return false;
+
+    lastSavedSnapshotRef.current = snapshot;
+
+    if (isRedundant) {
+      return true;
+    }
+
     upsertWorkspaceSyncQueueItem(companyId, snapshot.updatedAt, currentUser?.id);
     setSyncQueueVersion(prev => prev + 1);
     return true;
@@ -9934,6 +10023,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     googleTokenRef.current = '';
     googleTokenExpiresAtRef.current = 0;
     lastBackedUpVersionRef.current = null;
+    lastSavedSnapshotRef.current = null;
     setGoogleDriveStatus({ isConnected: false });
   }, [currentCompanyId]);
 

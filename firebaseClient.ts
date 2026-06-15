@@ -121,9 +121,27 @@ export const firebaseFunctions: Functions | null = isFirebaseAuthEnabled && fire
 
 export const isFirebaseSyncEnabled = Boolean(firebaseDb);
 
-if (firebaseAuth) {
+if (firebaseAuth && !Capacitor.isNativePlatform()) {
   void setPersistence(firebaseAuth, browserLocalPersistence);
 }
+
+export const getBackendApiUrl = (): string => {
+  const rawUrl = String(import.meta.env.VITE_BACKEND_API_URL || '').trim();
+  const defaultUrl = rawUrl || 'http://localhost:5000/api';
+  if (Capacitor.isNativePlatform() && defaultUrl.startsWith('/')) {
+    const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
+    return `https://${projectId}.web.app${defaultUrl}`;
+  }
+  return defaultUrl;
+};
+
+export const getAbsoluteUrl = (path: string): string => {
+  if (Capacitor.isNativePlatform() && path.startsWith('/')) {
+    const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
+    return `https://${projectId}.web.app${path}`;
+  }
+  return path;
+};
 
 export const executeFirestoreWrite = async (
   currentUser: any,
@@ -132,8 +150,8 @@ export const executeFirestoreWrite = async (
   if (!currentUser) throw new Error('User not authenticated');
   const token = await currentUser.getIdToken();
   const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
-  const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
-  const url = useBackend ? `${backendApiUrl}/firestore-write-proxy` : '/api/firestore-write-proxy';
+  const backendApiUrl = getBackendApiUrl();
+  const url = useBackend ? `${backendApiUrl}/firestore-write-proxy` : getAbsoluteUrl('/api/firestore-write-proxy');
 
   const response = await fetch(url, {
     method: 'POST',
@@ -158,7 +176,7 @@ export const callBackendApi = async (
 ): Promise<any> => {
   if (!currentUser) throw new Error('User not authenticated');
   const token = await currentUser.getIdToken();
-  const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+  const backendApiUrl = getBackendApiUrl();
   const response = await fetch(`${backendApiUrl}${endpoint}`, {
     method,
     headers: {
