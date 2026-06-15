@@ -48,7 +48,7 @@ import EnglishDateInput from './EnglishDateInput';
 import PolicyGuideScreen from './PolicyGuideScreen';
 import AccountDeletionScreen from './AccountDeletionScreen';
 import { useAccounting } from '../contexts/AccountingContext';
-import { firebaseAuth, firebaseDb } from '../firebaseClient';
+import { firebaseAuth, firebaseDb, getBackendApiUrl } from '../firebaseClient';
 import { updatePassword, EmailAuthProvider, linkWithCredential, reauthenticateWithCredential } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { CloudCompanySubscription, CloudSubscriptionCode, CloudSubscriptionCodeStatus, CompanyProfile, CompanySettings, CompanySubscriptionPlan, CompanySubscriptionStatus, InventoryValuationMethod, PermissionAction, PermissionMatrix, PermissionModule, SubscriptionBillingCycle, SubscriptionCheckoutProvider, WorkspaceOfferCodeKind } from '../types';
@@ -379,7 +379,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     connectGoogleDrive,
     disconnectGoogleDrive,
     uploadBackupToGoogleDrive,
-    uploadBackupToFirebase,
     restoreFromGoogleDrive,
     runAutoBackupNow,
     auditLogs,
@@ -427,7 +426,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     setGlobalUsersLoading(true);
     try {
       const token = await firebaseAuth.currentUser.getIdToken();
-      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      const backendApiUrl = getBackendApiUrl();
       const res = await fetch(`${backendApiUrl}/admin/users`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -1383,10 +1382,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   };
 
   const handleCreateBackup = async () => {
-    if (!backupPassword.trim()) {
-      setBackupStatus(tr('يرجى إدخال كلمة مرور للنسخة', 'Please provide a backup password.'));
-      return;
-    }
     const payload = await exportData(backupPassword.trim());
     if (!payload) {
       setBackupStatus(tr('تعذر إنشاء النسخة الاحتياطية', 'Could not create backup.'));
@@ -1428,10 +1423,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const handleRestoreBackup = async () => {
     if (!backupJson.trim()) {
       setBackupStatus(tr('ألصق محتوى النسخة أولاً', 'Paste backup content first.'));
-      return;
-    }
-    if (!backupPassword.trim()) {
-      setBackupStatus(tr('يرجى إدخال كلمة المرور للاسترجاع', 'Enter password to restore backup.'));
       return;
     }
 
@@ -1542,54 +1533,25 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   };
 
   const handleUploadBackupToDrive = async () => {
-    if (!backupJson.trim()) {
-      setBackupStatus(tr('أنشئ نسخة أو ألصق JSON قبل الرفع إلى Google Drive.', 'Create or paste backup JSON before uploading to Google Drive.'));
-      return;
-    }
     try {
-      const parsed = JSON.parse(backupJson);
-      if (!isBackupPayloadV1(parsed)) {
-        setBackupStatus(tr('محتوى النسخة غير صالح للرفع.', 'Backup payload is invalid for upload.'));
+      setBackupStatus(tr('جاري إعداد النسخة والرفع إلى Google Drive...', 'Preparing backup and uploading to Google Drive...'));
+      const payload = await exportData('');
+      if (!payload) {
+        setBackupStatus(tr('تعذر إنشاء النسخة الاحتياطية', 'Could not create backup.'));
         return;
       }
-      const result = await uploadBackupToGoogleDrive(parsed);
+      const result = await uploadBackupToGoogleDrive(payload);
       setBackupStatus(
         result.ok
-          ? tr('تم رفع النسخة إلى Google Drive.', 'Backup uploaded to Google Drive.')
+          ? tr('تم رفع النسخة إلى Google Drive بنجاح.', 'Backup uploaded to Google Drive successfully.')
           : result.message
       );
-    } catch {
-      setBackupStatus(tr('JSON النسخة غير صالح.', 'Backup JSON is invalid.'));
-    }
-  };
-
-  const handleUploadBackupToFirebase = async () => {
-    if (!backupJson.trim()) {
-      setBackupStatus(tr('أنشئ نسخة أو ألصق JSON قبل الرفع إلى Firebase.', 'Create or paste backup JSON before uploading to Firebase.'));
-      return;
-    }
-    try {
-      const parsed = JSON.parse(backupJson);
-      if (!isBackupPayloadV1(parsed)) {
-        setBackupStatus(tr('محتوى النسخة غير صالح للرفع.', 'Backup payload is invalid for upload.'));
-        return;
-      }
-      const result = await uploadBackupToFirebase(parsed);
-      setBackupStatus(
-        result.ok
-          ? tr('تم رفع النسخة إلى Firebase.', 'Backup uploaded to Firebase.')
-          : result.message
-      );
-    } catch {
-      setBackupStatus(tr('JSON النسخة غير صالح.', 'Backup JSON is invalid.'));
+    } catch (e: any) {
+      setBackupStatus(tr('فشل الرفع: ' + (e?.message || e), 'Upload failed: ' + (e?.message || e)));
     }
   };
 
   const handleRestoreFromDrive = async () => {
-    if (!backupPassword.trim()) {
-      setBackupStatus(tr('أدخل كلمة المرور قبل الاسترجاع من Google Drive.', 'Enter password before restoring from Google Drive.'));
-      return;
-    }
     const result = await restoreFromGoogleDrive(backupPassword.trim());
     setBackupStatus(
       result.ok
@@ -1984,7 +1946,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
     try {
       const token = await firebaseAuth.currentUser.getIdToken();
-      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      const backendApiUrl = getBackendApiUrl();
       
       const response = await fetch(`${backendApiUrl}/companies/${currentCompanyId}/users/create`, {
         method: 'POST',
@@ -2045,7 +2007,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
     try {
       const token = await firebaseAuth.currentUser.getIdToken();
-      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      const backendApiUrl = getBackendApiUrl();
       
       const response = await fetch(`${backendApiUrl}/companies/${currentCompanyId}/users/${adminSelectedUserForPasswordReset}/change-password`, {
         method: 'POST',
@@ -2087,7 +2049,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
     try {
       const token = await firebaseAuth.currentUser.getIdToken();
-      const backendApiUrl = String(import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5000/api').trim();
+      const backendApiUrl = getBackendApiUrl();
       
       const response = await fetch(`${backendApiUrl}/admin/users/${adminSelectedUserForSubscription}/subscription`, {
         method: 'POST',
@@ -5390,10 +5352,6 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <button type="button" onClick={handleUploadBackupToDrive} className="py-2 rounded-lg bg-indigo-600 text-white text-xs font-black flex items-center justify-center gap-2">
             <CloudUpload className="w-4 h-4" />
             {tr('رفع النسخة الحالية', 'Upload current backup')}
-          </button>
-          <button type="button" onClick={handleUploadBackupToFirebase} className="py-2 rounded-lg bg-violet-600 text-white text-xs font-black flex items-center justify-center gap-2">
-            <CloudUpload className="w-4 h-4" />
-            {tr('رفع النسخة إلى Firebase', 'Upload current backup to Firebase')}
           </button>
           <button type="button" onClick={handleRestoreFromDrive} className="py-2 rounded-lg bg-purple-600 text-white text-xs font-black flex items-center justify-center gap-2">
             <CloudDownload className="w-4 h-4" />

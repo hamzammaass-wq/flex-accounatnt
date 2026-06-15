@@ -36,8 +36,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { useFirestoreSyncState, showSyncAlertOnce } from '../hooks/useFirestoreSyncState';
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, limit as firestoreLimit } from 'firebase/firestore';
-import { ref as storageRef, uploadString } from 'firebase/storage';
-import { firebaseAuth, firebaseDb, firebaseStorage, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
+import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
 
 // ... (Existing Interfaces)
 
@@ -316,7 +315,6 @@ interface AccountingContextType {
   connectGoogleDrive: () => Promise<MutationResult>;
   disconnectGoogleDrive: () => void;
   uploadBackupToGoogleDrive: (payload: BackupPayloadV1, fileName?: string) => Promise<MutationResult>;
-  uploadBackupToFirebase: (payload: BackupPayloadV1, fileName?: string) => Promise<MutationResult>;
   restoreFromGoogleDrive: (password: string) => Promise<MutationResult>;
   runAutoBackupNow: () => Promise<MutationResult>;
 
@@ -1848,20 +1846,23 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         setCompaniesLoaded(true);
 
         if (needsCloudUpdate) {
-          try {
-            const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
-            const docData: any = { companies: cleanCompanies };
-            if (data && data.accountCode) {
-              docData.accountCode = data.accountCode;
-            }
-            if (data && data.password) {
-              docData.password = data.password;
-            }
-            await setDoc(userDocRef, docData, { merge: true });
-          } catch (err: any) {
-            console.error("Failed to seed new user companies:", err);
-            if (typeof window !== 'undefined') {
-              alert(`خطأ في المزامنة السحابية (الشركات): ${err.message || 'حدث خطأ غير معروف'}`);
+          if (!bootstrappedUsersRef.current.has(currentUser.id)) {
+            bootstrappedUsersRef.current.add(currentUser.id);
+            try {
+              const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
+              const docData: any = { companies: cleanCompanies };
+              if (data && data.accountCode) {
+                docData.accountCode = data.accountCode;
+              }
+              if (data && data.password) {
+                docData.password = data.password;
+              }
+              await setDoc(userDocRef, docData, { merge: true });
+            } catch (err: any) {
+              console.error("Failed to seed new user companies:", err);
+              if (typeof window !== 'undefined') {
+                alert(`خطأ في المزامنة السحابية (الشركات): ${err.message || 'حدث خطأ غير معروف'}`);
+              }
             }
           }
         }
@@ -1984,6 +1985,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const googleTokenExpiresAtRef = useRef<number>(0);
   const lastBackedUpVersionRef = useRef<number | null>(null);
   const lastSavedSnapshotRef = useRef<CompanyWorkspaceSnapshot | null>(null);
+  const bootstrappedSubscriptionsRef = useRef<Set<string>>(new Set());
+  const bootstrappedWorkspacesRef = useRef<Set<string>>(new Set());
+  const bootstrappedUsersRef = useRef<Set<string>>(new Set());
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -2415,6 +2419,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           return;
         }
 
+        if (bootstrappedSubscriptionsRef.current.has(currentCompany.id)) {
+          setCloudSubscription(null);
+          setSubscriptionCloudBusy(false);
+          return;
+        }
+        bootstrappedSubscriptionsRef.current.add(currentCompany.id);
+
         void persistCloudSubscription(currentCompany, {
           source: currentCompany.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
           boundDevices: [currentDeviceBinding]
@@ -2451,18 +2462,21 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         });
         remote = nextRemote;
       } else if (existingDevice) {
-        const nextDevices = remote.boundDevices.map(device => (
-          device.deviceId === currentDeviceBinding.deviceId
-            ? {
-              ...device,
-              lastSeenAt: new Date().toISOString(),
-              lastUserId: currentUser.id,
-              lastUserEmail: currentUser.email
-            }
-            : device
-        ));
-        const changed = JSON.stringify(nextDevices) !== JSON.stringify(remote.boundDevices);
-        if (changed) {
+        const lastSeen = Date.parse(String(existingDevice.lastSeenAt || ''));
+        const fiveMinutes = 5 * 60 * 1000;
+        const needsHeartbeat = !Number.isFinite(lastSeen) || (Date.now() - lastSeen) > fiveMinutes;
+
+        if (needsHeartbeat) {
+          const nextDevices = remote.boundDevices.map(device => (
+            device.deviceId === currentDeviceBinding.deviceId
+              ? {
+                ...device,
+                lastSeenAt: new Date().toISOString(),
+                lastUserId: currentUser.id,
+                lastUserEmail: currentUser.email
+              }
+              : device
+          ));
           void setDoc(subscriptionRef, sanitizeFirestorePayload({
             boundDevices: nextDevices,
             updatedAt: new Date().toISOString(),
@@ -7647,9 +7661,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       const bootstrap = normalizeWorkspaceSubscription(fallback, fallback);
       setWorkspaceSubscription(bootstrap);
-      void setDoc(workspaceRef, sanitizeFirestorePayload(bootstrap as unknown as Record<string, unknown>), { merge: true }).catch(() => {
-        // Ignore bootstrap sync errors and keep local fallback.
-      });
+      if (!bootstrappedWorkspacesRef.current.has(currentUser.id)) {
+        bootstrappedWorkspacesRef.current.add(currentUser.id);
+        void setDoc(workspaceRef, sanitizeFirestorePayload(bootstrap as unknown as Record<string, unknown>), { merge: true }).catch(() => {
+          // Ignore bootstrap sync errors and keep local fallback.
+        });
+      }
     }, () => {
       setWorkspaceSubscription(prev => normalizeWorkspaceSubscription(prev, fallback));
     });
@@ -9732,44 +9749,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return makeSuccess();
   };
 
-  const uploadBackupToFirebase: AccountingContextType['uploadBackupToFirebase'] = async (payload, fileName) => {
-    const permission = enforcePermission('SETTINGS', 'PRINT', 'Settings > Backup');
-    if (!permission.ok) return permission;
-    if (!firebaseStorage) {
-      return makeError('VALIDATION_ERROR', 'Firebase Storage is not configured.');
-    }
-    const currentUser = firebaseAuth?.currentUser;
-    if (!currentUser) {
-      return makeError('VALIDATION_ERROR', 'Firebase authentication is required.');
-    }
-
-    const targetFileName = fileName || buildBackupFileName(payload.createdAt);
-    const companyFolder = String(currentCompanyId || 'cmp_default');
-    const storagePath = `backups/${currentUser.uid}/${companyFolder}/${targetFileName}`;
-
-    try {
-      await uploadString(storageRef(firebaseStorage, storagePath), JSON.stringify(payload, null, 2), 'raw', {
-        contentType: 'application/json'
-      });
-      appendAuditLog({
-        entityType: 'backup',
-        action: 'FIREBASE_UPLOAD',
-        screen: 'Settings > Backup',
-        metadata: { storagePath, userId: currentUser.uid, userEmail: currentUser.email || '' }
-      });
-      return makeSuccess();
-    } catch (error: any) {
-      const message = String(error?.message || 'Firebase backup upload failed.');
-      appendAuditLog({
-        entityType: 'backup',
-        action: 'FIREBASE_UPLOAD_REJECTED',
-        screen: 'Settings > Backup',
-        metadata: { reason: message, storagePath }
-      });
-      return makeError('VALIDATION_ERROR', message);
-    }
-  };
-
   const runAutoBackupCycle = async (interactiveDriveAuth: boolean): Promise<MutationResult> => {
     if (autoBackupInFlightRef.current) {
       return makeError('VALIDATION_ERROR', 'Auto backup is already running.');
@@ -9782,7 +9761,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     try {
       const payload = await createEncryptedBackupPayload(password, 'AUTO');
       if (!payload) {
-        return makeError('VALIDATION_ERROR', 'Could not create automatic backup payload.');
+        throw new Error('Could not create automatic backup payload.');
       }
 
       let uploadedToDrive = false;
@@ -9818,12 +9797,25 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeSuccess();
     } catch (error: any) {
       const message = String(error?.message || 'Automatic backup failed.');
+      
+      try {
+        setCompanySettings(prev => withNormalizedValuationSettings({
+          ...prev,
+          autoBackupLastRunAt: new Date().toISOString()
+        }));
+      } catch (settingsError) {
+        console.error('Failed to update autoBackupLastRunAt on backup failure:', settingsError);
+      }
+
       appendAuditLog({
         entityType: 'backup',
         action: 'AUTO_EXPORT_REJECTED',
         screen: 'Settings > Backup',
         metadata: { reason: message }
       });
+
+      lastBackedUpVersionRef.current = syncQueueVersion;
+
       return makeError('VALIDATION_ERROR', message);
     } finally {
       autoBackupInFlightRef.current = false;
@@ -10045,15 +10037,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const lastRunAt = Date.parse(String(companySettings.autoBackupLastRunAt || ''));
       const due = !Number.isFinite(lastRunAt) || (Date.now() - lastRunAt) >= frequencyMs;
       if (!due) return;
-      const result = await runAutoBackupCycle(false);
-      if (result.ok === false) {
-        appendAuditLog({
-          entityType: 'backup',
-          action: 'AUTO_EXPORT_REJECTED',
-          screen: 'Settings > Backup',
-          metadata: { reason: result.message }
-        });
-      }
+      await runAutoBackupCycle(false);
     };
 
     void runIfDue();
@@ -10117,7 +10101,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       users, addUser, updateUser, deleteUser,
       summary,
       isOnline, isSyncing, lastSyncTime, syncData, exportData, importData,
-      googleDriveStatus, connectGoogleDrive, disconnectGoogleDrive, uploadBackupToGoogleDrive, uploadBackupToFirebase, restoreFromGoogleDrive, runAutoBackupNow,
+      googleDriveStatus, connectGoogleDrive, disconnectGoogleDrive, uploadBackupToGoogleDrive, restoreFromGoogleDrive, runAutoBackupNow,
       permissions, updatePermissions, can, auditLogs, appendAuditLog,
 
       // Warehouse Module
