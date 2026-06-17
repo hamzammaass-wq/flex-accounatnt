@@ -5,9 +5,44 @@ const router = Router({ mergeParams: true });
 const prefixAccountId = (companyId, id) => {
     if (!id)
         return null;
-    if (id.startsWith(companyId + '_'))
-        return id;
-    return `${companyId}_${id}`;
+    let cleanId = id;
+    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        cleanId = match[1];
+    }
+    if (cleanId.startsWith(companyId + '_'))
+        return cleanId;
+    return `${companyId}_${cleanId}`;
+};
+const resolveDbAccountId = async (client, companyId, accountId) => {
+    if (!accountId)
+        return null;
+    let cleanId = accountId;
+    const match = accountId.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        cleanId = match[1];
+    }
+    const prefixed = `${companyId}_${cleanId}`;
+    const res = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND (id = $2 OR id = $3)`, [companyId, prefixed, cleanId]);
+    if (res.rows.length > 0) {
+        return res.rows[0].id;
+    }
+    // Auto-create placeholder account to prevent foreign key constraint violations
+    try {
+        const defaultType = cleanId.toLowerCase().includes('expense') ? 'EXPENSE' :
+            cleanId.toLowerCase().includes('revenue') || cleanId.toLowerCase().includes('sales') ? 'REVENUE' :
+                cleanId.toLowerCase().includes('liability') ? 'LIABILITY' :
+                    cleanId.toLowerCase().includes('equity') ? 'EQUITY' : 'ASSET';
+        const code = cleanId.substring(0, 30);
+        const name = cleanId.replace(/_/g, ' ');
+        await client.query(`INSERT INTO accounts (id, company_id, code, name, type, currency)
+       VALUES ($1, $2, $3, $4, $5, 'ILS')
+       ON CONFLICT (company_id, id) DO NOTHING`, [prefixed, companyId, code, name, defaultType]);
+    }
+    catch (err) {
+        console.error(`[resolveDbAccountId] Failed to auto-create placeholder account ${prefixed}:`, err);
+    }
+    return prefixed;
 };
 // Get all invoices for a company
 router.get('/', verifyCompanyMembership, async (req, res) => {
@@ -69,7 +104,7 @@ router.post('/', verifyCompanyMembership, async (req, res) => {
             status || 'PENDING',
             postingStatus || 'DRAFT',
             paymentType || 'CREDIT',
-            prefixAccountId(companyId, paymentAccountId),
+            await resolveDbAccountId(client, companyId, paymentAccountId),
             !!isPartnerDrawings,
             partnerDrawingsMode || null,
             notes || '',
@@ -90,7 +125,7 @@ router.post('/', verifyCompanyMembership, async (req, res) => {
                 companyId,
                 id,
                 item.productId || null,
-                prefixAccountId(companyId, item.accountId),
+                await resolveDbAccountId(client, companyId, item.accountId),
                 item.description || '',
                 Number(item.quantity || 0),
                 Number(item.unitPrice || 0),

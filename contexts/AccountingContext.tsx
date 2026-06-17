@@ -1337,6 +1337,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   });
 
+  const [isAuthInitialized, setIsAuthInitialized] = useState(false);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -1696,6 +1698,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser, defaultCompanySettings]);
 
   useEffect(() => {
+    if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) {
+      return;
+    }
+
     if (!currentUser || isGuestUser(currentUser)) {
       setCompaniesLoaded(true);
       return;
@@ -1883,7 +1889,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         unsubscribeFirestore();
       }
     };
-  }, [currentUser, firebaseDb]);
+  }, [currentUser, firebaseDb, isAuthInitialized]);
 
   useEffect(() => {
     if (!companiesLoaded || !firebaseDb || !currentUser || isGuestUser(currentUser)) return;
@@ -2131,6 +2137,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       const syncFirebaseSession = (authUser: FirebaseAuthUser | null) => {
         if (cancelled) return;
+        setIsAuthInitialized(true);
         const persistedCompanyId = resolvePersistedCompanyId();
 
         if (!authUser) {
@@ -2161,6 +2168,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     setCloudMemberships([]);
+    setIsAuthInitialized(true);
     setCurrentUser(prev => (
       isGuestUser(prev)
         ? {
@@ -7692,6 +7700,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [companies, currentCompanyId]);
 
   useEffect(() => {
+    if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) {
+      return;
+    }
+
     if (!currentCompanyId) return;
     // Rehydrate only when the active company context changes.
     // Depending on `companies` here causes settings updates to reload a stale
@@ -7744,7 +7756,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return () => {
       cancelled = true;
     };
-  }, [currentCompanyId, cloudMemberships]);
+  }, [currentCompanyId, cloudMemberships, isAuthInitialized]);
 
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;

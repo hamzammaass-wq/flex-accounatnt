@@ -18,7 +18,7 @@ import {
     ArrowDownLeft, ArrowUpRight, CheckCircle, AlertCircle, Info, Calculator, Layers, Building2, PackagePlus, MoreVertical,
     Banknote, PlusSquare, AlertTriangle, CheckCircle2, ListChecks, Fingerprint, MapPin, Hash, TextQuote,
     Repeat, Tag, StickyNote, AlertOctagon, FileCheck, RefreshCw, Equal, Contact2, ScanBarcode, Forward, RotateCcw, Link as LinkIcon, Ruler, Upload,
-    Save, FileText, FileSpreadsheet, Share2, MessageSquareText, MessageCircle
+    Save, FileText, FileSpreadsheet, Share2, MessageSquareText, MessageCircle, Camera
 } from 'lucide-react';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { translateDocumentNumber } from '../utils/i18n';
@@ -1374,12 +1374,29 @@ const InvoiceScreen: React.FC<{
 
     useEffect(() => {
         if (!showBarcodeScanner) return;
+        let isUnmounted = false;
+        let qrInstance: Html5Qrcode | null = null;
+
         const timer = setTimeout(() => {
             const qr = new Html5Qrcode('invoice-barcode-reader');
+            qrInstance = qr;
             invoiceBarcodeScannerRef.current = qr;
+
+            const config = {
+                fps: 10,
+                qrbox: (width: number, height: number) => {
+                    const desiredWidth = Math.min(width * 0.85, 320);
+                    const desiredHeight = Math.min(height * 0.4, 140);
+                    return {
+                        width: Math.floor(desiredWidth),
+                        height: Math.floor(desiredHeight)
+                    };
+                }
+            };
+
             qr.start(
                 { facingMode: 'environment' },
-                { fps: 10, qrbox: { width: 260, height: 260 } },
+                config,
                 (decodedText) => {
                     const scanned = String(decodedText || '').trim();
                     if (!scanned) return;
@@ -1408,10 +1425,13 @@ const InvoiceScreen: React.FC<{
                         });
                     }
                     setShowBarcodeScanner(false);
-                    qr.stop().catch(() => undefined);
                 },
                 () => undefined
-            ).catch(() => {
+            ).then(() => {
+                if (isUnmounted) {
+                    qr.stop().then(() => qr.clear()).catch(() => undefined);
+                }
+            }).catch(() => {
                 appendDeviceHubLog(currentCompanyId, {
                     deviceType: 'BARCODE_SCANNER',
                     action: 'SCAN',
@@ -1422,14 +1442,15 @@ const InvoiceScreen: React.FC<{
                 alert(tr('تعذر تشغيل كاميرا الباركود.', 'Unable to start barcode camera scanner.'));
                 setShowBarcodeScanner(false);
             });
-        }, 80);
+        }, 250);
 
         return () => {
+            isUnmounted = true;
             clearTimeout(timer);
-            const qr = invoiceBarcodeScannerRef.current;
-            invoiceBarcodeScannerRef.current = null;
-            if (qr) {
-                qr.stop().catch(() => undefined).finally(() => qr.clear().catch(() => undefined));
+            if (qrInstance) {
+                if (qrInstance.isScanning) {
+                    qrInstance.stop().then(() => qrInstance?.clear()).catch(() => undefined);
+                }
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2988,7 +3009,9 @@ const InvoiceScreen: React.FC<{
                     }}
                     className={`invoice-search-form grid gap-2 items-center relative rounded-2xl border border-slate-200 bg-slate-50/70 p-2 ${isExpenseVoucherManualOnly
                         ? 'grid-cols-1'
-                        : 'grid-cols-[minmax(0,1fr),auto]'
+                        : (barcodeSettings.allowCameraScannerInInvoices || barcodeSettings.scannerMode === 'CAMERA')
+                            ? 'grid-cols-[minmax(0,1fr),auto,auto]'
+                            : 'grid-cols-[minmax(0,1fr),auto]'
                         }`}
                 >
                     <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
@@ -3008,6 +3031,22 @@ const InvoiceScreen: React.FC<{
                             className={`w-full h-10 text-sm font-black bg-white border border-transparent shadow-inner rounded-xl appearance-none focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all ${isEnglish ? 'px-3 text-left' : 'px-3 text-right'}`}
                         />
                     </div>
+
+                    {!isExpenseVoucherManualOnly && (barcodeSettings.allowCameraScannerInInvoices || barcodeSettings.scannerMode === 'CAMERA') && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsSearchFocused(false);
+                                setShowBarcodeScanner(true);
+                            }}
+                            className="invoice-camera-scanner-button flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
+                        >
+                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 shadow-sm active:-translate-y-0.5 active:scale-95 transition-all hover:bg-indigo-100">
+                                <Camera size={16} />
+                            </span>
+                            <span className="text-[9px] font-black text-slate-500">{tr('كاميرا الباركود', 'Camera Scan')}</span>
+                        </button>
+                    )}
 
                     {!isExpenseVoucherManualOnly && (
                         <button

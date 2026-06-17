@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, type TouchEvent as ReactTouchEvent } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 interface UseMobileInteractionsOptions {
   isMobile: boolean;
@@ -40,8 +41,19 @@ const setViewportCssVars = () => {
   const keyboardInset = keyboardInsetRaw > 0 ? keyboardInsetRaw : 0;
   root.style.setProperty('--app-vh', `${vh * 0.01}px`);
   root.style.setProperty('--app-keyboard-inset', `${keyboardInset}px`);
-  root.dataset.orientation = getOrientation();
+  
+  const orientation = getOrientation();
+  root.dataset.orientation = orientation;
   root.dataset.keyboardOpen = keyboardInset >= KEYBOARD_OPEN_THRESHOLD_PX ? '1' : '0';
+
+  if (Capacitor.isNativePlatform()) {
+    const isPortrait = orientation === 'portrait';
+    root.style.setProperty('--app-safe-top', isPortrait ? '34px' : '0px');
+    root.style.setProperty('--app-safe-bottom', '16px');
+  } else {
+    root.style.setProperty('--app-safe-top', 'env(safe-area-inset-top)');
+    root.style.setProperty('--app-safe-bottom', 'env(safe-area-inset-bottom)');
+  }
 };
 
 export const useMobileInteractions = ({

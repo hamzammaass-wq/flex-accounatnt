@@ -17,7 +17,8 @@
     <script>
       (function () {
         var BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
-        var CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed|Unexpected token '<')/i;
+        var CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed)/i;
+        var BOOT_TIME = Date.now();
 
         function recoverBoot() {
           var attempts = 0;
@@ -86,7 +87,8 @@
             }
           }
           var message = String((event && event.message) || '');
-          if (isScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+          var isInitialBootPhase = (Date.now() - BOOT_TIME) < 15000;
+          if (isInitialBootPhase && (isScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message))) {
             recoverBoot();
           }
         }, true);
@@ -94,7 +96,8 @@
         window.addEventListener('unhandledrejection', function (event) {
           var reason = event && event.reason;
           var message = typeof reason === 'string' ? reason : String((reason && reason.message) || '');
-          if (CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+          var isInitialBootPhase = (Date.now() - BOOT_TIME) < 15000;
+          if (isInitialBootPhase && CHUNK_LOAD_ERROR_PATTERN.test(message)) {
             event.preventDefault();
             recoverBoot();
           }

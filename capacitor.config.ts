@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const firebaseAuthenticationConfig = {
   skipNativeAuth: true,
   providers: ['google.com'],
-  clientId: '879535686153-1oc4qb6hkfimcnfl3il5edri8idaeska.apps.googleusercontent.com',
+  clientId: '879535686153-uomsq0iinc3eqq1vpqqm8qemu3c0v06l.apps.googleusercontent.com',
 };
 
 const config: CapacitorConfig = {

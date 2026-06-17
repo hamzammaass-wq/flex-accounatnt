@@ -19,8 +19,51 @@ dotenv.config();
 
 const prefixAccountId = (companyId: string, id: string | null | undefined): string | null => {
   if (!id) return null;
-  if (id.startsWith(companyId + '_')) return id;
-  return `${companyId}_${id}`;
+  let cleanId = id;
+  const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+  if (match) {
+    cleanId = match[1];
+  }
+  if (cleanId.startsWith(companyId + '_')) return cleanId;
+  return `${companyId}_${cleanId}`;
+};
+
+const resolveDbAccountId = async (client: any, companyId: string, accountId: string | null | undefined): Promise<string | null> => {
+  if (!accountId) return null;
+  let cleanId = accountId;
+  const match = accountId.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+  if (match) {
+    cleanId = match[1];
+  }
+  const prefixed = `${companyId}_${cleanId}`;
+  
+  const res = await client.query(
+    `SELECT id FROM accounts WHERE company_id = $1 AND (id = $2 OR id = $3)`,
+    [companyId, prefixed, cleanId]
+  );
+  if (res.rows.length > 0) {
+    return res.rows[0].id;
+  }
+
+  // Auto-create placeholder account to prevent foreign key constraint violations
+  try {
+    const defaultType = cleanId.toLowerCase().includes('expense') ? 'EXPENSE' :
+                        cleanId.toLowerCase().includes('revenue') || cleanId.toLowerCase().includes('sales') ? 'REVENUE' :
+                        cleanId.toLowerCase().includes('liability') ? 'LIABILITY' :
+                        cleanId.toLowerCase().includes('equity') ? 'EQUITY' : 'ASSET';
+    const code = cleanId.substring(0, 30);
+    const name = cleanId.replace(/_/g, ' ');
+    await client.query(
+      `INSERT INTO accounts (id, company_id, code, name, type, currency)
+       VALUES ($1, $2, $3, $4, $5, 'ILS')
+       ON CONFLICT (company_id, id) DO NOTHING`,
+      [prefixed, companyId, code, name, defaultType]
+    );
+  } catch (err) {
+    console.error(`[resolveDbAccountId] Failed to auto-create placeholder account ${prefixed}:`, err);
+  }
+
+  return prefixed;
 };
 
 const app = express();
@@ -34,6 +77,14 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '50mb' })); // Support large JSON payloads during imports or syncs
+
+// Support direct Cloud Function calls where the /api path prefix might be stripped by the runtime mount point
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api') && !req.url.startsWith('/api/')) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
 
 // Public endpoints
 app.get('/api/health', (req, res) => {
@@ -388,7 +439,7 @@ app.post('/api/firestore-write-proxy', authenticateUser, async (req, res) => {
             await client.query(
               `INSERT INTO journal_lines (company_id, entry_id, account_id, debit, credit, currency, exchange_rate, note)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-              [companyId, data.id, prefixAccountId(companyId, line.accountId), Number(line.debit || 0), Number(line.credit || 0), line.currency || data.currency, Number(line.exchangeRate || data.exchangeRate || 1.0), line.note || null]
+              [companyId, data.id, await resolveDbAccountId(client, companyId, line.accountId), Number(line.debit || 0), Number(line.credit || 0), line.currency || data.currency, Number(line.exchangeRate || data.exchangeRate || 1.0), line.note || null]
             );
           }
         } else if (collectionName === 'invoices') {
@@ -410,12 +461,12 @@ app.post('/api/firestore-write-proxy', authenticateUser, async (req, res) => {
               data.type, data.category || '', new Date(data.date), data.dueDate ? new Date(data.dueDate) : null,
               Number(data.subTotal || 0), Number(data.taxRate || 0), Number(data.taxAmount || 0), data.taxMode || 'NONE',
               Number(data.discountAmount || 0), Number(data.totalAmount || 0), data.status || 'PENDING', data.postingStatus || 'DRAFT',
-              data.paymentType || 'CREDIT', prefixAccountId(companyId, data.paymentAccountId), !!data.isPartnerDrawings, data.partnerDrawingsMode || null,
+              data.paymentType || 'CREDIT', await resolveDbAccountId(client, companyId, data.paymentAccountId), !!data.isPartnerDrawings, data.partnerDrawingsMode || null,
               data.notes || '', data.currency, Number(data.exchangeRate || 1.0), data.warehouseId || null, data.reversalOfId || null,
               data.reversedById || null, !!data.isReversal
             ]
           );
-
+ 
           // Clear items and re-insert
           await client.query(`DELETE FROM invoice_items WHERE company_id = $1 AND invoice_id = $2`, [companyId, data.id]);
           if (Array.isArray(data.items)) {
@@ -423,7 +474,7 @@ app.post('/api/firestore-write-proxy', authenticateUser, async (req, res) => {
               await client.query(
                 `INSERT INTO invoice_items (id, company_id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-                [details.id, companyId, data.id, details.productId || null, prefixAccountId(companyId, details.accountId), details.description || '', Number(details.quantity || 0), Number(details.unitPrice || 0), Number(details.total || 0), !!details.returned, details.width ? Number(details.width) : null, details.length ? Number(details.length) : null]
+                [details.id, companyId, data.id, details.productId || null, await resolveDbAccountId(client, companyId, details.accountId), details.description || '', Number(details.quantity || 0), Number(details.unitPrice || 0), Number(details.total || 0), !!details.returned, details.width ? Number(details.width) : null, details.length ? Number(details.length) : null]
               );
             }
           }

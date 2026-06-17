@@ -39,6 +39,11 @@ android {
         }
     }
     buildTypes {
+        debug {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release

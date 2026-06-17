@@ -3049,3 +3049,10 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
     line-height: 1.25 !important;
   }
 }
+
+/* HTML5 QR Code Scanner Video Styling overrides */
+#reader video, #quick-add-product-reader video, #invoice-barcode-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}

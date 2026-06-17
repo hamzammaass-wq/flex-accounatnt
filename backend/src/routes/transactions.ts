@@ -6,8 +6,13 @@ const router = Router({ mergeParams: true });
 
 const prefixAccountId = (companyId: string, id: string | null | undefined): string | null => {
   if (!id) return null;
-  if (id.startsWith(companyId + '_')) return id;
-  return `${companyId}_${id}`;
+  let cleanId = id;
+  const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+  if (match) {
+    cleanId = match[1];
+  }
+  if (cleanId.startsWith(companyId + '_')) return cleanId;
+  return `${companyId}_${cleanId}`;
 };
 
 // Get all transactions

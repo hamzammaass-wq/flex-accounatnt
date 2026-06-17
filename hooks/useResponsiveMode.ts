@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 export type DeviceClass = 'mobile' | 'tablet' | 'desktop';
 export type LaunchMode = 'browser' | 'standalone';
@@ -82,8 +83,16 @@ export const useResponsiveMode = () => {
     root.style.setProperty('--app-nav-height-mobile', '78px');
     root.style.setProperty('--app-nav-height-tablet', '86px');
     root.style.setProperty('--app-nav-height', deviceClass === 'mobile' ? '78px' : '86px');
-    root.style.setProperty('--app-safe-top', 'env(safe-area-inset-top)');
-    root.style.setProperty('--app-safe-bottom', 'env(safe-area-inset-bottom)');
+    
+    if (Capacitor.isNativePlatform()) {
+      const isPortrait = typeof window !== 'undefined' && window.innerHeight >= window.innerWidth;
+      root.style.setProperty('--app-safe-top', isPortrait ? '34px' : '0px');
+      root.style.setProperty('--app-safe-bottom', '16px');
+    } else {
+      root.style.setProperty('--app-safe-top', 'env(safe-area-inset-top)');
+      root.style.setProperty('--app-safe-bottom', 'env(safe-area-inset-bottom)');
+    }
+    
     root.style.setProperty('--app-content-max-width-tablet-browser', '1080px');
   }, [deviceClass, launchMode]);
 

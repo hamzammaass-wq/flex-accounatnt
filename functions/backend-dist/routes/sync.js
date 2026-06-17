@@ -5,13 +5,22 @@ const router = Router({ mergeParams: true });
 const prefixAccountId = (companyId, id) => {
     if (!id)
         return null;
-    if (id.startsWith(companyId + '_'))
-        return id;
-    return `${companyId}_${id}`;
+    let cleanId = id;
+    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        cleanId = match[1];
+    }
+    if (cleanId.startsWith(companyId + '_'))
+        return cleanId;
+    return `${companyId}_${cleanId}`;
 };
 const unprefixAccountId = (companyId, id) => {
     if (!id)
         return null;
+    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        return match[1];
+    }
     const prefix = companyId + '_';
     if (id.startsWith(prefix)) {
         return id.substring(prefix.length);
@@ -21,11 +30,30 @@ const unprefixAccountId = (companyId, id) => {
 const resolveDbAccountId = async (client, companyId, accountId) => {
     if (!accountId)
         return null;
-    const prefixed = accountId.startsWith(companyId + '_') ? accountId : `${companyId}_${accountId}`;
-    const raw = accountId.startsWith(companyId + '_') ? accountId.substring(companyId.length + 1) : accountId;
-    const res = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND (id = $2 OR id = $3)`, [companyId, prefixed, raw]);
+    let cleanId = accountId;
+    const match = accountId.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        cleanId = match[1];
+    }
+    const prefixed = `${companyId}_${cleanId}`;
+    const res = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND (id = $2 OR id = $3)`, [companyId, prefixed, cleanId]);
     if (res.rows.length > 0) {
         return res.rows[0].id;
+    }
+    // Auto-create placeholder account to prevent foreign key constraint violations
+    try {
+        const defaultType = cleanId.toLowerCase().includes('expense') ? 'EXPENSE' :
+            cleanId.toLowerCase().includes('revenue') || cleanId.toLowerCase().includes('sales') ? 'REVENUE' :
+                cleanId.toLowerCase().includes('liability') ? 'LIABILITY' :
+                    cleanId.toLowerCase().includes('equity') ? 'EQUITY' : 'ASSET';
+        const code = cleanId.substring(0, 30);
+        const name = cleanId.replace(/_/g, ' ');
+        await client.query(`INSERT INTO accounts (id, company_id, code, name, type, currency)
+       VALUES ($1, $2, $3, $4, $5, 'ILS')
+       ON CONFLICT (company_id, id) DO NOTHING`, [prefixed, companyId, code, name, defaultType]);
+    }
+    catch (err) {
+        console.error(`[resolveDbAccountId] Failed to auto-create placeholder account ${prefixed}:`, err);
     }
     return prefixed;
 };
@@ -604,10 +632,10 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                             item.phone || null,
                             item.address || null,
                             item.preferredPriceTier || 'RETAIL',
-                            prefixAccountId(companyId, item.linkedAccountId),
-                            prefixAccountId(companyId, item.currentAccountId),
-                            prefixAccountId(companyId, item.capitalAccountId),
-                            prefixAccountId(companyId, item.drawingsAccountId)
+                            await resolveDbAccountId(client, companyId, item.linkedAccountId),
+                            await resolveDbAccountId(client, companyId, item.currentAccountId),
+                            await resolveDbAccountId(client, companyId, item.capitalAccountId),
+                            await resolveDbAccountId(client, companyId, item.drawingsAccountId)
                         ]);
                     }
                     else if (collectionName === 'employeeContracts') {
@@ -697,7 +725,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
                                 companyId,
                                 item.id,
-                                prefixAccountId(companyId, line.accountId),
+                                await resolveDbAccountId(client, companyId, line.accountId),
                                 Number(line.debit || 0),
                                 Number(line.credit || 0),
                                 line.currency || item.currency,
@@ -723,7 +751,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                             item.type, item.category || '', new Date(item.date), item.dueDate ? new Date(item.dueDate) : null,
                             Number(item.subTotal || 0), Number(item.taxRate || 0), Number(item.taxAmount || 0), item.taxMode || 'NONE',
                             Number(item.discountAmount || 0), Number(item.totalAmount || 0), item.status || 'PENDING', item.postingStatus || 'DRAFT',
-                            item.paymentType || 'CREDIT', prefixAccountId(companyId, item.paymentAccountId), !!item.isPartnerDrawings, item.partnerDrawingsMode || null,
+                            item.paymentType || 'CREDIT', await resolveDbAccountId(client, companyId, item.paymentAccountId), !!item.isPartnerDrawings, item.partnerDrawingsMode || null,
                             item.notes || '', item.currency, Number(item.exchangeRate || 1.0), item.warehouseId || null, item.reversalOfId || null,
                             item.reversedById || null, !!item.isReversal
                         ]);
@@ -732,7 +760,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                         if (Array.isArray(item.items)) {
                             for (const details of item.items) {
                                 await client.query(`INSERT INTO invoice_items (id, company_id, invoice_id, product_id, account_id, description, quantity, unit_price, total, returned, width, length)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, [details.id, companyId, item.id, details.productId || null, prefixAccountId(companyId, details.accountId), details.description || '', Number(details.quantity || 0), Number(details.unitPrice || 0), Number(details.total || 0), !!details.returned, details.width ? Number(details.width) : null, details.length ? Number(details.length) : null]);
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`, [details.id, companyId, item.id, details.productId || null, await resolveDbAccountId(client, companyId, details.accountId), details.description || '', Number(details.quantity || 0), Number(details.unitPrice || 0), Number(details.total || 0), !!details.returned, details.width ? Number(details.width) : null, details.length ? Number(details.length) : null]);
                             }
                         }
                     }

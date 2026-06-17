@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
+import { createPortal } from 'react-dom';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product, ProductKind } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
@@ -141,33 +142,54 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
 
   useEffect(() => {
     if (!showScanner) return;
+    let isUnmounted = false;
+    let qrInstance: Html5Qrcode | null = null;
 
     const timer = window.setTimeout(() => {
       const html5QrCode = new Html5Qrcode('quick-add-product-reader');
+      qrInstance = html5QrCode;
       scannerRef.current = html5QrCode;
+
+      const config = {
+        fps: 10,
+        qrbox: (width: number, height: number) => {
+          const desiredWidth = Math.min(width * 0.85, 320);
+          const desiredHeight = Math.min(height * 0.4, 140);
+          return {
+            width: Math.floor(desiredWidth),
+            height: Math.floor(desiredHeight)
+          };
+        }
+      };
 
       html5QrCode.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        config,
         (decodedText) => {
           setBarcode(decodedText);
           setShowScanner(false);
-          html5QrCode.stop().catch(console.error);
         },
         () => {
           // Ignore noisy interim scan errors while camera is active.
         }
-      ).catch((error) => {
+      ).then(() => {
+        if (isUnmounted) {
+          html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
+        }
+      }).catch((error) => {
         console.error('Barcode scanner failed to start', error);
         alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
         setShowScanner(false);
       });
-    }, 100);
+    }, 250);
 
     return () => {
+      isUnmounted = true;
       window.clearTimeout(timer);
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().then(() => scannerRef.current?.clear()).catch(console.error);
+      if (qrInstance) {
+        if (qrInstance.isScanning) {
+          qrInstance.stop().then(() => qrInstance?.clear()).catch(console.error);
+        }
       }
     };
   }, [showScanner, tr]);
@@ -808,8 +830,8 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
         </div>
       </form>
 
-      {showScanner && (
-        <div className="fixed inset-0 z-[340] flex flex-col bg-black animate-in fade-in">
+      {showScanner && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[350] flex flex-col bg-black">
           <div className="relative flex-1 bg-black">
             <div id="quick-add-product-reader" className="h-full w-full"></div>
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center border-[50px] border-black/50">
@@ -826,7 +848,8 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
               <X size={24} />
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {showGroupForm && (

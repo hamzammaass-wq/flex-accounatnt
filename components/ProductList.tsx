@@ -10,6 +10,7 @@ import { ItemGroup, Product } from '../types';
 import ProductCard from './ProductCard';
 import QuickAddProductModal from './QuickAddProductModal';
 import { Html5Qrcode } from "html5-qrcode";
+import { createPortal } from 'react-dom';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import EnglishDateInput from './EnglishDateInput';
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
@@ -120,39 +121,59 @@ const ProductList: React.FC = () => {
 
   // Scanner Effect
   useEffect(() => {
-    if (showScanner) {
-        // Small delay to ensure DOM element exists
-        const timer = setTimeout(() => {
-            const html5QrCode = new Html5Qrcode("reader");
-            scannerRef.current = html5QrCode;
-            
-            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-            
-            html5QrCode.start(
-                { facingMode: "environment" },
-                config,
-                (decodedText) => {
-                    setBarcode(decodedText);
-                    setShowScanner(false);
-                    html5QrCode.stop().catch(console.error);
-                },
-                (errorMessage) => {
-                    // ignore errors during scanning
-                }
-            ).catch(err => {
-                console.error("Error starting scanner:", err);
-                alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
-                setShowScanner(false);
-            });
-        }, 100);
+    if (!showScanner) return;
+    let isUnmounted = false;
+    let qrInstance: Html5Qrcode | null = null;
 
-        return () => {
-            clearTimeout(timer);
-            if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop().then(() => scannerRef.current?.clear()).catch(console.error);
+    // Increased delay to ensure DOM element exists and layout transitions are stable
+    const timer = setTimeout(() => {
+        const html5QrCode = new Html5Qrcode("reader");
+        qrInstance = html5QrCode;
+        scannerRef.current = html5QrCode;
+        
+        const config = {
+            fps: 10,
+            qrbox: (width: number, height: number) => {
+                const desiredWidth = Math.min(width * 0.85, 320);
+                const desiredHeight = Math.min(height * 0.4, 140);
+                return {
+                    width: Math.floor(desiredWidth),
+                    height: Math.floor(desiredHeight)
+                };
             }
         };
-    }
+        
+        html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText) => {
+                setBarcode(decodedText);
+                // Changing showScanner state triggers the useEffect cleanup, which stops the camera
+                setShowScanner(false);
+            },
+            (errorMessage) => {
+                // ignore errors during scanning
+            }
+        ).then(() => {
+            if (isUnmounted) {
+                html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
+            }
+        }).catch(err => {
+            console.error("Error starting scanner:", err);
+            alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
+            setShowScanner(false);
+        });
+    }, 250);
+
+    return () => {
+        isUnmounted = true;
+        clearTimeout(timer);
+        if (qrInstance) {
+            if (qrInstance.isScanning) {
+                qrInstance.stop().then(() => qrInstance?.clear()).catch(console.error);
+            }
+        }
+    };
   }, [showScanner]);
 
   useEffect(() => {
@@ -1081,8 +1102,8 @@ const ProductList: React.FC = () => {
       )}
 
       {/* Scanner Overlay */}
-      {showScanner && (
-          <div className="fixed inset-0 z-[300] bg-black flex flex-col animate-in fade-in">
+      {showScanner && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 z-[350] bg-black flex flex-col">
               <div className="relative flex-1 bg-black">
                   <div id="reader" className="w-full h-full"></div>
                   <div className="absolute top-0 left-0 w-full h-full border-[50px] border-black/50 pointer-events-none flex items-center justify-center">
@@ -1093,7 +1114,8 @@ const ProductList: React.FC = () => {
                   <p className="text-sm font-bold">{tr('وجه الكاميرا نحو الباركود...', 'Point the camera at the barcode...')}</p>
                   <button onClick={() => setShowScanner(false)} className="bg-white/20 p-3 rounded-full hover:bg-white/30 transition-all"><X size={24} /></button>
               </div>
-          </div>
+          </div>,
+          document.body
       )}
 
       {showForm && (

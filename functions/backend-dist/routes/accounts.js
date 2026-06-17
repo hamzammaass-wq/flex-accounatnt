@@ -5,15 +5,25 @@ const router = Router({ mergeParams: true });
 const prefixAccountId = (companyId, id) => {
     if (!id)
         return null;
-    if (id.startsWith(companyId + '_'))
-        return id;
-    return `${companyId}_${id}`;
+    let cleanId = id;
+    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        cleanId = match[1];
+    }
+    if (cleanId.startsWith(companyId + '_'))
+        return cleanId;
+    return `${companyId}_${cleanId}`;
 };
 const unprefixAccountId = (companyId, id) => {
     if (!id)
         return null;
-    if (id.startsWith(companyId + '_')) {
-        return id.substring(companyId.length + 1);
+    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
+    if (match) {
+        return match[1];
+    }
+    const prefix = companyId + '_';
+    if (id.startsWith(prefix)) {
+        return id.substring(prefix.length);
     }
     return id;
 };

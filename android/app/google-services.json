@@ -1,0 +1,95 @@
+{
+  "project_info": {
+    "project_number": "879535686153",
+    "firebase_url": "https://smart-account-cc181-default-rtdb.firebaseio.com",
+    "project_id": "smart-account-cc181",
+    "storage_bucket": "smart-account-cc181.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:879535686153:android:f6156272d8bbeb5cd3eed8",
+        "android_client_info": {
+          "package_name": "com.smartaccountant.erp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "879535686153-0cj7rl1ojimrki1j104dmbp7i1kp1e3o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartaccountant.erp",
+            "certificate_hash": "da11bffd084e97ab746694258b1caec621783442"
+          }
+        },
+        {
+          "client_id": "879535686153-22fqdr0cflegamejhhr47q1m916njk8r.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartaccountant.erp",
+            "certificate_hash": "e02c8056683aedb04dfdf983fddb9db83d876c31"
+          }
+        },
+        {
+          "client_id": "879535686153-2cgdvv9ouaddcpi3mmpgnrsus94cm6mf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartaccountant.erp",
+            "certificate_hash": "783442da11bffd084e97ab746694258b1caec621"
+          }
+        },
+        {
+          "client_id": "879535686153-2nqmktl470ojcl5rdqklj8j454o6b9vs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartaccountant.erp",
+            "certificate_hash": "f0036a80c23f943317845d72183b8ce6c3a364fb"
+          }
+        },
+        {
+          "client_id": "879535686153-jrarl1t5f5d4iqveadmgjjll95um3lkl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartaccountant.erp",
+            "certificate_hash": "1acbc8e4f74b5bd893f3cd27b88d5d8596ccf9f4"
+          }
+        },
+        {
+          "client_id": "879535686153-k6vupke6uquumulbr9dqug36pr1ganbt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartaccountant.erp",
+            "certificate_hash": "93739b7f7f6c1e715fb363176cc77b2d2d869a72"
+          }
+        },
+        {
+          "client_id": "879535686153-uomsq0iinc3eqq1vpqqm8qemu3c0v06l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB22rzQ5Ojm8jK_MQr1wcyucKbw9LdRWdw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "879535686153-1oc4qb6hkfimcnfl3il5edri8idaeska.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "879535686153-opg5pk4o7htj13edtqa2rc5fo4il63bg.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.smartaccountant.erp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

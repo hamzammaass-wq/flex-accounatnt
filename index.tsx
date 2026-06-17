@@ -9,7 +9,7 @@ import { migrateLocalStorageTextData } from './utils/dataTextMigration';
 import { recordRuntimeError } from './utils/runtimeErrorMonitor';
 
 const BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
-const CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed|Unexpected token '<')/i;
+const CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed)/i;
 const CURRENT_USER_STORAGE_KEY = 'al_mohaseb_user';
 const INITIAL_SETUP_PENDING_KEY = 'al_mohaseb_initial_setup_pending';
 const FORCE_EMPTY_BOOTSTRAP_KEY = 'al_mohaseb_force_empty_bootstrap';
@@ -171,6 +171,8 @@ class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, AppErrorBo
 const setupBootRecoveryHandlers = () => {
   if (typeof window === 'undefined') return;
 
+  const BOOT_TIME = Date.now();
+
   window.addEventListener(
     'error',
     (event) => {
@@ -193,7 +195,9 @@ const setupBootRecoveryHandlers = () => {
         source: source || (isLocalScriptLoadFailure ? 'script-load' : 'window')
       });
 
-      if (isLocalScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+      // Only reload for script load/chunk errors during the initial boot phase (first 15 seconds)
+      const isInitialBootPhase = Date.now() - BOOT_TIME < 15000;
+      if (isInitialBootPhase && (isLocalScriptLoadFailure || CHUNK_LOAD_ERROR_PATTERN.test(message))) {
         triggerBootRecoveryReload();
       }
     },
@@ -211,7 +215,9 @@ const setupBootRecoveryHandlers = () => {
       source: 'window.unhandledrejection'
     });
 
-    if (CHUNK_LOAD_ERROR_PATTERN.test(message)) {
+    // Only reload for chunk rejection errors during the initial boot phase (first 15 seconds)
+    const isInitialBootPhase = Date.now() - BOOT_TIME < 15000;
+    if (isInitialBootPhase && CHUNK_LOAD_ERROR_PATTERN.test(message)) {
       event.preventDefault();
       triggerBootRecoveryReload();
     }

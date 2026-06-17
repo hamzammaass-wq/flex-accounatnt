@@ -13,12 +13,12 @@ import { getFirestore, enableIndexedDbPersistence, type Firestore } from 'fireba
 import { getFunctions, type Functions } from 'firebase/functions';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
-const firebaseApiKey = String(import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
-const firebaseAuthDomain = String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '').trim();
-const firebaseProjectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || '').trim();
-const firebaseStorageBucket = String(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim();
-const firebaseMessagingSenderId = String(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '').trim();
-const firebaseAppId = String(import.meta.env.VITE_FIREBASE_APP_ID || '').trim();
+const firebaseApiKey = String(import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyCNYpPDb30fqY0_DkFaLXKGLCH5s5ItWh4').trim();
+const firebaseAuthDomain = String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'smart-account-cc181.firebaseapp.com').trim();
+const firebaseProjectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
+const firebaseStorageBucket = String(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'smart-account-cc181.firebasestorage.app').trim();
+const firebaseMessagingSenderId = String(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '879535686153').trim();
+const firebaseAppId = String(import.meta.env.VITE_FIREBASE_APP_ID || '1:879535686153:web:5dd72b985ee2c5d4d3eed8').trim();
 const firebaseFunctionsRegion = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim() || 'us-central1';
 
 export const isFirebaseAuthEnabled = Boolean(
@@ -128,9 +128,12 @@ if (firebaseAuth && !Capacitor.isNativePlatform()) {
 export const getBackendApiUrl = (): string => {
   const rawUrl = String(import.meta.env.VITE_BACKEND_API_URL || '').trim();
   const defaultUrl = rawUrl || 'http://localhost:5000/api';
-  if (Capacitor.isNativePlatform() && defaultUrl.startsWith('/')) {
-    const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
-    return `https://${projectId}.web.app${defaultUrl}`;
+  if (Capacitor.isNativePlatform()) {
+    if (defaultUrl.startsWith('/') || defaultUrl.includes('localhost') || defaultUrl.includes('127.0.0.1')) {
+      const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
+      const region = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim();
+      return `https://${region}-${projectId}.cloudfunctions.net/api`;
+    }
   }
   return defaultUrl;
 };
@@ -138,7 +141,8 @@ export const getBackendApiUrl = (): string => {
 export const getAbsoluteUrl = (path: string): string => {
   if (Capacitor.isNativePlatform() && path.startsWith('/')) {
     const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
-    return `https://${projectId}.web.app${path}`;
+    const region = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim();
+    return `https://${region}-${projectId}.cloudfunctions.net/api${path.replace(/^\/api/, '')}`;
   }
   return path;
 };
@@ -147,8 +151,18 @@ export const executeFirestoreWrite = async (
   currentUser: any,
   operations: Array<{ type: 'set' | 'delete'; path: string; data?: any }>
 ): Promise<void> => {
-  if (!currentUser) throw new Error('User not authenticated');
-  const token = await currentUser.getIdToken();
+  const fbUser = firebaseAuth?.currentUser || currentUser;
+  if (!fbUser) throw new Error('User not authenticated');
+  
+  let token: string;
+  if (typeof fbUser.getIdToken === 'function') {
+    token = await fbUser.getIdToken();
+  } else if (firebaseAuth?.currentUser && typeof firebaseAuth.currentUser.getIdToken === 'function') {
+    token = await firebaseAuth.currentUser.getIdToken();
+  } else {
+    throw new Error('User object does not support getIdToken');
+  }
+
   const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
   const backendApiUrl = getBackendApiUrl();
   const url = useBackend ? `${backendApiUrl}/firestore-write-proxy` : getAbsoluteUrl('/api/firestore-write-proxy');
@@ -174,8 +188,18 @@ export const callBackendApi = async (
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
   body?: any
 ): Promise<any> => {
-  if (!currentUser) throw new Error('User not authenticated');
-  const token = await currentUser.getIdToken();
+  const fbUser = firebaseAuth?.currentUser || currentUser;
+  if (!fbUser) throw new Error('User not authenticated');
+  
+  let token: string;
+  if (typeof fbUser.getIdToken === 'function') {
+    token = await fbUser.getIdToken();
+  } else if (firebaseAuth?.currentUser && typeof firebaseAuth.currentUser.getIdToken === 'function') {
+    token = await firebaseAuth.currentUser.getIdToken();
+  } else {
+    throw new Error('User object does not support getIdToken');
+  }
+
   const backendApiUrl = getBackendApiUrl();
   const response = await fetch(`${backendApiUrl}${endpoint}`, {
     method,
