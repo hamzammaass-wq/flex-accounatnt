@@ -523,6 +523,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [adminResetPasswordValue, setAdminResetPasswordValue] = useState('');
   const [adminResetPasswordLoading, setAdminResetPasswordLoading] = useState(false);
   const [adminResetPasswordStatus, setAdminResetPasswordStatus] = useState('');
+  const [adminSelectedUserForDelete, setAdminSelectedUserForDelete] = useState('');
+  const [adminDeleteUserLoading, setAdminDeleteUserLoading] = useState(false);
+  const [adminDeleteUserStatus, setAdminDeleteUserStatus] = useState('');
 
   // Admin Subscription Management State
   const [adminSelectedUserForSubscription, setAdminSelectedUserForSubscription] = useState<string>('');
@@ -2086,6 +2089,43 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     }
   };
 
+  const handleAdminDeleteUser = async () => {
+    if (!firebaseAuth?.currentUser || !adminSelectedUserForDelete) return;
+
+    setAdminDeleteUserLoading(true);
+    setAdminDeleteUserStatus('');
+
+    try {
+      const token = await firebaseAuth.currentUser.getIdToken();
+      const backendApiUrl = getBackendApiUrl();
+
+      const response = await fetch(`${backendApiUrl}/admin/users/${adminSelectedUserForDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Failed to delete user');
+      }
+
+      setAdminDeleteUserStatus(tr('تم حذف المستخدم بنجاح!', 'User deleted successfully!'));
+      fetchGlobalUsers();
+      setTimeout(() => {
+        setAdminSelectedUserForDelete('');
+        setAdminDeleteUserStatus('');
+      }, 1500);
+    } catch (err: any) {
+      console.error('[Admin Delete User Error]', err);
+      setAdminDeleteUserStatus(`${tr('فشل حذف المستخدم:', 'Failed to delete user:')} ${err.message}`);
+    } finally {
+      setAdminDeleteUserLoading(false);
+    }
+  };
+
+
   const filteredAuditLogs = useMemo(() => {
     const query = auditSearch.trim().toLowerCase();
     if (!query) return auditLogs;
@@ -2403,6 +2443,18 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                       >
                         {tr('إدارة الاشتراك', 'Subscription')}
                       </button>
+                      {u.email !== 'hamza.mm.aa.ss@gmail.com' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdminSelectedUserForDelete(u.id);
+                            setAdminDeleteUserStatus('');
+                          }}
+                          className="text-xs text-rose-600 hover:text-rose-800 font-bold underline ml-2"
+                        >
+                          {tr('حذف', 'Delete')}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -2595,6 +2647,82 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Delete User Confirmation Modal */}
+      {adminSelectedUserForDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md p-6 rounded-3xl shadow-2xl border border-gray-100 space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center text-rose-600">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-black text-gray-800">
+                {tr('حذف حساب المستخدم', 'Delete User Account')}
+              </h3>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-gray-600 leading-relaxed font-bold">
+                {tr('هل أنت متأكد من رغبتك في حذف هذا المستخدم؟', 'Are you sure you want to delete this user?')}
+              </p>
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                <div className="text-xs text-slate-700">
+                  <span className="font-bold text-gray-900 block mb-1">
+                    {tr('تفاصيل المستخدم:', 'User Details:')}
+                  </span>
+                  <div className="space-y-0.5">
+                    <div>{tr('الاسم:', 'Name:')} <span className="font-bold">{globalUsers.find(u => u.id === adminSelectedUserForDelete)?.name || ''}</span></div>
+                    <div>{tr('البريد / المعرف:', 'Email / ID:')} <span className="font-mono">{globalUsers.find(u => u.id === adminSelectedUserForDelete)?.email || ''}</span></div>
+                    {globalUsers.find(u => u.id === adminSelectedUserForDelete)?.accountCode && (
+                      <div>{tr('كود الحساب:', 'Account Code:')} <span className="font-bold text-indigo-600">{globalUsers.find(u => u.id === adminSelectedUserForDelete)?.accountCode}</span></div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-3 text-[11px] font-black text-rose-700 leading-normal">
+                {tr(
+                  'تحذير: هذا الإجراء لا يمكن التراجع عنه. سيتم حذف جميع بيانات المستخدم وملف المصادقة والاشتراك المرتبط به نهائياً من النظام.',
+                  'Warning: This action is irreversible. All user profile data, authentication record, and associated subscription details will be permanently deleted.'
+                )}
+              </div>
+            </div>
+
+            {adminDeleteUserStatus && (
+              <div className={`text-[11px] font-bold p-2.5 rounded-lg border text-center ${
+                adminDeleteUserStatus.includes('نجاح') || adminDeleteUserStatus.includes('success')
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                  : 'bg-rose-50 border-rose-100 text-rose-700'
+              }`}>
+                {adminDeleteUserStatus}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setAdminSelectedUserForDelete('')}
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition-all"
+                disabled={adminDeleteUserLoading}
+              >
+                {tr('إلغاء', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleAdminDeleteUser}
+                disabled={adminDeleteUserLoading}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center justify-center transition-all disabled:opacity-75"
+              >
+                {adminDeleteUserLoading ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                ) : (
+                  tr('تأكيد الحذف', 'Confirm Delete')
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -294,6 +294,64 @@ app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req: 
   }
 });
 
+app.delete('/api/admin/users/:userId', authenticateUser, async (req: AuthenticatedRequest, res) => {
+  const { userId } = req.params;
+
+  if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+    return res.status(403).json({ error: 'Forbidden: Only the program owner can delete users' });
+  }
+
+  try {
+    const db = admin.firestore();
+    
+    // 1. Get user document to retrieve accountCode
+    const userDocRef = db.collection('users').doc(userId);
+    const userDoc = await userDocRef.get();
+    let accountCode = '';
+    if (userDoc.exists) {
+      accountCode = userDoc.data()?.accountCode || '';
+    }
+
+    // 2. Delete user-specific snapshots: users/{uid}/workspace_sync_snapshots/{companyId}
+    const snapshotsRef = db.collection(`users/${userId}/workspace_sync_snapshots`);
+    const snapshotsSnapshot = await snapshotsRef.get();
+    if (!snapshotsSnapshot.empty) {
+      const batch1 = db.batch();
+      snapshotsSnapshot.forEach(doc => {
+        batch1.delete(doc.ref);
+      });
+      await batch1.commit();
+    }
+
+    // 3. Delete user mapping in account_codes
+    if (accountCode) {
+      await db.collection('account_codes').doc(accountCode.trim().toLowerCase()).delete();
+    }
+
+    // 4. Delete workspace subscription and subscription admins
+    await db.collection('workspace_subscriptions').doc(userId).delete();
+    await db.collection('subscription_admins').doc(userId).delete();
+
+    // 5. Delete the user document in Firestore users collection
+    await userDocRef.delete();
+
+    // 6. Delete user from Firebase Auth
+    try {
+      await admin.auth().deleteUser(userId);
+    } catch (authError: any) {
+      if (authError.code !== 'auth/user-not-found') {
+        console.warn('[Delete Auth User Warning]', authError);
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (error: any) {
+    console.error('[Delete User Error]', error);
+    res.status(500).json({ error: error.message || 'Failed to delete user' });
+  }
+});
+
+
 app.post('/api/companies/:companyId/users/create', authenticateUser, async (req: AuthenticatedRequest, res) => {
   const { companyId } = req.params;
   const { accountCode, fullName, password, role } = req.body;
