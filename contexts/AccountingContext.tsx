@@ -1674,59 +1674,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         let finalCompanies: CompanyProfile[] = [];
         let needsCloudUpdate = false;
 
-        if (currentUser && !isGuestUser(currentUser)) {
-          const email = currentUser.email || '';
-          const isCode = isCodeEmail(email);
-          let accountCode = (data && data.accountCode) || '';
-
-          if (isCode) {
-            accountCode = extractCodeFromEmail(email);
-          }
-
-          if (!accountCode && email) {
-            try {
-              const generatedCode = await generateUniqueAccountCode(firebaseDb, email);
-              if (generatedCode) {
-                const codeDocRef = doc(firebaseDb, 'account_codes', generatedCode);
-                await setDoc(codeDocRef, {
-                  email,
-                  userId: currentUser.id,
-                  createdAt: new Date().toISOString()
-                });
-                needsCloudUpdate = true;
-                data = { ...data, accountCode: generatedCode };
-                accountCode = generatedCode;
-              }
-            } catch (err) {
-              console.error('[Account Code Generation Error]', err);
-            }
-          } else if (accountCode && data && !data.accountCode) {
-            needsCloudUpdate = true;
-            data = { ...data, accountCode };
-          }
-
-          const password = (data && data.password) || '';
-          setCurrentUser(prev => {
-            if (prev) {
-              let changed = false;
-              const next = { ...prev };
-              if (next.accountCode !== accountCode) {
-                next.accountCode = accountCode;
-                changed = true;
-              }
-              if (next.password !== password) {
-                next.password = password;
-                changed = true;
-              }
-              if (changed) {
-                localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(next));
-                return next;
-              }
-            }
-            return prev;
-          });
-        }
-
         if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
           finalCompanies = data.companies.map(withNormalizedCompanyProfile);
         } else {
@@ -1773,12 +1720,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             try {
               const cleanCompanies = JSON.parse(JSON.stringify(finalCompanies));
               const docData: any = { companies: cleanCompanies };
-              if (data && data.accountCode) {
-                docData.accountCode = data.accountCode;
-              }
-              if (data && data.password) {
-                docData.password = data.password;
-              }
               await setDoc(userDocRef, docData, { merge: true });
             } catch (err: any) {
               console.error("Failed to seed new user companies:", err);
@@ -1806,6 +1747,86 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }
     };
   }, [currentUser, firebaseDb, isAuthInitialized]);
+
+  // Dedicated listener to sync/generate currentUser accountCode and password in Firestore
+  useEffect(() => {
+    if (!firebaseDb || !currentUser || isGuestUser(currentUser)) return;
+
+    let isSubscribed = true;
+    const userDocRef = doc(firebaseDb, 'users', currentUser.id);
+
+    const unsubscribe = onSnapshot(userDocRef, async (snapshot) => {
+      if (!isSubscribed) return;
+      let data = snapshot.exists() ? snapshot.data() : null;
+
+      const email = currentUser.email || '';
+      const isCode = isCodeEmail(email);
+      let accountCode = (data && data.accountCode) || '';
+      let needsCloudUpdate = false;
+
+      if (isCode) {
+        accountCode = extractCodeFromEmail(email);
+      }
+
+      if (!accountCode && email) {
+        try {
+          const generatedCode = await generateUniqueAccountCode(firebaseDb, email);
+          if (generatedCode) {
+            const codeDocRef = doc(firebaseDb, 'account_codes', generatedCode);
+            await setDoc(codeDocRef, {
+              email,
+              userId: currentUser.id,
+              createdAt: new Date().toISOString()
+            });
+            needsCloudUpdate = true;
+            data = { ...data, accountCode: generatedCode };
+            accountCode = generatedCode;
+          }
+        } catch (err) {
+          console.error('[Account Code Generation Error]', err);
+        }
+      } else if (accountCode && data && !data.accountCode) {
+        needsCloudUpdate = true;
+        data = { ...data, accountCode };
+      }
+
+      const password = (data && data.password) || '';
+
+      setCurrentUser(prev => {
+        if (prev) {
+          let changed = false;
+          const next = { ...prev };
+          if (next.accountCode !== accountCode) {
+            next.accountCode = accountCode;
+            changed = true;
+          }
+          if (next.password !== password) {
+            next.password = password;
+            changed = true;
+          }
+          if (changed) {
+            return next;
+          }
+        }
+        return prev;
+      });
+
+      if (needsCloudUpdate) {
+        try {
+          await setDoc(userDocRef, { accountCode }, { merge: true });
+        } catch (err) {
+          console.error("Failed to update user account code in Firestore:", err);
+        }
+      }
+    }, (error) => {
+      console.error('[Firestore userDoc sync onSnapshot Error]', error);
+    });
+
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+    };
+  }, [currentUser?.id, firebaseDb]);
 
   useEffect(() => {
     if (!companiesLoaded || !firebaseDb || !currentUser || isGuestUser(currentUser)) return;
