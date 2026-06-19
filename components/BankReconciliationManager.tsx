@@ -45,21 +45,14 @@ const STORAGE_KEY = 'al_mohaseb_bank_reconciliation';
 
 const toIsoDate = (value: Date) => value.toISOString().split('T')[0];
 
+let inMemoryClearedMap: ClearedMap = {};
+
 const loadClearedMap = (): ClearedMap => {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as ClearedMap) : {};
-  } catch {
-    return {};
-  }
+  return inMemoryClearedMap;
 };
 
 const saveClearedMap = (value: ClearedMap): void => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  inMemoryClearedMap = value;
 };
 
 const escapeHtml = (value: string): string =>

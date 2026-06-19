@@ -78,6 +78,7 @@ const buildRef = (prefix: string) => `${prefix}-${new Date().toISOString().slice
 const EquityPartnersManager: React.FC = () => {
   const {
     companySettings,
+    updateCompanySettings,
     currentCompanyId,
     baseCurrency,
     contacts,
@@ -188,27 +189,38 @@ const EquityPartnersManager: React.FC = () => {
   const canCreateEntries = can('SETTLEMENTS', 'ADD') || currentUser?.role === 'ADMIN';
   const canPostEntries = can('SETTLEMENTS', 'POST') || currentUser?.role === 'ADMIN';
 
+  // Load from company settings on mount/switch
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Partial<Snapshot>;
-      if (parsed.partnerMeta) setPartnerMeta(parsed.partnerMeta);
-      if (Array.isArray(parsed.profitDocs)) setProfitDocs(parsed.profitDocs);
-      if (Array.isArray(parsed.settlementDocs)) setSettlementDocs(parsed.settlementDocs);
-    } catch {
-      // ignore malformed snapshot
-    }
-  }, [storageKey]);
+    const state = companySettings.equityPartnersState || {};
+    if (state.partnerMeta) setPartnerMeta(state.partnerMeta);
+    if (Array.isArray(state.profitDocs)) setProfitDocs(state.profitDocs);
+    if (Array.isArray(state.settlementDocs)) setSettlementDocs(state.settlementDocs);
+  }, [currentCompanyId]); // Only on company switch, don't run on every settings change to avoid loops!
 
+  // Save to company settings on changes
   useEffect(() => {
-    const payload: Snapshot = {
-      partnerMeta,
-      profitDocs,
-      settlementDocs
-    };
-    localStorage.setItem(storageKey, JSON.stringify(payload));
-  }, [storageKey, partnerMeta, profitDocs, settlementDocs]);
+    const currentSettingsState = companySettings.equityPartnersState || {};
+    if (
+      JSON.stringify(currentSettingsState.partnerMeta) === JSON.stringify(partnerMeta) &&
+      JSON.stringify(currentSettingsState.profitDocs) === JSON.stringify(profitDocs) &&
+      JSON.stringify(currentSettingsState.settlementDocs) === JSON.stringify(settlementDocs)
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      updateCompanySettings({
+        ...companySettings,
+        equityPartnersState: {
+          partnerMeta,
+          profitDocs,
+          settlementDocs
+        }
+      });
+    }, 500); // debounce setting updates
+
+    return () => clearTimeout(timer);
+  }, [partnerMeta, profitDocs, settlementDocs]);
 
   useEffect(() => {
     if (!partners.length) {

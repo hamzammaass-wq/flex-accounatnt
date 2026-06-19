@@ -532,26 +532,11 @@ const sortSubscriptionCodesByCreatedAt = (codes: CloudSubscriptionCode[]): Cloud
 );
 
 const loadLocalSubscriptionCodes = (): CloudSubscriptionCode[] => {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const raw = localStorage.getItem(LOCAL_SUBSCRIPTION_CODES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return sortSubscriptionCodesByCreatedAt(
-      parsed
-        .map(item => normalizeCloudSubscriptionCode(item))
-        .filter((item): item is CloudSubscriptionCode => Boolean(item))
-    );
-  } catch {
-    return [];
-  }
+  return [];
 };
 
 const persistLocalSubscriptionCodes = (codes: CloudSubscriptionCode[]): void => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(LOCAL_SUBSCRIPTION_CODES_KEY, JSON.stringify(sortSubscriptionCodesByCreatedAt(codes)));
+  // Disabled local storage cache
 };
 
 const sortWorkspaceOfferCodesByCreatedAt = (codes: WorkspaceOfferCode[]): WorkspaceOfferCode[] => (
@@ -559,26 +544,11 @@ const sortWorkspaceOfferCodesByCreatedAt = (codes: WorkspaceOfferCode[]): Worksp
 );
 
 const loadLocalWorkspaceOfferCodes = (): WorkspaceOfferCode[] => {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const raw = localStorage.getItem(LOCAL_WORKSPACE_OFFER_CODES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return sortWorkspaceOfferCodesByCreatedAt(
-      parsed
-        .map(item => normalizeWorkspaceOfferCode(item))
-        .filter((item): item is WorkspaceOfferCode => Boolean(item))
-    );
-  } catch {
-    return [];
-  }
+  return [];
 };
 
 const persistLocalWorkspaceOfferCodes = (codes: WorkspaceOfferCode[]): void => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(LOCAL_WORKSPACE_OFFER_CODES_KEY, JSON.stringify(sortWorkspaceOfferCodesByCreatedAt(codes)));
+  // Disabled local storage cache
 };
 
 const clampWorkspaceOfferCompanyCount = (value: unknown): number | undefined => {
@@ -1062,25 +1032,11 @@ const isWorkspaceSyncQueueItem = (value: unknown): value is WorkspaceSyncQueueIt
 };
 
 const readWorkspaceSyncQueue = (): WorkspaceSyncQueueItem[] => {
-  try {
-    if (typeof window === 'undefined') return [];
-    const raw = localStorage.getItem(WORKSPACE_SYNC_QUEUE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isWorkspaceSyncQueueItem);
-  } catch {
-    return [];
-  }
+  return [];
 };
 
 const writeWorkspaceSyncQueue = (items: WorkspaceSyncQueueItem[]) => {
-  try {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(WORKSPACE_SYNC_QUEUE_KEY, JSON.stringify(items));
-  } catch {
-    // Ignore storage write failures so the app keeps working offline-first.
-  }
+  // Disabled offline queueing
 };
 
 const upsertWorkspaceSyncQueueItem = (companyId: string, workspaceUpdatedAt: string, ownerUserId?: string) => {
@@ -1098,37 +1054,33 @@ const upsertWorkspaceSyncQueueItem = (companyId: string, workspaceUpdatedAt: str
   if (index >= 0) {
     queue[index] = nextItem;
   } else {
-    queue.unshift(nextItem);
+    queue.push(nextItem);
   }
   writeWorkspaceSyncQueue(queue);
 };
 
 const updateWorkspaceSyncQueueItem = (companyId: string, updates: Partial<WorkspaceSyncQueueItem>) => {
+  if (!companyId) return;
   const queue = readWorkspaceSyncQueue();
   const index = queue.findIndex(item => item.companyId === companyId);
-  if (index < 0) return;
-  queue[index] = {
-    ...queue[index],
-    ...updates
-  };
-  writeWorkspaceSyncQueue(queue);
+  if (index >= 0) {
+    queue[index] = {
+      ...queue[index],
+      ...updates
+    };
+    writeWorkspaceSyncQueue(queue);
+  }
 };
 
 const removeWorkspaceSyncQueueItem = (companyId: string) => {
+  if (!companyId) return;
   const queue = readWorkspaceSyncQueue();
-  writeWorkspaceSyncQueue(queue.filter(item => item.companyId !== companyId));
+  const nextQueue = queue.filter(item => item.companyId !== companyId);
+  writeWorkspaceSyncQueue(nextQueue);
 };
 
 const readLastWorkspaceSyncAt = (): Date | null => {
-  try {
-    if (typeof window === 'undefined') return null;
-    const raw = localStorage.getItem(LAST_WORKSPACE_SYNC_AT_KEY);
-    if (!raw) return null;
-    const date = new Date(raw);
-    return Number.isFinite(date.getTime()) ? date : null;
-  } catch {
-    return null;
-  }
+  return null;
 };
 
 const consumePendingSignupTrialSelectionDays = (): number | null => {
@@ -1185,27 +1137,11 @@ const addDaysIso = (dateIso: string, days: number): string => {
 };
 
 const readBackupHistory = (companyId: string): BackupHistoryEntry[] => {
-  try {
-    const raw = localStorage.getItem(getBackupHistoryKey(companyId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is BackupHistoryEntry => (
-      item &&
-      typeof item === 'object' &&
-      item.companyId === companyId &&
-      typeof item.createdAt === 'string' &&
-      item.payload &&
-      typeof item.payload === 'object' &&
-      typeof (item.payload as BackupPayloadV1).cipherText === 'string'
-    ));
-  } catch {
-    return [];
-  }
+  return [];
 };
 
 const saveBackupHistory = (companyId: string, entries: BackupHistoryEntry[]) => {
-  localStorage.setItem(getBackupHistoryKey(companyId), JSON.stringify(entries));
+  // Disabled backup history localStorage write
 };
 
 const appendBackupHistoryEntry = (
@@ -1304,6 +1240,8 @@ const withTimeout = <T extends unknown>(promise: Promise<T>, timeoutMs: number, 
 };
 
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+
   const [forceEmptyBootstrap] = useState<boolean>(() => {
     try {
       const shouldForce = localStorage.getItem(FORCE_EMPTY_BOOTSTRAP_KEY) === '1';
@@ -1316,26 +1254,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
   });
 
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      const savedUser = localStorage.getItem(STORAGE_KEYS.currentUser);
-      if (!savedUser) return null;
-      const parsed = JSON.parse(savedUser);
-      if (!parsed || typeof parsed !== 'object') {
-        localStorage.removeItem(STORAGE_KEYS.currentUser);
-        return null;
-      }
-      return parsed as User;
-    } catch {
-      // Guard against corrupted localStorage that can crash app bootstrap.
-      try {
-        localStorage.removeItem(STORAGE_KEYS.currentUser);
-      } catch {
-        // ignore cleanup failure
-      }
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const [isAuthInitialized, setIsAuthInitialized] = useState(false);
 
@@ -1614,14 +1533,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     language: detectPreferredAppLanguage()
   };
 
-  const [currentCompanyId, setCurrentCompanyId] = useState<string>(() => {
-    if (currentUser && isGuestUser(currentUser)) return 'cmp_default';
-    try {
-      return localStorage.getItem(STORAGE_KEYS.currentCompany) || '';
-    } catch {
-      return '';
-    }
-  });
+  const [currentCompanyId, setCurrentCompanyId] = useState<string>('');
 
   const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId, currentUser?.id || null);
   const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId, currentUser?.id || null);
@@ -1698,8 +1610,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser, defaultCompanySettings]);
 
   useEffect(() => {
-    if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) {
-      return;
+    if (isFirebaseAuthEnabled && firebaseAuth) {
+      if (!isAuthInitialized) return;
+      if (!firebaseAuth.currentUser || firebaseAuth.currentUser.uid !== currentUser?.id) {
+        // Wait until auth state is synchronized with currentUser state to avoid permission race conditions
+        return;
+      }
     }
 
     if (!currentUser || isGuestUser(currentUser)) {
@@ -2114,8 +2030,49 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser]);
 
   const logout = async () => {
+    // 1. Reset user and session states
     setCurrentUser(null);
     setCloudMemberships([]);
+    setCompanies([]);
+    setCompaniesLoaded(false);
+    
+    // 2. Clear company selection from state and local storage
+    setCurrentCompanyId('');
+    try {
+      localStorage.removeItem(STORAGE_KEYS.currentCompany);
+      localStorage.removeItem(STORAGE_KEYS.currentUser);
+    } catch (e) {
+      console.warn('Failed to clear storage keys on logout:', e);
+    }
+
+    // 3. Wipe all data collections to ensure complete isolation and prevent leakage
+    setTransactions([]);
+    setInvoices([]);
+    setImportExpenseDistributions([]);
+    setInvoiceSettlements([]);
+    setAccounts([]);
+    setProducts([]);
+    setItemGroups([]);
+    setUnits([]);
+    setContacts([]);
+    setEmployees([]);
+    setEmployeeContracts([]);
+    setSalaryHistory([]);
+    setEmployeeLeaveRequests([]);
+    setEmployeeRecurringDeductions([]);
+    setDepartments([]);
+    setTickets([]);
+    setAssetGroups([]);
+    setFixedAssets([]);
+    setChecks([]);
+    setCurrencies([]);
+    setUsers([]);
+    setWarehouses([]);
+    setStockTransfers([]);
+    setBoms([]);
+    setProductionOrders([]);
+
+    // 4. Sign out of Firebase Auth
     const signOutPromises = isFirebaseAuthEnabled && firebaseAuth
       ? [firebaseSignOut(firebaseAuth)]
       : [];
@@ -4678,10 +4635,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       );
       const linkedAccount = accounts.find(a => a.id === linkedAccountId);
       if (linkedAccount && !linkedAccount.isGroup) return linkedAccount.id;
-      return linkedAccountId || (contact.type === 'CUSTOMER' ? 'acc_receivable' : 'acc_payable');
+      return linkedAccountId || 'acc_payable';
     }
 
-    if (contact.type === 'CUSTOMER') return 'acc_receivable';
     if (contact.type === 'SUPPLIER') return contact.currentAccountId || contact.linkedAccountId || 'acc_payable';
     return contact.currentAccountId || contact.linkedAccountId || null;
   };
@@ -6889,49 +6845,67 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     // Immediately persist workspace settings to prevent loss during rapid page refreshes
     if (currentCompanyId) {
-      const snapshot: CompanyWorkspaceSnapshot = {
-        schemaVersion: 1,
-        companyId: currentCompanyId,
-        updatedAt: new Date().toISOString(),
-        baseCurrency: code,
-        companySettings,
-        users: [],
-        accounts: [],
-        transactions: [],
-        invoices: [],
-        invoiceSettlements: [],
-        importExpenseDistributions: [],
-        products: [],
-        itemGroups: [],
-        units: [],
-        contacts: [],
-        employees: [],
-        employeeContracts: [],
-        salaryHistory: [],
-        employeeLeaveRequests: [],
-        employeeRecurringDeductions: [],
-        fingerprintDevices,
-        fingerprintAttendanceBatches,
-        departments: [],
-        tickets: [],
-        fixedAssets: [],
-        assetGroups: [],
-        checks: [],
-        currencies: [],
-        warehouses: [],
-        stockTransfers: [],
-        boms: [],
-        productionOrders: [],
-        permissions,
-        auditLogs
-      };
-      
-      void persistWorkspaceSnapshot(currentCompanyId, snapshot).then(didPersist => {
-        if (didPersist) {
-          upsertWorkspaceSyncQueueItem(currentCompanyId, snapshot.updatedAt, currentUser?.id);
-          setSyncQueueVersion(prev => prev + 1);
+      if (useBackend) {
+        if (currentUser) {
+          callBackendApi(currentUser, `/companies/${currentCompanyId}`, 'PUT', {
+            baseCurrency: code,
+            settings: companySettings
+          })
+            .then((res) => {
+              console.log('[Backend Sync] Base currency updated successfully:', res);
+              if (res && res.company) {
+                setCompanies(prev => prev.map(c => c.id === currentCompanyId ? res.company : c));
+              }
+            })
+            .catch(err => {
+              console.error('[Backend Sync ERROR] Failed to update base currency:', err);
+            });
         }
-      });
+      } else {
+        const snapshot: CompanyWorkspaceSnapshot = {
+          schemaVersion: 1,
+          companyId: currentCompanyId,
+          updatedAt: new Date().toISOString(),
+          baseCurrency: code,
+          companySettings,
+          users: [],
+          accounts: [],
+          transactions: [],
+          invoices: [],
+          invoiceSettlements: [],
+          importExpenseDistributions: [],
+          products: [],
+          itemGroups: [],
+          units: [],
+          contacts: [],
+          employees: [],
+          employeeContracts: [],
+          salaryHistory: [],
+          employeeLeaveRequests: [],
+          employeeRecurringDeductions: [],
+          fingerprintDevices,
+          fingerprintAttendanceBatches,
+          departments: [],
+          tickets: [],
+          fixedAssets: [],
+          assetGroups: [],
+          checks: [],
+          currencies: [],
+          warehouses: [],
+          stockTransfers: [],
+          boms: [],
+          productionOrders: [],
+          permissions,
+          auditLogs
+        };
+        
+        void persistWorkspaceSnapshot(currentCompanyId, snapshot).then(didPersist => {
+          if (didPersist) {
+            upsertWorkspaceSyncQueueItem(currentCompanyId, snapshot.updatedAt, currentUser?.id);
+            setSyncQueueVersion(prev => prev + 1);
+          }
+        });
+      }
     }
   };
   const addCurrency = (currency: Currency) => {
@@ -6966,65 +6940,90 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           taxNumber: next.taxNumber,
           address: next.address,
           phone: next.phone,
-          logoUrl: next.logoUrl
+          logoUrl: next.logoUrl,
+          baseCurrency: company.baseCurrency,
+          settings: next
         }
         : company
     )));
 
     // Immediately persist settings snapshot to prevent loss during rapid page refreshes or closures
     if (currentCompanyId) {
-      const snapshot: CompanyWorkspaceSnapshot = {
-        schemaVersion: 1,
-        companyId: currentCompanyId,
-        updatedAt: new Date().toISOString(),
-        baseCurrency,
-        companySettings: next,
-        users: [],
-        accounts: [],
-        transactions: [],
-        invoices: [],
-        invoiceSettlements: [],
-        importExpenseDistributions: [],
-        products: [],
-        itemGroups: [],
-        units: [],
-        contacts: [],
-        employees: [],
-        employeeContracts: [],
-        salaryHistory: [],
-        employeeLeaveRequests: [],
-        employeeRecurringDeductions: [],
-        fingerprintDevices,
-        fingerprintAttendanceBatches,
-        departments: [],
-        tickets: [],
-        fixedAssets: [],
-        assetGroups: [],
-        checks: [],
-        currencies: [],
-        warehouses: [],
-        stockTransfers: [],
-        boms: [],
-        productionOrders: [],
-        permissions,
-        auditLogs: [
-          {
-            entityType: 'company_settings',
-            action: 'UPDATE',
-            screen: 'Settings',
-            before: safeClone(companySettings),
-            after: safeClone(next)
-          },
-          ...auditLogs
-        ]
-      };
-      
-      void persistWorkspaceSnapshot(currentCompanyId, snapshot).then(didPersist => {
-        if (didPersist) {
-          upsertWorkspaceSyncQueueItem(currentCompanyId, snapshot.updatedAt, currentUser?.id);
-          setSyncQueueVersion(prev => prev + 1);
+      if (useBackend) {
+        if (currentUser) {
+          callBackendApi(currentUser, `/companies/${currentCompanyId}`, 'PUT', {
+            name: next.name,
+            taxNumber: next.taxNumber,
+            address: next.address,
+            phone: next.phone,
+            logoUrl: next.logoUrl,
+            baseCurrency,
+            settings: next
+          })
+            .then((res) => {
+              console.log('[Backend Sync] Company settings updated successfully:', res);
+              if (res && res.company) {
+                setCompanies(prev => prev.map(c => c.id === currentCompanyId ? res.company : c));
+              }
+            })
+            .catch(err => {
+              console.error('[Backend Sync ERROR] Failed to update company settings:', err);
+            });
         }
-      });
+      } else {
+        const snapshot: CompanyWorkspaceSnapshot = {
+          schemaVersion: 1,
+          companyId: currentCompanyId,
+          updatedAt: new Date().toISOString(),
+          baseCurrency,
+          companySettings: next,
+          users: [],
+          accounts: [],
+          transactions: [],
+          invoices: [],
+          invoiceSettlements: [],
+          importExpenseDistributions: [],
+          products: [],
+          itemGroups: [],
+          units: [],
+          contacts: [],
+          employees: [],
+          employeeContracts: [],
+          salaryHistory: [],
+          employeeLeaveRequests: [],
+          employeeRecurringDeductions: [],
+          fingerprintDevices,
+          fingerprintAttendanceBatches,
+          departments: [],
+          tickets: [],
+          fixedAssets: [],
+          assetGroups: [],
+          checks: [],
+          currencies: [],
+          warehouses: [],
+          stockTransfers: [],
+          boms: [],
+          productionOrders: [],
+          permissions,
+          auditLogs: [
+            {
+              entityType: 'company_settings',
+              action: 'UPDATE',
+              screen: 'Settings',
+              before: safeClone(companySettings),
+              after: safeClone(next)
+            },
+            ...auditLogs
+          ]
+        };
+        
+        void persistWorkspaceSnapshot(currentCompanyId, snapshot).then(didPersist => {
+          if (didPersist) {
+            upsertWorkspaceSyncQueueItem(currentCompanyId, snapshot.updatedAt, currentUser?.id);
+            setSyncQueueVersion(prev => prev + 1);
+          }
+        });
+      }
     }
 
     appendAuditLog({
@@ -7368,11 +7367,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const readLegacyWorkspaceSnapshot = (companyId: string): CompanyWorkspaceSnapshot | null => {
-    try {
-      return parseWorkspaceSnapshot(companyId, localStorage.getItem(getCompanyWorkspaceKey(companyId)));
-    } catch {
-      return null;
-    }
+    return null;
   };
 
   const persistWorkspaceSnapshot = async (
@@ -7380,7 +7375,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     snapshot: CompanyWorkspaceSnapshot
   ): Promise<boolean> => {
     try {
-      localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
+      // Disabled localStorage write
       return true;
     } catch (e) {
       console.warn('Failed to persist workspace settings snapshot locally:', e);
@@ -7389,12 +7384,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
-    let localSnapshot: CompanyWorkspaceSnapshot | null = null;
-    try {
-      const raw = localStorage.getItem(getCompanyWorkspaceKey(companyId));
-      localSnapshot = parseWorkspaceSnapshot(companyId, raw);
-    } catch (e) {
-      console.warn('Failed to read local workspace snapshot:', e);
+    if (useBackend) {
+      return {
+        snapshot: null,
+        source: 'none',
+        needsRewrite: false
+      };
     }
 
     if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser)) {
@@ -7405,14 +7400,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           const remoteData = syncDocSnap.data();
           const remoteSnapshot = parseWorkspaceSnapshot(companyId, remoteData.snapshot);
           if (remoteSnapshot) {
-            // If local snapshot is newer than the remote one, return the local snapshot so it can be synced to Firebase
-            if (localSnapshot && localSnapshot.updatedAt > (remoteSnapshot.updatedAt || '')) {
-              return {
-                snapshot: localSnapshot,
-                source: 'local',
-                needsRewrite: true
-              };
-            }
             return {
               snapshot: remoteSnapshot,
               source: 'remote',
@@ -7423,14 +7410,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       } catch (error) {
         console.warn('Failed to fetch remote workspace snapshot:', error);
       }
-    }
-
-    if (localSnapshot) {
-      return {
-        snapshot: localSnapshot,
-        source: 'local',
-        needsRewrite: false
-      };
     }
 
     return {
@@ -7629,19 +7608,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser, isOnline, isSyncing]);
 
   useEffect(() => {
-    if (!currentUser) {
-      try {
-        localStorage.removeItem(STORAGE_KEYS.currentUser);
-      } catch {
-        // Ignore storage cleanup failures so logout still completes.
-      }
-      return;
-    }
-    try {
-      localStorage.setItem(STORAGE_KEYS.currentUser, JSON.stringify(currentUser));
-    } catch {
-      // Ignore storage write failures so auth state is kept in memory.
-    }
+    // Disabled localStorage caching of currentUser
   }, [currentUser]);
 
   useEffect(() => {
@@ -7685,12 +7652,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   // LocalStorage backups removed for server-only mode
 
   useEffect(() => {
-    if (!currentCompanyId) return;
-    try {
-      localStorage.setItem(STORAGE_KEYS.currentCompany, currentCompanyId);
-    } catch {
-      // Ignore storage write failures so switching companies doesn't crash.
-    }
+    // Disabled localStorage caching of currentCompanyId
   }, [currentCompanyId]);
 
   useEffect(() => {
@@ -7699,7 +7661,20 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setCurrentCompanyId(companies[0].id);
   }, [companies, currentCompanyId]);
 
+  // Hydrate settings directly from database when useBackend is true
   useEffect(() => {
+    if (!useBackend) return;
+    if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) return;
+    if (!currentCompanyId || !currentCompany) return;
+
+    setBaseCurrencyState(currentCompany.baseCurrency || 'ILS');
+    setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(currentCompany.settings || {}) }));
+    setWorkspaceHydratedForCompanyId(currentCompanyId);
+  }, [useBackend, currentCompanyId, currentCompany, isAuthInitialized]);
+
+  useEffect(() => {
+    if (useBackend) return; // Managed by the backend settings useEffect
+
     if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) {
       return;
     }
@@ -7759,6 +7734,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentCompanyId, cloudMemberships, isAuthInitialized]);
 
   useEffect(() => {
+    if (useBackend) return;
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
     
     // Debounce the heavy JSON stringification process
@@ -7935,7 +7911,37 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return makeError('VALIDATION_ERROR', 'This company is not linked to your account.');
     }
     if (companyId === currentCompanyId) return makeSuccess();
-    void saveCurrentWorkspaceSnapshot(currentCompanyId);
+    if (!useBackend) {
+      void saveCurrentWorkspaceSnapshot(currentCompanyId);
+    }
+
+    // Wipe all data collections prior to switching companies to prevent flash of old company data
+    setTransactions([]);
+    setInvoices([]);
+    setImportExpenseDistributions([]);
+    setInvoiceSettlements([]);
+    setAccounts([]);
+    setProducts([]);
+    setItemGroups([]);
+    setUnits([]);
+    setContacts([]);
+    setEmployees([]);
+    setEmployeeContracts([]);
+    setSalaryHistory([]);
+    setEmployeeLeaveRequests([]);
+    setEmployeeRecurringDeductions([]);
+    setDepartments([]);
+    setTickets([]);
+    setAssetGroups([]);
+    setFixedAssets([]);
+    setChecks([]);
+    setCurrencies([]);
+    setUsers([]);
+    setWarehouses([]);
+    setStockTransfers([]);
+    setBoms([]);
+    setProductionOrders([]);
+
     setCurrentCompanyId(companyId);
     return makeSuccess();
   };
@@ -7985,7 +7991,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       graceDays: Number.isFinite(Number(input.graceDays)) ? Math.max(0, Math.min(30, Math.floor(Number(input.graceDays)))) : 0
     };
 
-      await saveCurrentWorkspaceSnapshot(currentCompanyId);
+      if (!useBackend) {
+        await saveCurrentWorkspaceSnapshot(currentCompanyId);
+      }
 
       const snapshot = buildEmptyWorkspaceSnapshot(profile);
       const didPersistSnapshot = await persistWorkspaceSnapshot(profile.id, snapshot);
@@ -9579,7 +9587,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     if (!interactive) {
-      throw new Error(tr('انتهت صلاحية الجلسة. يرجى ربط Google Drive يدوياً مرة أخرى.', 'Session expired. Please connect Google Drive manually again.'));
+      throw new Error(companySettings.language === 'EN' ? 'Session expired. Please connect Google Drive manually again.' : 'انتهت صلاحية الجلسة. يرجى ربط Google Drive يدوياً مرة أخرى.');
     }
 
     if (Capacitor.isNativePlatform()) {

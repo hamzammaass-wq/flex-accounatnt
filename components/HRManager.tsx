@@ -206,7 +206,7 @@ const HRManager: React.FC = () => {
         employeeLeaveRequests, addEmployeeLeaveRequest, updateEmployeeLeaveRequest, deleteEmployeeLeaveRequest,
         employeeRecurringDeductions, addEmployeeRecurringDeduction, updateEmployeeRecurringDeduction, deleteEmployeeRecurringDeduction,
         departments, addDepartment, deleteDepartment,
-        accounts, addTransaction, baseCurrency, transactions, companySettings, currentCompanyId, setTransactions,
+        accounts, addTransaction, baseCurrency, transactions, companySettings, updateCompanySettings, currentCompanyId, setTransactions,
         invoices, contacts, addContact, fingerprintAttendanceBatches, updateFingerprintAttendanceBatch
     } = useAccounting();
 
@@ -499,61 +499,46 @@ const HRManager: React.FC = () => {
     const payrollRunStorageKey = `al_mohaseb_hr_payroll_runs_${currentCompanyId || 'default'}`;
     const attendanceStorageKey = `al_mohaseb_hr_attendance_log_${currentCompanyId || 'default'}`;
 
+    // Load from company settings on mount/switch
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem(payrollRunStorageKey);
-            if (!raw) {
-                setPayrollRuns([]);
-                setSelectedPayrollRunId(null);
-                return;
-            }
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-                setPayrollRuns(parsed as PayrollRunRecord[]);
-                setSelectedPayrollRunId(prev => (parsed.some((r: PayrollRunRecord) => r.id === prev) ? prev : null));
-            } else {
-                setPayrollRuns([]);
-                setSelectedPayrollRunId(null);
-            }
-        } catch {
+        const state = companySettings.hrState || {};
+        if (Array.isArray(state.payrollRuns)) {
+            setPayrollRuns(state.payrollRuns);
+            setSelectedPayrollRunId(prev => (state.payrollRuns.some((r: PayrollRunRecord) => r.id === prev) ? prev : null));
+        } else {
             setPayrollRuns([]);
             setSelectedPayrollRunId(null);
         }
-    }, [payrollRunStorageKey]);
 
-    useEffect(() => {
-        try {
-            localStorage.setItem(payrollRunStorageKey, JSON.stringify(payrollRuns));
-        } catch {
-            // Ignore local storage quota errors in UI layer
-        }
-    }, [payrollRunStorageKey, payrollRuns]);
-
-    useEffect(() => {
-        try {
-            const raw = localStorage.getItem(attendanceStorageKey);
-            if (!raw) {
-                setAttendanceLog({});
-                return;
-            }
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                setAttendanceLog(parsed as Record<string, Record<string, AttendanceRecord>>);
-            } else {
-                setAttendanceLog({});
-            }
-        } catch {
+        if (state.attendanceLog && typeof state.attendanceLog === 'object' && !Array.isArray(state.attendanceLog)) {
+            setAttendanceLog(state.attendanceLog);
+        } else {
             setAttendanceLog({});
         }
-    }, [attendanceStorageKey]);
+    }, [currentCompanyId]); // Only on company switch, don't run on every settings change to avoid loops!
 
+    // Save to company settings on changes
     useEffect(() => {
-        try {
-            localStorage.setItem(attendanceStorageKey, JSON.stringify(attendanceLog));
-        } catch {
-            // Ignore local storage quota errors in UI layer
+        const currentHrState = companySettings.hrState || {};
+        if (
+            JSON.stringify(currentHrState.payrollRuns) === JSON.stringify(payrollRuns) &&
+            JSON.stringify(currentHrState.attendanceLog) === JSON.stringify(attendanceLog)
+        ) {
+            return;
         }
-    }, [attendanceStorageKey, attendanceLog]);
+
+        const timer = setTimeout(() => {
+            updateCompanySettings({
+                ...companySettings,
+                hrState: {
+                    payrollRuns,
+                    attendanceLog
+                }
+            });
+        }, 500); // debounce setting updates
+
+        return () => clearTimeout(timer);
+    }, [payrollRuns, attendanceLog]);
 
     const contractsEmployee = useMemo(
         () => employees.find(e => e.id === contractsEmployeeId) || null,

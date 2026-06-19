@@ -11,7 +11,8 @@ const config: CapacitorConfig = {
   appName: 'المحاسب الذكي (AIFLEX Smart Accountant)',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
+    url: 'https://smart-account-cc181.web.app',
+    cleartext: true,
   },
   plugins: {
     Keyboard: {

@@ -6,7 +6,7 @@ import {
   onSnapshot,
   writeBatch
 } from 'firebase/firestore';
-import { firebaseDb, firebaseAuth, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
+import { firebaseDb, firebaseAuth, executeFirestoreWrite, callBackendApi, isFirebaseAuthEnabled } from '../firebaseClient';
 
 let lastAlertTime = 0;
 let lastAlertMessage = '';
@@ -82,16 +82,32 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   const isWriteScheduledRef = useRef<boolean>(false);
 
   useEffect(() => {
+    if (isFirebaseAuthEnabled && firebaseAuth) {
+      if (!firebaseAuth.currentUser || firebaseAuth.currentUser.uid !== userId) {
+        // Wait until auth state is synchronized with the requested userId to avoid permission errors
+        return;
+      }
+    }
+
     let isSubscribed = true;
+
+    const currentPath = `users/${userId}/companies/${companyId}/${collectionName}`;
+
+    // Only reset data to initialState when the path truly changes
+    // (user switches company or logs in as a different user).
+    // Do NOT reset on first mount — keep current state until backend/Firestore responds.
+    const pathChanged = previousPathRef.current !== null && previousPathRef.current !== currentPath;
+    if (pathChanged) {
+      console.log(`[Sync] Path changed for ${collectionName}. Resetting to initialState.`);
+      setData(initialState);
+      dataRef.current = initialState;
+    }
+    previousPathRef.current = currentPath;
 
     if (useBackend) {
       if (!companyId) return;
       const user = firebaseAuth?.currentUser;
       if (!user) {
-        // Don't set up our own onAuthStateChanged here.
-        // The firebaseUid state dependency will cause this effect to re-run
-        // once auth initializes. By that time, the parent component will
-        // have validated the companyId (clearing stale values on user switch).
         return;
       }
 
@@ -142,8 +158,11 @@ export function useFirestoreSyncState<T extends { id?: string }>(
             }
           }
         })
-        .catch((err) => {
+        .catch((err: any) => {
           console.error(`[Backend Sync] Fetch error for ${collectionName}:`, err);
+          if (typeof window !== 'undefined') {
+            showSyncAlertOnce(`❌ مشكلة في الاتصال بالسيرفر لقسم (${collectionName}). التفاصيل: ${err.message || err}`);
+          }
         });
 
       return () => {
@@ -155,19 +174,6 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       console.warn(`[Sync] Firebase not ready for ${collectionName}. DB=${!!firebaseDb}, Company=${!!companyId}, User=${!!userId}`);
       return;
     }
-
-    const currentPath = `users/${userId}/companies/${companyId}/${collectionName}`;
-
-    // Only reset data to initialState when the path truly changes
-    // (user switches company or logs in as a different user).
-    // Do NOT reset on first mount — keep current state until Firestore responds.
-    const pathChanged = previousPathRef.current !== null && previousPathRef.current !== currentPath;
-    if (pathChanged) {
-      console.log(`[Sync] Path changed for ${collectionName}. Resetting to initialState.`);
-      setData(initialState);
-      dataRef.current = initialState;
-    }
-    previousPathRef.current = currentPath;
 
     const q = collection(firebaseDb, currentPath);
 

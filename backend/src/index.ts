@@ -69,12 +69,16 @@ const resolveDbAccountId = async (client: any, companyId: string, accountId: str
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS for frontend web client (dev environment and production firebase hosting URL)
-app.use(cors({
-  origin: '*', // For development. Replace with specific domains in production
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Enable CORS for frontend web client (dev environment, native Capacitor apps and production firebase hosting URL)
+// If running inside Firebase Functions, let the Functions framework handle CORS (cors: true) to avoid duplicate headers.
+if (!process.env.FIREBASE_CONFIG && !process.env.FUNCTIONS_EMULATOR) {
+  app.use(cors({
+    origin: true, // Dynamically echo client Origin (crucial for native platforms like Android/iOS using Authorization header)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+  }));
+}
 
 app.use(express.json({ limit: '50mb' })); // Support large JSON payloads during imports or syncs
 

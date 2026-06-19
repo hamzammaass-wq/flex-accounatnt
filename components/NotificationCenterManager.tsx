@@ -83,6 +83,7 @@ const severityRank: Record<AlertSeverity, number> = {
 const NotificationCenterManager: React.FC = () => {
   const {
     companySettings,
+    updateCompanySettings,
     currentCompanyId,
     checks,
     products,
@@ -108,24 +109,12 @@ const NotificationCenterManager: React.FC = () => {
 
   const todayIso = new Date().toISOString().slice(0, 10);
 
+  // Load from company settings on mount/switch
   useEffect(() => {
-    if (!currentCompanyId) {
-      setManualAlerts([]);
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(`${MANUAL_ALERTS_STORAGE_PREFIX}:${currentCompanyId}`);
-      if (!raw) {
-        setManualAlerts([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setManualAlerts([]);
-        return;
-      }
+    const state = companySettings.alertsState || {};
+    if (Array.isArray(state.manualAlerts)) {
       setManualAlerts(
-        parsed.filter(Boolean).map((item: Partial<ManualNotification>) => ({
+        state.manualAlerts.filter(Boolean).map((item: Partial<ManualNotification>) => ({
           id: String(item.id || `manual_${Math.random().toString(36).slice(2, 10)}`),
           title: String(item.title || ''),
           note: item.note ? String(item.note) : '',
@@ -135,52 +124,39 @@ const NotificationCenterManager: React.FC = () => {
           done: Boolean(item.done),
         }))
       );
-    } catch {
+    } else {
       setManualAlerts([]);
     }
-  }, [currentCompanyId, todayIso]);
 
-  useEffect(() => {
-    if (!currentCompanyId) return;
-    localStorage.setItem(`${MANUAL_ALERTS_STORAGE_PREFIX}:${currentCompanyId}`, JSON.stringify(manualAlerts));
-  }, [manualAlerts, currentCompanyId]);
-
-  useEffect(() => {
-    if (!currentCompanyId) {
+    if (Array.isArray(state.notifiedAlertIds)) {
+      setNotifiedAlertIds(state.notifiedAlertIds);
+    } else {
       setNotifiedAlertIds([]);
+    }
+  }, [currentCompanyId, todayIso]); // Only on company switch, don't run on every settings change to avoid loops!
+
+  // Save to company settings on changes
+  useEffect(() => {
+    const currentAlertsState = companySettings.alertsState || {};
+    if (
+      JSON.stringify(currentAlertsState.manualAlerts) === JSON.stringify(manualAlerts) &&
+      JSON.stringify(currentAlertsState.notifiedAlertIds) === JSON.stringify(notifiedAlertIds)
+    ) {
       return;
     }
-    try {
-      const raw = localStorage.getItem(`${NOTIFIED_ALERTS_STORAGE_PREFIX}:${currentCompanyId}`);
-      if (!raw) {
-        setNotifiedAlertIds([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setNotifiedAlertIds([]);
-        return;
-      }
-      const sanitized = Array.from(
-        new Set(
-          parsed
-            .map((id: unknown) => String(id || '').trim())
-            .filter(Boolean)
-        )
-      ).slice(-500);
-      setNotifiedAlertIds(sanitized);
-    } catch {
-      setNotifiedAlertIds([]);
-    }
-  }, [currentCompanyId]);
 
-  useEffect(() => {
-    if (!currentCompanyId) return;
-    localStorage.setItem(
-      `${NOTIFIED_ALERTS_STORAGE_PREFIX}:${currentCompanyId}`,
-      JSON.stringify(notifiedAlertIds.slice(-500))
-    );
-  }, [currentCompanyId, notifiedAlertIds]);
+    const timer = setTimeout(() => {
+      updateCompanySettings({
+        ...companySettings,
+        alertsState: {
+          manualAlerts,
+          notifiedAlertIds
+        }
+      });
+    }, 500); // debounce setting updates
+
+    return () => clearTimeout(timer);
+  }, [manualAlerts, notifiedAlertIds]);
 
   const contactNameMap = useMemo(
     () => new Map(contacts.map(c => [c.id, c.name])),

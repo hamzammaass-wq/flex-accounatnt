@@ -1028,7 +1028,7 @@ const InvoiceScreen: React.FC<{
     initialInvoiceId?: string;
     initialDraft?: InvoiceFormDraftState;
 }> = ({ mode, sharedState, onDateChange, onCurrencyChange, onRateChange, onModeChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId, initialDraft }) => {
-    const { createInvoice, deleteInvoice, contacts, products, companySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency, stockTransfers } = useAccounting();
+    const { createInvoice, deleteInvoice, contacts, products, companySettings, updateCompanySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency, stockTransfers } = useAccounting();
 
     const isSales = mode === 'SALES';
     const isReturn = mode === 'SALES_RETURN';
@@ -1512,36 +1512,38 @@ const InvoiceScreen: React.FC<{
     );
     const [savedExpenseLinePresets, setSavedExpenseLinePresets] = useState<ExpenseLinePreset[]>([]);
 
+    // Load from company settings on mount/switch
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            const raw = localStorage.getItem(expenseLinePresetsStorageKey);
-            if (!raw) {
-                setSavedExpenseLinePresets([]);
-                return;
-            }
-            const parsed = JSON.parse(raw);
-            const next = Array.isArray(parsed)
-                ? parsed
-                    .map(sanitizeExpenseLinePreset)
-                    .filter((preset): preset is ExpenseLinePreset => Boolean(preset))
-                    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-                    .slice(0, 30)
-                : [];
-            setSavedExpenseLinePresets(next);
-        } catch {
-            setSavedExpenseLinePresets([]);
-        }
-    }, [expenseLinePresetsStorageKey]);
+        const state = companySettings.expenseLinePresetsState || {};
+        const parsed = state.presets;
+        const next = Array.isArray(parsed)
+            ? parsed
+                .map(sanitizeExpenseLinePreset)
+                .filter((preset): preset is ExpenseLinePreset => Boolean(preset))
+                .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+                .slice(0, 30)
+            : [];
+        setSavedExpenseLinePresets(next);
+    }, [currentCompanyId]); // Only on company switch, don't run on every settings change to avoid loops!
 
+    // Save to company settings on changes
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            localStorage.setItem(expenseLinePresetsStorageKey, JSON.stringify(savedExpenseLinePresets));
-        } catch {
-            // Ignore local persistence failures and keep invoice entry working.
+        const currentPresetsState = companySettings.expenseLinePresetsState || {};
+        if (JSON.stringify(currentPresetsState.presets) === JSON.stringify(savedExpenseLinePresets)) {
+            return;
         }
-    }, [expenseLinePresetsStorageKey, savedExpenseLinePresets]);
+
+        const timer = setTimeout(() => {
+            updateCompanySettings({
+                ...companySettings,
+                expenseLinePresetsState: {
+                    presets: savedExpenseLinePresets
+                }
+            });
+        }, 500); // debounce setting updates
+
+        return () => clearTimeout(timer);
+    }, [savedExpenseLinePresets]);
 
     const saveExpenseLinePreset = (payload: {
         description: string;

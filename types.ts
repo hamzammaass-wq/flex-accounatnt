@@ -78,6 +78,7 @@ export interface Account {
 }
 
 export interface Currency {
+  id?: string;
   code: string;
   name: string;
   symbol: string;
@@ -611,6 +612,27 @@ export interface CompanySettings {
 
   darkModeEnabled: boolean;
   language: 'AR' | 'EN';
+
+  // Server-saved states to replace local storage
+  equityPartnersState?: {
+    partnerMeta?: any;
+    profitDocs?: any[];
+    settlementDocs?: any[];
+  };
+  alertsState?: {
+    manualAlerts?: any[];
+    notifiedAlertIds?: string[];
+  };
+  expenseLinePresetsState?: {
+    presets?: any[];
+  };
+  hrState?: {
+    payrollRuns?: any[];
+    attendanceLog?: any;
+  };
+  importTemplatesState?: {
+    templates?: any[];
+  };
 }
 
 export type CompanySubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED';

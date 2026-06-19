@@ -781,6 +781,7 @@ const hasOneOfNormalizedHeaders = (headers: string[], candidates: string[]) => {
 const DataImportManager: React.FC = () => {
   const {
     companySettings,
+    updateCompanySettings,
     currentCompanyId,
     baseCurrency,
     currencies,
@@ -929,32 +930,35 @@ const DataImportManager: React.FC = () => {
     });
   }, [rows, entity, columnMap]);
 
+  // Load from company settings on mount/switch
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(mappingTemplatesStorageKey);
-      if (!raw) {
-        setSavedMappingTemplates([]);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setSavedMappingTemplates([]);
-        return;
-      }
-      const sanitized = parsed.filter((t): t is ColumnMapTemplate => (
-        t && typeof t.id === 'string' && typeof t.name === 'string' && typeof t.entity === 'string' && t.columnMap && typeof t.columnMap === 'object'
-      )).map(t => ({
-        id: t.id,
-        name: t.name,
-        entity: t.entity as ImportEntity,
-        columnMap: t.columnMap || {},
-        updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : new Date().toISOString()
-      }));
-      setSavedMappingTemplates(sanitized);
-    } catch {
+    const state = companySettings.importTemplatesState || {};
+    const parsed = state.templates;
+    if (!Array.isArray(parsed)) {
       setSavedMappingTemplates([]);
+      return;
     }
-  }, [mappingTemplatesStorageKey]);
+    const sanitized = parsed.filter((t): t is ColumnMapTemplate => (
+      t && typeof t.id === 'string' && typeof t.name === 'string' && typeof t.entity === 'string' && t.columnMap && typeof t.columnMap === 'object'
+    )).map(t => ({
+      id: t.id,
+      name: t.name,
+      entity: t.entity as ImportEntity,
+      columnMap: t.columnMap || {},
+      updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : new Date().toISOString()
+    }));
+    setSavedMappingTemplates(sanitized);
+  }, [currentCompanyId]); // Only on company switch, don't run on every settings change to avoid loops!
+
+  const persistMappingTemplates = (next: ColumnMapTemplate[]) => {
+    setSavedMappingTemplates(next);
+    updateCompanySettings({
+      ...companySettings,
+      importTemplatesState: {
+        templates: next
+      }
+    });
+  };
 
   useEffect(() => {
     setSelectedMappingTemplateId('');
@@ -972,15 +976,6 @@ const DataImportManager: React.FC = () => {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [savedMappingTemplates, entity]
   );
-
-  const persistMappingTemplates = (next: ColumnMapTemplate[]) => {
-    setSavedMappingTemplates(next);
-    try {
-      localStorage.setItem(mappingTemplatesStorageKey, JSON.stringify(next));
-    } catch {
-      // no-op: import still works even if template persistence fails
-    }
-  };
 
   const applyBackupCandidateToImport = (candidate: BackupCandidate) => {
     const targetEntity = candidate.aiEntity || candidate.inferredEntity;

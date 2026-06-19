@@ -131,8 +131,8 @@ export const getBackendApiUrl = (): string => {
   if (Capacitor.isNativePlatform()) {
     if (defaultUrl.startsWith('/') || defaultUrl.includes('localhost') || defaultUrl.includes('127.0.0.1')) {
       const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
-      const region = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim();
-      return `https://${region}-${projectId}.cloudfunctions.net/api`;
+      // Use Firebase Hosting URL to leverage rewrites and avoid CORS/path-stripping issues
+      return `https://${projectId}.web.app/api`;
     }
   }
   return defaultUrl;
@@ -141,8 +141,8 @@ export const getBackendApiUrl = (): string => {
 export const getAbsoluteUrl = (path: string): string => {
   if (Capacitor.isNativePlatform() && path.startsWith('/')) {
     const projectId = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'smart-account-cc181').trim();
-    const region = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim();
-    return `https://${region}-${projectId}.cloudfunctions.net/api${path.replace(/^\/api/, '')}`;
+    // Use Firebase Hosting URL
+    return `https://${projectId}.web.app/api${path.replace(/^\/api/, '')}`;
   }
   return path;
 };
