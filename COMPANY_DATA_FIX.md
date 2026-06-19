@@ -87,7 +87,47 @@ WHERE id NOT LIKE company_id || '_%';
 - ✅ الإصلاح يعمل مع البيانات الموجودة (backward compatible)
 - ⚠️ البيانات القديمة المتداخلة قد تحتاج لتنظيف يدوي
 
-## التاريخ
+## التاريخ والتحديثات
+
+### المرحلة 1: الإصلاحات الأولية (✅ مكتمل)
 - **التاريخ**: 2026-06-19
-- **المبرمج**: Claude (بمساعدة المستخدم)
-- **الحالة**: مكتمل ✅
+- **Commit**: 80232ec
+- مركزة دوال account helpers
+- إصلاح فحص الحسابات في sync.ts (code → prefixed ID)
+- رفع التحديثات على Firebase
+
+### المرحلة 2: إصلاح ثغرات SQL الحرجة (✅ مكتمل)
+- **التاريخ**: 2026-06-19
+- **Commit**: 9d82242
+- إصلاح استعلام الرصيد في sync.ts (إضافة company_id filters)
+- إزالة دالة مكررة في migrate.ts
+- إغلاق ثغرة cross-company data leakage في balance calculations
+
+### المرحلة 3: Schema Migration (🚧 جاري التحضير)
+- **التاريخ**: 2026-06-19
+- إنشاء migration scripts:
+  - `000_pre_migration_check.sql` - فحص قبل التنفيذ
+  - `001_add_company_id_to_child_tables.sql` - التنفيذ الفعلي
+  - `002_post_migration_verify.sql` - التحقق بعد التنفيذ
+- **الحالة**: جاهز للتنفيذ (يتطلب موافقة وbackup)
+
+---
+
+## ملاحظات للمستقبل
+
+### ما تم إصلاحه:
+- ✅ مركزة الكود (account-helpers.ts)
+- ✅ إصلاح sync.ts account check
+- ✅ إصلاح SQL balance queries
+- ✅ إزالة التكرار في migrate.ts
+- ✅ جميع التحديثات على production
+
+### ما يحتاج تنفيذ:
+- ⏳ تشغيل Schema migration على قاعدة البيانات
+- ⏳ إضافة اختبارات (unit + integration)
+- ⏳ تحديث الكود ليستخدم company_id في جداول الأطفال
+
+### ما يحتاج مراقبة:
+- 📊 أداء الاستعلامات بعد إضافة indexes
+- 📊 عدد placeholder accounts المُنشأة تلقائياً
+- 📊 أي errors متعلقة بـ company_id في logs
