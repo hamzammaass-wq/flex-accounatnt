@@ -2,6 +2,7 @@ import { Router, type Response } from 'express';
 import admin from 'firebase-admin';
 import { type AuthenticatedRequest } from '../middleware/auth.js';
 import { pool } from '../config/db.js';
+import { prefixAccountId } from '../utils/account-helpers.js';
 
 const router = Router();
 
@@ -10,12 +11,6 @@ const parseDate = (d: any) => {
   if (!d) return null;
   const parsed = new Date(d);
   return isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const prefixAccountId = (companyId: string, id: string | null | undefined): string | null => {
-  if (!id) return null;
-  if (id.startsWith(companyId + '_')) return id;
-  return `${companyId}_${id}`;
 };
 
 router.post('/', async (req: AuthenticatedRequest, res: Response) => {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import admin from 'firebase-admin';
 import { pool } from '../config/db.js';
+import { prefixAccountId } from '../utils/account-helpers.js';
 const router = Router();
 // Helper to sanitize dates
 const parseDate = (d) => {
@@ -8,13 +9,6 @@ const parseDate = (d) => {
         return null;
     const parsed = new Date(d);
     return isNaN(parsed.getTime()) ? null : parsed;
-};
-const prefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    if (id.startsWith(companyId + '_'))
-        return id;
-    return `${companyId}_${id}`;
 };
 router.post('/', async (req, res) => {
     const uid = req.user?.uid;

@@ -129,14 +129,15 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
         `SELECT a.*,
            COALESCE((
              SELECT SUM(
-               CASE 
+               CASE
                  WHEN a.type IN ('ASSET', 'EXPENSE') THEN jl.debit - jl.credit
                  ELSE jl.credit - jl.debit
                END
              )
              FROM journal_lines jl
-             JOIN journal_entries je ON jl.entry_id = je.id
-             WHERE jl.account_id = a.id AND je.status = 'POSTED'
+             JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
+             WHERE jl.company_id = $1 AND je.company_id = $1
+               AND jl.account_id = a.id AND je.status = 'POSTED'
            ), 0) as balance
          FROM accounts a
          WHERE a.company_id = $1
