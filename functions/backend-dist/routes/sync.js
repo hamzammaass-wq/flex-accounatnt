@@ -1,62 +1,8 @@
 import { Router } from 'express';
 import { verifyCompanyMembership } from '../middleware/auth.js';
 import { query, getClient } from '../config/db.js';
+import { prefixAccountId, unprefixAccountId, resolveDbAccountId } from '../utils/account-helpers.js';
 const router = Router({ mergeParams: true });
-const prefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    let cleanId = id;
-    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        cleanId = match[1];
-    }
-    if (cleanId.startsWith(companyId + '_'))
-        return cleanId;
-    return `${companyId}_${cleanId}`;
-};
-const unprefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        return match[1];
-    }
-    const prefix = companyId + '_';
-    if (id.startsWith(prefix)) {
-        return id.substring(prefix.length);
-    }
-    return id;
-};
-const resolveDbAccountId = async (client, companyId, accountId) => {
-    if (!accountId)
-        return null;
-    let cleanId = accountId;
-    const match = accountId.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        cleanId = match[1];
-    }
-    const prefixed = `${companyId}_${cleanId}`;
-    const res = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND (id = $2 OR id = $3)`, [companyId, prefixed, cleanId]);
-    if (res.rows.length > 0) {
-        return res.rows[0].id;
-    }
-    // Auto-create placeholder account to prevent foreign key constraint violations
-    try {
-        const defaultType = cleanId.toLowerCase().includes('expense') ? 'EXPENSE' :
-            cleanId.toLowerCase().includes('revenue') || cleanId.toLowerCase().includes('sales') ? 'REVENUE' :
-                cleanId.toLowerCase().includes('liability') ? 'LIABILITY' :
-                    cleanId.toLowerCase().includes('equity') ? 'EQUITY' : 'ASSET';
-        const code = cleanId.substring(0, 30);
-        const name = cleanId.replace(/_/g, ' ');
-        await client.query(`INSERT INTO accounts (id, company_id, code, name, type, currency)
-       VALUES ($1, $2, $3, $4, $5, 'ILS')
-       ON CONFLICT (company_id, id) DO NOTHING`, [prefixed, companyId, code, name, defaultType]);
-    }
-    catch (err) {
-        console.error(`[resolveDbAccountId] Failed to auto-create placeholder account ${prefixed}:`, err);
-    }
-    return prefixed;
-};
 // Helper to sanitize dates
 const parseDate = (d) => {
     if (!d)
@@ -566,6 +512,9 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
             if (collectionName === 'currencies') {
                 await client.query(`DELETE FROM currencies WHERE company_id = $1 AND code = ANY($2)`, [companyId, deletes]);
             }
+            else if (collectionName === 'users') {
+                await client.query(`DELETE FROM memberships WHERE company_id = $1 AND user_id = ANY($2)`, [companyId, deletes]);
+            }
             else {
                 let targets = deletes;
                 if (collectionName === 'accounts') {
@@ -584,7 +533,8 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                 // Pass 1: Insert all accounts without parent_id to avoid constraint violations
                 for (const item of upserts) {
                     const prefixedId = prefixAccountId(companyId, item.id);
-                    const existingAcc = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND code = $2`, [companyId, item.code]);
+                    // CRITICAL FIX: Check existence using BOTH company_id AND prefixed ID to prevent cross-company data overlap
+                    const existingAcc = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND id = $2`, [companyId, prefixedId]);
                     let targetId = prefixedId;
                     if (existingAcc.rows.length > 0) {
                         targetId = existingAcc.rows[0].id;

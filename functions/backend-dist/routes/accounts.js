@@ -1,32 +1,8 @@
 import { Router } from 'express';
 import { verifyCompanyMembership } from '../middleware/auth.js';
 import { query } from '../config/db.js';
+import { prefixAccountId, unprefixAccountId } from '../utils/account-helpers.js';
 const router = Router({ mergeParams: true });
-const prefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    let cleanId = id;
-    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        cleanId = match[1];
-    }
-    if (cleanId.startsWith(companyId + '_'))
-        return cleanId;
-    return `${companyId}_${cleanId}`;
-};
-const unprefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        return match[1];
-    }
-    const prefix = companyId + '_';
-    if (id.startsWith(prefix)) {
-        return id.substring(prefix.length);
-    }
-    return id;
-};
 // Get all accounts for a company
 router.get('/', verifyCompanyMembership, async (req, res) => {
     const { companyId } = req.params;

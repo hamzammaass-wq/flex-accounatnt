@@ -31,8 +31,10 @@ export const authenticateUser = async (
   res: Response,
   next: NextFunction
 ) => {
-  // Local bypass for testing without service accounts
-  if (process.env.BYPASS_AUTH === 'true') {
+  // Local bypass for testing without service accounts (ONLY in local development/emulator)
+  const isLocalEnv = process.env.FUNCTIONS_EMULATOR === 'true' || 
+                     (!process.env.FIREBASE_CONFIG && process.env.NODE_ENV !== 'production');
+  if (process.env.BYPASS_AUTH === 'true' && isLocalEnv) {
     const uid = 'dev_user_1';
     const email = 'developer@system.local';
     const name = 'Developer User';
@@ -65,14 +67,50 @@ export const authenticateUser = async (
     const picture = decodedToken.picture || '';
     const role = 'USER';
 
-    await query(
-      `INSERT INTO users (id, email, name, picture, role)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (id) DO UPDATE
-       SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
-       RETURNING *`,
-      [uid, email, name, picture, role]
-    );
+    try {
+      await query(
+        `INSERT INTO users (id, email, name, picture, role)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE
+         SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
+         RETURNING *`,
+        [uid, email, name, picture, role]
+      );
+    } catch (dbErr: any) {
+      if (dbErr.code === '23505' && (dbErr.constraint === 'users_email_key' || String(dbErr.message).includes('users_email_key'))) {
+        console.log(`[Auth Middleware] Email conflict detected for ${email}. Checking if old user exists in Firebase Auth...`);
+        const existingRes = await query('SELECT id FROM users WHERE email = $1', [email]);
+        if (existingRes.rows.length > 0) {
+          const oldUid = existingRes.rows[0].id;
+          try {
+            await admin.auth().getUser(oldUid);
+            console.warn(`[Auth Middleware] Old UID ${oldUid} still exists in Firebase Auth. Cannot auto-resolve email conflict safely.`);
+            throw dbErr;
+          } catch (authErr: any) {
+            if (authErr.code === 'auth/user-not-found') {
+              console.log(`[Auth Middleware] Old UID ${oldUid} not found in Firebase Auth. Deleting orphaned PG user...`);
+              await query('DELETE FROM users WHERE id = $1', [oldUid]);
+              
+              // Retry the insert
+              await query(
+                `INSERT INTO users (id, email, name, picture, role)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (id) DO UPDATE
+                 SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
+                 RETURNING *`,
+                [uid, email, name, picture, role]
+              );
+            } else {
+              throw authErr;
+            }
+          }
+        } else {
+          throw dbErr;
+        }
+      } else {
+        throw dbErr;
+      }
+    }
 
     req.user = {
       uid,
@@ -99,6 +137,10 @@ export const verifyCompanyMembership = async (
 
   if (!companyId) {
     return res.status(400).json({ error: 'Bad Request: Missing companyId' });
+  }
+
+  if (companyId === 'cmp_default') {
+    return res.status(400).json({ error: 'Bad Request: Default company is not supported on the backend' });
   }
 
   if (!uid) {

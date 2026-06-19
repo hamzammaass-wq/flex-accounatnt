@@ -1674,8 +1674,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         let finalCompanies: CompanyProfile[] = [];
         let needsCloudUpdate = false;
 
-        if (data && data.companies && Array.isArray(data.companies) && data.companies.length > 0) {
-          finalCompanies = data.companies.map(withNormalizedCompanyProfile);
+        const rawCompanies = data && data.companies && Array.isArray(data.companies) ? data.companies : [];
+        const filteredCompanies = rawCompanies.filter((c: any) => c && c.id !== 'cmp_default');
+
+        if (filteredCompanies.length > 0) {
+          finalCompanies = filteredCompanies.map(withNormalizedCompanyProfile);
         } else {
           // Completely new user! Create their real cloud company immediately
           const newCompanyId = `cmp_${currentUser.id}`;
@@ -1832,7 +1835,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!companiesLoaded || !firebaseDb || !currentUser || isGuestUser(currentUser)) return;
     if ((window as any).__IS_HYDRATING__) return;
 
-    const cleanCompanies = JSON.parse(JSON.stringify(companies));
+    const filtered = companies.filter(c => c && c.id !== 'cmp_default');
+    const cleanCompanies = JSON.parse(JSON.stringify(filtered));
     setDoc(doc(firebaseDb, 'users', currentUser.id), { companies: cleanCompanies }, { merge: true }).catch(console.error);
   }, [companies, companiesLoaded, currentUser]);
   const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
@@ -1931,6 +1935,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const bootstrappedSubscriptionsRef = useRef<Set<string>>(new Set());
   const bootstrappedWorkspacesRef = useRef<Set<string>>(new Set());
   const bootstrappedUsersRef = useRef<Set<string>>(new Set());
+  const lastUserIdRef = useRef<string | null>(null);
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -2118,8 +2123,52 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         setIsAuthInitialized(true);
         const persistedCompanyId = resolvePersistedCompanyId();
 
-        if (!authUser) {
+        const currentUserId = lastUserIdRef.current;
+        const nextUserId = authUser?.uid || null;
+
+        if (nextUserId !== currentUserId) {
+          console.log(`[Auth] User changed synchronously from ${currentUserId} to ${nextUserId}. Clearing states.`);
+          lastUserIdRef.current = nextUserId;
+
+          // Reset user and session states
           setCloudMemberships([]);
+          setCompanies([]);
+          setCompaniesLoaded(false);
+          setCurrentCompanyId('');
+          setBaseCurrencyState('ILS');
+          setCompanySettings(withNormalizedValuationSettings(defaultCompanySettings));
+          setWorkspaceHydratedForCompanyId('');
+          setWorkspaceSubscription(buildDefaultWorkspaceSubscription());
+
+          // Wipe all data collections to ensure complete isolation and prevent leakage
+          setTransactions([]);
+          setInvoices([]);
+          setImportExpenseDistributions([]);
+          setInvoiceSettlements([]);
+          setAccounts([]);
+          setProducts([]);
+          setItemGroups([]);
+          setUnits([]);
+          setContacts([]);
+          setEmployees([]);
+          setEmployeeContracts([]);
+          setSalaryHistory([]);
+          setEmployeeLeaveRequests([]);
+          setEmployeeRecurringDeductions([]);
+          setDepartments([]);
+          setTickets([]);
+          setAssetGroups([]);
+          setFixedAssets([]);
+          setChecks([]);
+          setCurrencies([]);
+          setUsers([]);
+          setWarehouses([]);
+          setStockTransfers([]);
+          setBoms([]);
+          setProductionOrders([]);
+        }
+
+        if (!authUser) {
           setCurrentUser(prev => (
             isGuestUser(prev)
               ? {
@@ -2133,7 +2182,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           return;
         }
 
-        setCloudMemberships([]);
         setCurrentUser(mapFirebaseAuthUser(authUser, persistedCompanyId));
       };
 
@@ -2162,6 +2210,54 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       cancelled = true;
     };
   }, [currentCompanyId]);
+
+  useEffect(() => {
+    const nextUserId = currentUser?.id || null;
+    const prevUserId = lastUserIdRef.current;
+    if (nextUserId !== prevUserId) {
+      console.log(`[AccountingContext] User ID changed from ${prevUserId} to ${nextUserId}. Wiping states to prevent leakage.`);
+      lastUserIdRef.current = nextUserId;
+
+      if (prevUserId !== null) {
+        // Reset user and session states
+        setCloudMemberships([]);
+        setCompanies([]);
+        setCompaniesLoaded(false);
+        setCurrentCompanyId('');
+        setBaseCurrencyState('ILS');
+        setCompanySettings(withNormalizedValuationSettings(defaultCompanySettings));
+        setWorkspaceHydratedForCompanyId('');
+        setWorkspaceSubscription(buildDefaultWorkspaceSubscription());
+
+        // Wipe all data collections to ensure complete isolation and prevent leakage
+        setTransactions([]);
+        setInvoices([]);
+        setImportExpenseDistributions([]);
+        setInvoiceSettlements([]);
+        setAccounts([]);
+        setProducts([]);
+        setItemGroups([]);
+        setUnits([]);
+        setContacts([]);
+        setEmployees([]);
+        setEmployeeContracts([]);
+        setSalaryHistory([]);
+        setEmployeeLeaveRequests([]);
+        setEmployeeRecurringDeductions([]);
+        setDepartments([]);
+        setTickets([]);
+        setAssetGroups([]);
+        setFixedAssets([]);
+        setChecks([]);
+        setCurrencies([]);
+        setUsers([]);
+        setWarehouses([]);
+        setStockTransfers([]);
+        setBoms([]);
+        setProductionOrders([]);
+      }
+    }
+  }, [currentUser?.id, defaultCompanySettings]);
 
   useEffect(() => {
     if (!currentUser || !cloudMemberships.length || !currentCompanyId) return;
@@ -8105,6 +8201,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       removeWorkspaceSyncQueueItem(companyId);
       setSyncQueueVersion(prev => prev + 1);
 
+      if (useBackend && currentUser && !isGuestUser(currentUser)) {
+        try {
+          await callBackendApi(currentUser, `/companies/${companyId}`, 'DELETE');
+          console.log('[Backend Sync] Company deleted successfully on backend');
+        } catch (error: any) {
+          console.error('[Backend Sync ERROR] Failed to delete company:', error);
+          cleanupWarnings.push(String(error?.message || 'Failed to delete company on custom backend.'));
+        }
+      }
+
       try {
         localStorage.removeItem(getCompanyWorkspaceKey(companyId));
         localStorage.removeItem(getBackupHistoryKey(companyId));
@@ -9097,6 +9203,28 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     applyCompanySubscriptionLocally(companyId, next);
+    if (useBackend) {
+      if (currentUser && !isGuestUser(currentUser)) {
+        callBackendApi(currentUser, `/companies/${companyId}`, 'PUT', {
+          name: next.name,
+          taxNumber: next.taxNumber,
+          address: next.address,
+          phone: next.phone,
+          logoUrl: next.logoUrl,
+          settings: (next as any).settings,
+          baseCurrency: (next as any).baseCurrency
+        })
+          .then((res) => {
+            console.log('[Backend Sync] Company profile updated successfully:', res);
+            if (res && res.company) {
+              setCompanies(prev => prev.map(c => c.id === companyId ? res.company : c));
+            }
+          })
+          .catch(err => {
+            console.error('[Backend Sync ERROR] Failed to update company profile:', err);
+          });
+      }
+    }
     if (firebaseDb && currentUser && !isGuestUser(currentUser)) {
       void persistCloudSubscription(next, {
         source: cloudSubscription?.source || (next.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL'),

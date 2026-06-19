@@ -1,23 +1,9 @@
 import { Router, type Response } from 'express';
 import { type AuthenticatedRequest, verifyCompanyMembership } from '../middleware/auth.js';
 import { query } from '../config/db.js';
+import { prefixAccountId, unprefixAccountId } from '../utils/account-helpers.js';
 
 const router = Router({ mergeParams: true });
-
-const prefixAccountId = (companyId: string, id: string | null | undefined): string | null => {
-  if (!id) return null;
-  if (id.startsWith(companyId + '_')) return id;
-  return `${companyId}_${id}`;
-};
-
-const unprefixAccountId = (companyId: string, id: string | null | undefined): string | null => {
-  if (!id) return null;
-  const prefix = companyId + '_';
-  if (id.startsWith(prefix)) {
-    return id.substring(prefix.length);
-  }
-  return id;
-};
 
 // 1. Trial Balance Report
 router.get('/trial-balance', verifyCompanyMembership, async (req: AuthenticatedRequest, res: Response) => {

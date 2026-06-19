@@ -1,18 +1,12 @@
 import admin from 'firebase-admin';
 import { pool } from '../config/db.js';
+import { prefixAccountId } from './account-helpers.js';
 // Helper to sanitize dates
 const parseDate = (d) => {
     if (!d)
         return null;
     const parsed = new Date(d);
     return isNaN(parsed.getTime()) ? null : parsed;
-};
-const prefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    if (id.startsWith(companyId + '_'))
-        return id;
-    return `${companyId}_${id}`;
 };
 export async function migrateUserFirestoreData(uid) {
     console.log(`[Migration Helper] Starting migration for user: ${uid}`);

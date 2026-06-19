@@ -30,7 +30,7 @@ router.get('/', async (req, res) => {
                     const deletedRes = await query(`SELECT id FROM deleted_companies`);
                     const deletedIds = new Set(deletedRes.rows.map((r) => r.id));
                     for (const fc of firestoreCompanies) {
-                        if (!fc.id)
+                        if (!fc.id || fc.id === 'cmp_default')
                             continue;
                         // Skip companies that were intentionally deleted by the user
                         if (deletedIds.has(fc.id)) {

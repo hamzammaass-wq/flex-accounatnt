@@ -11,50 +11,9 @@ import invoiceRouter from './routes/invoices.js';
 import reportRouter from './routes/reports.js';
 import syncRouter from './routes/sync.js';
 import migrateRouter from './routes/migrate.js';
-import { getClient } from './config/db.js';
+import { getClient, query } from './config/db.js';
+import { resolveDbAccountId } from './utils/account-helpers.js';
 dotenv.config();
-const prefixAccountId = (companyId, id) => {
-    if (!id)
-        return null;
-    let cleanId = id;
-    const match = id.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        cleanId = match[1];
-    }
-    if (cleanId.startsWith(companyId + '_'))
-        return cleanId;
-    return `${companyId}_${cleanId}`;
-};
-const resolveDbAccountId = async (client, companyId, accountId) => {
-    if (!accountId)
-        return null;
-    let cleanId = accountId;
-    const match = accountId.match(/^cmp_[a-zA-Z0-9]+_(.+)$/);
-    if (match) {
-        cleanId = match[1];
-    }
-    const prefixed = `${companyId}_${cleanId}`;
-    const res = await client.query(`SELECT id FROM accounts WHERE company_id = $1 AND (id = $2 OR id = $3)`, [companyId, prefixed, cleanId]);
-    if (res.rows.length > 0) {
-        return res.rows[0].id;
-    }
-    // Auto-create placeholder account to prevent foreign key constraint violations
-    try {
-        const defaultType = cleanId.toLowerCase().includes('expense') ? 'EXPENSE' :
-            cleanId.toLowerCase().includes('revenue') || cleanId.toLowerCase().includes('sales') ? 'REVENUE' :
-                cleanId.toLowerCase().includes('liability') ? 'LIABILITY' :
-                    cleanId.toLowerCase().includes('equity') ? 'EQUITY' : 'ASSET';
-        const code = cleanId.substring(0, 30);
-        const name = cleanId.replace(/_/g, ' ');
-        await client.query(`INSERT INTO accounts (id, company_id, code, name, type, currency)
-       VALUES ($1, $2, $3, $4, $5, 'ILS')
-       ON CONFLICT (company_id, id) DO NOTHING`, [prefixed, companyId, code, name, defaultType]);
-    }
-    catch (err) {
-        console.error(`[resolveDbAccountId] Failed to auto-create placeholder account ${prefixed}:`, err);
-    }
-    return prefixed;
-};
 const app = express();
 const PORT = process.env.PORT || 5000;
 // Enable CORS for frontend web client (dev environment, native Capacitor apps and production firebase hosting URL)
@@ -283,6 +242,14 @@ app.delete('/api/admin/users/:userId', authenticateUser, async (req, res) => {
         await db.collection('subscription_admins').doc(userId).delete();
         // 5. Delete the user document in Firestore users collection
         await userDocRef.delete();
+        // 5.5. Delete user from PostgreSQL
+        try {
+            await query('DELETE FROM users WHERE id = $1', [userId]);
+            console.log(`[Delete User] Deleted user ${userId} from PostgreSQL.`);
+        }
+        catch (dbError) {
+            console.error('[Delete User PG Error] Failed to delete user from PostgreSQL:', dbError);
+        }
         // 6. Delete user from Firebase Auth
         try {
             await admin.auth().deleteUser(userId);
