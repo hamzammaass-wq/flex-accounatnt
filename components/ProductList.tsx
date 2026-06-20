@@ -11,7 +11,7 @@ import ProductCard from './ProductCard';
 import QuickAddProductModal from './QuickAddProductModal';
 import { Html5Qrcode } from "html5-qrcode";
 import { ensureCameraPermission } from '../utils/cameraPermission';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import EnglishDateInput from './EnglishDateInput';
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
@@ -120,16 +120,16 @@ const ProductList: React.FC = () => {
     setShowGroupForm(false);
   };
 
-  // Scanner Effect
-  useEffect(() => {
-    if (!showScanner) return;
-    let isUnmounted = false;
-    let qrInstance: Html5Qrcode | null = null;
+  // Scanner Management
+  const startScanner = async () => {
+    if (!(await ensureCameraPermission(tr))) return;
 
-    // Increased delay to ensure DOM element exists and layout transitions are stable
-    const timer = setTimeout(() => {
+    flushSync(() => {
+        setShowScanner(true);
+    });
+
+    try {
         const html5QrCode = new Html5Qrcode("reader");
-        qrInstance = html5QrCode;
         scannerRef.current = html5QrCode;
         
         const config = {
@@ -144,38 +144,49 @@ const ProductList: React.FC = () => {
             }
         };
         
-        html5QrCode.start(
+        await html5QrCode.start(
             { facingMode: "environment" },
             config,
             (decodedText) => {
                 setBarcode(decodedText);
-                // Changing showScanner state triggers the useEffect cleanup, which stops the camera
-                setShowScanner(false);
+                stopAndCloseScanner();
             },
-            (errorMessage) => {
-                // ignore errors during scanning
-            }
-        ).then(() => {
-            if (isUnmounted) {
-                html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
-            }
-        }).catch(err => {
-            console.error("Error starting scanner:", err);
-            alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
-            setShowScanner(false);
-        });
-    }, 250);
+            () => {} // ignore scan errors
+        );
+    } catch (err) {
+        console.error("Error starting scanner:", err);
+        alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
+        setShowScanner(false);
+    }
+  };
 
+  const stopAndCloseScanner = async () => {
+    if (scannerRef.current) {
+        const qr = scannerRef.current;
+        scannerRef.current = null;
+        try {
+            if (qr.isScanning) {
+                await qr.stop();
+            }
+            await qr.clear();
+        } catch (e) {
+            console.error("Error stopping scanner:", e);
+        }
+    }
+    setShowScanner(false);
+  };
+
+  // Ensure scanner is stopped on unmount
+  useEffect(() => {
     return () => {
-        isUnmounted = true;
-        clearTimeout(timer);
-        if (qrInstance) {
-            if (qrInstance.isScanning) {
-                qrInstance.stop().then(() => qrInstance?.clear()).catch(console.error);
+        if (scannerRef.current) {
+            const qr = scannerRef.current;
+            if (qr.isScanning) {
+                qr.stop().then(() => qr.clear()).catch(console.error);
             }
         }
     };
-  }, [showScanner]);
+  }, []);
 
   useEffect(() => {
     const raw = Number(companySettings?.lowStockAlertQtyDefault);
@@ -1113,7 +1124,7 @@ const ProductList: React.FC = () => {
               </div>
               <div className="bg-black p-6 flex justify-between items-center text-white">
                   <p className="text-sm font-bold">{tr('وجه الكاميرا نحو الباركود...', 'Point the camera at the barcode...')}</p>
-                  <button onClick={() => setShowScanner(false)} className="bg-white/20 p-3 rounded-full hover:bg-white/30 transition-all"><X size={24} /></button>
+                  <button onClick={stopAndCloseScanner} className="bg-white/20 p-3 rounded-full hover:bg-white/30 transition-all"><X size={24} /></button>
               </div>
           </div>,
           document.body
@@ -1207,11 +1218,7 @@ const ProductList: React.FC = () => {
                             </div>
                             <button 
                                 type="button" 
-                                onClick={async () => {
-                                    if (await ensureCameraPermission(tr)) {
-                                        setShowScanner(true);
-                                    }
-                                }}
+                                onClick={startScanner}
                                 className="w-14 bg-slate-800 text-white rounded-2xl flex items-center justify-center shadow-lg active:scale-95 transition-all"
                                 title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
                             >

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ensureCameraPermission } from '../utils/cameraPermission';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product, ProductKind } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
@@ -141,14 +141,16 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
   }, [product, initialName]);
 
-  useEffect(() => {
-    if (!showScanner) return;
-    let isUnmounted = false;
-    let qrInstance: Html5Qrcode | null = null;
+  // Scanner Management
+  const startScanner = async () => {
+    if (!(await ensureCameraPermission(tr))) return;
 
-    const timer = window.setTimeout(() => {
+    flushSync(() => {
+      setShowScanner(true);
+    });
+
+    try {
       const html5QrCode = new Html5Qrcode('quick-add-product-reader');
-      qrInstance = html5QrCode;
       scannerRef.current = html5QrCode;
 
       const config = {
@@ -163,37 +165,49 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
         }
       };
 
-      html5QrCode.start(
+      await html5QrCode.start(
         { facingMode: 'environment' },
         config,
         (decodedText) => {
           setBarcode(decodedText);
-          setShowScanner(false);
+          stopAndCloseScanner();
         },
-        () => {
-          // Ignore noisy interim scan errors while camera is active.
-        }
-      ).then(() => {
-        if (isUnmounted) {
-          html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
-        }
-      }).catch((error) => {
-        console.error('Barcode scanner failed to start', error);
-        alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
-        setShowScanner(false);
-      });
-    }, 250);
+        () => {} // ignore scan errors
+      );
+    } catch (err) {
+      console.error('Barcode scanner failed to start', err);
+      alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
+      setShowScanner(false);
+    }
+  };
 
+  const stopAndCloseScanner = async () => {
+    if (scannerRef.current) {
+      const qr = scannerRef.current;
+      scannerRef.current = null;
+      try {
+        if (qr.isScanning) {
+          await qr.stop();
+        }
+        await qr.clear();
+      } catch (e) {
+        console.error('Error stopping scanner:', e);
+      }
+    }
+    setShowScanner(false);
+  };
+
+  // Ensure scanner is stopped on unmount
+  useEffect(() => {
     return () => {
-      isUnmounted = true;
-      window.clearTimeout(timer);
-      if (qrInstance) {
-        if (qrInstance.isScanning) {
-          qrInstance.stop().then(() => qrInstance?.clear()).catch(console.error);
+      if (scannerRef.current) {
+        const qr = scannerRef.current;
+        if (qr.isScanning) {
+          qr.stop().then(() => qr.clear()).catch(console.error);
         }
       }
     };
-  }, [showScanner, tr]);
+  }, []);
 
   const handlePickImage = async (file?: File | null) => {
     if (!file) return;
@@ -483,11 +497,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                   <ScanBarcode className={`absolute top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none ${isEnglish ? 'left-4' : 'right-4'}`} size={18} />
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (await ensureCameraPermission(tr)) {
-                        setShowScanner(true);
-                      }
-                    }}
+                    onClick={startScanner}
                     className={`absolute top-1/2 -translate-y-1/2 rounded-xl bg-blue-50 p-2 text-blue-600 transition-colors hover:bg-blue-100 ${isEnglish ? 'right-3' : 'left-3'}`}
                     title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
                   >
@@ -847,7 +857,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
             <p className="text-sm font-bold">{tr('وجه الكاميرا نحو الباركود...', 'Point the camera at the barcode...')}</p>
             <button
               type="button"
-              onClick={() => setShowScanner(false)}
+              onClick={stopAndCloseScanner}
               className="rounded-full bg-white/20 p-3 transition-all hover:bg-white/30"
             >
               <X size={24} />

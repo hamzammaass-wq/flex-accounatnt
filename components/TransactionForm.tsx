@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { useAccounting } from '../contexts/AccountingContext';
 import { TransactionType, Product, InvoiceItem, ContactType, CheckStatus, Contact, Invoice, InvoiceTaxMode, Account, FixedAsset, Check as CheckTypeData, Transaction, InvoiceSettlement, StockTransfer } from '../types';
@@ -1373,14 +1373,15 @@ const InvoiceScreen: React.FC<{
         setInvoiceNumber(prev => prev.trim() ? prev : generateInvoiceNumber());
     }, [editingInvoice, generateInvoiceNumber]);
 
-    useEffect(() => {
-        if (!showBarcodeScanner) return;
-        let isUnmounted = false;
-        let qrInstance: Html5Qrcode | null = null;
+    const startBarcodeScanner = async () => {
+        if (!(await ensureCameraPermission(tr))) return;
 
-        const timer = setTimeout(() => {
+        flushSync(() => {
+            setShowBarcodeScanner(true);
+        });
+
+        try {
             const qr = new Html5Qrcode('invoice-barcode-reader');
-            qrInstance = qr;
             invoiceBarcodeScannerRef.current = qr;
 
             const config = {
@@ -1395,7 +1396,7 @@ const InvoiceScreen: React.FC<{
                 }
             };
 
-            qr.start(
+            await qr.start(
                 { facingMode: 'environment' },
                 config,
                 (decodedText) => {
@@ -1425,37 +1426,50 @@ const InvoiceScreen: React.FC<{
                             metadata: { source: 'camera', scanned }
                         });
                     }
-                    setShowBarcodeScanner(false);
+                    stopAndCloseBarcodeScanner();
                 },
                 () => undefined
-            ).then(() => {
-                if (isUnmounted) {
-                    qr.stop().then(() => qr.clear()).catch(() => undefined);
-                }
-            }).catch(() => {
-                appendDeviceHubLog(currentCompanyId, {
-                    deviceType: 'BARCODE_SCANNER',
-                    action: 'SCAN',
-                    status: 'ERROR',
-                    message: 'Failed to start camera barcode scanner',
-                    metadata: { source: 'camera' }
-                });
-                alert(tr('تعذر تشغيل كاميرا الباركود.', 'Unable to start barcode camera scanner.'));
-                setShowBarcodeScanner(false);
+            );
+        } catch (err) {
+            appendDeviceHubLog(currentCompanyId, {
+                deviceType: 'BARCODE_SCANNER',
+                action: 'SCAN',
+                status: 'ERROR',
+                message: 'Failed to start camera barcode scanner',
+                metadata: { source: 'camera' }
             });
-        }, 250);
+            alert(tr('تعذر تشغيل كاميرا الباركود.', 'Unable to start barcode camera scanner.'));
+            setShowBarcodeScanner(false);
+        }
+    };
 
+    const stopAndCloseBarcodeScanner = async () => {
+        if (invoiceBarcodeScannerRef.current) {
+            const qr = invoiceBarcodeScannerRef.current;
+            invoiceBarcodeScannerRef.current = null;
+            try {
+                if (qr.isScanning) {
+                    await qr.stop();
+                }
+                await qr.clear();
+            } catch (e) {
+                console.error("Error stopping scanner:", e);
+            }
+        }
+        setShowBarcodeScanner(false);
+    };
+
+    // Ensure scanner is stopped on unmount
+    useEffect(() => {
         return () => {
-            isUnmounted = true;
-            clearTimeout(timer);
-            if (qrInstance) {
-                if (qrInstance.isScanning) {
-                    qrInstance.stop().then(() => qrInstance?.clear()).catch(() => undefined);
+            if (invoiceBarcodeScannerRef.current) {
+                const qr = invoiceBarcodeScannerRef.current;
+                if (qr.isScanning) {
+                    qr.stop().then(() => qr.clear()).catch(() => undefined);
                 }
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showBarcodeScanner, products]);
+    }, []);
 
     useEffect(() => {
         if (editingInvoice) return;
@@ -3038,11 +3052,9 @@ const InvoiceScreen: React.FC<{
                     {!isExpenseVoucherManualOnly && (barcodeSettings.allowCameraScannerInInvoices || barcodeSettings.scannerMode === 'CAMERA') && (
                         <button
                             type="button"
-                            onClick={async () => {
+                            onClick={() => {
                                 setIsSearchFocused(false);
-                                if (await ensureCameraPermission(tr)) {
-                                    setShowBarcodeScanner(true);
-                                }
+                                startBarcodeScanner();
                             }}
                             className="invoice-camera-scanner-button flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
                         >
@@ -3398,7 +3410,7 @@ const InvoiceScreen: React.FC<{
                     </div>
                     <div className="shrink-0 p-4 bg-black flex items-center justify-between gap-3 safe-area-bottom">
                         <span className="text-[11px] font-bold text-white">{tr('وجّه الكاميرا نحو الباركود', 'Point camera')}</span>
-                        <button type="button" onClick={() => setShowBarcodeScanner(false)} className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black">
+                        <button type="button" onClick={stopAndCloseBarcodeScanner} className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black">
                             {tr('إلغاء', 'Cancel')}
                         </button>
                     </div>
