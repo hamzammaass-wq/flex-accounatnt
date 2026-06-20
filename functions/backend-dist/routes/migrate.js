@@ -353,4 +353,127 @@ router.post('/', async (req, res) => {
         pgClient.release();
     }
 });
+router.post('/clean-tenant-overlap', async (req, res) => {
+    const uid = req.user?.uid;
+    const userEmail = req.user?.email;
+    const secretHeader = req.headers['x-cleanup-secret'];
+    const expectedSecret = 'a1f1ex_cleanup_secret_20260619_sec';
+    let isAuthorized = false;
+    if (secretHeader === expectedSecret) {
+        isAuthorized = true;
+    }
+    else if (uid && userEmail === 'hamza.mm.aa.ss@gmail.com') {
+        isAuthorized = true;
+    }
+    if (!isAuthorized) {
+        return res.status(403).json({ error: 'Forbidden: Invalid cleanup authorization.' });
+    }
+    const execute = req.body.execute === true;
+    console.log(`[Cleanup API] Starting tenant overlap cleanup (execute: ${execute}) triggered by user: ${uid}`);
+    const db = admin.firestore();
+    const pgClient = await pool.connect();
+    try {
+        // 1. Fetch all Firestore company_subscriptions to determine the true owners
+        const subsSnapshot = await db.collection('company_subscriptions').get();
+        const companyOwnerMap = new Map();
+        subsSnapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            if (data.ownerUserId) {
+                companyOwnerMap.set(docSnap.id, data.ownerUserId);
+            }
+        });
+        // 2. Fetch all users from PostgreSQL to check default companies
+        const usersRes = await pgClient.query('SELECT id FROM users');
+        const allUserIds = new Set(usersRes.rows.map(r => r.id));
+        // Auto-map companies of type cmp_{userId} to the corresponding userId
+        for (const userId of allUserIds) {
+            const defaultCompanyId = `cmp_${userId}`;
+            if (!companyOwnerMap.has(defaultCompanyId)) {
+                companyOwnerMap.set(defaultCompanyId, userId);
+            }
+        }
+        // 3. Inspect PostgreSQL memberships
+        const membershipsRes = await pgClient.query('SELECT id, company_id, user_id, role, status FROM memberships');
+        const membershipsToDelete = [];
+        const membershipsToKeep = [];
+        for (const row of membershipsRes.rows) {
+            const { id, company_id, user_id } = row;
+            const trueOwner = companyOwnerMap.get(company_id);
+            let isCorrect = false;
+            if (trueOwner === user_id) {
+                isCorrect = true;
+            }
+            else if (company_id === `cmp_${user_id}`) {
+                isCorrect = true;
+            }
+            if (isCorrect) {
+                membershipsToKeep.push(row);
+            }
+            else {
+                membershipsToDelete.push(row);
+            }
+        }
+        // 4. Inspect Firestore user companies lists
+        const usersSnapshot = await db.collection('users').get();
+        const firestoreUpdates = [];
+        for (const userDoc of usersSnapshot.docs) {
+            const userId = userDoc.id;
+            const userData = userDoc.data();
+            const rawCompanies = userData.companies || [];
+            if (!Array.isArray(rawCompanies))
+                continue;
+            const cleanedCompanies = rawCompanies.filter(c => {
+                if (!c.id)
+                    return false;
+                const trueOwner = companyOwnerMap.get(c.id);
+                return trueOwner === userId || c.id === `cmp_${userId}`;
+            });
+            if (cleanedCompanies.length !== rawCompanies.length) {
+                firestoreUpdates.push({
+                    ref: userDoc.ref,
+                    userId,
+                    oldList: rawCompanies.map(c => c.id),
+                    newList: cleanedCompanies
+                });
+            }
+        }
+        if (execute) {
+            await pgClient.query('BEGIN');
+            // Delete incorrect memberships
+            if (membershipsToDelete.length > 0) {
+                const deleteIds = membershipsToDelete.map(m => m.id);
+                await pgClient.query('DELETE FROM memberships WHERE id = ANY($1)', [deleteIds]);
+            }
+            await pgClient.query('COMMIT');
+            // Update Firestore User Profiles
+            for (const update of firestoreUpdates) {
+                await update.ref.update({ companies: update.newList });
+            }
+        }
+        res.json({
+            ok: true,
+            executed: execute,
+            membershipsAnalyzed: membershipsRes.rows.length,
+            membershipsKept: membershipsToKeep.length,
+            membershipsDeletedCount: membershipsToDelete.length,
+            membershipsDeletedList: membershipsToDelete.map(m => ({ userId: m.user_id, companyId: m.company_id })),
+            firestoreUsersAnalyzed: usersSnapshot.size,
+            firestoreUsersUpdatedCount: firestoreUpdates.length,
+            firestoreUpdates: firestoreUpdates.map(u => ({ userId: u.userId, oldList: u.oldList, newList: u.newList.map((c) => c.id) }))
+        });
+    }
+    catch (error) {
+        if (execute) {
+            try {
+                await pgClient.query('ROLLBACK');
+            }
+            catch { }
+        }
+        console.error('[Cleanup API Error] Failed running cleanup:', error);
+        res.status(500).json({ error: error.message || 'Cleanup Failed' });
+    }
+    finally {
+        pgClient.release();
+    }
+});
 export default router;

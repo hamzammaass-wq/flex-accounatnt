@@ -95,22 +95,19 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
     } else if (collectionName === 'employeeContracts') {
       result = await query(
         `SELECT ec.* FROM employee_contracts ec
-         JOIN employees e ON ec.employee_id = e.id
-         WHERE e.company_id = $1`,
+         WHERE ec.company_id = $1`,
         [companyId]
       );
     } else if (collectionName === 'employeeLeaveRequests') {
       result = await query(
         `SELECT elr.* FROM employee_leave_requests elr
-         JOIN employees e ON elr.employee_id = e.id
-         WHERE e.company_id = $1`,
+         WHERE elr.company_id = $1`,
         [companyId]
       );
     } else if (collectionName === 'employeeRecurringDeductions') {
       result = await query(
         `SELECT erd.* FROM employee_recurring_deductions erd
-         JOIN employees e ON erd.employee_id = e.id
-         WHERE e.company_id = $1`,
+         WHERE erd.company_id = $1`,
         [companyId]
       );
     } else if (collectionName === 'users') {

@@ -1646,6 +1646,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             const targetCompanyId = exists ? persistedCompanyId : fetchedCompanies[0].id;
             setCurrentCompanyId(targetCompanyId);
           }
+          companiesLoadedForUserIdRef.current = currentUser.id;
           setCompaniesLoaded(true);
         } catch (err: any) {
           console.error('[Backend Sync] Failed to fetch companies, falling back to Firestore:', err);
@@ -1715,6 +1716,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           }
           return prev;
         });
+        companiesLoadedForUserIdRef.current = currentUser.id;
         setCompaniesLoaded(true);
 
         if (needsCloudUpdate) {
@@ -1834,6 +1836,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   useEffect(() => {
     if (!companiesLoaded || !firebaseDb || !currentUser || isGuestUser(currentUser)) return;
     if ((window as any).__IS_HYDRATING__) return;
+    if (companiesLoadedForUserIdRef.current !== currentUser.id) {
+      console.warn('[Sync] Skipping companies write to Firestore: companies state not loaded for current user yet.');
+      return;
+    }
 
     const filtered = companies.filter(c => c && c.id !== 'cmp_default');
     const cleanCompanies = JSON.parse(JSON.stringify(filtered));
@@ -1936,6 +1942,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const bootstrappedWorkspacesRef = useRef<Set<string>>(new Set());
   const bootstrappedUsersRef = useRef<Set<string>>(new Set());
   const lastUserIdRef = useRef<string | null>(null);
+  const companiesLoadedForUserIdRef = useRef<string | null>(null);
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -2133,6 +2140,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           // Reset user and session states
           setCloudMemberships([]);
           setCompanies([]);
+          companiesLoadedForUserIdRef.current = null;
           setCompaniesLoaded(false);
           setCurrentCompanyId('');
           setBaseCurrencyState('ILS');
@@ -2218,13 +2226,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       console.log(`[AccountingContext] User ID changed from ${prevUserId} to ${nextUserId}. Wiping states to prevent leakage.`);
       lastUserIdRef.current = nextUserId;
 
-      if (prevUserId !== null) {
-        // Reset user and session states
-        setCloudMemberships([]);
-        setCompanies([]);
-        setCompaniesLoaded(false);
-        setCurrentCompanyId('');
-        setBaseCurrencyState('ILS');
+      // Reset user and session states
+      setCloudMemberships([]);
+      setCompanies([]);
+      companiesLoadedForUserIdRef.current = null;
+      setCompaniesLoaded(false);
+      setCurrentCompanyId('');
+      setBaseCurrencyState('ILS');
         setCompanySettings(withNormalizedValuationSettings(defaultCompanySettings));
         setWorkspaceHydratedForCompanyId('');
         setWorkspaceSubscription(buildDefaultWorkspaceSubscription());
@@ -2255,7 +2263,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         setStockTransfers([]);
         setBoms([]);
         setProductionOrders([]);
-      }
     }
   }, [currentUser?.id, defaultCompanySettings]);
 

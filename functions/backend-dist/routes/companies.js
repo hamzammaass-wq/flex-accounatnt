@@ -350,27 +350,27 @@ router.post('/:companyId/clear', verifyCompanyMembership, async (req, res) => {
         // 3. Invoice settlements
         await client.query('DELETE FROM invoice_settlements WHERE company_id = $1', [companyId]);
         // 4. Invoice items (cascade from invoices), but delete invoice_items first to avoid FK issues
-        await client.query('DELETE FROM invoice_items WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = $1)', [companyId]);
+        await client.query('DELETE FROM invoice_items WHERE company_id = $1', [companyId]);
         // 5. Invoices
         await client.query('DELETE FROM invoices WHERE company_id = $1', [companyId]);
         // 6. Journal lines (cascade from journal_entries)
-        await client.query('DELETE FROM journal_lines WHERE entry_id IN (SELECT id FROM journal_entries WHERE company_id = $1)', [companyId]);
+        await client.query('DELETE FROM journal_lines WHERE company_id = $1', [companyId]);
         // 7. Journal entries
         await client.query('DELETE FROM journal_entries WHERE company_id = $1', [companyId]);
         // 8. Stock transfer items (cascade from stock_transfers)
-        await client.query('DELETE FROM stock_transfer_items WHERE transfer_id IN (SELECT id FROM stock_transfers WHERE company_id = $1)', [companyId]);
+        await client.query('DELETE FROM stock_transfer_items WHERE company_id = $1', [companyId]);
         // 9. Stock transfers
         await client.query('DELETE FROM stock_transfers WHERE company_id = $1', [companyId]);
         // 10. Product warehouse stock
-        await client.query('DELETE FROM product_warehouse_stock WHERE product_id IN (SELECT id FROM products WHERE company_id = $1)', [companyId]);
+        await client.query('DELETE FROM product_warehouse_stock WHERE company_id = $1', [companyId]);
         // 11. Products
         await client.query('DELETE FROM products WHERE company_id = $1', [companyId]);
         // 12. Warehouses
         await client.query('DELETE FROM warehouses WHERE company_id = $1', [companyId]);
         // 13. Employee sub-tables
-        await client.query('DELETE FROM employee_recurring_deductions WHERE employee_id IN (SELECT id FROM employees WHERE company_id = $1)', [companyId]);
-        await client.query('DELETE FROM employee_leave_requests WHERE employee_id IN (SELECT id FROM employees WHERE company_id = $1)', [companyId]);
-        await client.query('DELETE FROM employee_contracts WHERE employee_id IN (SELECT id FROM employees WHERE company_id = $1)', [companyId]);
+        await client.query('DELETE FROM employee_recurring_deductions WHERE company_id = $1', [companyId]);
+        await client.query('DELETE FROM employee_leave_requests WHERE company_id = $1', [companyId]);
+        await client.query('DELETE FROM employee_contracts WHERE company_id = $1', [companyId]);
         // 14. Employees
         await client.query('DELETE FROM employees WHERE company_id = $1', [companyId]);
         // 15. Fixed assets
