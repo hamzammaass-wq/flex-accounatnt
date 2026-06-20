@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { ensureCameraPermission } from '../utils/cameraPermission';
 import { createPortal, flushSync } from 'react-dom';
 import { useAccounting } from '../contexts/AccountingContext';
@@ -150,7 +150,17 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     });
 
     try {
-      const html5QrCode = new Html5Qrcode('quick-add-product-reader');
+      const html5QrCode = new Html5Qrcode('quick-add-product-reader', {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.QR_CODE
+        ]
+      });
       scannerRef.current = html5QrCode;
 
       const config = {
@@ -160,8 +170,14 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
         }
       };
 
+      const cameraConstraints = {
+        facingMode: 'environment',
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 }
+      };
+
       await html5QrCode.start(
-        { facingMode: 'environment' },
+        cameraConstraints,
         config,
         (decodedText) => {
           setBarcode(decodedText);

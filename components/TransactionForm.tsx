@@ -24,7 +24,7 @@ import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { translateDocumentNumber } from '../utils/i18n';
 import { getInvoiceAllocatedAmount, getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { ensureCameraPermission } from '../utils/cameraPermission';
 import { appendDeviceHubLog } from '../utils/deviceHub';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
@@ -1381,7 +1381,17 @@ const InvoiceScreen: React.FC<{
         });
 
         try {
-            const qr = new Html5Qrcode('invoice-barcode-reader');
+            const qr = new Html5Qrcode('invoice-barcode-reader', {
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.EAN_8,
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.UPC_A,
+                    Html5QrcodeSupportedFormats.UPC_E,
+                    Html5QrcodeSupportedFormats.QR_CODE
+                ]
+            });
             invoiceBarcodeScannerRef.current = qr;
 
             const config = {
@@ -1391,8 +1401,14 @@ const InvoiceScreen: React.FC<{
                 }
             };
 
+            const cameraConstraints = {
+                facingMode: 'environment',
+                width: { min: 640, ideal: 1280, max: 1920 },
+                height: { min: 480, ideal: 720, max: 1080 }
+            };
+
             await qr.start(
-                { facingMode: 'environment' },
+                cameraConstraints,
                 config,
                 (decodedText) => {
                     const scanned = String(decodedText || '').trim();

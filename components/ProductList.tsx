@@ -9,7 +9,7 @@ import {
 import { ItemGroup, Product } from '../types';
 import ProductCard from './ProductCard';
 import QuickAddProductModal from './QuickAddProductModal';
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { ensureCameraPermission } from '../utils/cameraPermission';
 import { createPortal, flushSync } from 'react-dom';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
@@ -129,7 +129,17 @@ const ProductList: React.FC = () => {
     });
 
     try {
-        const html5QrCode = new Html5Qrcode("reader");
+        const html5QrCode = new Html5Qrcode("reader", {
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.QR_CODE
+            ]
+        });
         scannerRef.current = html5QrCode;
         
         const config = {
@@ -139,8 +149,14 @@ const ProductList: React.FC = () => {
             }
         };
         
+        const cameraConstraints = {
+            facingMode: "environment",
+            width: { min: 640, ideal: 1280, max: 1920 },
+            height: { min: 480, ideal: 720, max: 1080 }
+        };
+        
         await html5QrCode.start(
-            { facingMode: "environment" },
+            cameraConstraints,
             config,
             (decodedText) => {
                 setBarcode(decodedText);
