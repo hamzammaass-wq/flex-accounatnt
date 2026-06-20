@@ -151,8 +151,8 @@ const ProductList: React.FC = () => {
         
         const cameraConstraints = {
             facingMode: "environment",
-            width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 }
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
         };
         
         await html5QrCode.start(
