@@ -1441,7 +1441,7 @@ const InvoiceScreen: React.FC<{
                 },
                 () => undefined
             );
-        } catch (err) {
+        } catch (err: any) {
             appendDeviceHubLog(currentCompanyId, {
                 deviceType: 'BARCODE_SCANNER',
                 action: 'SCAN',
@@ -1449,7 +1449,11 @@ const InvoiceScreen: React.FC<{
                 message: 'Failed to start camera barcode scanner',
                 metadata: { source: 'camera' }
             });
-            alert(tr('تعذر تشغيل كاميرا الباركود.', 'Unable to start barcode camera scanner.'));
+            const errMsg = err?.message || err?.name || String(err || '');
+            alert(tr(
+                `تعذر تشغيل كاميرا الباركود. يرجى التأكد من منح الصلاحيات في إعدادات المتصفح.\nالخطأ: ${errMsg}`,
+                `Unable to start barcode camera scanner. Please grant camera permission in browser settings.\nError: ${errMsg}`
+            ));
             setShowBarcodeScanner(false);
         }
     };

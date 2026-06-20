@@ -164,9 +164,13 @@ const ProductList: React.FC = () => {
             },
             () => {} // ignore scan errors
         );
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error starting scanner:", err);
-        alert(tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant camera permission.'));
+        const errMsg = err?.message || err?.name || String(err || '');
+        alert(tr(
+            `تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات في إعدادات المتصفح.\nالخطأ: ${errMsg}`,
+            `Unable to access camera. Please grant camera permission in browser settings.\nError: ${errMsg}`
+        ));
         setShowScanner(false);
     }
   };
