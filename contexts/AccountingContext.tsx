@@ -1464,9 +1464,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const defaultCompanySettings: CompanySettings = {
     name: 'AIFLEX ERP',
-    taxNumber: '300012345600003',
-    address: 'الرياض - حي الملز',
-    phone: '920001234',
+    taxNumber: '',
+    address: '',
+    phone: '',
     logoUrl: DEFAULT_BRAND_MARK_URL,
     importantAccountIds: [],
     annualLeaveDefaultOpenEndedDays: 21,
@@ -7548,7 +7548,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     try {
       const normalizedSnapshot = normalizeWorkspaceSnapshotCashContact(snapshot);
       setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
-      setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(normalizedSnapshot.companySettings || {}) }));
+      const profile = companies.find(c => c.id === normalizedSnapshot.companyId);
+      const profileName = profile?.name || '';
+      const resolvedName = normalizedSnapshot.companySettings?.name && normalizedSnapshot.companySettings.name !== 'AIFLEX ERP'
+        ? normalizedSnapshot.companySettings.name
+        : (profileName || defaultCompanySettings.name);
+      setCompanySettings(withNormalizedValuationSettings({
+        ...defaultCompanySettings,
+        ...(normalizedSnapshot.companySettings || {}),
+        name: resolvedName
+      }));
       // Heavy data collections are fetched and synced directly via useFirestoreSyncState hooks.
       // We no longer overwrite them with snapshot data to avoid wiping server-loaded data,
       // EXCEPT when sync is disabled or the user is a guest user (where we rely entirely on local snapshots).
@@ -7792,7 +7801,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!currentCompanyId || !currentCompany) return;
 
     setBaseCurrencyState(currentCompany.baseCurrency || 'ILS');
-    setCompanySettings(withNormalizedValuationSettings({ ...defaultCompanySettings, ...(currentCompany.settings || {}) }));
+    const resolvedName = currentCompany.settings?.name && currentCompany.settings.name !== 'AIFLEX ERP'
+      ? currentCompany.settings.name
+      : (currentCompany.name || defaultCompanySettings.name);
+    setCompanySettings(withNormalizedValuationSettings({
+      ...defaultCompanySettings,
+      ...(currentCompany.settings || {}),
+      name: resolvedName
+    }));
     setWorkspaceHydratedForCompanyId(currentCompanyId);
   }, [useBackend, currentCompanyId, currentCompany, isAuthInitialized]);
 
