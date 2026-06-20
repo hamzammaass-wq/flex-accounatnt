@@ -376,6 +376,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     setErrorMessage('');
     setInfoMessage('');
 
+    persistSignupCompanyName(regCompanyName);
+
     try {
       let emailToUse = regEmail.trim();
       if (registerType === 'CODE') {
@@ -408,7 +410,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
       if (hasGuestWorkspaceData) {
         await applyGuestDataDecision(guestDataPreference);
       }
-      persistSignupCompanyName(regCompanyName);
       if (shouldDeleteGuestData && typeof window !== 'undefined') {
         window.location.replace(`${window.location.pathname}${window.location.hash}`);
         return;
@@ -475,13 +476,17 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
   const handleGoogleLogin = async () => {
     if (!firebaseAuth) return;
 
+    if (authMode === 'REGISTER') {
+      if (!regCompanyName.trim()) {
+        setErrorMessage(appLanguage === 'AR' ? 'يرجى إدخال اسم الشركة.' : 'Please enter the company name.');
+        return;
+      }
+      persistSignupCompanyName(regCompanyName);
+    }
+
     setLoading(true);
     setErrorMessage('');
     setInfoMessage('');
-    if (authMode === 'REGISTER') {
-      persistSignupCompanyName(regCompanyName);
-
-    }
     const shouldDeleteGuestData = hasGuestWorkspaceData && guestDataPreference === 'DELETE';
     if (!shouldDeleteGuestData && typeof window !== 'undefined') {
       localStorage.removeItem(PENDING_GUEST_DELETE_AFTER_REDIRECT_KEY);

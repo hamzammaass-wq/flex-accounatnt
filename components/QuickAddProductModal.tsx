@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ensureCameraPermission } from '../utils/cameraPermission';
 import { createPortal } from 'react-dom';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product, ProductKind } from '../types';
@@ -482,7 +483,11 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                   <ScanBarcode className={`absolute top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none ${isEnglish ? 'left-4' : 'right-4'}`} size={18} />
                   <button
                     type="button"
-                    onClick={() => setShowScanner(true)}
+                    onClick={async () => {
+                      if (await ensureCameraPermission(tr)) {
+                        setShowScanner(true);
+                      }
+                    }}
                     className={`absolute top-1/2 -translate-y-1/2 rounded-xl bg-blue-50 p-2 text-blue-600 transition-colors hover:bg-blue-100 ${isEnglish ? 'right-3' : 'left-3'}`}
                     title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
                   >

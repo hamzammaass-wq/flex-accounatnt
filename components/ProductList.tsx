@@ -10,6 +10,7 @@ import { ItemGroup, Product } from '../types';
 import ProductCard from './ProductCard';
 import QuickAddProductModal from './QuickAddProductModal';
 import { Html5Qrcode } from "html5-qrcode";
+import { ensureCameraPermission } from '../utils/cameraPermission';
 import { createPortal } from 'react-dom';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import EnglishDateInput from './EnglishDateInput';
@@ -1206,7 +1207,11 @@ const ProductList: React.FC = () => {
                             </div>
                             <button 
                                 type="button" 
-                                onClick={() => setShowScanner(true)}
+                                onClick={async () => {
+                                    if (await ensureCameraPermission(tr)) {
+                                        setShowScanner(true);
+                                    }
+                                }}
                                 className="w-14 bg-slate-800 text-white rounded-2xl flex items-center justify-center shadow-lg active:scale-95 transition-all"
                                 title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
                             >

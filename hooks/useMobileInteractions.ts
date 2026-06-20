@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, type TouchEvent as ReactTouchEvent } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { Keyboard } from '@capacitor/keyboard';
 
 interface UseMobileInteractionsOptions {
   isMobile: boolean;
@@ -20,6 +21,9 @@ const MAX_VERTICAL_DRIFT_PX = 54;
 const MAX_SWIPE_MS = 560;
 const KEYBOARD_OPEN_THRESHOLD_PX = 80;
 
+let activeKeyboardHeight = 0;
+let isKeyboardVisible = false;
+
 const triggerHaptic = (duration = 10) => {
   if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
   navigator.vibrate(duration);
@@ -35,16 +39,36 @@ const setViewportCssVars = () => {
   const root = document.documentElement;
   const viewport = window.visualViewport;
   const vh = viewport?.height || window.innerHeight;
-  const keyboardInsetRaw = viewport
-    ? Math.max(0, window.innerHeight - (viewport.height + viewport.offsetTop))
-    : 0;
-  const keyboardInset = keyboardInsetRaw > 0 ? keyboardInsetRaw : 0;
+  const platform = Capacitor.getPlatform();
+
+  let keyboardInset = 0;
+  let isKeyboardOpen = false;
+
+  if (platform === 'ios') {
+    if (isKeyboardVisible) {
+      keyboardInset = activeKeyboardHeight;
+      isKeyboardOpen = true;
+    }
+  } else if (platform === 'android') {
+    // On Android, the WebView is automatically resized (adjustResize).
+    // So the viewport height shrinks and we don't want to double-pad with keyboardInset.
+    keyboardInset = 0;
+    isKeyboardOpen = isKeyboardVisible;
+  } else {
+    // Fallback for Web/Browser
+    const keyboardInsetRaw = viewport
+      ? Math.max(0, window.innerHeight - (viewport.height + viewport.offsetTop))
+      : 0;
+    keyboardInset = keyboardInsetRaw > 0 ? keyboardInsetRaw : 0;
+    isKeyboardOpen = keyboardInset >= KEYBOARD_OPEN_THRESHOLD_PX;
+  }
+
   root.style.setProperty('--app-vh', `${vh * 0.01}px`);
   root.style.setProperty('--app-keyboard-inset', `${keyboardInset}px`);
   
   const orientation = getOrientation();
   root.dataset.orientation = orientation;
-  root.dataset.keyboardOpen = keyboardInset >= KEYBOARD_OPEN_THRESHOLD_PX ? '1' : '0';
+  root.dataset.keyboardOpen = isKeyboardOpen ? '1' : '0';
 
   if (Capacitor.isNativePlatform()) {
     const isPortrait = orientation === 'portrait';
@@ -135,10 +159,41 @@ export const useMobileInteractions = ({
     window.addEventListener('orientationchange', onResize, { passive: true });
     window.visualViewport?.addEventListener('resize', onResize);
 
+    // Keep window scroll at 0, 0 to prevent WebView shift/bounce when inputs are focused on mobile/Android
+    const onScroll = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+
+    // Listen to native keyboard events
+    let keyboardWillShowListener: any;
+    let keyboardWillHideListener: any;
+
+    if (Capacitor.isNativePlatform()) {
+      keyboardWillShowListener = Keyboard.addListener('keyboardWillShow', (info) => {
+        activeKeyboardHeight = info.keyboardHeight;
+        isKeyboardVisible = true;
+        setViewportCssVars();
+      });
+
+      keyboardWillHideListener = Keyboard.addListener('keyboardWillHide', () => {
+        isKeyboardVisible = false;
+        setViewportCssVars();
+        
+        // Force scroll reset when keyboard hides
+        window.scrollTo(0, 0);
+      });
+    }
+
     return () => {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
       window.visualViewport?.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll);
+      if (keyboardWillShowListener) keyboardWillShowListener.remove();
+      if (keyboardWillHideListener) keyboardWillHideListener.remove();
     };
   }, [isMobile]);
 

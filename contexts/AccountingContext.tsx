@@ -8131,6 +8131,32 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         boundDevices: [currentDeviceBinding]
       });
 
+      if (useBackend) {
+        const user = firebaseAuth?.currentUser || currentUser;
+        if (user) {
+          const res = await callBackendApi(user, '/companies', 'POST', {
+            id: profile.id,
+            name: profile.name,
+            taxNumber: profile.taxNumber,
+            address: profile.address,
+            phone: profile.phone,
+            logoUrl: profile.logoUrl,
+            baseCurrency: 'ILS',
+            settings: {
+              subscriptionStatus: profile.subscriptionStatus,
+              subscriptionPlan: profile.subscriptionPlan,
+              subscriptionStartsAt: profile.subscriptionStartsAt,
+              subscriptionEndsAt: profile.subscriptionEndsAt,
+              activationCode: profile.activationCode,
+              graceDays: profile.graceDays
+            }
+          });
+          if (!res || !res.ok) {
+            throw new Error(res?.error || 'Failed to create company on the custom backend.');
+          }
+        }
+      }
+
       setCompanies(prev => [profile, ...prev.filter(company => company.id !== profile.id)]);
       setCurrentUser(prev => (
         prev

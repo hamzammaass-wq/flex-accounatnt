@@ -25,6 +25,7 @@ import { translateDocumentNumber } from '../utils/i18n';
 import { getInvoiceAllocatedAmount, getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ensureCameraPermission } from '../utils/cameraPermission';
 import { appendDeviceHubLog } from '../utils/deviceHub';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import { resolveInvoiceProductUnitPrice } from '../utils/invoicePricing';
@@ -3037,9 +3038,11 @@ const InvoiceScreen: React.FC<{
                     {!isExpenseVoucherManualOnly && (barcodeSettings.allowCameraScannerInInvoices || barcodeSettings.scannerMode === 'CAMERA') && (
                         <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                                 setIsSearchFocused(false);
-                                setShowBarcodeScanner(true);
+                                if (await ensureCameraPermission(tr)) {
+                                    setShowBarcodeScanner(true);
+                                }
                             }}
                             className="invoice-camera-scanner-button flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
                         >

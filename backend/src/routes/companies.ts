@@ -48,10 +48,26 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
             if (compCheck.rows.length === 0) {
               console.log(`[Companies Sync] Auto-creating company ${fc.id} from Firestore list`);
               await query(
-                `INSERT INTO companies (id, name, settings)
-                 VALUES ($1, $2, '{}'::jsonb)
-                 ON CONFLICT (id) DO NOTHING`,
-                [fc.id, fc.name || 'شركة غير مسمى']
+                `INSERT INTO companies (id, name, tax_number, address, phone, logo_url, base_currency, settings)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (id) DO UPDATE
+                 SET name = EXCLUDED.name,
+                     tax_number = EXCLUDED.tax_number,
+                     address = EXCLUDED.address,
+                     phone = EXCLUDED.phone,
+                     logo_url = EXCLUDED.logo_url,
+                     base_currency = EXCLUDED.base_currency,
+                     settings = EXCLUDED.settings`,
+                [
+                  fc.id,
+                  fc.name || 'شركة غير مسمى',
+                  fc.taxNumber || fc.tax_number || null,
+                  fc.address || null,
+                  fc.phone || null,
+                  fc.logoUrl || fc.logo_url || null,
+                  fc.baseCurrency || fc.base_currency || 'ILS',
+                  JSON.stringify(fc.settings || {})
+                ]
               );
             }
 
