@@ -154,14 +154,9 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       scannerRef.current = html5QrCode;
 
       const config = {
-        fps: 10,
-        qrbox: (width: number, height: number) => {
-          const desiredWidth = Math.min(width * 0.85, 320);
-          const desiredHeight = Math.min(height * 0.4, 140);
-          return {
-            width: Math.floor(desiredWidth),
-            height: Math.floor(desiredHeight)
-          };
+        fps: 15,
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true
         }
       };
 
