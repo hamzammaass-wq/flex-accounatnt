@@ -3051,6 +3051,14 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 }
 
 /* HTML5 QR Code Scanner Video Styling overrides */
+#reader, #quick-add-product-reader, #invoice-barcode-reader {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 #reader video, #quick-add-product-reader video, #invoice-barcode-reader video {
   width: 100% !important;
   height: 100% !important;
