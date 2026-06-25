@@ -1462,6 +1462,14 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
     }
     body .pdf-export-host .statement-classic-table--paper {
       min-width: 100% !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      table-layout: fixed !important;
+    }
+    body .pdf-export-host .statement-classic-sheet {
+      width: 100% !important;
+      max-width: 100% !important;
+      overflow: visible !important;
     }
     body .pdf-export-host .statement-classic-check-image {
       width: 96px !important;
@@ -1479,16 +1487,28 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
     body .pdf-export-host .directory-statement-table.statement-classic-table--paper td,
     body .pdf-export-host .statement-report-table.statement-classic-table--paper th,
     body .pdf-export-host .statement-report-table.statement-classic-table--paper td {
-      font-size: 11px !important;
-      padding: 8px 5px !important;
+      font-size: 9px !important;
+      padding: 6px 3px !important;
+      line-height: 1.3 !important;
     }
     body .pdf-export-host .statement-classic-inline-table th,
     body .pdf-export-host .statement-classic-inline-table td {
-      font-size: 9.5px !important;
-      padding: 5px 6px !important;
+      font-size: 8px !important;
+      padding: 4px 3px !important;
+      line-height: 1.2 !important;
     }
     body .pdf-export-host .statement-classic-company-name {
-      font-size: 14px !important;
+      font-size: 12px !important;
+    }
+    body .pdf-export-host .statement-classic-primary {
+      font-size: 9px !important;
+      line-height: 1.3 !important;
+    }
+    body .pdf-export-host .statement-classic-date-cell,
+    body .pdf-export-host .statement-classic-amount-cell,
+    body .pdf-export-host .statement-classic-balance-cell {
+      font-size: 9px !important;
+      white-space: nowrap !important;
     }
     body .pdf-export-host .statement-classic-fill-row td {
       height: 40px !important;
@@ -1638,19 +1658,22 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
     body .pdf-export-host .directory-statement-table td,
     body .pdf-export-host .statement-report-table th,
     body .pdf-export-host .statement-report-table td {
-      font-size: 12px !important;
-      line-height: 1.6 !important;
-      padding: 8px 7px !important;
+      font-size: 9px !important;
+      line-height: 1.4 !important;
+      padding: 5px 3px !important;
       white-space: normal !important;
       word-break: break-word !important;
       overflow-wrap: anywhere !important;
     }
     body .pdf-export-host .directory-statement-description,
     body .pdf-export-host .directory-statement-description-text,
-    body .pdf-export-host .statement-report-description {
-      font-size: 12px !important;
-      line-height: 1.72 !important;
+    body .pdf-export-host .statement-report-description,
+    body .pdf-export-host .statement-classic-description {
+      font-size: 9px !important;
+      line-height: 1.4 !important;
       font-weight: 700 !important;
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
     }
     body .pdf-export-host .directory-statement-inline-detail,
     body .pdf-export-host .statement-inline-detail {
