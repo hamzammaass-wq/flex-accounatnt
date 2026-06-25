@@ -1847,9 +1847,14 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
       ]);
     } catch { /* ignore image loading check errors */ }
 
-    // Add a 60px safety buffer to totalHeight to prevent rounding/rendering margin issues from clipping the summary row.
-    // The larger buffer ensures footer rows (totals, closing balance) are fully captured.
-    const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1) + 60;
+    // Add a 100px safety buffer to totalHeight to prevent rounding/rendering margin issues from clipping content.
+    // The larger buffer ensures all rows including footer/totals are fully captured across all pages.
+    // Force layout calculation by querying offsetHeight which triggers reflow
+    const _ = clone.offsetHeight;
+    const measuredScrollHeight = Math.ceil(clone.scrollHeight);
+    const measuredBoundingHeight = Math.ceil(clone.getBoundingClientRect().height);
+    const measuredOffsetHeight = Math.ceil(clone.offsetHeight);
+    const totalHeight = Math.max(measuredScrollHeight, measuredBoundingHeight, measuredOffsetHeight, 1) + 100;
 
     // Calculate proper slice height to fit A4 pages
     // Account for the aspect ratio and ensure content fits within printable area
@@ -1869,13 +1874,15 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     let pageIndex = 0;
 
     while (renderedHeight < totalHeight) {
-      const sliceHeight = Math.min(pageSliceHeight, totalHeight - renderedHeight);
+      // Add 10px overlap between pages to ensure no content is lost at page boundaries
+      const remainingHeight = totalHeight - renderedHeight;
+      const sliceHeight = Math.min(pageSliceHeight + (pageIndex > 0 ? 10 : 0), remainingHeight);
       const captureHeight = Math.ceil(sliceHeight + (padding * 2));
       viewport.style.height = `${sliceHeight}px`;
       host.style.height = `${captureHeight}px`;
       clone.style.transform = `translateY(-${renderedHeight}px)`;
 
-      await waitForRenderPass(1, 120);
+      await waitForRenderPass(2, 150);
 
       // Temporarily set host opacity to 1 before capturing so html2canvas renders it with full visibility
       host.style.opacity = '1';
