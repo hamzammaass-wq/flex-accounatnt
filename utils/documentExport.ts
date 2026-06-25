@@ -1412,7 +1412,8 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   host.style.opacity = '0.02'; // Force mobile browser layout engine to render fully without offscreen pruning
   host.style.pointerEvents = 'none';
   host.style.background = backgroundColor;
-  host.style.padding = `${padding}px`;
+  // Add extra bottom padding to ensure footer/summary rows are fully captured
+  host.style.padding = `${padding}px ${padding}px ${padding + 40}px ${padding}px`;
   host.style.width = `${sourceWidth + (padding * 2)}px`;
   host.style.boxSizing = 'border-box';
   host.style.overflow = 'hidden';
@@ -1679,6 +1680,16 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
       font-variant-numeric: tabular-nums !important;
       letter-spacing: normal !important;
     }
+    body .pdf-export-host .statement-classic-summary-inline-row,
+    body .pdf-export-host .statement-classic-fill-row {
+      page-break-inside: avoid !important;
+      page-break-before: avoid !important;
+    }
+    body .pdf-export-host .statement-classic-summary-inline-row td {
+      background: #f3f4f6 !important;
+      font-weight: 900 !important;
+      color: #111827 !important;
+    }
     body .pdf-export-host .statement-inline-table,
     body .pdf-export-host .statement-classic-inline-table,
     body .pdf-export-host .directory-statement-detail-table {
@@ -1813,8 +1824,9 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
       ]);
     } catch { /* ignore image loading check errors */ }
 
-    // Add a 30px safety buffer to totalHeight to prevent rounding/rendering margin issues from clipping the summary row.
-    const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1) + 30;
+    // Add a 60px safety buffer to totalHeight to prevent rounding/rendering margin issues from clipping the summary row.
+    // The larger buffer ensures footer rows (totals, closing balance) are fully captured.
+    const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1) + 60;
 
     // Calculate proper slice height to fit A4 pages
     // Account for the aspect ratio and ensure content fits within printable area
