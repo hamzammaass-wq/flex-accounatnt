@@ -625,13 +625,19 @@ const InventoryPricingManager: React.FC = () => {
     document.body.appendChild(snapshotRoot);
 
     try {
+      // A4 portrait width in pixels at 96 DPI
+      const a4PortraitWidth = 794;
       const pdfFile = await buildElementPdfFile(snapshotRoot, {
         title: pricingReportTitle,
         fileName: `${pricingReportFileStem}.pdf`,
         dir: isEnglish ? 'ltr' : 'rtl',
         lang: isEnglish ? 'en' : 'ar',
         backgroundColor: '#ffffff',
-        padding: 18
+        padding: 20,
+        canvasScale: 2.5,
+        orientation: 'portrait',
+        minRenderWidth: a4PortraitWidth,
+        maxRenderWidth: a4PortraitWidth
       });
 
       if (!pdfFile) {

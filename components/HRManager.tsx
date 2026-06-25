@@ -5766,13 +5766,19 @@ const HRManager: React.FC = () => {
         const handleSaveStatementSnapshot = async () => {
             if (!employeeStatementContentRef.current) return;
             await settleElementBeforeSnapshot(employeeStatementContentRef.current);
+            // A4 portrait width in pixels at 96 DPI
+            const a4PortraitWidth = 794;
             const success = await downloadElementAsPdf(employeeStatementContentRef.current, {
                 title: employeeStatementTitle,
                 fileName: `${employeeStatementTitle}-${statementStartDate}-${statementEndDate}`,
                 dir: isEnglish ? 'ltr' : 'rtl',
                 lang: isEnglish ? 'en' : 'ar',
-                backgroundColor: '#f9fafb',
-                padding: 18
+                backgroundColor: '#ffffff',
+                padding: 20,
+                canvasScale: 2.5,
+                orientation: 'portrait',
+                minRenderWidth: a4PortraitWidth,
+                maxRenderWidth: a4PortraitWidth
             });
             if (!success) {
                 alert(tr('تعذر حفظ كشف الموظف بصيغة PDF حاليًا.', 'Could not save the employee statement as PDF right now.'));
@@ -5800,7 +5806,7 @@ const HRManager: React.FC = () => {
                 showHandle={false}
             >
                 <div className="font-tajawal h-full flex flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
-                    <div className="bg-slate-900 px-4 pt-5 pb-4 text-white relative shrink-0">
+                    <div className="bg-slate-900 px-4 pb-4 text-white relative shrink-0" style={{ paddingTop: 'calc(var(--app-safe-top) + 1.25rem)' }}>
                         <button onClick={closeEmployeeStatement} className="absolute left-3 top-3 p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all z-20"><X size={18} /></button>
                         <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
                             <div className="flex items-center gap-2.5 min-w-0">

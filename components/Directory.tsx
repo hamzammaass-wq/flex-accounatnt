@@ -1338,15 +1338,19 @@ const Directory: React.FC = () => {
 
     const buildStatementPdfFile = async (contact: Contact) => {
         await settleStatementSnapshot();
+        // A4 portrait width in pixels at 96 DPI
+        const a4PortraitWidth = 794;
         return buildElementPdfFile(statementExportRef.current, {
             title: `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`,
             fileName: buildStatementPdfName(contact),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar',
             orientation: 'portrait',
-            canvasScale: 2,
-            padding: 14,
-            backgroundColor: '#ffffff'
+            canvasScale: 2.5,
+            padding: 20,
+            backgroundColor: '#ffffff',
+            minRenderWidth: a4PortraitWidth,
+            maxRenderWidth: a4PortraitWidth
         });
     };
 
@@ -2059,7 +2063,7 @@ const Directory: React.FC = () => {
                         const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
                         return (
                             <div className="directory-statement-sheet h-full flex flex-col bg-white">
-                                <div className="directory-statement-header bg-slate-50 p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center gap-3">
+                                <div className="directory-statement-header directory-statement-header-modal bg-slate-50 p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center gap-3">
                                     <div>
                                         <h2 className="text-lg sm:text-xl font-black text-gray-800 break-words">{displayContactName(contact)}</h2>
                                         <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>

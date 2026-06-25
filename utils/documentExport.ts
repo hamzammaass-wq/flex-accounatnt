@@ -1099,21 +1099,41 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       }
       @media print {
         @page {
-          size: ${pageOrientation};
-          margin: ${pageTopMarginMm}mm 10mm ${pageBottomMarginMm}mm;
+          size: ${pageOrientation} A4;
+          margin: ${pageTopMarginMm}mm 14mm ${pageBottomMarginMm}mm;
         }
         body {
-          padding: 8px;
+          padding: 0;
+          margin: 0;
           background: #ffffff;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        * {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
         .report-print-content .report-print-table-section {
           break-inside: auto !important;
           page-break-inside: auto !important;
         }
+        table {
+          page-break-inside: auto;
+        }
+        tr {
+          page-break-inside: avoid;
+          page-break-after: auto;
+        }
+        thead {
+          display: table-header-group;
+        }
+        tfoot {
+          display: table-footer-group;
+        }
         .statement-print-footer {
           position: fixed;
-          left: 10mm;
-          right: 10mm;
+          left: 14mm;
+          right: 14mm;
           bottom: 4mm;
           z-index: 50;
           display: flex !important;
@@ -1353,32 +1373,43 @@ const expandSnapshotLayout = (root: HTMLElement) => {
 const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) => {
   const dir = options.dir || 'rtl';
   const lang = options.lang || (dir === 'rtl' ? 'ar' : 'en');
-  const padding = options.padding ?? 16;
+  const padding = options.padding ?? 20;
   const backgroundColor = options.backgroundColor || '#ffffff';
   const clone = stripInteractiveElements(element);
   const hasClassicStatementLayout = clone.classList.contains('statement-classic-sheet')
     || Boolean(clone.querySelector('.statement-classic-sheet'));
   const liveElementWidth = Math.max(Math.ceil(element.getBoundingClientRect().width), 360);
+  const orientation = options.orientation || 'portrait';
+
+  // A4 dimensions in pixels at 96 DPI: portrait = 794 x 1123, landscape = 1123 x 794
+  // Use these as standard widths for proper A4 rendering
+  const a4PortraitWidth = 794;
+  const a4LandscapeWidth = 1123;
+  const classicRenderWidth = orientation === 'landscape' ? a4LandscapeWidth : a4PortraitWidth;
+
   const minRenderWidth = Math.max(
     360,
-    options.minRenderWidth ?? (hasClassicStatementLayout ? liveElementWidth : 720)
+    options.minRenderWidth ?? (hasClassicStatementLayout ? classicRenderWidth : (orientation === 'landscape' ? a4LandscapeWidth : a4PortraitWidth))
   );
-  const orientation = options.orientation || 'portrait';
   const defaultMaxRenderWidth = hasClassicStatementLayout
-    ? Math.max(minRenderWidth, liveElementWidth)
-    : (orientation === 'landscape' ? 1360 : 980);
+    ? classicRenderWidth
+    : (orientation === 'landscape' ? a4LandscapeWidth : a4PortraitWidth);
   const maxRenderWidth = Math.max(minRenderWidth, options.maxRenderWidth ?? defaultMaxRenderWidth);
   const measuredWidth = Math.max(element.scrollWidth, Math.ceil(element.getBoundingClientRect().width), minRenderWidth);
   const sourceWidth = Math.min(measuredWidth, maxRenderWidth);
   const host = document.createElement('div');
+  host.classList.add('pdf-export-host');
   const viewport = document.createElement('div');
 
   host.lang = lang;
-  host.dir = dir;
-  host.style.position = 'fixed';
-  host.style.left = '-100000px';
+  host.dir = 'ltr'; // Set outer containers to LTR to avoid html2canvas RTL layout/positioning bugs
+  viewport.dir = 'ltr';
+  clone.dir = dir;  // Keep the cloned statement content itself RTL (or LTR if English)
+  host.style.position = 'absolute';
+  host.style.left = '0';
   host.style.top = '0';
-  host.style.zIndex = '-1';
+  host.style.zIndex = '-9999';
+  host.style.opacity = '0.02'; // Force mobile browser layout engine to render fully without offscreen pruning
   host.style.pointerEvents = 'none';
   host.style.background = backgroundColor;
   host.style.padding = `${padding}px`;
@@ -1410,61 +1441,182 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
   const classicOverrides = hasClassicStatementLayout
     ? `
     /* Classic Statement print-equivalence overrides for PDF export */
-    .statement-classic-sheet {
+    body .pdf-export-host th,
+    body .pdf-export-host td {
+      box-sizing: border-box !important;
+    }
+    body .pdf-export-host .statement-classic-sheet {
       border-radius: 0 !important;
       border: 1px solid #111827 !important;
       box-shadow: none !important;
       background: #ffffff !important;
+      width: 100% !important;
+      max-width: 100% !important;
     }
-    .statement-classic-header {
-      padding: 12px 14px 10px !important;
+    body .pdf-export-host .statement-classic-header {
+      padding: 18px 20px 14px !important;
     }
-    .statement-classic-title {
+    body .pdf-export-host .statement-classic-title {
       font-size: 22px !important;
     }
-    .statement-classic-table--paper {
+    body .pdf-export-host .statement-classic-table--paper {
       min-width: 100% !important;
     }
-    .statement-classic-check-image {
+    body .pdf-export-host .statement-classic-check-image {
       width: 96px !important;
       height: 60px !important;
     }
-    .statement-classic-table th,
-    .statement-classic-table td,
-    .statement-classic-inline-table th,
-    .statement-classic-inline-table td {
+    body .pdf-export-host .statement-classic-table th,
+    body .pdf-export-host .statement-classic-table td,
+    body .pdf-export-host .statement-classic-inline-table th,
+    body .pdf-export-host .statement-classic-inline-table td {
       color: #111827 !important;
     }
-    .statement-classic-table td,
-    .directory-statement-table.statement-classic-table--paper th,
-    .directory-statement-table.statement-classic-table--paper td,
-    .statement-report-table.statement-classic-table--paper th,
-    .statement-report-table.statement-classic-table--paper td {
+    body .pdf-export-host .statement-classic-table th,
+    body .pdf-export-host .statement-classic-table td,
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th,
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td,
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th,
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td {
       font-size: 11px !important;
-      padding: 0.45rem 0.35rem !important;
+      padding: 8px 5px !important;
     }
-    .statement-classic-inline-table th,
-    .statement-classic-inline-table td {
-      font-size: 9px !important;
+    body .pdf-export-host .statement-classic-inline-table th,
+    body .pdf-export-host .statement-classic-inline-table td {
+      font-size: 9.5px !important;
+      padding: 5px 6px !important;
     }
-    .statement-classic-company-name {
+    body .pdf-export-host .statement-classic-company-name {
       font-size: 14px !important;
     }
-    .statement-classic-fill-row td {
+    body .pdf-export-host .statement-classic-fill-row td {
       height: 40px !important;
     }
-    .statement-classic-footer {
+    body .pdf-export-host .statement-classic-footer {
       display: none !important;
+    }
+
+    /* Reset column widths of the main table in PDF to desktop standard */
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(1),
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(1),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(1),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(1) {
+      width: 12% !important;
+    }
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(2),
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(2),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(2),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(2) {
+      width: 12% !important;
+    }
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(3),
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(3),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(3),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(3) {
+      width: 39% !important;
+    }
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(4),
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(4),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(4),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(4) {
+      width: 11% !important;
+    }
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(5),
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(5),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(5),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(5) {
+      width: 11% !important;
+    }
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(6),
+    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(6),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(6),
+    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(6) {
+      width: 15% !important;
+    }
+
+    /* Reset column widths of the inline details tables in PDF to desktop standard */
+    body .pdf-export-host .statement-classic-inline-table--voucher colgroup col:nth-child(1) {
+      width: 24% !important;
+    }
+    body .pdf-export-host .statement-classic-inline-table--voucher colgroup col:nth-child(2) {
+      width: 50% !important;
+    }
+    body .pdf-export-host .statement-classic-inline-table--voucher colgroup col:nth-child(3) {
+      width: 26% !important;
+    }
+    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(1) {
+      width: 39% !important;
+    }
+    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(2) {
+      width: 17% !important;
+    }
+    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(3) {
+      width: 18% !important;
+    }
+    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(4) {
+      width: 26% !important;
+    }
+
+    /* Force details fonts and alignment */
+    body .pdf-export-host .statement-classic-document-number,
+    body .pdf-export-host .statement-classic-secondary,
+    body .pdf-export-host .statement-classic-note-line {
+      font-size: 9.5px !important;
+      line-height: 1.35 !important;
+    }
+    body .pdf-export-host .statement-classic-voucher-check-meta {
+      font-size: 9px !important;
+      line-height: 1.3 !important;
+    }
+    body .pdf-export-host .statement-classic-identity--party,
+    body .pdf-export-host .statement-classic-identity--phone {
+      font-size: 12px !important;
+    }
+    body .pdf-export-host .statement-classic-meta-row {
+      font-size: 11px !important;
     }
     `
     : '';
 
   const snapshotSupportStyles = `
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: ${dir === 'rtl' ? 'right' : 'left'}; vertical-align: top; font-size: 12px; line-height: 1.45; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
-    .statement-mobile-viewport,
-    .statement-mobile-canvas,
-    .directory-statement-content {
+    body .pdf-export-host {
+      box-sizing: border-box !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body .pdf-export-host * {
+      box-sizing: border-box !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body .pdf-export-host table {
+      border-collapse: collapse;
+      width: 100% !important;
+      table-layout: fixed !important;
+      page-break-inside: auto;
+    }
+    body .pdf-export-host tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    body .pdf-export-host thead {
+      display: table-header-group;
+    }
+    body .pdf-export-host th, body .pdf-export-host td {
+      border: 1px solid #e5e7eb;
+      padding: 8px 10px;
+      text-align: ${dir === 'rtl' ? 'right' : 'left'};
+      vertical-align: top;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      page-break-inside: avoid;
+    }
+    body .pdf-export-host .statement-mobile-viewport,
+    body .pdf-export-host .statement-mobile-canvas,
+    body .pdf-export-host .directory-statement-content {
       overflow: visible !important;
       width: 100% !important;
       min-width: 0 !important;
@@ -1474,17 +1626,17 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
       transform: none !important;
       zoom: 1 !important;
     }
-    .directory-statement-table,
-    .statement-report-table {
+    body .pdf-export-host .directory-statement-table,
+    body .pdf-export-host .statement-report-table {
       width: 100% !important;
       min-width: 0 !important;
       max-width: 100% !important;
       table-layout: fixed !important;
     }
-    .directory-statement-table th,
-    .directory-statement-table td,
-    .statement-report-table th,
-    .statement-report-table td {
+    body .pdf-export-host .directory-statement-table th,
+    body .pdf-export-host .directory-statement-table td,
+    body .pdf-export-host .statement-report-table th,
+    body .pdf-export-host .statement-report-table td {
       font-size: 12px !important;
       line-height: 1.6 !important;
       padding: 8px 7px !important;
@@ -1492,87 +1644,87 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
       word-break: break-word !important;
       overflow-wrap: anywhere !important;
     }
-    .directory-statement-description,
-    .directory-statement-description-text,
-    .statement-report-description {
+    body .pdf-export-host .directory-statement-description,
+    body .pdf-export-host .directory-statement-description-text,
+    body .pdf-export-host .statement-report-description {
       font-size: 12px !important;
       line-height: 1.72 !important;
       font-weight: 700 !important;
     }
-    .directory-statement-inline-detail,
-    .statement-inline-detail {
+    body .pdf-export-host .directory-statement-inline-detail,
+    body .pdf-export-host .statement-inline-detail {
       width: 100% !important;
       min-width: 0 !important;
       max-width: none !important;
     }
-    .directory-statement-inline-title,
-    .statement-inline-detail-title,
-    .statement-inline-detail-footer {
+    body .pdf-export-host .directory-statement-inline-title,
+    body .pdf-export-host .statement-inline-detail-title,
+    body .pdf-export-host .statement-inline-detail-footer {
       font-size: 10px !important;
       line-height: 1.35 !important;
     }
-    .directory-statement-detail-table th,
-    .directory-statement-detail-table td,
-    .statement-inline-table th,
-    .statement-inline-table td {
+    body .pdf-export-host .directory-statement-detail-table th,
+    body .pdf-export-host .directory-statement-detail-table td,
+    body .pdf-export-host .statement-inline-table th,
+    body .pdf-export-host .statement-inline-table td {
       font-size: 10px !important;
       line-height: 1.35 !important;
       padding: 6px 7px !important;
     }
-    .directory-statement-detail-table .statement-inline-value,
-    .statement-inline-value {
+    body .pdf-export-host .directory-statement-detail-table .statement-inline-value,
+    body .pdf-export-host .statement-inline-value {
       white-space: nowrap !important;
       word-break: keep-all !important;
       overflow-wrap: normal !important;
       font-variant-numeric: tabular-nums !important;
       letter-spacing: normal !important;
     }
-    .statement-inline-table,
-    .statement-classic-inline-table,
-    .directory-statement-detail-table {
+    body .pdf-export-host .statement-inline-table,
+    body .pdf-export-host .statement-classic-inline-table,
+    body .pdf-export-host .directory-statement-detail-table {
       width: 100% !important;
       table-layout: fixed !important;
       border-collapse: collapse !important;
       letter-spacing: normal !important;
     }
-    .statement-inline-table th,
-    .statement-inline-table td,
-    .statement-classic-inline-table th,
-    .statement-classic-inline-table td,
-    .directory-statement-detail-table th,
-    .directory-statement-detail-table td {
+    body .pdf-export-host .statement-inline-table th,
+    body .pdf-export-host .statement-inline-table td,
+    body .pdf-export-host .statement-classic-inline-table th,
+    body .pdf-export-host .statement-classic-inline-table td,
+    body .pdf-export-host .directory-statement-detail-table th,
+    body .pdf-export-host .directory-statement-detail-table td {
       font-size: 10px !important;
       line-height: 1.4 !important;
       padding: 6px 7px !important;
       letter-spacing: normal !important;
     }
-    .statement-classic-inline-table thead th:nth-child(2),
-    .statement-classic-inline-table thead th:nth-child(3),
-    .statement-classic-inline-table thead th:nth-child(4),
-    .statement-classic-inline-table td:nth-child(2),
-    .statement-classic-inline-table td:nth-child(3),
-    .statement-classic-inline-table td:nth-child(4) {
+    body .pdf-export-host .statement-classic-inline-table thead th:nth-child(2),
+    body .pdf-export-host .statement-classic-inline-table thead th:nth-child(3),
+    body .pdf-export-host .statement-classic-inline-table thead th:nth-child(4),
+    body .pdf-export-host .statement-classic-inline-table td:nth-child(2),
+    body .pdf-export-host .statement-classic-inline-table td:nth-child(3),
+    body .pdf-export-host .statement-classic-inline-table td:nth-child(4) {
       font-size: 10px !important;
       letter-spacing: normal !important;
       padding-inline: 0.16rem !important;
     }
-    .statement-classic-inline-table thead th:nth-child(1),
-    .statement-classic-inline-table td:nth-child(1) {
+    body .pdf-export-host .statement-classic-inline-table thead th:nth-child(1),
+    body .pdf-export-host .statement-classic-inline-table td:nth-child(1) {
       font-size: 10px !important;
       line-height: 1.4 !important;
       padding-inline: 0.16rem !important;
       letter-spacing: normal !important;
     }
-    .statement-classic-inline-table--voucher thead th,
-    .statement-classic-inline-table--voucher td {
+    body .pdf-export-host .statement-classic-inline-table--voucher thead th,
+    body .pdf-export-host .statement-classic-inline-table--voucher td {
       font-size: 10px !important;
       line-height: 1.4 !important;
       letter-spacing: normal !important;
     }
-    .statement-classic-document-number,
-    .statement-classic-secondary,
-    .statement-classic-note-line,
-    .statement-classic-voucher-check-meta {
+    body .pdf-export-host .statement-classic-document-number,
+    body .pdf-export-host .statement-classic-secondary,
+    body .pdf-export-host .statement-classic-note-line,
+    body .pdf-export-host .statement-classic-voucher-check-meta {
       font-size: 10px !important;
       line-height: 1.4 !important;
       letter-spacing: normal !important;
@@ -1628,19 +1780,51 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
       format: 'a4',
       compress: true
     });
+
+    // A4 dimensions in points: portrait = 595.28 x 841.89, landscape = 841.89 x 595.28
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = Math.max(18, padding);
+
+    // Use consistent margins for A4 pages (40pt = ~14mm, professional standard)
+    const margin = 40;
     const printableWidth = pageWidth - (margin * 2);
     const printableHeight = pageHeight - (margin * 2);
-    const scale = options.canvasScale ?? Math.min(2, Math.max(window.devicePixelRatio || 1, 1.5));
+
+    // Enhanced scale for better quality on A4
+    const scale = options.canvasScale ?? 2.5;
+
     // Use the bounded layout width for capture. scrollWidth can balloon when a child overflows,
     // which shrinks statement reports dramatically inside the PDF.
     const hostWidth = Math.ceil(host.getBoundingClientRect().width);
-    const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1);
-    const naturalSliceHeight = Math.floor(((printableHeight * hostWidth) / printableWidth) - (padding * 2));
-    const maxSliceHeight = Math.max(960, Math.floor(1800 / Math.max(scale, 1)));
+
+    // Ensure all images (such as logos and check photos) are fully loaded before measuring height (with a 1.5s timeout safety).
+    try {
+      const images = Array.from(host.querySelectorAll('img'));
+      const loadPromises = images.map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise(resolve => {
+          img.onload = resolve;
+          img.onerror = resolve;
+        });
+      });
+      await Promise.race([
+        Promise.all(loadPromises),
+        new Promise(resolve => setTimeout(resolve, 1500))
+      ]);
+    } catch { /* ignore image loading check errors */ }
+
+    // Add a 30px safety buffer to totalHeight to prevent rounding/rendering margin issues from clipping the summary row.
+    const totalHeight = Math.max(Math.ceil(clone.scrollHeight), Math.ceil(clone.getBoundingClientRect().height), 1) + 30;
+
+    // Calculate proper slice height to fit A4 pages
+    // Account for the aspect ratio and ensure content fits within printable area
+    const aspectRatio = printableWidth / printableHeight;
+    const naturalSliceHeight = Math.floor((printableHeight * hostWidth) / printableWidth);
+
+    // Set reasonable maximum slice height to prevent memory issues while ensuring full pages
+    const maxSliceHeight = Math.floor(2000 / Math.max(scale / 2, 1));
     const pageSliceHeight = Math.max(1, Math.min(naturalSliceHeight, maxSliceHeight));
+
     const estimatedPageCount = Math.max(1, Math.ceil(totalHeight / pageSliceHeight));
     updateStatementFooterMeta(clone, {
       printDate: formatStatementPrintDate(options.lang || 'ar'),
@@ -1656,27 +1840,62 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
       host.style.height = `${captureHeight}px`;
       clone.style.transform = `translateY(-${renderedHeight}px)`;
 
-      await waitForRenderPass(1, 100);
+      await waitForRenderPass(1, 120);
+
+      // Temporarily set host opacity to 1 before capturing so html2canvas renders it with full visibility
+      host.style.opacity = '1';
 
       const canvas = await html2canvas(host, {
         backgroundColor,
         scale,
         useCORS: true,
+        allowTaint: false,
         width: hostWidth,
         height: captureHeight,
         windowWidth: hostWidth,
         windowHeight: captureHeight,
         scrollX: 0,
-        scrollY: 0
+        scrollY: 0,
+        logging: false,
+        onclone: (clonedDoc) => {
+          const clonedHost = clonedDoc.querySelector('.pdf-export-host') as HTMLElement | null;
+          if (clonedHost) {
+            clonedHost.style.opacity = '1';
+            clonedHost.style.visibility = 'visible';
+          }
+        }
       });
+
+      // Restore opacity back to 0.02 so it remains hidden from the user
+      host.style.opacity = '0.02';
 
       if (pageIndex > 0) {
         pdf.addPage();
       }
 
+      // Calculate image dimensions to fit properly on A4 page with margins
       const imageWidth = printableWidth;
-      const imageHeight = (canvas.height * imageWidth) / canvas.width;
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, imageWidth, imageHeight, undefined, 'FAST');
+      const imageHeight = (canvas.height * printableWidth) / canvas.width;
+
+      // Ensure image fits within printable height, scale down if necessary
+      const finalImageHeight = Math.min(imageHeight, printableHeight);
+      const finalImageWidth = imageHeight > printableHeight
+        ? (canvas.width * printableHeight) / canvas.height
+        : imageWidth;
+
+      // Center the image if it doesn't fill the full width
+      const xPosition = margin + (printableWidth - finalImageWidth) / 2;
+
+      pdf.addImage(
+        canvas.toDataURL('image/png', 0.95),
+        'PNG',
+        xPosition,
+        margin,
+        finalImageWidth,
+        finalImageHeight,
+        undefined,
+        'FAST'
+      );
 
       renderedHeight += sliceHeight;
       pageIndex += 1;

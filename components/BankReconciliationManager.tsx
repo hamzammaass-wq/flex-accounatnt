@@ -547,13 +547,19 @@ const BankReconciliationManager: React.FC<BankReconciliationManagerProps> = ({ o
   const handleSaveReconciliationSnapshot = async () => {
     if (!reconciliationSnapshotRef.current) return;
     await settleElementBeforeSnapshot(reconciliationSnapshotRef.current);
+    // A4 portrait width in pixels at 96 DPI
+    const a4PortraitWidth = 794;
     const success = await downloadElementAsPdf(reconciliationSnapshotRef.current, {
       title: `${reconciliationTitle} - ${displayAccountName(selectedBank || null) || 'bank'} - ${periodEndDate}`,
       fileName: `${reconciliationTitle}-${displayAccountName(selectedBank || null) || selectedBankId || 'bank'}-${periodEndDate}`,
       dir: isEnglish ? 'ltr' : 'rtl',
       lang: isEnglish ? 'en' : 'ar',
-      backgroundColor: '#f8fafc',
-      padding: 18
+      backgroundColor: '#ffffff',
+      padding: 20,
+      canvasScale: 2.5,
+      orientation: 'portrait',
+      minRenderWidth: a4PortraitWidth,
+      maxRenderWidth: a4PortraitWidth
     });
     if (!success) {
       alert(tr('تعذر حفظ كشف المطابقة بصيغة PDF حاليًا.', 'Could not save the reconciliation statement as PDF right now.'));

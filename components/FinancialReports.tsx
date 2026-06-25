@@ -2992,8 +2992,8 @@ const FinancialReports: React.FC = () => {
                 dir: isEnglish ? 'ltr' : 'rtl',
                 lang: isEnglish ? 'en' : 'ar',
                 backgroundColor: '#ffffff',
-                padding: 14,
-                canvasScale: 2,
+                padding: 20,
+                canvasScale: 2.5,
                 orientation: 'portrait'
             });
         }
@@ -3003,23 +3003,22 @@ const FinancialReports: React.FC = () => {
             || activeReport === 'SUPPLIER_STATEMENT'
             || activeReport === 'ACCOUNT_LEDGER';
         const finalOrientation: 'portrait' | 'landscape' = isStatementExport ? 'landscape' : exportOrientation;
+
+        // A4 dimensions in pixels at 96 DPI
+        const a4PortraitWidth = 794;
+        const a4LandscapeWidth = 1123;
+
         return buildElementPdfFile(printableReport, {
             title: buildReportTitleWithPeriod(title),
             fileName: buildReportFileStem(title),
             dir: isEnglish ? 'ltr' : 'rtl',
             lang: isEnglish ? 'en' : 'ar',
             backgroundColor: '#ffffff',
-            padding: 18,
-            canvasScale: finalOrientation === 'landscape'
-                ? (isStatementExport ? 2.0 : 1.45)
-                : (isStatementExport ? 1.8 : 1.65),
+            padding: 20,
+            canvasScale: 2.5,
             orientation: finalOrientation,
-            minRenderWidth: isStatementExport
-                ? (finalOrientation === 'landscape' ? 980 : 760)
-                : 720,
-            maxRenderWidth: finalOrientation === 'landscape'
-                ? (isStatementExport ? 1220 : 1280)
-                : (isStatementExport ? 900 : 980)
+            minRenderWidth: finalOrientation === 'landscape' ? a4LandscapeWidth : a4PortraitWidth,
+            maxRenderWidth: finalOrientation === 'landscape' ? a4LandscapeWidth : a4PortraitWidth
         });
     };
 
