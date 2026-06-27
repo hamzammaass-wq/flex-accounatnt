@@ -440,7 +440,7 @@ const EquityPartnersManager: React.FC = () => {
       </thead>
       <tbody>${rows}</tbody>
     </table>
-    ${autoPrint ? '<script>window.onload = () => window.print();</script>' : ''}
+    ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
   </body>
 </html>`;
   };

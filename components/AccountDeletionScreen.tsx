@@ -28,8 +28,17 @@ const WORKSPACE_SYNC_COLLECTION = 'workspace_sync_snapshots';
 const WORKSPACE_SUBSCRIPTIONS_COLLECTION = 'workspace_subscriptions';
 const SUBSCRIPTION_ADMINS_COLLECTION = 'subscription_admins';
 
+const isSafariOrIOS = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent.toLowerCase();
+  const isIOS = /ipad|iphone|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isSafari = ua.includes('safari') && !ua.includes('chrome') && !ua.includes('chromium') && !ua.includes('crios') && !ua.includes('fxios');
+  return isIOS || isSafari;
+};
+
 const shouldPreferRedirectAuth = (): boolean => {
   if (typeof window === 'undefined') return false;
+  if (isSafariOrIOS()) return false;
   const standalone = (typeof window.matchMedia === 'function'
     ? window.matchMedia('(display-mode: standalone)').matches
     : false) || (navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -81,6 +90,29 @@ const AccountDeletionScreen: React.FC<AccountDeletionScreenProps> = ({ language,
     const fallback = typeof error === 'object' && error && 'message' in error
       ? String((error as { message?: string }).message || '')
       : '';
+
+    if (
+      code === 'auth/missing-initial-state' || 
+      code === 'auth/web-storage-unsupported' || 
+      fallback.toLowerCase().includes('missing initial state') ||
+      fallback.toLowerCase().includes('storage-partitioned')
+    ) {
+      return tr(
+        'تعذر إكمال العملية بسبب قيود الخصوصية وحظر ملفات تعريف الارتباط في متصفحك (Safari/iOS). يرجى استخدام تسجيل الدخول بالبريد الإلكتروني.',
+        'Could not complete the process due to browser privacy/cookie restrictions (Safari/iOS). Please use Email sign-in.'
+      );
+    }
+
+    if (
+      code === 'auth/popup-blocked' || 
+      code === 'auth/cancelled-popup-request' ||
+      code === 'auth/operation-not-supported-in-this-environment'
+    ) {
+      return tr(
+        'تم حظر نافذة التحقق بواسطة المتصفح (Safari/iOS). يرجى إلغاء تفعيل "حظر النوافذ المنبثقة" في إعدادات متصفح سفاري لإكمال العملية.',
+        'The verification popup was blocked by the browser (Safari/iOS). Please disable "Block Pop-ups" in Safari/browser settings to proceed.'
+      );
+    }
 
     if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
       return tr('كلمة المرور غير صحيحة.', 'Incorrect password.');

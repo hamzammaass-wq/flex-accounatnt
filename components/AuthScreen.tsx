@@ -73,8 +73,17 @@ const safeStorageKeys = (storage: Storage): string[] => {
   }
 };
 
+const isSafariOrIOS = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent.toLowerCase();
+  const isIOS = /ipad|iphone|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isSafari = ua.includes('safari') && !ua.includes('chrome') && !ua.includes('chromium') && !ua.includes('crios') && !ua.includes('fxios');
+  return isIOS || isSafari;
+};
+
 const shouldPreferRedirectAuth = (): boolean => {
   if (typeof window === 'undefined') return false;
+  if (isSafariOrIOS()) return false;
   const standalone = (typeof window.matchMedia === 'function'
     ? window.matchMedia('(display-mode: standalone)').matches
     : false) || (navigator as any).standalone === true;
@@ -89,6 +98,17 @@ const getFirebaseErrorMessage = (error: unknown, language: 'AR' | 'EN'): string 
     ? String((error as { message?: string }).message || '')
     : '';
   const currentHost = typeof window !== 'undefined' ? window.location.host : '';
+
+  if (
+    code === 'auth/missing-initial-state' || 
+    code === 'auth/web-storage-unsupported' || 
+    fallback.toLowerCase().includes('missing initial state') ||
+    fallback.toLowerCase().includes('storage-partitioned')
+  ) {
+    return language === 'AR'
+      ? 'تعذر إكمال تسجيل الدخول عبر Google بسبب قيود الخصوصية وحظر ملفات تعريف الارتباط في متصفحك (Safari/iOS). يرجى تسجيل الدخول باستخدام البريد الإلكتروني.'
+      : 'Could not complete Google sign-in due to browser privacy/cookie restrictions (Safari/iOS). Please sign in using your Email.';
+  }
 
   if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
     return language === 'AR' ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' : 'Incorrect email or password.';
@@ -620,7 +640,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     if (companyAccessStatus === 'ACTIVE') {
       return {
         badge: appLanguage === 'AR' ? 'اشتراك نشط' : 'Subscription active',
-        tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        tone: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400',
         icon: BadgeCheck,
         description: companyAccessDaysLeft > 0
           ? (appLanguage === 'AR'
@@ -635,7 +655,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     if (companyAccessStatus === 'SUSPENDED') {
       return {
         badge: appLanguage === 'AR' ? 'موقوف' : 'Suspended',
-        tone: 'border-rose-200 bg-rose-50 text-rose-700',
+        tone: 'border-rose-500/20 bg-rose-500/5 text-rose-400',
         icon: ShieldCheck,
         description: appLanguage === 'AR'
           ? 'الحساب موجود لكن الوصول موقوف ويحتاج مراجعة أو تفعيل من الإدارة.'
@@ -646,7 +666,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
     if (companyAccessStatus === 'TRIAL') {
       return {
         badge: appLanguage === 'AR' ? 'تجربة مجانية' : 'Free trial',
-        tone: 'border-blue-200 bg-blue-50 text-blue-700',
+        tone: 'border-blue-500/20 bg-blue-500/5 text-blue-400',
         icon: Clock3,
         description: appLanguage === 'AR'
           ? `التجربة فعالة حاليًا والمتبقي ${companyAccessDaysLeft} يوم.`
@@ -656,7 +676,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
     return {
       badge: appLanguage === 'AR' ? 'بحاجة إلى تفعيل' : 'Needs activation',
-      tone: 'border-amber-200 bg-amber-50 text-amber-700',
+      tone: 'border-amber-500/20 bg-amber-500/5 text-amber-400',
       icon: KeyRound,
       description: appLanguage === 'AR'
         ? 'يمكنك إنشاء الحساب الآن، ثم تفعيل الاشتراك لاحقًا من إدارة الشركة.'
@@ -678,12 +698,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
   }
 
   return (
-    <div className="min-h-dvh bg-[#071120] flex flex-col items-center justify-center p-4 sm:p-6 font-tajawal relative overflow-x-hidden overflow-y-auto w-full">
+    <div className="min-h-dvh bg-[#071120] flex flex-col items-center p-4 sm:p-6 font-tajawal relative overflow-x-hidden w-full">
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(168,85,247,0.12),transparent_24%),linear-gradient(180deg,#071120_0%,#0b1630_100%)] pointer-events-none"></div>
       <div className="fixed top-[-8%] right-[-10%] w-[440px] h-[440px] bg-cyan-400/10 rounded-full blur-[140px] pointer-events-none"></div>
       <div className="fixed bottom-[-10%] left-[-12%] w-[440px] h-[440px] bg-violet-500/12 rounded-full blur-[140px] pointer-events-none"></div>
 
-      <div className="w-full max-w-lg relative z-10 pt-8 pb-10">
+      <div className="w-full max-w-lg relative z-10 my-auto pt-8 pb-10">
         <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-10 duration-700">
           <img
             src={AUTH_SCREEN_LOGO_URL}
@@ -692,16 +712,16 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
           />
         </div>
 
-        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-2xl space-y-6 animate-in zoom-in-95 duration-500 delay-300">
+        <div className="bg-slate-900/40 backdrop-blur-xl p-6 sm:p-8 rounded-[2.5rem] border border-slate-800/80 shadow-[0_30px_100px_rgba(0,0,0,0.6)] space-y-6 animate-in zoom-in-95 duration-500 delay-300 w-full">
           <div className={`rounded-[1.6rem] border px-4 py-4 ${accessStatusMeta.tone}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-black opacity-80">
+                <div className="text-[11px] font-black opacity-80 text-slate-300">
                   {appLanguage === 'AR' ? 'حالة الوصول الحالية' : 'Current access status'}
                 </div>
-                <div className="mt-1 text-sm font-black">{currentCompany?.name || t('auth.appName')}</div>
+                <div className="mt-1 text-sm font-black text-white">{currentCompany?.name || t('auth.appName')}</div>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-white/70 px-3 py-1 text-[11px] font-black shadow-sm">
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/80 border border-slate-800 px-3 py-1 text-[11px] font-black shadow-sm text-slate-300">
                 <AccessStatusIcon className="w-3.5 h-3.5" />
                 {accessStatusMeta.badge}
               </span>
@@ -718,38 +738,38 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
 
           {(hasGuestWorkspaceData || guestTrialExpired) && (
             <div className={`rounded-2xl px-4 py-3 text-[11px] font-bold border text-center ${guestTrialExpired
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-blue-200 bg-blue-50 text-blue-700'
+              ? 'border-red-500/20 bg-red-500/5 text-red-400'
+              : 'border-blue-500/20 bg-blue-500/5 text-blue-400'
               }`}>
               {guestTrialExpired ? trialExpiredText : trialStatusText}
             </div>
           )}
 
-          <div className="grid grid-cols-2 bg-gray-100 rounded-full p-1 gap-1">
+          <div className="grid grid-cols-2 bg-slate-950/40 border border-slate-800/50 rounded-full p-1 gap-1">
             <button
               type="button"
               onClick={() => setAuthMode('LOGIN')}
-              className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'LOGIN' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'LOGIN' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-400 hover:text-slate-200'}`}
             >
               {loginTitle}
             </button>
             <button
               type="button"
               onClick={() => setAuthMode('REGISTER')}
-              className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'REGISTER' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex-1 text-xs font-bold py-2.5 rounded-full transition-all ${authMode === 'REGISTER' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20' : 'text-slate-400 hover:text-slate-200'}`}
             >
               {registerTitle}
             </button>
           </div>
 
           {errorMessage && (
-            <div className="bg-red-50 text-red-600 text-[11px] font-bold p-3 rounded-xl border border-red-100 text-center">
+            <div className="bg-red-500/10 text-red-400 text-[11px] font-bold p-3 rounded-xl border border-red-500/20 text-center animate-in fade-in duration-300">
               {errorMessage}
             </div>
           )}
 
           {infoMessage && (
-            <div className="bg-emerald-50 text-emerald-700 text-[11px] font-bold p-3 rounded-xl border border-emerald-100 text-center">
+            <div className="bg-emerald-500/10 text-emerald-400 text-[11px] font-bold p-3 rounded-xl border border-emerald-500/20 text-center animate-in fade-in duration-300">
               {infoMessage}
             </div>
           )}
@@ -765,18 +785,18 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
             <>
               {authMode === 'LOGIN' ? (
                 <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="grid grid-cols-2 bg-slate-50 border border-slate-100 rounded-xl p-1 gap-1 mb-2">
+                  <div className="grid grid-cols-2 bg-slate-950/20 border border-slate-800/60 rounded-xl p-1 gap-1 mb-2">
                     <button
                       type="button"
                       onClick={() => setLoginType('EMAIL')}
-                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${loginType === 'EMAIL' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${loginType === 'EMAIL' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200'}`}
                     >
                       {appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setLoginType('CODE')}
-                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${loginType === 'CODE' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${loginType === 'CODE' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200'}`}
                     >
                       {appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
                     </button>
@@ -785,42 +805,42 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                     {loginType === 'EMAIL' ? (
                       <div className="relative">
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                          <Mail className="w-4 h-4 text-gray-400" />
+                          <Mail className="w-4 h-4 text-slate-400" />
                         </div>
                         <input
                           type="email"
                           required
                           value={loginEmail}
                           onChange={(e) => setLoginEmail(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                           placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                         />
                       </div>
                     ) : (
                       <div className="relative">
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                          <KeyRound className="w-4 h-4 text-gray-400" />
+                          <KeyRound className="w-4 h-4 text-slate-400" />
                         </div>
                         <input
                           type="text"
                           required
                           value={loginCode}
                           onChange={(e) => setLoginCode(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                           placeholder={appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
                         />
                       </div>
                     )}
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <Lock className="w-4 h-4 text-gray-400" />
+                        <Lock className="w-4 h-4 text-slate-400" />
                       </div>
                       <input
                         type="password"
                         required
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                         placeholder={appLanguage === 'AR' ? 'كلمة المرور' : 'Password'}
                       />
                     </div>
@@ -836,18 +856,18 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                 </form>
               ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="grid grid-cols-2 bg-slate-50 border border-slate-100 rounded-xl p-1 gap-1 mb-2">
+                  <div className="grid grid-cols-2 bg-slate-950/20 border border-slate-800/60 rounded-xl p-1 gap-1 mb-2">
                     <button
                       type="button"
                       onClick={() => setRegisterType('EMAIL')}
-                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${registerType === 'EMAIL' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${registerType === 'EMAIL' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200'}`}
                     >
                       {appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setRegisterType('CODE')}
-                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${registerType === 'CODE' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-gray-500 hover:text-gray-700'}`}
+                      className={`flex-1 text-[11px] font-bold py-1.5 rounded-lg transition-all ${registerType === 'CODE' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200'}`}
                     >
                       {appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
                     </button>
@@ -855,62 +875,62 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   <div className="space-y-3">
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <Building2 className="w-4 h-4 text-gray-400" />
+                        <Building2 className="w-4 h-4 text-slate-400" />
                       </div>
                       <input
                         type="text"
                         required
                         value={regCompanyName}
                         onChange={(e) => setRegCompanyName(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                         placeholder={appLanguage === 'AR' ? 'اسم الشركة' : 'Company name'}
                       />
                     </div>
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <User className="w-4 h-4 text-gray-400" />
+                        <User className="w-4 h-4 text-slate-400" />
                       </div>
                       <input
                         type="text"
                         required
                         value={regFullName}
                         onChange={(e) => setRegFullName(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                         placeholder={appLanguage === 'AR' ? 'الاسم الكامل' : 'Full name'}
                       />
                     </div>
                     {registerType === 'EMAIL' ? (
                       <div className="relative">
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                          <Mail className="w-4 h-4 text-gray-400" />
+                          <Mail className="w-4 h-4 text-slate-400" />
                         </div>
                         <input
                           type="email"
                           required
                           value={regEmail}
                           onChange={(e) => setRegEmail(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                           placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                         />
                       </div>
                     ) : (
                       <div className="relative">
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                          <KeyRound className="w-4 h-4 text-gray-400" />
+                          <KeyRound className="w-4 h-4 text-slate-400" />
                         </div>
                         <input
                           type="text"
                           required
                           value={regCode}
                           onChange={(e) => setRegCode(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                           placeholder={appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
                         />
                       </div>
                     )}
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <Lock className="w-4 h-4 text-gray-400" />
+                        <Lock className="w-4 h-4 text-slate-400" />
                       </div>
                       <input
                         type="password"
@@ -918,13 +938,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                         minLength={6}
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block pr-10 p-3"
+                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
                         placeholder={appLanguage === 'AR' ? 'كلمة المرور (6 أحرف على الأقل)' : 'Password (at least 6 characters)'}
                       />
                     </div>
                   </div>
 
-                  <div className="text-[11px] font-medium text-slate-500 text-center">
+                  <div className="text-[11px] font-medium text-slate-400 text-center">
                     {registerHelper}
                   </div>
 
@@ -942,7 +962,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   type="button"
                   onClick={handleGoogleLogin}
                   disabled={authBusy || !isFirebaseMode}
-                  className="w-full py-3 bg-white border border-gray-200 rounded-xl text-gray-700 font-bold text-sm hover:bg-gray-50 transition-all flex items-center justify-center gap-3 disabled:opacity-70"
+                  className="w-full py-3.5 bg-slate-950/60 border border-slate-800 hover:border-slate-700 rounded-xl text-slate-200 font-bold text-sm hover:bg-slate-900 transition-all flex items-center justify-center gap-3 disabled:opacity-70"
                 >
                   <GoogleLogo className="w-5 h-5" />
                   {appLanguage === 'AR' ? 'المتابعة عبر Google' : 'Continue with Google'}
@@ -952,54 +972,54 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   onClick={handleGuestLogin}
                   disabled={authBusy || guestTrialExpired}
                   data-testid="auth-guest-login"
-                  className="w-full py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-700 font-bold text-sm hover:bg-slate-200 transition-all disabled:opacity-70"
+                  className="w-full py-3.5 bg-slate-800/40 border border-slate-800 hover:border-slate-700 rounded-xl text-slate-300 font-bold text-sm hover:bg-slate-800/60 transition-all disabled:opacity-70"
                 >
                   {t('auth.guestLogin')}
                 </button>
               </div>
 
-              <div className="text-center text-[11px] text-slate-500 font-bold leading-6">
+              <div className="text-center text-[11px] text-slate-400 font-bold leading-6">
                 <a
                   href="/pricing.html"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline hover:text-slate-700 transition-colors"
+                  className="underline hover:text-blue-400 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'الأسعار' : 'Pricing'}
                 </a>
-                <span className="mx-2 text-slate-400">|</span>
+                <span className="mx-2 text-slate-600">|</span>
                 <a
                   href="/privacy-policy.html"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline hover:text-slate-700 transition-colors"
+                  className="underline hover:text-blue-400 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'سياسة الخصوصية' : 'Privacy Policy'}
                 </a>
-                <span className="mx-2 text-slate-400">|</span>
+                <span className="mx-2 text-slate-600">|</span>
                 <a
                   href="/terms-of-service.html"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline hover:text-slate-700 transition-colors"
+                  className="underline hover:text-blue-400 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'شروط الخدمة' : 'Terms of Service'}
                 </a>
-                <span className="mx-2 text-slate-400">|</span>
+                <span className="mx-2 text-slate-600">|</span>
                 <a
                   href="/refund-policy.html"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline hover:text-slate-700 transition-colors"
+                  className="underline hover:text-blue-400 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'سياسة الاسترجاع' : 'Refund Policy'}
                 </a>
-                <span className="mx-2 text-slate-400">|</span>
+                <span className="mx-2 text-slate-600">|</span>
                 <a
                   href="/account-deletion.html"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline hover:text-slate-700 transition-colors"
+                  className="underline hover:text-blue-400 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'حذف الحساب' : 'Account Deletion'}
                 </a>

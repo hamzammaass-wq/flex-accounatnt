@@ -491,7 +491,8 @@ const AppContent: React.FC = () => {
     isMobile,
     rtl,
     canGoBack: currentUser ? canGoBack : false,
-    onBack: requestSystemBack
+    onBack: requestSystemBack,
+    allowWindowScroll: !currentUser
   });
 
   const handleNavigate = useCallback((tab: TabView, definitionsMode?: SettingsMode) => {

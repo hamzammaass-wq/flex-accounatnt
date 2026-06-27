@@ -40,6 +40,10 @@
   }
 }
 
+input:focus, textarea:focus, select:focus {
+  scroll-margin-bottom: 80px;
+}
+
 .product-definition-dialog-panel {
   padding-top: calc(max(var(--app-safe-top, 0px), 32px) + 10px) !important;
   padding-bottom: calc(var(--app-safe-bottom, 0px) + 0.75rem) !important;
@@ -787,56 +791,7 @@ html[data-keyboard-open='1'] .app-bottom-nav {
     vertical-align: top !important;
   }
 
-  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
-  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1) {
-    width: 15% !important;
-  }
 
-  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(2),
-  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(2) {
-    width: 45% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(3),
-  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(3),
-  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(4),
-  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(4),
-  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(5),
-  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(5) {
-    width: 12% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table th:nth-child(5),
-  .financial-reports-page.statement-report-active .statement-report-table td:nth-child(5) {
-    width: 16% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(1),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(1) {
-    width: 14% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(2),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(2) {
-    width: 13% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(3),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(3) {
-    width: 31% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(4),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(4),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(5),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(5) {
-    width: 12% !important;
-  }
-
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher th:nth-child(6),
-  .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--with-voucher td:nth-child(6) {
-    width: 18% !important;
-  }
 
   .financial-reports-page.statement-report-active .statement-report-table th:nth-child(1),
   .financial-reports-page.statement-report-active .statement-report-table td:nth-child(1),
@@ -995,6 +950,10 @@ html[data-keyboard-open='1'] .app-bottom-nav {
   .directory-statement-header {
     padding: 0.85rem 0.9rem !important;
     align-items: flex-start !important;
+  }
+
+  .directory-statement-header-modal {
+    padding-top: calc(var(--app-safe-top) + 0.85rem) !important;
   }
 
   .directory-statement-toolbar {
@@ -2495,7 +2454,8 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 
 .statement-classic-table th,
 .statement-classic-table td {
-  border: 1px solid #374151;
+  border: none;
+  border-bottom: 1px solid #cbd5e1;
   background: #fff;
   color: #111827;
   padding: 0.58rem 0.48rem;
@@ -2507,9 +2467,11 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 }
 
 .statement-classic-table thead th {
-  background: #f3f4f6;
+  background: #f8fafc;
   text-align: center;
   font-weight: 900;
+  border-top: 2px solid #0f172a;
+  border-bottom: 2px solid #0f172a;
 }
 
 .statement-classic-document-cell {
@@ -2642,7 +2604,8 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 
 .statement-classic-inline-table th,
 .statement-classic-inline-table td {
-  border: 1px solid #6b7280;
+  border: none;
+  border-bottom: 1px solid #e2e8f0;
   padding: 0.38rem 0.42rem;
   font-size: 0.72rem;
   line-height: 1.5;
@@ -2653,8 +2616,9 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 }
 
 .statement-classic-inline-table thead th {
-  background: #eceff3;
+  background: #f1f5f9;
   font-weight: 900;
+  border-bottom: 1.5px solid #cbd5e1;
 }
 
 .statement-classic-inline-table thead th:nth-child(1) {
@@ -2860,7 +2824,7 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
   }
 }
 
-@media (max-width: 640px) {
+@media screen and (max-width: 640px) {
   .statement-classic-header {
     padding: 0.95rem 0.85rem 0.8rem;
   }
@@ -2931,48 +2895,27 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
   vertical-align: top !important;
 }
 
-.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(1),
-.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(1),
-.directory-statement-table.statement-classic-table--paper th:nth-child(1),
-.directory-statement-table.statement-classic-table--paper td:nth-child(1) {
-  width: 12% !important;
-}
+@media screen and (max-width: 640px) {
+  .directory-statement-content {
+    padding: 0 !important;
+  }
 
-.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(2),
-.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(2),
-.directory-statement-table.statement-classic-table--paper th:nth-child(2),
-.directory-statement-table.statement-classic-table--paper td:nth-child(2) {
-  width: 13% !important;
-}
+  .statement-classic-sheet {
+    border-radius: 0 !important;
+    border-inline: 0 !important;
+    box-shadow: none !important;
+  }
 
-.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(3),
-.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(3),
-.directory-statement-table.statement-classic-table--paper th:nth-child(3),
-.directory-statement-table.statement-classic-table--paper td:nth-child(3) {
-  width: 41% !important;
-}
-
-.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(4),
-.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(4),
-.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(5),
-.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(5),
-.directory-statement-table.statement-classic-table--paper th:nth-child(4),
-.directory-statement-table.statement-classic-table--paper td:nth-child(4),
-.directory-statement-table.statement-classic-table--paper th:nth-child(5),
-.directory-statement-table.statement-classic-table--paper td:nth-child(5) {
-  width: 11% !important;
-}
-
-.financial-reports-page.statement-report-active .statement-classic-table--paper th:nth-child(6),
-.financial-reports-page.statement-report-active .statement-classic-table--paper td:nth-child(6),
-.directory-statement-table.statement-classic-table--paper th:nth-child(6),
-.directory-statement-table.statement-classic-table--paper td:nth-child(6) {
-  width: 12% !important;
-}
-
-@media (max-width: 640px) {
   .statement-classic-sheet .statement-mobile-viewport {
-    overflow-x: hidden;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+  }
+
+  .statement-mobile-canvas {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    zoom: normal !important;
   }
 
   .statement-mobile-canvas .statement-classic-table--paper,
@@ -2987,58 +2930,88 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
   .financial-reports-page.statement-report-active .statement-classic-table--paper td,
   .directory-statement-table.statement-classic-table--paper th,
   .directory-statement-table.statement-classic-table--paper td {
-    padding: 0.28rem 0.18rem !important;
-    font-size: 8.15px !important;
-    line-height: 1.3 !important;
-  }
-
-  .statement-classic-inline-table th,
-  .statement-classic-inline-table td {
-    padding: 0.22rem 0.16rem !important;
-    font-size: 7.75px !important;
+    padding: 0.22rem 0.12rem !important;
+    font-size: 7.25px !important;
     line-height: 1.25 !important;
   }
 
-  .statement-classic-inline-table thead th:nth-child(2),
-  .statement-classic-inline-table thead th:nth-child(3),
-  .statement-classic-inline-table thead th:nth-child(4) {
-    font-size: 6.05px !important;
-    white-space: nowrap !important;
+  /* Specificity overrides for the classic inline tables to ensure they do not inherit layout/padding from the main table */
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table th,
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table td {
+    padding: 0.12rem 0.08rem !important;
+    font-size: 5.8px !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+    word-break: break-all !important;
+    overflow-wrap: anywhere !important;
+    height: auto !important;
+    vertical-align: top !important;
+  }
+
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table thead th:nth-child(2),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table thead th:nth-child(3),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table thead th:nth-child(4) {
+    font-size: 5.4px !important;
+    white-space: normal !important;
     letter-spacing: -0.02em !important;
-    padding-inline: 0.05rem !important;
+    padding-inline: 0.03rem !important;
   }
 
-  .statement-classic-inline-table thead th:nth-child(1) {
-    font-size: 6.2px !important;
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table thead th:nth-child(1) {
+    font-size: 5.5px !important;
     line-height: 1.2 !important;
-    padding-inline: 0.08rem !important;
+    padding-inline: 0.06rem !important;
   }
 
-  .statement-classic-inline-table td:nth-child(1) {
-    font-size: 6.15px !important;
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table td:nth-child(1) {
+    font-size: 5.5px !important;
     line-height: 1.2 !important;
-    padding-inline: 0.08rem !important;
+    padding-inline: 0.06rem !important;
   }
 
-  .statement-classic-inline-table td:nth-child(2),
-  .statement-classic-inline-table td:nth-child(3),
-  .statement-classic-inline-table td:nth-child(4) {
-    font-size: 6.55px !important;
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table td:nth-child(2),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table td:nth-child(3),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table td:nth-child(4) {
+    font-size: 5.8px !important;
   }
 
-  .statement-classic-inline-table--voucher thead th:nth-child(1),
-  .statement-classic-inline-table--voucher thead th:nth-child(2),
-  .statement-classic-inline-table--voucher thead th:nth-child(3),
-  .statement-classic-inline-table--voucher td:nth-child(1),
-  .statement-classic-inline-table--voucher td:nth-child(2),
-  .statement-classic-inline-table--voucher td:nth-child(3) {
-    font-size: 6.55px !important;
-    line-height: 1.22 !important;
-    padding-inline: 0.08rem !important;
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher thead th:nth-child(1),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher thead th:nth-child(2),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher thead th:nth-child(3),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher td:nth-child(1),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher td:nth-child(2),
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher td:nth-child(3) {
+    font-size: 5.8px !important;
+    line-height: 1.35 !important;
+    padding-inline: 0.06rem !important;
+  }
+
+  /* Responsive column widths overrides on mobile for classic inline tables to give narrow columns more breathing room */
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher colgroup col:nth-child(1) {
+    width: 30% !important;
+  }
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher colgroup col:nth-child(2) {
+    width: 44% !important;
+  }
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table--voucher colgroup col:nth-child(3) {
+    width: 26% !important;
+  }
+
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(1) {
+    width: 32% !important;
+  }
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(2) {
+    width: 20% !important;
+  }
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(3) {
+    width: 22% !important;
+  }
+  .statement-mobile-canvas .statement-classic-table--paper .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(4) {
+    width: 26% !important;
   }
 
   .statement-classic-voucher-check-meta {
-    font-size: 5.95px !important;
+    font-size: 5.3px !important;
     line-height: 1.18 !important;
   }
 
@@ -3063,4 +3036,69 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
+}
+
+/* ===== GLOBAL PRINT OVERRIDES FOR CLEAN STATEMENT PRINTING ===== */
+@media print {
+  /* Hide the rest of the application layout, buttons, headers, selectors, sidebars, menus, backgrounds, overlays */
+  .app-shell-root > *:not(main),
+  .financial-reports-page > *:not(.directory-statement-sheet),
+  .directory-statement-sheet > :not(.directory-statement-content),
+  .directory-statement-filters,
+  .directory-statement-header,
+  .report-header,
+  header,
+  nav,
+  aside,
+  button,
+  select,
+  input,
+  [data-document-actions],
+  .no-print {
+    display: none !important;
+  }
+
+  /* Make sure dialog containers don't have overlay backgrounds, filters, shadows, or fixed positioning */
+  .fixed.inset-0.z-\[200\],
+  .fixed.inset-0.z-\[300\],
+  .responsive-dialog-backdrop {
+    background: none !important;
+    backdrop-filter: none !important;
+    position: static !important;
+    display: block !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Make sure the statement layout expands to full page width and height, and is visible */
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .app-shell-root,
+  main,
+  .app-shell-frame,
+  .financial-reports-page,
+  .directory-statement-sheet,
+  .directory-statement-content,
+  .statement-classic-sheet {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
 }

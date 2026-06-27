@@ -3,6 +3,8 @@ import admin from 'firebase-admin';
 import { type AuthenticatedRequest, verifyCompanyMembership } from '../middleware/auth.js';
 import { query, getClient } from '../config/db.js';
 import { migrateUserFirestoreData } from '../utils/migration.js';
+import { seedNewCompany } from '../utils/seeding.js';
+
 
 const router = Router();
 
@@ -124,17 +126,37 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     // If companies exist but any has 0 accounts, trigger automatic user snapshot migration from Firestore
     if (result.rows.length > 0) {
       let needsMigration = false;
+      const companiesWithZeroAccounts = [];
       for (const comp of result.rows) {
         const accCountResult = await query(`SELECT COUNT(*) FROM accounts WHERE company_id = $1`, [comp.id]);
         if (Number(accCountResult.rows[0].count) === 0) {
-          needsMigration = true;
-          break;
+          companiesWithZeroAccounts.push(comp.id);
+        }
+      }
+
+      if (companiesWithZeroAccounts.length > 0) {
+        try {
+          const db = admin.firestore();
+          const snapshotsRef = db.collection('users').doc(uid).collection('workspace_sync_snapshots');
+          let hasSnapshot = false;
+          for (const companyId of companiesWithZeroAccounts) {
+            const docSnap = await snapshotsRef.doc(companyId).get();
+            if (docSnap.exists) {
+              hasSnapshot = true;
+              break;
+            }
+          }
+          if (hasSnapshot) {
+            needsMigration = true;
+          }
+        } catch (checkErr) {
+          console.error('[Backend] Failed to check for company snapshot existence in Firestore:', checkErr);
         }
       }
 
       if (needsMigration) {
         try {
-          console.log(`[Backend] Company detected with 0 accounts. Running automatic migration for user ${uid}...`);
+          console.log(`[Backend] Company detected with 0 accounts and existing snapshot. Running automatic migration for user ${uid}...`);
           const migratedCount = await migrateUserFirestoreData(uid);
           if (migratedCount > 0) {
             // Re-query to get updated data
@@ -211,8 +233,37 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
+    // Fetch user's workspace subscription from Firestore to override company subscription settings dynamically
+    let wsSubscription: any = null;
+    try {
+      const db = admin.firestore();
+      const wsDoc = await db.collection('workspace_subscriptions').doc(uid).get();
+      if (wsDoc.exists) {
+        wsSubscription = wsDoc.data();
+      }
+    } catch (wsErr) {
+      console.error('[Companies GET] Failed to fetch workspace subscription:', wsErr);
+    }
+
     const mappedRows = result.rows.map((row: any) => {
       const settings = row.settings || {};
+
+      const isWorkspaceActive = wsSubscription && wsSubscription.status === 'ACTIVE';
+      let status = settings.subscriptionStatus || 'TRIAL';
+      let plan = settings.subscriptionPlan || 'TRIAL';
+      let endsAt = settings.subscriptionEndsAt;
+      let trialEnds = settings.trialEndsAt;
+
+      if (isWorkspaceActive) {
+        status = 'ACTIVE';
+        plan = wsSubscription.plan || 'BASIC';
+        endsAt = wsSubscription.expiresAt;
+      } else if (wsSubscription && (wsSubscription.status === 'TRIAL' || wsSubscription.status === 'EXPIRED')) {
+        status = wsSubscription.status;
+        plan = wsSubscription.plan;
+        trialEnds = wsSubscription.expiresAt || trialEnds;
+      }
+
       return {
         id: row.id,
         name: row.name,
@@ -223,12 +274,12 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
         baseCurrency: row.base_currency || settings.baseCurrency || 'ILS',
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : settings.createdAt,
         
-        // Flatten subscription fields from settings JSONB
-        trialEndsAt: settings.trialEndsAt || undefined,
-        subscriptionStatus: settings.subscriptionStatus || undefined,
-        subscriptionPlan: settings.subscriptionPlan || undefined,
+        // Flatten subscription fields overridden by workspace subscription
+        trialEndsAt: trialEnds,
+        subscriptionStatus: status,
+        subscriptionPlan: plan,
         subscriptionStartsAt: settings.subscriptionStartsAt || undefined,
-        subscriptionEndsAt: settings.subscriptionEndsAt || undefined,
+        subscriptionEndsAt: endsAt,
         graceDays: settings.graceDays !== undefined ? Number(settings.graceDays) : undefined,
         activationCode: settings.activationCode || undefined,
         
@@ -252,9 +303,71 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     return res.status(400).json({ error: 'Company ID and Name are required' });
   }
 
+  const client = await getClient();
   try {
-    // 1. Create company
-    await query(
+    // 0. Verify subscription limits
+    const countRes = await client.query(`SELECT COUNT(*) FROM memberships WHERE user_id = $1`, [uid]);
+    const currentCount = Number(countRes.rows[0].count);
+
+    let maxCompanies = 3; // Default trial limit
+    try {
+      const db = admin.firestore();
+      const wsDoc = await db.collection('workspace_subscriptions').doc(uid!).get();
+      if (wsDoc.exists) {
+        const wsData = wsDoc.data() || {};
+        if (wsData.unlimitedCompanies === true) {
+          maxCompanies = Infinity;
+        } else {
+          const included = Number(wsData.includedCompanies) || 1;
+          const extra = Number(wsData.extraCompanyCount) || 0;
+          const max = Number(wsData.maxCompanies) || 0;
+          maxCompanies = Math.max(included, Math.max(max, included + extra));
+        }
+      }
+    } catch (wsErr) {
+      console.error('[Companies Create] Failed to fetch workspace subscription:', wsErr);
+    }
+
+    if (currentCount >= maxCompanies) {
+      client.release();
+      return res.status(403).json({
+        error: `Subscription limit reached. You are allowed up to ${maxCompanies} companies, but you already have ${currentCount}.`
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Prepare settings with default unmapped collections (units, itemGroups, departments)
+    const initialUnits = [
+      { id: 'u_pc', name: 'قطعة', code: 'PCS' },
+      { id: 'u_box', name: 'علبة', code: 'BOX' },
+      { id: 'u_ctn', name: 'كرتون', code: 'CTN' },
+      { id: 'u_kg', name: 'كيلو', code: 'KG' },
+      { id: 'u_m', name: 'متر', code: 'M' },
+      { id: 'u_cup', name: 'كوب', code: 'CUP' }
+    ];
+
+    const defaultItemGroups = [
+      { id: 'ig_electronics', name: 'إلكترونيات', icon: '📱' },
+      { id: 'ig_furniture', name: 'أثاث مكتبي', icon: '🪑' },
+      { id: 'ig_other', name: 'أخرى', icon: '📦' }
+    ];
+
+    const defaultDepartments = [
+      { id: 'dept_admin', name: 'الإدارة والمالية' },
+      { id: 'dept_sales', name: 'المبيعات' },
+      { id: 'dept_prod', name: 'المستودعات' }
+    ];
+
+    const mergedSettings = {
+      units: initialUnits,
+      itemGroups: defaultItemGroups,
+      departments: defaultDepartments,
+      ...(settings || {})
+    };
+
+    // 2. Create company
+    await client.query(
       `INSERT INTO companies (id, name, tax_number, address, phone, logo_url, base_currency, settings)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE
@@ -269,27 +382,34 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         phone || null,
         logoUrl || null,
         baseCurrency || 'ILS',
-        JSON.stringify(settings || {})
+        JSON.stringify(mergedSettings)
       ]
     );
 
-    // 2. Create owner membership
-    await query(
+    // 3. Create owner membership
+    await client.query(
       `INSERT INTO memberships (company_id, user_id, role, status)
        VALUES ($1, $2, 'OWNER', 'ACTIVE')
        ON CONFLICT (company_id, user_id) DO NOTHING`,
       [id, uid]
     );
 
+    // 4. Seed default databases (Currencies, Warehouse, Chart of Accounts)
+    await seedNewCompany(client, id, baseCurrency || 'ILS');
+
+    await client.query('COMMIT');
     res.status(201).json({ ok: true, companyId: id });
   } catch (error: any) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
-// Update company profile/settings
 router.put('/:companyId', verifyCompanyMembership, async (req: AuthenticatedRequest, res: Response) => {
   const { companyId } = req.params;
+  const uid = req.user?.uid;
   const { name, taxNumber, address, phone, logoUrl, baseCurrency, settings } = req.body;
 
   try {
@@ -332,6 +452,35 @@ router.put('/:companyId', verifyCompanyMembership, async (req: AuthenticatedRequ
 
     const row = result.rows[0];
     const dbSettings = row.settings || {};
+
+    // Fetch workspace subscription to override company subscription settings dynamically
+    let wsSubscription: any = null;
+    try {
+      const db = admin.firestore();
+      const wsDoc = await db.collection('workspace_subscriptions').doc(uid!).get();
+      if (wsDoc.exists) {
+        wsSubscription = wsDoc.data();
+      }
+    } catch (wsErr) {
+      console.error('[Companies PUT] Failed to fetch workspace subscription:', wsErr);
+    }
+
+    const isWorkspaceActive = wsSubscription && wsSubscription.status === 'ACTIVE';
+    let status = dbSettings.subscriptionStatus || 'TRIAL';
+    let plan = dbSettings.subscriptionPlan || 'TRIAL';
+    let endsAt = dbSettings.subscriptionEndsAt;
+    let trialEnds = dbSettings.trialEndsAt;
+
+    if (isWorkspaceActive) {
+      status = 'ACTIVE';
+      plan = wsSubscription.plan || 'BASIC';
+      endsAt = wsSubscription.expiresAt;
+    } else if (wsSubscription && (wsSubscription.status === 'TRIAL' || wsSubscription.status === 'EXPIRED')) {
+      status = wsSubscription.status;
+      plan = wsSubscription.plan;
+      trialEnds = wsSubscription.expiresAt || trialEnds;
+    }
+
     const mappedCompany = {
       id: row.id,
       name: row.name,
@@ -343,11 +492,11 @@ router.put('/:companyId', verifyCompanyMembership, async (req: AuthenticatedRequ
       createdAt: row.created_at ? new Date(row.created_at).toISOString() : dbSettings.createdAt,
       
       // Flatten subscription fields from settings JSONB
-      trialEndsAt: dbSettings.trialEndsAt || undefined,
-      subscriptionStatus: dbSettings.subscriptionStatus || undefined,
-      subscriptionPlan: dbSettings.subscriptionPlan || undefined,
+      trialEndsAt: trialEnds,
+      subscriptionStatus: status,
+      subscriptionPlan: plan,
       subscriptionStartsAt: dbSettings.subscriptionStartsAt || undefined,
-      subscriptionEndsAt: dbSettings.subscriptionEndsAt || undefined,
+      subscriptionEndsAt: endsAt,
       graceDays: dbSettings.graceDays !== undefined ? Number(dbSettings.graceDays) : undefined,
       activationCode: dbSettings.activationCode || undefined,
       

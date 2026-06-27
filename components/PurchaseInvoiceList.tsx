@@ -337,7 +337,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
             <thead><tr><th>#</th><th>${tr('رقم الصنف', 'Item No.')}</th><th style="text-align:right;">${tr('البيان', 'Description')}</th><th>${tr('الكمية', 'Quantity')}</th><th>${tr('السعر', 'Price')}</th><th>${tr('الإجمالي', 'Total')}</th></tr></thead>
             <tbody>${itemsRows}</tbody></table>
           <div style="text-align: left;">${totalsBlock}</div>
-          ${autoPrint ? '<script>window.onload = function() { window.print(); }</script>' : ''}
+          ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
         </body>
       </html>
     `;

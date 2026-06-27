@@ -1,4 +1,4 @@
-﻿import JsBarcode from 'jsbarcode';
+import JsBarcode from 'jsbarcode';
 import type { Product } from '../types';
 import type { BarcodeReaderSettings } from './barcodeSettings';
 import { appendDeviceHubLog } from './deviceHub';
@@ -123,7 +123,7 @@ export const printProductBarcodeLabel = (params: {
 </head>
 <body>
   <div class="sheet">${labels}</div>
-  <script>window.onload = () => setTimeout(() => window.print(), 120);</script>
+  <script>window.focus(); setTimeout(() => window.print(), 120);</script>
 </body>
 </html>`);
   win.document.close();

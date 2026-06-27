@@ -244,9 +244,58 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         );
       } catch (err: any) {
         if (cancelled) return;
-        console.error('[BarcodeScannerModal] Failed to start scanner:', err);
-        const errMsg = err?.message || err?.name || String(err || '');
-        setError(errMsg);
+        console.warn('[BarcodeScannerModal] Failed to start scanner with advanced constraints. Retrying with basic constraints...', err);
+
+        try {
+          if (scannerRef.current) {
+            try {
+              if (scannerRef.current.isScanning) {
+                await scannerRef.current.stop();
+              }
+              await scannerRef.current.clear();
+            } catch (cleanupErr) {
+              console.warn('[BarcodeScannerModal] Cleanup failed before retry:', cleanupErr);
+            }
+          }
+
+          const html5QrCode = new Html5Qrcode(READER_ID, {
+            formatsToSupport: SUPPORTED_FORMATS,
+            verbose: true,
+          });
+          scannerRef.current = html5QrCode;
+
+          const basicConfig = {
+            fps: 30,
+            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+              const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
+              const boxSize = Math.floor(minDimension * 0.9);
+              return { width: boxSize, height: Math.floor(boxSize * 0.6) };
+            },
+            aspectRatio: 1.777778,
+            videoConstraints: {
+              facingMode: 'environment',
+            },
+          };
+
+          await html5QrCode.start(
+            { facingMode: 'environment' },
+            basicConfig,
+            (decodedText) => {
+              if (!cancelled) handleScanResult(decodedText);
+            },
+            (errorMessage, error) => {
+              if (error) {
+                console.debug('[BarcodeScannerModal] Scan attempt:', errorMessage);
+                setScanAttempts(prev => prev + 1);
+              }
+            }
+          );
+        } catch (retryErr: any) {
+          if (cancelled) return;
+          console.error('[BarcodeScannerModal] Failed to start scanner even with basic constraints:', retryErr);
+          const errMsg = retryErr?.message || retryErr?.name || String(retryErr || '');
+          setError(errMsg);
+        }
       }
     };
 

@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { ensureCameraPermission } from '../utils/cameraPermission';
-import { createPortal, flushSync } from 'react-dom';
+import BarcodeScannerModal from './BarcodeScannerModal';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product, ProductKind } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
@@ -55,7 +53,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   const [groupIcon, setGroupIcon] = useState('📦');
   const [newUnitName, setNewUnitName] = useState('');
   const [newUnitCode, setNewUnitCode] = useState('');
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+
   const isEditing = !!product;
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const barcodeEnabled = companySettings.barcodeEnabled ?? true;
@@ -141,88 +139,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setLowStockAlertQty(product.lowStockAlertQty !== undefined ? String(product.lowStockAlertQty) : '');
   }, [product, initialName]);
 
-  // Scanner Management
-  const startScanner = async () => {
-    if (!(await ensureCameraPermission(tr))) return;
-
-    flushSync(() => {
-      setShowScanner(true);
-    });
-
-    try {
-      const html5QrCode = new Html5Qrcode('quick-add-product-reader', {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.QR_CODE
-        ]
-      });
-      scannerRef.current = html5QrCode;
-
-      const config = {
-        fps: 15,
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true
-        }
-      };
-
-      const cameraConstraints = {
-        facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      };
-
-      await html5QrCode.start(
-        cameraConstraints,
-        config,
-        (decodedText) => {
-          setBarcode(decodedText);
-          stopAndCloseScanner();
-        },
-        () => {} // ignore scan errors
-      );
-    } catch (err: any) {
-      console.error('Barcode scanner failed to start', err);
-      const errMsg = err?.message || err?.name || String(err || '');
-      alert(tr(
-        `تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات في إعدادات المتصفح.\nالخطأ: ${errMsg}`,
-        `Unable to access camera. Please grant camera permission in browser settings.\nError: ${errMsg}`
-      ));
-      setShowScanner(false);
-    }
-  };
-
-  const stopAndCloseScanner = async () => {
-    if (scannerRef.current) {
-      const qr = scannerRef.current;
-      scannerRef.current = null;
-      try {
-        if (qr.isScanning) {
-          await qr.stop();
-        }
-        await qr.clear();
-      } catch (e) {
-        console.error('Error stopping scanner:', e);
-      }
-    }
-    setShowScanner(false);
-  };
-
-  // Ensure scanner is stopped on unmount
-  useEffect(() => {
-    return () => {
-      if (scannerRef.current) {
-        const qr = scannerRef.current;
-        if (qr.isScanning) {
-          qr.stop().then(() => qr.clear()).catch(console.error);
-        }
-      }
-    };
-  }, []);
+  // Scanner Management — handled by BarcodeScannerModal
 
   const handlePickImage = async (file?: File | null) => {
     if (!file) return;
@@ -512,7 +429,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                   <ScanBarcode className={`absolute top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none ${isEnglish ? 'left-4' : 'right-4'}`} size={18} />
                   <button
                     type="button"
-                    onClick={startScanner}
+                    onClick={() => setShowScanner(true)}
                     className={`absolute top-1/2 -translate-y-1/2 rounded-xl bg-blue-50 p-2 text-blue-600 transition-colors hover:bg-blue-100 ${isEnglish ? 'right-3' : 'left-3'}`}
                     title={tr('مسح الباركود بالكاميرا', 'Scan barcode with camera')}
                   >
@@ -860,27 +777,12 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
         </div>
       </form>
 
-      {showScanner && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[350] flex flex-col bg-black">
-          <div className="relative flex-1 bg-black">
-            <div id="quick-add-product-reader" className="h-full w-full"></div>
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center border-[50px] border-black/50">
-              <div className="h-64 w-64 rounded-3xl border-4 border-blue-500/50 animate-pulse"></div>
-            </div>
-          </div>
-          <div className="flex items-center justify-between bg-black p-6 text-white">
-            <p className="text-sm font-bold">{tr('وجه الكاميرا نحو الباركود...', 'Point the camera at the barcode...')}</p>
-            <button
-              type="button"
-              onClick={stopAndCloseScanner}
-              className="rounded-full bg-white/20 p-3 transition-all hover:bg-white/30"
-            >
-              <X size={24} />
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
+      <BarcodeScannerModal
+        open={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScan={(code) => setBarcode(code)}
+        tr={tr}
+      />
 
       {showGroupForm && (
         <ResponsiveDialog

@@ -228,6 +228,8 @@ const enforceNumericFieldsInRoot = (root: ParentNode): void => {
 };
 
 let isApplied = false;
+let nativeInputSet: ((this: HTMLInputElement, val: string) => void) | null = null;
+let nativeTextAreaSet: ((this: HTMLTextAreaElement, val: string) => void) | null = null;
 
 const patchValueSetter = <T extends HTMLInputElement | HTMLTextAreaElement>(
   proto: { prototype: T },
@@ -239,6 +241,12 @@ const patchValueSetter = <T extends HTMLInputElement | HTMLTextAreaElement>(
 
   const originalGet = descriptor.get;
   const originalSet = descriptor.set;
+
+  if (kind === 'input') {
+    nativeInputSet = originalSet as any;
+  } else {
+    nativeTextAreaSet = originalSet as any;
+  }
   const patchedSetter = function (this: T, nextValue: string) {
     const raw = String(nextValue ?? '');
     let normalized = raw;
@@ -358,6 +366,22 @@ export const forceEnglishDigits = (): void => {
     normalizeElementDigitAttributes(target);
   };
 
+  const setInputValueForReact = (target: HTMLInputElement | HTMLTextAreaElement, nextVal: string, oldVal: string): void => {
+    const tracker = (target as any)._valueTracker;
+    if (tracker) {
+      tracker.setValue(oldVal);
+    }
+
+    const nativeSetter = target instanceof HTMLTextAreaElement ? nativeTextAreaSet : nativeInputSet;
+    if (nativeSetter) {
+      nativeSetter.call(target, nextVal);
+    } else {
+      target.value = nextVal;
+    }
+
+    target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+  };
+
   const handleBeforeInput = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
@@ -369,21 +393,32 @@ export const forceEnglishDigits = (): void => {
     const converted = toEnglishDigits(data);
     event.preventDefault();
 
+    let success = false;
     try {
-      document.execCommand('insertText', false, converted);
+      success = document.execCommand('insertText', false, converted);
     } catch {
-      const start = target.selectionStart ?? 0;
-      const end = target.selectionEnd ?? 0;
+      success = false;
+    }
+
+    if (!success) {
+      let start = 0;
+      let end = 0;
+      try {
+        start = target.selectionStart ?? 0;
+        end = target.selectionEnd ?? 0;
+      } catch {
+        start = target.value.length;
+        end = target.value.length;
+      }
       const val = target.value;
       const nextVal = val.slice(0, start) + converted + val.slice(end);
-      target.value = nextVal;
+      setInputValueForReact(target, nextVal, val);
       const pos = start + converted.length;
       try {
         target.setSelectionRange(pos, pos);
       } catch {
         // ignore
       }
-      target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
     }
   };
 
@@ -401,21 +436,32 @@ export const forceEnglishDigits = (): void => {
     const converted = toEnglishDigits(text);
     event.preventDefault();
 
+    let success = false;
     try {
-      document.execCommand('insertText', false, converted);
+      success = document.execCommand('insertText', false, converted);
     } catch {
-      const start = target.selectionStart ?? 0;
-      const end = target.selectionEnd ?? 0;
+      success = false;
+    }
+
+    if (!success) {
+      let start = 0;
+      let end = 0;
+      try {
+        start = target.selectionStart ?? 0;
+        end = target.selectionEnd ?? 0;
+      } catch {
+        start = target.value.length;
+        end = target.value.length;
+      }
       const val = target.value;
       const nextVal = val.slice(0, start) + converted + val.slice(end);
-      target.value = nextVal;
+      setInputValueForReact(target, nextVal, val);
       const pos = start + converted.length;
       try {
         target.setSelectionRange(pos, pos);
       } catch {
         // ignore
       }
-      target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
     }
 
     queueMicrotask(() => {

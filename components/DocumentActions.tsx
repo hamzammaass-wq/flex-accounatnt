@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileSpreadsheet, MessageCircle, MessageSquareText, MoreVertical, Printer, Save, Share2, FileText } from 'lucide-react';
+import { FileSpreadsheet, MessageCircle, MessageSquareText, MoreVertical, Printer, Share2 } from 'lucide-react';
 
 interface DocumentActionsProps {
   title: string;
@@ -219,7 +219,6 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
       ? 'border border-white/10 bg-slate-900/95 text-white shadow-2xl'
       : 'border border-gray-100 bg-white text-slate-700 shadow-xl';
   const disabledButtonClass = isBusy ? 'opacity-60 cursor-not-allowed' : '';
-  const SaveButtonIcon = saveButtonIcon === 'fileText' ? FileText : Save;
 
   return (
     <div
@@ -236,22 +235,6 @@ const DocumentActions: React.FC<DocumentActionsProps> = ({
       >
         <Printer size={16} />
       </button>
-
-      {showSaveButton && (onSave || onExcel) && (
-        <button
-          type="button"
-          title={saveTitle || tr('تنزيل', 'Download')}
-          onClick={() => {
-            const primaryAction = onSave || onExcel;
-            if (!primaryAction) return;
-            void runAsyncAction(primaryAction);
-          }}
-          disabled={isBusy}
-          className={`h-10 w-10 rounded-xl border flex items-center justify-center transition-all ${saveButtonClass} ${disabledButtonClass}`}
-        >
-          <SaveButtonIcon size={16} />
-        </button>
-      )}
 
       <button
         type="button"

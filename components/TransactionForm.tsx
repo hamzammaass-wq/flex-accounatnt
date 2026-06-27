@@ -24,8 +24,7 @@ import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { translateDocumentNumber } from '../utils/i18n';
 import { getInvoiceAllocatedAmount, getInvoiceRemainingBase } from '../utils/invoiceSettlement';
 import { loadBarcodeReaderSettings } from '../utils/barcodeSettings';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { ensureCameraPermission } from '../utils/cameraPermission';
+import BarcodeScannerModal from './BarcodeScannerModal';
 import { appendDeviceHubLog } from '../utils/deviceHub';
 import { buildNextItemCode, normalizeItemCode } from '../utils/itemCode';
 import { resolveInvoiceProductUnitPrice } from '../utils/invoicePricing';
@@ -1200,7 +1199,6 @@ const InvoiceScreen: React.FC<{
     const [search, setSearch] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
-    const invoiceBarcodeScannerRef = useRef<Html5Qrcode | null>(null);
 
     const [newItemDesc, setNewItemDesc] = useState('');
     const [newItemQty, setNewItemQty] = useState('1');
@@ -1373,118 +1371,7 @@ const InvoiceScreen: React.FC<{
         setInvoiceNumber(prev => prev.trim() ? prev : generateInvoiceNumber());
     }, [editingInvoice, generateInvoiceNumber]);
 
-    const startBarcodeScanner = async () => {
-        if (!(await ensureCameraPermission(tr))) return;
 
-        flushSync(() => {
-            setShowBarcodeScanner(true);
-        });
-
-        try {
-            const qr = new Html5Qrcode('invoice-barcode-reader', {
-                formatsToSupport: [
-                    Html5QrcodeSupportedFormats.EAN_13,
-                    Html5QrcodeSupportedFormats.EAN_8,
-                    Html5QrcodeSupportedFormats.CODE_128,
-                    Html5QrcodeSupportedFormats.CODE_39,
-                    Html5QrcodeSupportedFormats.UPC_A,
-                    Html5QrcodeSupportedFormats.UPC_E,
-                    Html5QrcodeSupportedFormats.QR_CODE
-                ]
-            });
-            invoiceBarcodeScannerRef.current = qr;
-
-            const config = {
-                fps: 15,
-                experimentalFeatures: {
-                    useBarCodeDetectorIfSupported: true
-                }
-            };
-
-            const cameraConstraints = {
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            };
-
-            await qr.start(
-                cameraConstraints,
-                config,
-                (decodedText) => {
-                    const scanned = String(decodedText || '').trim();
-                    if (!scanned) return;
-                    setSearch(scanned);
-                    const exact = products.find(p =>
-                        String(p.barcode || '').trim() === scanned ||
-                        String(p.itemCode || '').trim().toLowerCase() === scanned.toLowerCase()
-                    );
-                    if (exact) {
-                        appendDeviceHubLog(currentCompanyId, {
-                            deviceType: 'BARCODE_SCANNER',
-                            action: 'SCAN',
-                            status: 'SUCCESS',
-                            message: `Camera barcode scan matched product: ${exact.id}`,
-                            metadata: { source: 'camera', scanned }
-                        });
-                        addItem(exact);
-                        setIsSearchFocused(false);
-                    } else {
-                        appendDeviceHubLog(currentCompanyId, {
-                            deviceType: 'BARCODE_SCANNER',
-                            action: 'SCAN',
-                            status: 'ERROR',
-                            message: 'Camera barcode scan did not match any product',
-                            metadata: { source: 'camera', scanned }
-                        });
-                    }
-                    stopAndCloseBarcodeScanner();
-                },
-                () => undefined
-            );
-        } catch (err: any) {
-            appendDeviceHubLog(currentCompanyId, {
-                deviceType: 'BARCODE_SCANNER',
-                action: 'SCAN',
-                status: 'ERROR',
-                message: 'Failed to start camera barcode scanner',
-                metadata: { source: 'camera' }
-            });
-            const errMsg = err?.message || err?.name || String(err || '');
-            alert(tr(
-                `تعذر تشغيل كاميرا الباركود. يرجى التأكد من منح الصلاحيات في إعدادات المتصفح.\nالخطأ: ${errMsg}`,
-                `Unable to start barcode camera scanner. Please grant camera permission in browser settings.\nError: ${errMsg}`
-            ));
-            setShowBarcodeScanner(false);
-        }
-    };
-
-    const stopAndCloseBarcodeScanner = async () => {
-        if (invoiceBarcodeScannerRef.current) {
-            const qr = invoiceBarcodeScannerRef.current;
-            invoiceBarcodeScannerRef.current = null;
-            try {
-                if (qr.isScanning) {
-                    await qr.stop();
-                }
-                await qr.clear();
-            } catch (e) {
-                console.error("Error stopping scanner:", e);
-            }
-        }
-        setShowBarcodeScanner(false);
-    };
-
-    // Ensure scanner is stopped on unmount
-    useEffect(() => {
-        return () => {
-            if (invoiceBarcodeScannerRef.current) {
-                const qr = invoiceBarcodeScannerRef.current;
-                if (qr.isScanning) {
-                    qr.stop().then(() => qr.clear()).catch(() => undefined);
-                }
-            }
-        };
-    }, []);
 
     useEffect(() => {
         if (editingInvoice) return;
@@ -1774,6 +1661,35 @@ const InvoiceScreen: React.FC<{
         setSearch('');
         setIsSearchFocused(false);
     };
+
+    // Barcode camera scan handler — delegates to shared BarcodeScannerModal
+    const handleBarcodeCameraScan = useCallback((scanned: string) => {
+        if (!scanned) return;
+        setSearch(scanned);
+        const exact = products.find(p =>
+            String(p.barcode || '').trim() === scanned ||
+            String(p.itemCode || '').trim().toLowerCase() === scanned.toLowerCase()
+        );
+        if (exact) {
+            appendDeviceHubLog(currentCompanyId, {
+                deviceType: 'BARCODE_SCANNER',
+                action: 'SCAN',
+                status: 'SUCCESS',
+                message: `Camera barcode scan matched product: ${exact.id}`,
+                metadata: { source: 'camera', scanned }
+            });
+            addItem(exact);
+            setIsSearchFocused(false);
+        } else {
+            appendDeviceHubLog(currentCompanyId, {
+                deviceType: 'BARCODE_SCANNER',
+                action: 'SCAN',
+                status: 'ERROR',
+                message: 'Camera barcode scan did not match any product',
+                metadata: { source: 'camera', scanned }
+            });
+        }
+    }, [products, currentCompanyId, addItem]);
 
     const addManualItem = () => {
         if (!manualItemDesc || !manualItemPrice) return;
@@ -3041,9 +2957,7 @@ const InvoiceScreen: React.FC<{
                     }}
                     className={`invoice-search-form grid gap-2 items-center relative rounded-2xl border border-slate-200 bg-slate-50/70 p-2 ${isExpenseVoucherManualOnly
                         ? 'grid-cols-1'
-                        : (barcodeSettings.allowCameraScannerInInvoices || barcodeSettings.scannerMode === 'CAMERA')
-                            ? 'grid-cols-[minmax(0,1fr),auto,auto]'
-                            : 'grid-cols-[minmax(0,1fr),auto]'
+                        : 'grid-cols-[minmax(0,1fr),auto,auto]'
                         }`}
                 >
                     <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
@@ -3064,12 +2978,12 @@ const InvoiceScreen: React.FC<{
                         />
                     </div>
 
-                    {!isExpenseVoucherManualOnly && (barcodeSettings.allowCameraScannerInInvoices || barcodeSettings.scannerMode === 'CAMERA') && (
+                    {!isExpenseVoucherManualOnly && (
                         <button
                             type="button"
                             onClick={() => {
                                 setIsSearchFocused(false);
-                                startBarcodeScanner();
+                                setShowBarcodeScanner(true);
                             }}
                             className="invoice-camera-scanner-button flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
                         >
@@ -3415,22 +3329,13 @@ const InvoiceScreen: React.FC<{
             />
 
             {/* Overlays / Modals */}
-            {showBarcodeScanner && (
-                <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col">
-                    <div className="relative flex-1">
-                        <div id="invoice-barcode-reader" className="w-full h-full"></div>
-                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                            <div className="w-72 h-44 border-2 border-indigo-400 rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,.4)]"></div>
-                        </div>
-                    </div>
-                    <div className="shrink-0 p-4 bg-black flex items-center justify-between gap-3 safe-area-bottom">
-                        <span className="text-[11px] font-bold text-white">{tr('وجّه الكاميرا نحو الباركود', 'Point camera')}</span>
-                        <button type="button" onClick={stopAndCloseBarcodeScanner} className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black">
-                            {tr('إلغاء', 'Cancel')}
-                        </button>
-                    </div>
-                </div>
-            )}
+            <BarcodeScannerModal
+                open={showBarcodeScanner}
+                onClose={() => setShowBarcodeScanner(false)}
+                onScan={handleBarcodeCameraScan}
+                continuous
+                tr={tr}
+            />
 
             {stockShortageIssue && (
                 <ResponsiveDialog

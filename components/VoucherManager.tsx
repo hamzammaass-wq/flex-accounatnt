@@ -415,7 +415,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
             <h3 style="text-align:left; margin-top:16px;">${tr('الإجمالي', 'Total')}: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}</h3>
             ${accountBalancesHtml}
             ${companySettings.statementFooterNote ? `<div class="footer-note">${escapeHtml(companySettings.statementFooterNote)}</div>` : ''}
-            ${autoPrint ? '<script>window.onload = () => window.print();</script>' : ''}
+            ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
           </body>
         </html>`;
     };

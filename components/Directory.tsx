@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { useAccounting } from '../contexts/AccountingContext';
 import { ContactType, TransactionType, Contact, Invoice } from '../types';
 import ContactEditorDialog from './ContactEditorDialog';
@@ -13,7 +13,7 @@ import {
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, printElementContent, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, applyExcelStyles, printElementContent, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
 import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
 import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
 
@@ -508,12 +508,12 @@ const Directory: React.FC = () => {
                     <div className="statement-mobile-canvas">
                         <table
                             dir={isEnglish ? 'ltr' : 'rtl'}
-                            className="directory-statement-table statement-classic-table statement-classic-table--paper w-full text-start table-fixed min-w-0 max-w-full"
+                            className={`directory-statement-table statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper w-full text-start table-fixed min-w-0 max-w-full ${hideVoucherColumnInStatement ? '' : 'statement-report-table--with-voucher'}`}
                         >
                             <colgroup>
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '13%' }} />
-                                <col style={{ width: '41%' }} />
+                                <col style={{ width: hideVoucherColumnInStatement ? '15%' : '12%' }} />
+                                {!hideVoucherColumnInStatement && <col style={{ width: '13%' }} />}
+                                <col style={{ width: hideVoucherColumnInStatement ? '54%' : '41%' }} />
                                 <col style={{ width: '11%' }} />
                                 <col style={{ width: '11%' }} />
                                 <col style={{ width: '12%' }} />
@@ -521,7 +521,7 @@ const Directory: React.FC = () => {
                             <thead>
                                 <tr>
                                     <th>{tr('التاريخ', 'Date')}</th>
-                                    <th>{tr('المستند', 'Document')}</th>
+                                    {!hideVoucherColumnInStatement && <th>{tr('المستند', 'Document')}</th>}
                                     <th>{tr('البيان', 'Description')}</th>
                                     <th>{tr('مدين', 'Debit')}</th>
                                     <th>{tr('دائن', 'Credit')}</th>
@@ -531,7 +531,7 @@ const Directory: React.FC = () => {
                             <tbody>
                                 <tr className="statement-classic-row statement-classic-row--opening">
                                     <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
-                                    <td className="statement-classic-document-cell"></td>
+                                    {!hideVoucherColumnInStatement && <td className="statement-classic-document-cell"></td>}
                                     <td className="statement-classic-description">{tr('رصيد منقول', 'Balance B/F')}</td>
                                     <td className="statement-classic-placeholder"></td>
                                     <td className="statement-classic-placeholder"></td>
@@ -544,12 +544,14 @@ const Directory: React.FC = () => {
                                         <React.Fragment key={row.id}>
                                             <tr className={`statement-classic-row ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
                                                 <td className="statement-classic-date-cell dir-ltr">{row.dateText}</td>
-                                                <td className="statement-classic-document-cell">
-                                                    <div className="statement-classic-document-wrap">
-                                                        <span className="statement-classic-document-label">{row.primaryDescription}</span>
-                                                        <span className="statement-classic-document-number dir-ltr">{row.documentNumber}</span>
-                                                    </div>
-                                                </td>
+                                                {!hideVoucherColumnInStatement && (
+                                                    <td className="statement-classic-document-cell">
+                                                        <div className="statement-classic-document-wrap">
+                                                            <span className="statement-classic-document-label">{row.primaryDescription}</span>
+                                                            <span className="statement-classic-document-number dir-ltr">{row.documentNumber}</span>
+                                                        </div>
+                                                    </td>
+                                                )}
                                                 <td className="statement-classic-description">
                                                     <div className="statement-classic-primary">{row.secondaryDescription}</div>
                                                 </td>
@@ -560,8 +562,7 @@ const Directory: React.FC = () => {
                                             {detailBlock && (
                                                 <tr className="statement-classic-detail-row">
                                                     <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-detail-cell">{detailBlock}</td>
+                                                    <td colSpan={hideVoucherColumnInStatement ? 1 : 2} className="statement-classic-detail-cell">{detailBlock}</td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
@@ -573,20 +574,20 @@ const Directory: React.FC = () => {
 
                                 {rows.length === 0 && (
                                     <tr className="statement-classic-empty-row">
-                                        <td colSpan={6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                        <td colSpan={hideVoucherColumnInStatement ? 5 : 6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
                                     </tr>
                                 )}
 
                                 <tr className="statement-classic-summary-inline-row">
                                     <td></td>
-                                    <td></td>
+                                    {!hideVoucherColumnInStatement && <td></td>}
                                     <td></td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatStatementFigure(totalDebit)}</td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatStatementFigure(totalCredit)}</td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatStatementFigure(closingBalance)}</td>
                                 </tr>
                                 <tr className="statement-classic-fill-row">
-                                    <td colSpan={6}></td>
+                                    <td colSpan={hideVoucherColumnInStatement ? 5 : 6}></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1381,89 +1382,6 @@ const Directory: React.FC = () => {
         }
     };
 
-    const exportStatementExcel = (contact: Contact) => {
-        try {
-        const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
-        const printableStatements = statementDateAscending ? [...stmts] : [...stmts].reverse();
-        const title = `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`;
-        const periodText = `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`;
-        const contactInfo = printPersonalData
-            ? `${tr('الهاتف', 'Phone')}: ${contact.phone || '-'}${contact.address ? ` | ${tr('العنوان', 'Address')}: ${contact.address}` : ''}`
-            : '';
-        const toExcelNumber = (value: number) => Number((Number(value) || 0).toFixed(2));
-        const descriptionColumnIndex = hideVoucherColumnInStatement ? 1 : 2;
-        const tableHeader = [
-            tr('التاريخ', 'Date'),
-            ...(!hideVoucherColumnInStatement ? [tr('السند', 'Voucher')] : []),
-            tr('البيان', 'Description'),
-            debitLabel,
-            creditLabel,
-            tr('الرصيد', 'Balance')
-        ];
-        const rows: (string | number)[][] = [
-            [title],
-            [periodText]
-        ];
-
-        if (contactInfo) {
-            rows.push([contactInfo]);
-        }
-
-        rows.push([]);
-        const headerRowIndex = rows.length;
-        rows.push(tableHeader);
-        rows.push([
-            '-',
-            ...(!hideVoucherColumnInStatement ? ['-'] : []),
-            tr('الرصيد الافتتاحي', 'Opening balance'),
-            '',
-            '',
-            toExcelNumber(openingBalance)
-        ]);
-
-        printableStatements.forEach(entry => {
-            const invoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
-            const details = buildStatementEntryDetails(entry, contact, invoice);
-            rows.push([
-                formatDate(entry.date) || '',
-                ...(!hideVoucherColumnInStatement ? [getStatementDocumentNumber(entry)] : []),
-                [entry.description, details].filter(Boolean).join('\n'),
-                entry.debit > 0 ? toExcelNumber(entry.debit) : '',
-                entry.credit > 0 ? toExcelNumber(entry.credit) : '',
-                toExcelNumber(entry.runningBalance)
-            ]);
-        });
-
-        rows.push([]);
-        const closingRow = new Array(tableHeader.length).fill('');
-        closingRow[descriptionColumnIndex] = tr('الرصيد الختامي', 'Closing Balance');
-        closingRow[tableHeader.length - 1] = toExcelNumber(closingBalance);
-        rows.push(closingRow);
-
-        const worksheet = XLSX.utils.aoa_to_sheet(rows);
-        worksheet['!cols'] = [
-            { wch: 14 },
-            ...(!hideVoucherColumnInStatement ? [{ wch: 16 }] : []),
-            { wch: 68 },
-            { wch: 14 },
-            { wch: 14 },
-            { wch: 16 }
-        ];
-        worksheet['!autofilter'] = {
-            ref: XLSX.utils.encode_range({
-                s: { r: headerRowIndex, c: 0 },
-                e: { r: headerRowIndex, c: tableHeader.length - 1 }
-            })
-        };
-
-        const workbook = XLSX.utils.book_new();
-        workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Statement');
-        downloadWorkbookFile(workbook, { fileName: buildStatementExcelName(contact) });
-        } catch {
-            alert(tr('تعذر تصدير كشف الحساب إلى Excel.', 'Could not export the statement to Excel.'));
-        }
-    };
 
     const handleShareStatementWhatsApp = async (contact: Contact, closingBalance: number, shareWindow?: Window | null) => {
         const shareText = buildStatementShareText(contact, closingBalance);
@@ -1651,73 +1569,259 @@ const Directory: React.FC = () => {
                 ? `${tr('الهاتف', 'Phone')}: ${contact.phone || '-'}${contact.address ? ` | ${tr('العنوان', 'Address')}: ${contact.address}` : ''}`
                 : '';
             const toExcelNumber = (value: number) => Number((Number(value) || 0).toFixed(2));
-            const descriptionColumnIndex = hideVoucherColumnInStatement ? 1 : 2;
+            
+            const colCount = 13;
+            const descriptionColumnIndex = 2;
+            const amountColIndex = 5;
+            const qtyColIndex = 7;
+            const priceColIndex = 8;
+            const totalColIndex = 9;
+            const debitColIndex = 10;
+            const creditColIndex = 11;
+            const balanceColIndex = 12;
+
             const tableHeader = [
                 tr('التاريخ', 'Date'),
-                ...(!hideVoucherColumnInStatement ? [tr('السند', 'Voucher')] : []),
+                tr('المستند', 'Document'),
                 tr('البيان', 'Description'),
+                tr('العملية', 'Operation'),
+                tr('الحساب', 'Account'),
+                tr('المبلغ', 'Amount'),
+                tr('اسم الصنف', 'Product Name'),
+                tr('الكمية', 'Qty'),
+                tr('السعر', 'Price'),
+                tr('الإجمالي', 'Total'),
                 debitLabel,
                 creditLabel,
                 tr('الرصيد', 'Balance')
             ];
+
+            // ── Build rows ──
             const rows: (string | number)[][] = [
-                [title],
-                [periodText]
+                [title, ...new Array(colCount - 1).fill('')],
+                [periodText, ...new Array(colCount - 1).fill('')]
             ];
 
             if (contactInfo) {
-                rows.push([contactInfo]);
+                rows.push([contactInfo, ...new Array(colCount - 1).fill('')]);
             }
 
-            rows.push([]);
+            rows.push(new Array(colCount).fill(''));
             const headerRowIndex = rows.length;
             rows.push(tableHeader);
+
+            // Opening balance row
             rows.push([
-                '-',
-                ...(!hideVoucherColumnInStatement ? ['-'] : []),
+                stmtStartDate || '-',
+                '',
                 tr('الرصيد الافتتاحي', 'Opening balance'),
+                '', '', '', '', '', '', '',
                 '',
                 '',
                 toExcelNumber(openingBalance)
             ]);
 
+            // Data rows
+            let totalDebit = 0;
+            let totalCredit = 0;
             printableStatements.forEach(entry => {
                 const invoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
-                const details = buildStatementEntryDetails(entry, contact, invoice);
+                const docNum = getStatementDocumentNumber(entry);
+                const dateText = formatDate(entry.date) || '';
+                const descText = entry.description || '';
+
+                const debitVal = entry.debit > 0 ? toExcelNumber(entry.debit) : '';
+                const creditVal = entry.credit > 0 ? toExcelNumber(entry.credit) : '';
+                if (typeof debitVal === 'number') totalDebit += debitVal;
+                if (typeof creditVal === 'number') totalCredit += creditVal;
+
+                // Main row
                 rows.push([
-                    formatDate(entry.date) || '',
-                    ...(!hideVoucherColumnInStatement ? [getStatementDocumentNumber(entry)] : []),
-                    [entry.description, details].filter(Boolean).join('\n'),
-                    entry.debit > 0 ? toExcelNumber(entry.debit) : '',
-                    entry.credit > 0 ? toExcelNumber(entry.credit) : '',
+                    dateText,
+                    docNum,
+                    descText,
+                    '', '', '', '', '', '', '',
+                    debitVal,
+                    creditVal,
                     toExcelNumber(entry.runningBalance)
                 ]);
+
+                // 1. Invoice Items
+                if (invoice) {
+                    invoice.items.forEach((item, index) => {
+                        const product = products.find(p => p.id === item.productId);
+                        const name = item.description || displayProductName(product);
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            tr('بيع صنف', 'Invoice Item'),
+                            '',
+                            '',
+                            name,
+                            toExcelNumber(item.quantity),
+                            toExcelNumber(item.unitPrice),
+                            toExcelNumber(item.total),
+                            '',
+                            '',
+                            ''
+                        ]);
+                    });
+                }
+
+                // 2. Checks & Payments
+                const subTransactions = entry.subTransactions || [entry];
+                subTransactions.forEach((sub: any) => {
+                    const relatedCheck = sub.checkId ? checks.find(c => c.id === sub.checkId) : null;
+                    if (relatedCheck) {
+                        const bankAccount = relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : null;
+                        const bankName = displayAccountName(bankAccount || { id: '', name: relatedCheck.bankName });
+                        const checkInfo = [
+                            `${tr('شيك', 'Check')}: ${relatedCheck.checkNumber}`,
+                            `${tr('الاستحقاق', 'Due')}: ${formatDate(relatedCheck.dueDate) || '-'}`
+                        ].join(' | ');
+
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            tr('شيك', 'Check'),
+                            bankName,
+                            toExcelNumber(relatedCheck.amount),
+                            checkInfo,
+                            '', '', '',
+                            '', '', ''
+                        ]);
+                        return;
+                    }
+
+                    const { contraAccountId, isReceipt } = getPaymentLineMeta(sub, contact);
+                    const account = accounts.find(a => a.id === contraAccountId);
+                    if (account && !invoice) {
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                            displayAccountName(account),
+                            toExcelNumber(sub.amount),
+                            '', '', '', '',
+                            '', '', ''
+                        ]);
+                    }
+                });
             });
 
-            rows.push([]);
-            const closingRow = new Array(tableHeader.length).fill('');
+            // Separator
+            rows.push(new Array(colCount).fill(''));
+
+            // Totals row
+            const totalsRow: (string | number)[] = new Array(colCount).fill('');
+            totalsRow[descriptionColumnIndex] = tr('الإجمالي', 'Total');
+            totalsRow[debitColIndex] = totalDebit > 0 ? toExcelNumber(totalDebit) : '';
+            totalsRow[creditColIndex] = totalCredit > 0 ? toExcelNumber(totalCredit) : '';
+            rows.push(totalsRow);
+
+            // Closing balance row
+            const closingRow: (string | number)[] = new Array(colCount).fill('');
             closingRow[descriptionColumnIndex] = tr('الرصيد الختامي', 'Closing Balance');
-            closingRow[tableHeader.length - 1] = toExcelNumber(closingBalance);
+            closingRow[balanceColIndex] = toExcelNumber(closingBalance);
             rows.push(closingRow);
 
+            // ── Create worksheet ──
             const worksheet = XLSX.utils.aoa_to_sheet(rows);
-            worksheet['!cols'] = [
-                { wch: 14 },
-                ...(!hideVoucherColumnInStatement ? [{ wch: 16 }] : []),
-                { wch: 68 },
-                { wch: 14 },
-                { wch: 14 },
-                { wch: 16 }
+
+            // ── Cell merges for title, period, contact info rows ──
+            const merges: XLSX.Range[] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } }
             ];
+            if (contactInfo) {
+                merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: colCount - 1 } });
+            }
+            worksheet['!merges'] = merges;
+
+            // ── Column widths ──
+            worksheet['!cols'] = [
+                { wch: 14 }, // التاريخ
+                { wch: 16 }, // المستند
+                { wch: 28 }, // البيان
+                { wch: 16 }, // العملية
+                { wch: 24 }, // الحساب
+                { wch: 14 }, // المبلغ
+                { wch: 32 }, // اسم الصنف
+                { wch: 10 }, // الكمية
+                { wch: 12 }, // السعر
+                { wch: 14 }, // الاجمالي
+                { wch: 14 }, // مدين
+                { wch: 14 }, // دائن
+                { wch: 16 }  // الرصيد
+            ];
+
+            // ── Row heights for multi-line description cells ──
+            const rowHeights: { [key: number]: { hpt: number } } = {};
+            // Title row
+            rowHeights[0] = { hpt: 28 };
+            // Period row
+            rowHeights[1] = { hpt: 20 };
+            // Header row
+            rowHeights[headerRowIndex] = { hpt: 22 };
+
+            rows.forEach((row, rIdx) => {
+                if (rIdx <= headerRowIndex) return;
+                const descCell = row[descriptionColumnIndex];
+                if (typeof descCell === 'string' && descCell.includes('\n')) {
+                    const lineCount = descCell.split('\n').length;
+                    rowHeights[rIdx] = { hpt: Math.max(15, lineCount * 15) };
+                }
+            });
+            worksheet['!rows'] = [];
+            const maxRow = Math.max(...Object.keys(rowHeights).map(Number), rows.length - 1);
+            for (let i = 0; i <= maxRow; i++) {
+                worksheet['!rows'][i] = rowHeights[i] || {};
+            }
+
+            // ── Number formatting for currency columns ──
+            const numFmt = '#,##0.00';
+            for (let rIdx = headerRowIndex + 1; rIdx < rows.length; rIdx++) {
+                [amountColIndex, qtyColIndex, priceColIndex, totalColIndex, debitColIndex, creditColIndex, balanceColIndex].forEach(cIdx => {
+                    const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+                    if (worksheet[cellRef] && typeof worksheet[cellRef].v === 'number') {
+                        worksheet[cellRef].z = numFmt;
+                    }
+                });
+            }
+
+            // ── Autofilter on header row ──
             worksheet['!autofilter'] = {
                 ref: XLSX.utils.encode_range({
                     s: { r: headerRowIndex, c: 0 },
-                    e: { r: headerRowIndex, c: tableHeader.length - 1 }
+                    e: { r: headerRowIndex, c: colCount - 1 }
                 })
             };
 
+            // ── Freeze pane below header row ──
+            if (headerRowIndex >= 0) {
+                worksheet['!views'] = [
+                    {
+                        state: 'frozen',
+                        ySplit: headerRowIndex + 1,
+                        xSplit: 0,
+                        topLeftCell: XLSX.utils.encode_cell({ r: headerRowIndex + 1, c: 0 }),
+                        activePane: 'bottomLeft'
+                    }
+                ];
+            }
+
+            // ── Apply Excel styles ──
+            applyExcelStyles(worksheet, headerRowIndex, colCount, !isEnglish);
+
+            // ── Build workbook ──
             const workbook = XLSX.utils.book_new();
-            workbook.Workbook = { Views: [{ RTL: !isEnglish }] };
+            workbook.Workbook = {
+                Views: [{ RTL: !isEnglish }]
+            };
+
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Statement');
             downloadWorkbookFile(workbook, { fileName: buildStatementExcelName(contact) });
         } catch {

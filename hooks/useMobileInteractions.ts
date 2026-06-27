@@ -7,6 +7,7 @@ interface UseMobileInteractionsOptions {
   rtl: boolean;
   canGoBack: boolean;
   onBack: () => void;
+  allowWindowScroll?: boolean;
 }
 
 interface SwipeHandlers {
@@ -84,7 +85,8 @@ export const useMobileInteractions = ({
   isMobile,
   rtl,
   canGoBack,
-  onBack
+  onBack,
+  allowWindowScroll = false
 }: UseMobileInteractionsOptions) => {
   const startXRef = useRef(0);
   const startYRef = useRef(0);
@@ -161,6 +163,7 @@ export const useMobileInteractions = ({
 
     // Keep window scroll at 0, 0 to prevent WebView shift/bounce when inputs are focused on mobile/Android
     const onScroll = () => {
+      if (allowWindowScroll) return;
       if (window.scrollY !== 0 || window.scrollX !== 0) {
         window.scrollTo(0, 0);
       }
@@ -183,7 +186,9 @@ export const useMobileInteractions = ({
         setViewportCssVars();
         
         // Force scroll reset when keyboard hides
-        window.scrollTo(0, 0);
+        if (!allowWindowScroll) {
+          window.scrollTo(0, 0);
+        }
       });
     }
 
@@ -195,7 +200,7 @@ export const useMobileInteractions = ({
       if (keyboardWillShowListener) keyboardWillShowListener.remove();
       if (keyboardWillHideListener) keyboardWillHideListener.remove();
     };
-  }, [isMobile]);
+  }, [isMobile, allowWindowScroll]);
 
   useEffect(() => {
     if (!isMobile || typeof document === 'undefined') return;

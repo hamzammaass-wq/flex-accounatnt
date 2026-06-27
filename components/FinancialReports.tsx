@@ -1,11 +1,12 @@
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx-js-style';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Account, AccountType, TransactionType, Product, Invoice, Check, Transaction, ImportExpenseDistribution, Contact } from '../types';
 import EnglishDateInput from './EnglishDateInput';
 import DocumentActions from './DocumentActions';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
-import { buildElementPdfFile, downloadBlobFile, downloadElementAsHtml, exportElementAsCsv, extractElementReadableText, printElementContent, settleElementBeforeSnapshot } from '../utils/documentExport';
+import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, applyExcelStyles, downloadElementAsHtml, exportElementAsCsv, extractElementReadableText, printElementContent, settleElementBeforeSnapshot } from '../utils/documentExport';
 import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
 import { getCurrentFiscalYearRange, getFiscalYear, getFiscalYearStart, isProfitLossAccount, isReportYearClosed } from '../utils/fiscalYear';
 import { isStockProduct } from '../utils/productKind';
@@ -1126,8 +1127,7 @@ const FinancialReports: React.FC = () => {
                                             {inlineDetails && (
                                                 <tr className="statement-classic-detail-row">
                                                     <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-detail-cell">{inlineDetails}</td>
+                                                    <td colSpan={2} className="statement-classic-detail-cell">{inlineDetails}</td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
@@ -1752,8 +1752,7 @@ const FinancialReports: React.FC = () => {
                                             {detailBlock && (
                                                 <tr className="statement-classic-detail-row">
                                                     <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-detail-cell">{detailBlock}</td>
+                                                    <td colSpan={2} className="statement-classic-detail-cell">{detailBlock}</td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
@@ -3146,7 +3145,561 @@ const FinancialReports: React.FC = () => {
         }
     };
 
+    const exportStatementReportExcel = (reportType: 'ACCOUNT_LEDGER' | 'CUSTOMER_STATEMENT' | 'SUPPLIER_STATEMENT', title: string) => {
+        try {
+            const formatClassicStatementDate = (dateString: string | undefined) => {
+                if (!dateString) return '';
+                const d = new Date(dateString);
+                return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB');
+            };
+
+            const toExcelNumber = (value: number) => Number((Number(value) || 0).toFixed(2));
+            const openingRowDate = startDate ? (formatClassicStatementDate(startDate) || startDate) : '-';
+
+            const colCount = 13;
+            const descriptionColumnIndex = 2;
+            const amountColIndex = 5;
+            const qtyColIndex = 7;
+            const priceColIndex = 8;
+            const totalColIndex = 9;
+            const debitColIndex = 10;
+            const creditColIndex = 11;
+            const balanceColIndex = 12;
+
+            const tableHeader: string[] = [];
+            const rows: (string | number)[][] = [];
+
+            let titleText = '';
+            let periodText = `${tr('الفترة', 'Period')}: ${startDate} - ${endDate}`;
+            let extraText = '';
+
+            const buildLedgerClassicStatementPreview = (
+                tx: Transaction,
+                currentAccountId: string
+            ): UnifiedClassicStatementPreview => {
+                const invoice = tx.invoiceId ? invoices.find(inv => inv.id === tx.invoiceId) || null : null;
+                const voucherTransactions = tx.voucherId
+                    ? transactions.filter(line => line.voucherId === tx.voucherId)
+                    : [tx];
+
+                const checkRows = voucherTransactions.flatMap((sub, index) => {
+                    const relatedCheck = sub.checkId ? checks.find(check => check.id === sub.checkId) || null : null;
+                    if (!relatedCheck) return [];
+
+                    return [{
+                        id: relatedCheck.id || `${tx.id}-check-${index}`,
+                        checkNumber: relatedCheck.checkNumber || '-',
+                        bankName: displayAccountName(
+                            relatedCheck.bankAccountId
+                                ? accounts.find(account => account.id === relatedCheck.bankAccountId) || null
+                                : { id: '', name: relatedCheck.bankName }
+                        ),
+                        accountNumber: relatedCheck.accountNumber || '',
+                        dueDate: formatClassicStatementDate(relatedCheck.dueDate) || '-',
+                        amount: Number(relatedCheck.amount) || 0,
+                        currency: relatedCheck.currency || tx.currency || baseCurrency
+                    }];
+                });
+
+                const paymentRows = invoice ? [] : voucherTransactions.flatMap((sub, index) => {
+                    const debitIsCurrent = sub.debitAccountId === currentAccountId;
+                    const creditIsCurrent = sub.creditAccountId === currentAccountId;
+
+                    if (!debitIsCurrent && !creditIsCurrent) return [];
+
+                    const contraAccountId = debitIsCurrent ? sub.creditAccountId : sub.debitAccountId;
+                    const isReceipt = debitIsCurrent;
+
+                    const account = contraAccountId ? accounts.find(item => item.id === contraAccountId) || null : null;
+                    if (!account) return [];
+
+                    const relatedCheck = sub.checkId ? checks.find(check => check.id === sub.checkId) || null : null;
+
+                    return [{
+                        id: `${tx.id}-payment-${index}`,
+                        label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                        accountName: displayAccountName(account),
+                        amount: Number(sub.amount || 0) || 0,
+                        currency: sub.currency || tx.currency || baseCurrency,
+                        checkMeta: relatedCheck ? {
+                            checkNumber: relatedCheck.checkNumber || '-',
+                            bankName: displayAccountName(
+                                relatedCheck.bankAccountId
+                                    ? accounts.find(item => item.id === relatedCheck.bankAccountId) || null
+                                    : { id: '', name: relatedCheck.bankName }
+                            ) || relatedCheck.bankName || '-',
+                            dueDate: formatClassicStatementDate(relatedCheck.dueDate) || '-'
+                        } : null
+                    }];
+                });
+
+                return { invoice, checkRows, paymentRows };
+            };
+
+            const buildClassicStatementDetailsText = (preview: UnifiedClassicStatementPreview) => {
+                const detailLines: string[] = [];
+                
+                // 1. Checks details
+                preview.checkRows.forEach(check => {
+                    detailLines.push(
+                        [
+                            `${tr('شيك', 'Check')}: ${check.checkNumber}`,
+                            `${tr('البنك', 'Bank')}: ${check.bankName}`,
+                            check.accountNumber ? `${tr('الحساب', 'Account')}: ${check.accountNumber}` : '',
+                            `${tr('الاستحقاق', 'Due')}: ${check.dueDate}`,
+                            `${tr('المبلغ', 'Amount')}: ${check.amount.toLocaleString()} ${check.currency || baseCurrency}`
+                        ].filter(Boolean).join(' | ')
+                    );
+                });
+
+                // 2. Payments details
+                preview.paymentRows.forEach(pay => {
+                    const amountSuffix = pay.amount > 0 ? ` (${pay.amount.toLocaleString()} ${pay.currency || baseCurrency})` : '';
+                    detailLines.push(`${pay.label}: ${pay.accountName}${amountSuffix}`);
+                });
+
+                // 3. Invoice details
+                if (preview.invoice) {
+                    detailLines.push(tr('تفاصيل الفاتورة', 'Invoice details'));
+                    preview.invoice.items.forEach((item, index) => {
+                        const product = products.find(p => p.id === item.productId);
+                        const name = item.description || (product ? getDisplayProductName(product, isEnglish) : '');
+                        detailLines.push(
+                            `${index + 1}. ${name} | ${tr('الكمية', 'Qty')}: ${item.quantity} | ${tr('السعر', 'Price')}: ${item.unitPrice.toLocaleString()} | ${tr('الإجمالي', 'Total')}: ${item.total.toLocaleString()}`
+                        );
+                    });
+                }
+                
+                return detailLines.join('\n');
+            };
+
+            tableHeader.push(
+                tr('التاريخ', 'Date'),
+                tr('المستند', 'Document'),
+                tr('البيان', 'Description'),
+                tr('العملية', 'Operation'),
+                tr('الحساب', 'Account'),
+                tr('المبلغ', 'Amount'),
+                tr('اسم الصنف', 'Product Name'),
+                tr('الكمية', 'Qty'),
+                tr('السعر', 'Price'),
+                tr('الإجمالي', 'Total'),
+                tr('مدين', 'Debit'),
+                tr('دائن', 'Credit'),
+                tr('الرصيد', 'Balance')
+            );
+
+            if (reportType === 'ACCOUNT_LEDGER') {
+                const acc = accounts.find(a => a.id === selectedLedgerAccount);
+                if (!acc) return false;
+
+                titleText = `${tr('دفتر الأستاذ', 'General Ledger')}: ${displayAccountName(acc)}`;
+                extraText = `${tr('رمز الحساب', 'Account Code')}: ${acc.code || '-'}`;
+
+                const isDebitNature = acc.type === 'ASSET' || acc.type === 'EXPENSE';
+                const amountInBase = (tx: Transaction) => tx.amount * (tx.exchangeRate || 1);
+                const entryDelta = (tx: Transaction) => {
+                    const debit = tx.debitAccountId === acc.id ? amountInBase(tx) : 0;
+                    const credit = tx.creditAccountId === acc.id ? amountInBase(tx) : 0;
+                    return isDebitNature ? (debit - credit) : (credit - debit);
+                };
+                const shouldIncludeOpening = (tx: Transaction) => {
+                    if (tx.status !== 'POSTED') return false;
+                    if (tx.debitAccountId !== acc.id && tx.creditAccountId !== acc.id) return false;
+                    if (tx.date >= startDate) return false;
+                    if (!reportYearCloseEnabled || !isProfitLossAccount(acc.type)) return true;
+                    return tx.date >= fiscalStartDate;
+                };
+
+                const openingBalance = transactions
+                    .filter(shouldIncludeOpening)
+                    .reduce((sum, tx) => sum + entryDelta(tx), 0);
+
+                const periodRows = transactions
+                    .filter(t => t.status === 'POSTED')
+                    .filter(t => t.debitAccountId === acc.id || t.creditAccountId === acc.id)
+                    .filter(t => t.date >= startDate && t.date <= endDate)
+                    .sort((a, b) => {
+                        const byDate = a.date.localeCompare(b.date);
+                        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+                    });
+
+                let runningBalance = openingBalance;
+                const ledgerEntries = periodRows.map(tx => {
+                    const debit = tx.debitAccountId === acc.id ? amountInBase(tx) : 0;
+                    const credit = tx.creditAccountId === acc.id ? amountInBase(tx) : 0;
+                    runningBalance += entryDelta(tx);
+                    return {
+                        tx,
+                        debit,
+                        credit,
+                        runningBalance
+                    };
+                });
+                const totalDebit = ledgerEntries.reduce((sum, entry) => sum + entry.debit, 0);
+                const totalCredit = ledgerEntries.reduce((sum, entry) => sum + entry.credit, 0);
+                const closingBalance = ledgerEntries.length > 0
+                    ? ledgerEntries[ledgerEntries.length - 1].runningBalance
+                    : openingBalance;
+
+                // Build header info
+                rows.push(
+                    [titleText, ...new Array(colCount - 1).fill('')],
+                    [periodText, ...new Array(colCount - 1).fill('')],
+                    [extraText, ...new Array(colCount - 1).fill('')],
+                    new Array(colCount).fill('')
+                );
+
+                const headerRowIndex = rows.length;
+                rows.push(tableHeader);
+
+                // Opening balance row
+                rows.push([
+                    openingRowDate,
+                    '',
+                    tr('رصيد افتتاحي', 'Opening Balance'),
+                    '', '', '', '', '', '', '',
+                    '',
+                    '',
+                    toExcelNumber(openingBalance)
+                ]);
+
+                // Ledger entries rows
+                ledgerEntries.forEach(entry => {
+                    const { tx, debit, credit, runningBalance: rowBalance } = entry;
+                    const primaryDesc = tx.voucherReference || tr(tx.category || '', tx.type || '');
+                    const secondaryDesc = tx.description || '';
+                    const preview = buildLedgerClassicStatementPreview(tx, acc.id);
+
+                    const documentLabel =
+                        tx.category === 'receipt' || tx.category === 'voucher_receipt'
+                            ? tr('قبض', 'Receipt')
+                            : tx.category === 'payment' || tx.category === 'voucher_payment'
+                                ? tr('صرف', 'Payment')
+                                : tx.voucherId
+                                    ? tr('سند', 'Voucher')
+                                    : tr('قيد', 'Entry');
+
+                    const docNum = `${documentLabel} #${tx.voucherId || tx.id}`;
+                    const dateText = tx.date || '';
+                    const descText = secondaryDesc || primaryDesc;
+
+                    rows.push([
+                        dateText,
+                        docNum,
+                        descText,
+                        '', '', '', '', '', '', '',
+                        debit > 0 ? toExcelNumber(debit) : '',
+                        credit > 0 ? toExcelNumber(credit) : '',
+                        toExcelNumber(rowBalance)
+                    ]);
+
+                    // Invoice items as child rows
+                    if (preview.invoice) {
+                        preview.invoice.items.forEach((item, index) => {
+                            const product = products.find(p => p.id === item.productId);
+                            const name = item.description || (product ? getDisplayProductName(product, isEnglish) : '');
+                            rows.push([
+                                dateText,
+                                docNum,
+                                descText,
+                                tr('بيع صنف', 'Invoice Item'),
+                                '',
+                                '',
+                                name,
+                                toExcelNumber(item.quantity),
+                                toExcelNumber(item.unitPrice),
+                                toExcelNumber(item.total),
+                                '',
+                                '',
+                                ''
+                            ]);
+                        });
+                    }
+
+                    // Checks details as child rows
+                    preview.checkRows.forEach(check => {
+                        const checkInfo = `${tr('شيك', 'Check')}: ${check.checkNumber} | ${tr('الاستحقاق', 'Due')}: ${check.dueDate}`;
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            tr('شيك', 'Check'),
+                            check.bankName,
+                            toExcelNumber(check.amount),
+                            checkInfo,
+                            '', '', '',
+                            '', '', ''
+                        ]);
+                    });
+
+                    // Payments details as child rows
+                    preview.paymentRows.forEach(pay => {
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            pay.label,
+                            pay.accountName,
+                            toExcelNumber(pay.amount),
+                            '', '', '', '',
+                            '', '', ''
+                        ]);
+                    });
+                });
+
+                rows.push(new Array(colCount).fill(''));
+
+                // Totals Row
+                const totalsRow: (string | number)[] = new Array(colCount).fill('');
+                totalsRow[descriptionColumnIndex] = tr('الإجمالي', 'Total');
+                totalsRow[debitColIndex] = totalDebit > 0 ? toExcelNumber(totalDebit) : '';
+                totalsRow[creditColIndex] = totalCredit > 0 ? toExcelNumber(totalCredit) : '';
+                rows.push(totalsRow);
+
+                // Closing Row
+                const closingRow: (string | number)[] = new Array(colCount).fill('');
+                closingRow[descriptionColumnIndex] = tr('الرصيد الختامي', 'Closing Balance');
+                closingRow[balanceColIndex] = toExcelNumber(closingBalance);
+                rows.push(closingRow);
+
+            } else {
+                // Partner statements: CUSTOMER_STATEMENT or SUPPLIER_STATEMENT
+                const contact = contacts.find(c => c.id === (reportType === 'CUSTOMER_STATEMENT' ? selectedCustomerId : selectedSupplierId));
+                if (!contact) return false;
+
+                const statementKindText = reportType === 'CUSTOMER_STATEMENT' ? tr('كشف حساب عميل', 'Customer Statement') : tr('كشف حساب مورد', 'Supplier Statement');
+                titleText = `${statementKindText}: ${displayContactName(contact)}`;
+                extraText = contact.phone ? `${tr('تلفون', 'Phone')}: ${contact.phone}` : '';
+
+                const statementData = getUnifiedPartnerStatementData(contact, startDate, endDate);
+                const partnerRows = buildUnifiedClassicStatementRows(contact, statementData.transactions);
+                const openingBalance = statementData.openingBalance;
+                const closingBalance = statementData.closingBalance;
+                const totalDebit = partnerRows.reduce((sum, r) => sum + r.debit, 0);
+                const totalCredit = partnerRows.reduce((sum, r) => sum + r.credit, 0);
+
+                // Build header info
+                rows.push(
+                    [titleText, ...new Array(colCount - 1).fill('')],
+                    [periodText, ...new Array(colCount - 1).fill('')]
+                );
+                if (extraText) {
+                    rows.push([extraText, ...new Array(colCount - 1).fill('')]);
+                }
+                rows.push(
+                    new Array(colCount).fill('')
+                );
+
+                const headerRowIndex = rows.length;
+                rows.push(tableHeader);
+
+                // Opening balance B/F row
+                rows.push([
+                    openingRowDate,
+                    '',
+                    tr('رصيد منقول', 'Balance B/F'),
+                    '', '', '', '', '', '', '',
+                    '',
+                    '',
+                    toExcelNumber(openingBalance)
+                ]);
+
+                // Entries rows
+                partnerRows.forEach(row => {
+                    const docNum = row.documentNumber ? `${row.primaryDescription} #${row.documentNumber}` : row.primaryDescription;
+                    const dateText = row.dateText || '';
+                    const descText = row.secondaryDescription || '';
+
+                    rows.push([
+                        dateText,
+                        docNum,
+                        descText,
+                        '', '', '', '', '', '', '',
+                        row.debit > 0 ? toExcelNumber(row.debit) : '',
+                        row.credit > 0 ? toExcelNumber(row.credit) : '',
+                        toExcelNumber(row.balance)
+                    ]);
+
+                    // Invoice items as child rows
+                    if (row.preview.invoice) {
+                        row.preview.invoice.items.forEach((item, index) => {
+                            const product = products.find(p => p.id === item.productId);
+                            const name = item.description || (product ? getDisplayProductName(product, isEnglish) : '');
+                            rows.push([
+                                dateText,
+                                docNum,
+                                descText,
+                                tr('بيع صنف', 'Invoice Item'),
+                                '',
+                                '',
+                                name,
+                                toExcelNumber(item.quantity),
+                                toExcelNumber(item.unitPrice),
+                                toExcelNumber(item.total),
+                                '',
+                                '',
+                                ''
+                            ]);
+                        });
+                    }
+
+                    // Checks details as child rows
+                    row.preview.checkRows.forEach(check => {
+                        const checkInfo = `${tr('شيك', 'Check')}: ${check.checkNumber} | ${tr('الاستحقاق', 'Due')}: ${check.dueDate}`;
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            tr('شيك', 'Check'),
+                            check.bankName,
+                            toExcelNumber(check.amount),
+                            checkInfo,
+                            '', '', '',
+                            '', '', ''
+                        ]);
+                    });
+
+                    // Payments details as child rows
+                    row.preview.paymentRows.forEach(pay => {
+                        rows.push([
+                            dateText,
+                            docNum,
+                            descText,
+                            pay.label,
+                            pay.accountName,
+                            toExcelNumber(pay.amount),
+                            '', '', '', '',
+                            '', '', ''
+                        ]);
+                    });
+                });
+
+                rows.push(new Array(colCount).fill(''));
+
+                // Totals Row
+                const totalsRow: (string | number)[] = new Array(colCount).fill('');
+                totalsRow[descriptionColumnIndex] = tr('الإجمالي', 'Total');
+                totalsRow[debitColIndex] = totalDebit > 0 ? toExcelNumber(totalDebit) : '';
+                totalsRow[creditColIndex] = totalCredit > 0 ? toExcelNumber(totalCredit) : '';
+                rows.push(totalsRow);
+
+                // Closing Row
+                const closingRow: (string | number)[] = new Array(colCount).fill('');
+                closingRow[descriptionColumnIndex] = tr('الرصيد الختامي', 'Closing Balance');
+                closingRow[balanceColIndex] = toExcelNumber(closingBalance);
+                rows.push(closingRow);
+            }
+
+            // Create Sheet
+            const headerRowIndex = reportType === 'ACCOUNT_LEDGER' ? 4 : (extraText ? 4 : 3);
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+
+            // Merges
+            const merges = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } }
+            ];
+            if (extraText || reportType === 'ACCOUNT_LEDGER') {
+                merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: colCount - 1 } });
+            }
+            worksheet['!merges'] = merges;
+
+            // Column Widths
+            worksheet['!cols'] = [
+                { wch: 14 }, // التاريخ
+                { wch: 16 }, // المستند
+                { wch: 28 }, // البيان
+                { wch: 16 }, // العملية
+                { wch: 24 }, // الحساب
+                { wch: 14 }, // المبلغ
+                { wch: 32 }, // اسم الصنف
+                { wch: 10 }, // الكمية
+                { wch: 12 }, // السعر
+                { wch: 14 }, // الاجمالي
+                { wch: 14 }, // مدين
+                { wch: 14 }, // دائن
+                { wch: 16 }  // الرصيد
+            ];
+
+            // Row heights
+            const rowHeights: { [key: number]: { hpt: number } } = {};
+            rowHeights[0] = { hpt: 28 };
+            rowHeights[1] = { hpt: 20 };
+            rowHeights[headerRowIndex] = { hpt: 22 };
+
+            rows.forEach((row, rIdx) => {
+                if (rIdx <= headerRowIndex) return;
+                const descCell = row[descriptionColumnIndex];
+                if (typeof descCell === 'string' && descCell.includes('\n')) {
+                    const lineCount = descCell.split('\n').length;
+                    rowHeights[rIdx] = { hpt: Math.max(15, lineCount * 15) };
+                }
+            });
+            worksheet['!rows'] = [];
+            const maxRow = Math.max(...Object.keys(rowHeights).map(Number), rows.length - 1);
+            for (let i = 0; i <= maxRow; i++) {
+                worksheet['!rows'][i] = rowHeights[i] || {};
+            }
+
+            // Number formatting
+            const numFmt = '#,##0.00';
+            for (let rIdx = headerRowIndex + 1; rIdx < rows.length; rIdx++) {
+                [amountColIndex, qtyColIndex, priceColIndex, totalColIndex, debitColIndex, creditColIndex, balanceColIndex].forEach(cIdx => {
+                    const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+                    if (worksheet[cellRef] && typeof worksheet[cellRef].v === 'number') {
+                        worksheet[cellRef].z = numFmt;
+                    }
+                });
+            }
+
+            // Autofilter
+            worksheet['!autofilter'] = {
+                ref: XLSX.utils.encode_range({
+                    s: { r: headerRowIndex, c: 0 },
+                    e: { r: headerRowIndex, c: colCount - 1 }
+                })
+            };
+
+            // Sheet views RTL & Freeze Pane
+            if (headerRowIndex >= 0) {
+                worksheet['!views'] = [
+                    {
+                        state: 'frozen',
+                        ySplit: headerRowIndex + 1,
+                        xSplit: 0,
+                        topLeftCell: XLSX.utils.encode_cell({ r: headerRowIndex + 1, c: 0 }),
+                        activePane: 'bottomLeft'
+                    }
+                ];
+            }
+
+            // ── Apply Excel styles ──
+            applyExcelStyles(worksheet, headerRowIndex, colCount, !isEnglish);
+
+            const workbook = XLSX.utils.book_new();
+            workbook.Workbook = {
+                Views: [{ RTL: !isEnglish }]
+            };
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Statement');
+            downloadWorkbookFile(workbook, { fileName: `${title}.xlsx` });
+            return true;
+        } catch (err) {
+            console.error('Statement report excel export failed:', err);
+            return false;
+        }
+    };
+
     const handleExportReportExcel = async (title: string) => {
+        if (activeReport === 'ACCOUNT_LEDGER' || activeReport === 'CUSTOMER_STATEMENT' || activeReport === 'SUPPLIER_STATEMENT') {
+            const success = exportStatementReportExcel(activeReport, title);
+            if (!success) {
+                alert(tr('تعذر تصدير هذا التقرير في الوقت الحالي.', 'Could not export this report right now.'));
+            }
+            return;
+        }
+
         await settleActiveReportSnapshot();
         const success = exportElementAsCsv(activeReportRef.current, buildReportFileStem(title));
         if (!success) {
@@ -7997,8 +8550,7 @@ const FinancialReports: React.FC = () => {
                                             {detailBlock && (
                                                 <tr className="statement-classic-detail-row">
                                                     <td className="statement-classic-placeholder"></td>
-                                                    {!hideVoucherColumnInStatement && <td className="statement-classic-placeholder"></td>}
-                                                    <td className="statement-classic-detail-cell">{detailBlock}</td>
+                                                    <td colSpan={hideVoucherColumnInStatement ? 1 : 2} className="statement-classic-detail-cell">{detailBlock}</td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>

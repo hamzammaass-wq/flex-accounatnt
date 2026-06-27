@@ -591,7 +591,7 @@ const InventoryPricingManager: React.FC = () => {
         ${rowsHtml || `<tr><td colspan="5" style="text-align:center;color:#64748b;">${escapeHtml(tr('لا توجد أصناف للطباعة حاليًا', 'No items to print right now'))}</td></tr>`}
       </tbody>
     </table>
-    ${autoPrint ? '<script>window.onload = () => window.print();</script>' : ''}
+    ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
   </body>
 </html>`;
   };

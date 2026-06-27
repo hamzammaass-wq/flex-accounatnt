@@ -142,9 +142,25 @@ export const verifyCompanyMembership = async (req, res, next) => {
             if (firestoreCompany) {
                 console.log(`[Auth Middleware] User ${uid} has Firestore access to ${companyId}. Auto-creating PG company and membership...`);
                 // Ensure company exists in PG
-                await query(`INSERT INTO companies (id, name, settings)
-           VALUES ($1, $2, '{}'::jsonb)
-           ON CONFLICT (id) DO NOTHING`, [companyId, firestoreCompany.name || 'شركة غير مسمى']);
+                await query(`INSERT INTO companies (id, name, tax_number, address, phone, logo_url, base_currency, settings)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE
+           SET name = EXCLUDED.name,
+               tax_number = EXCLUDED.tax_number,
+               address = EXCLUDED.address,
+               phone = EXCLUDED.phone,
+               logo_url = EXCLUDED.logo_url,
+               base_currency = EXCLUDED.base_currency,
+               settings = EXCLUDED.settings`, [
+                    companyId,
+                    firestoreCompany.name || 'شركة غير مسمى',
+                    firestoreCompany.taxNumber || firestoreCompany.tax_number || null,
+                    firestoreCompany.address || null,
+                    firestoreCompany.phone || null,
+                    firestoreCompany.logoUrl || firestoreCompany.logo_url || null,
+                    firestoreCompany.baseCurrency || firestoreCompany.base_currency || 'ILS',
+                    JSON.stringify(firestoreCompany.settings || {})
+                ]);
                 // Ensure user exists in users table in PG
                 await query(`INSERT INTO users (id, email, name, role)
            VALUES ($1, $2, $3, 'USER')

@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { Product, TransactionType } from '../types';
 import { X, Package, ShoppingBag, ScrollText, Calendar, History, ScanBarcode, Hash, Printer } from 'lucide-react';
@@ -113,7 +113,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
             showHandle={false}
         >
             <div className="font-tajawal h-full flex flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
-                <div className="bg-slate-900 px-4 pt-5 pb-4 text-white relative shrink-0">
+                <div className="bg-slate-900 px-4 pb-4 text-white relative shrink-0" style={{ paddingTop: 'calc(var(--app-safe-top) + 1.25rem)' }}>
                     <div className="absolute left-3 top-3 flex items-center gap-1 z-20">
                         <button onClick={handlePrintLabel} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all" title={tr('طباعة باركود', 'Print barcode')}>
                             <Printer size={16} />

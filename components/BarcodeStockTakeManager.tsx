@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Save, ScanBarcode, Trash2, Upload } from 'lucide-react';
+import { Camera, Download, Save, ScanBarcode, Trash2, Upload } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
 import { isStockProduct } from '../utils/productKind';
+import BarcodeScannerModal from './BarcodeScannerModal';
 
 type CountMap = Record<string, number>;
 type UnknownBarcodeMap = Record<string, number>;
 
 const STORAGE_KEY_PREFIX = 'al_mohaseb_barcode_stock_take_v1';
+
 
 const normalizeBarcode = (value: string) =>
   toEnglishDigits(String(value || '')).trim().toLowerCase();
@@ -45,6 +47,7 @@ const BarcodeStockTakeManager: React.FC = () => {
   const [counts, setCounts] = useState<CountMap>({});
   const [unknownBarcodes, setUnknownBarcodes] = useState<UnknownBarcodeMap>({});
   const [statusMsg, setStatusMsg] = useState('');
+  const [showCameraScanner, setShowCameraScanner] = useState(false);
 
   useEffect(() => {
     if (!warehouseId && warehouses.length > 0) {
@@ -259,6 +262,15 @@ const BarcodeStockTakeManager: React.FC = () => {
               <ScanBarcode size={14} />
               {tr('تسجيل', 'Count')}
             </button>
+            <button
+              type="button"
+              onClick={() => setShowCameraScanner(true)}
+              className="px-4 py-3 rounded-xl bg-blue-600 text-white text-xs font-black inline-flex items-center justify-center gap-1.5"
+              title={tr('مسح بالكاميرا', 'Camera Scan')}
+            >
+              <Camera size={14} />
+              {tr('كاميرا', 'Camera')}
+            </button>
           </form>
         </div>
 
@@ -364,6 +376,15 @@ const BarcodeStockTakeManager: React.FC = () => {
           </table>
         </div>
       </div>
+      <BarcodeScannerModal
+        open={showCameraScanner}
+        onClose={() => setShowCameraScanner(false)}
+        onScan={(code) => {
+          incrementScan(code, 1);
+        }}
+        continuous
+        tr={tr}
+      />
     </div>
   );
 };

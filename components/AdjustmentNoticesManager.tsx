@@ -353,7 +353,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     <div class="muted">${tr('البيان', 'Description')}</div>
     <div class="v">${inv.notes || inv.items?.[0]?.description || '-'}</div>
   </div>
-  <script>window.onload=()=>window.print()</script>
+  <script>window.focus(); window.print();</script>
 </body>
 </html>`;
     printHtmlContent(html);

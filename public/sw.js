@@ -72,6 +72,9 @@ const shouldHandleRequest = (request) => {
   const url = new URL(request.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
 
+  // Skip Firebase Auth/Hosting reserved paths
+  if (url.pathname.startsWith('/__/')) return false;
+
   return request.mode === 'navigate' || STATIC_DESTINATIONS.has(request.destination);
 };
 

@@ -1,6 +1,7 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+import { Capacitor } from '@capacitor/core';
 
 interface HtmlSnapshotOptions {
   title: string;
@@ -55,6 +56,22 @@ const triggerDownload = (blob: Blob, fileName: string) => {
 };
 
 export const downloadBlobFile = (blob: Blob, fileName: string) => {
+  if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+    try {
+      const file = new File([blob], fileName, { type: blob.type });
+      if (navigator.share && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: fileName
+        }).catch(err => {
+          console.error('[Download] Native share failed:', err);
+        });
+        return;
+      }
+    } catch (err) {
+      console.error('[Download] Native share fallback failed:', err);
+    }
+  }
   triggerDownload(blob, fileName);
 };
 
@@ -290,9 +307,27 @@ const extractReadableText = (node: Node | null | undefined): string => {
 };
 
 const extractRowsFromTable = (table: HTMLTableElement): string[][] => {
-  const rows = Array.from(table.querySelectorAll('tr')).map(row =>
-    Array.from(row.querySelectorAll('th, td')).map(cell => extractReadableText(cell))
-  );
+  const rows: string[][] = [];
+  const trElements = Array.from(table.querySelectorAll('tr'));
+  
+  trElements.forEach(tr => {
+    const rowCells: string[] = [];
+    const cellElements = Array.from(tr.querySelectorAll('th, td'));
+    
+    cellElements.forEach(cell => {
+      const text = extractReadableText(cell);
+      rowCells.push(text);
+      
+      const colSpan = Number(cell.getAttribute('colspan')) || 1;
+      if (colSpan > 1) {
+        for (let i = 1; i < colSpan; i++) {
+          rowCells.push('');
+        }
+      }
+    });
+    rows.push(rowCells);
+  });
+
   const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
   return rows
     .map(row => row.length < maxColumns ? [...row, ...Array(maxColumns - row.length).fill('')] : row)
@@ -369,6 +404,195 @@ const extractOrderedRowsFromNode = (node: Node | null | undefined): string[][] =
   return compactSheetRows(rows);
 };
 
+export const applyExcelStyles = (
+  worksheet: XLSX.WorkSheet,
+  headerRowIndex: number,
+  colCount: number,
+  isRTL: boolean
+) => {
+  const ref = worksheet['!ref'] || 'A1:A1';
+  const range = XLSX.utils.decode_range(ref);
+  const lastRow = range.e.r;
+
+  const titleStyle = {
+    font: { name: 'Arial', bold: true, sz: 14, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '0F172A' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true }
+  };
+
+  const subtitleStyle = {
+    font: { name: 'Arial', sz: 10, color: { rgb: '475569' } },
+    fill: { fgColor: { rgb: 'F8FAFC' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true }
+  };
+
+  const headerStyle = {
+    font: { name: 'Arial', bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '334155' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border: {
+      top: { style: 'thin', color: { rgb: '1E293B' } },
+      bottom: { style: 'medium', color: { rgb: '0F172A' } },
+      left: { style: 'thin', color: { rgb: '334155' } },
+      right: { style: 'thin', color: { rgb: '334155' } }
+    }
+  };
+
+  const borderStyle = {
+    top: { style: 'thin', color: { rgb: 'F1F5F9' } },
+    bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+    left: { style: 'thin', color: { rgb: 'F1F5F9' } },
+    right: { style: 'thin', color: { rgb: 'F1F5F9' } }
+  };
+
+  const dataStyleEven = {
+    font: { name: 'Arial', sz: 10 },
+    fill: { fgColor: { rgb: 'F8FAFC' } },
+    border: borderStyle
+  };
+
+  const dataStyleOdd = {
+    font: { name: 'Arial', sz: 10 },
+    fill: { fgColor: { rgb: 'FFFFFF' } },
+    border: borderStyle
+  };
+
+  const totalStyle = {
+    font: { name: 'Arial', bold: true, sz: 10, color: { rgb: '0F172A' } },
+    fill: { fgColor: { rgb: 'E2E8F0' } },
+    border: {
+      top: { style: 'thin', color: { rgb: '94A3B8' } },
+      bottom: { style: 'double', color: { rgb: '0F172A' } },
+      left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+      right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+    }
+  };
+
+  const isRowEmpty = (r: number) => {
+    for (let c = 0; c < colCount; c++) {
+      const val = worksheet[XLSX.utils.encode_cell({ r, c })]?.v;
+      if (val !== undefined && val !== null && val !== '') return false;
+    }
+    return true;
+  };
+
+  for (let r = 0; r <= lastRow; r++) {
+    const isEmpty = isRowEmpty(r);
+    for (let c = 0; c < colCount; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      let cell = worksheet[cellRef];
+
+      if (!cell) {
+        if (r <= headerRowIndex || r >= lastRow - 2) {
+          worksheet[cellRef] = { t: 's', v: '' };
+          cell = worksheet[cellRef];
+        } else {
+          continue;
+        }
+      }
+
+      if (isEmpty) {
+        continue;
+      }
+
+      let horizontalAlign = 'center';
+      if (c === 2 || c === 6) {
+        horizontalAlign = isRTL ? 'right' : 'left';
+      } else if (c >= 5 && c <= 12 && c !== 6) {
+        horizontalAlign = 'right';
+      }
+
+      if (r === 0) {
+        cell.s = titleStyle;
+      } else if (r < headerRowIndex) {
+        cell.s = subtitleStyle;
+      } else if (r === headerRowIndex) {
+        cell.s = headerStyle;
+      } else if (r >= lastRow - 1) {
+        cell.s = {
+          ...totalStyle,
+          alignment: { horizontal: horizontalAlign, vertical: 'center' }
+        };
+      } else if (r === lastRow - 2 && String(worksheet[XLSX.utils.encode_cell({ r, c: 2 })]?.v || '').includes('الإجمالي')) {
+        cell.s = {
+          ...totalStyle,
+          alignment: { horizontal: horizontalAlign, vertical: 'center' }
+        };
+      } else {
+        const isEven = r % 2 === 0;
+        const baseStyle = isEven ? dataStyleEven : dataStyleOdd;
+        cell.s = {
+          ...baseStyle,
+          alignment: { horizontal: horizontalAlign, vertical: 'center', wrapText: true }
+        };
+      }
+    }
+  }
+};
+
+export const applyGenericExcelStyles = (worksheet: XLSX.WorkSheet, isRTL: boolean) => {
+  const ref = worksheet['!ref'] || 'A1:A1';
+  const range = XLSX.utils.decode_range(ref);
+  const lastRow = range.e.r;
+  const colCount = range.e.c + 1;
+
+  const headerStyle = {
+    font: { name: 'Arial', bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '475569' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border: {
+      top: { style: 'thin', color: { rgb: '334155' } },
+      bottom: { style: 'medium', color: { rgb: '1E293B' } },
+      left: { style: 'thin', color: { rgb: '475569' } },
+      right: { style: 'thin', color: { rgb: '475569' } }
+    }
+  };
+
+  const borderStyle = {
+    top: { style: 'thin', color: { rgb: 'F1F5F9' } },
+    bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+    left: { style: 'thin', color: { rgb: 'F1F5F9' } },
+    right: { style: 'thin', color: { rgb: 'F1F5F9' } }
+  };
+
+  const dataStyleEven = {
+    font: { name: 'Arial', sz: 10 },
+    fill: { fgColor: { rgb: 'F8FAFC' } },
+    border: borderStyle
+  };
+
+  const dataStyleOdd = {
+    font: { name: 'Arial', sz: 10 },
+    fill: { fgColor: { rgb: 'FFFFFF' } },
+    border: borderStyle
+  };
+
+  for (let r = 0; r <= lastRow; r++) {
+    const isHeader = r === 0;
+    for (let c = 0; c < colCount; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      const cell = worksheet[cellRef];
+      if (!cell) continue;
+
+      let horizontalAlign = isRTL ? 'right' : 'left';
+      if (typeof cell.v === 'number') {
+        horizontalAlign = 'right';
+      }
+
+      if (isHeader) {
+        cell.s = headerStyle;
+      } else {
+        const isEven = r % 2 === 0;
+        const baseStyle = isEven ? dataStyleEven : dataStyleOdd;
+        cell.s = {
+          ...baseStyle,
+          alignment: { horizontal: horizontalAlign, vertical: 'center', wrapText: true }
+        };
+      }
+    }
+  }
+};
+
 export const exportElementAsCsv = (element: HTMLElement | null, fileName: string) => {
   if (!element) return false;
   const clone = stripInteractiveElements(element);
@@ -376,11 +600,14 @@ export const exportElementAsCsv = (element: HTMLElement | null, fileName: string
 
   if (rows.length === 0) return false;
 
+  const isRTL = element.dir === 'rtl' || element.closest('[dir="rtl"]') !== null;
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
   worksheet['!cols'] = buildWorksheetColumns(rows);
+  applyGenericExcelStyles(worksheet, isRTL);
+  
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
-  workbook.Workbook = { Views: [{ RTL: element.dir === 'rtl' || element.closest('[dir="rtl"]') !== null }] };
+  workbook.Workbook = { Views: [{ RTL: isRTL }] };
   downloadWorkbookFile(workbook, { fileName });
   return true;
 };
@@ -445,26 +672,9 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
   const dir = options.dir || 'rtl';
   const lang = options.lang || (dir === 'rtl' ? 'ar' : 'en');
   const pageOrientation = options.pageOrientation || 'portrait';
-  const hasStatementPrintFooter = Boolean(clone.querySelector('.statement-classic-sheet'));
+  const hasStatementPrintFooter = clone.classList.contains('statement-classic-sheet')
+    || Boolean(clone.querySelector('.statement-classic-sheet'));
   const stylesMarkup = collectPrintStylesMarkup();
-
-  // Create a hidden iframe for print-in-place
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  iframe.style.outline = '0';
-  iframe.style.pointerEvents = 'none';
-  iframe.style.zIndex = '-1';
-  iframe.style.visibility = 'hidden';
-  document.body.appendChild(iframe);
-
-  const printWindow = iframe.contentWindow;
-  if (!printWindow) {
-    document.body.removeChild(iframe);
-    return false;
-  }
 
   const printLocale = getStatementPrintLocale(lang);
   const printFooterPageLabel = lang.toLowerCase().startsWith('ar') ? 'الصفحة' : 'Page';
@@ -491,6 +701,151 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       </div>
     </div>`
     : '';
+
+  const isMobileWeb = typeof window !== 'undefined' && 
+    /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) && 
+    !Capacitor.isNativePlatform();
+
+  if (isMobileWeb) {
+    const printContainer = document.createElement('div');
+    printContainer.className = 'mobile-print-container';
+    
+    const styleEl = document.createElement('style');
+    styleEl.id = 'mobile-print-style';
+    styleEl.innerHTML = `
+      @media print {
+        html, body {
+          overflow: visible !important;
+          height: auto !important;
+          min-height: 0 !important;
+          position: static !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+        }
+        body > *:not(.mobile-print-container) {
+          display: none !important;
+        }
+        .mobile-print-container {
+          display: block !important;
+          position: static !important;
+          width: 100% !important;
+          height: auto !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          overflow: visible !important;
+        }
+        .mobile-print-container .no-print {
+          display: none !important;
+        }
+      }
+    `;
+    
+    printContainer.dir = dir;
+    printContainer.lang = lang;
+    printContainer.appendChild(styleEl);
+    printContainer.appendChild(clone);
+    
+    if (hasStatementPrintFooter) {
+      const footerContainer = document.createElement('div');
+      footerContainer.innerHTML = statementPrintFooterHtml;
+      
+      const printDate = new Intl.DateTimeFormat(printLocale, {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).format(new Date());
+      
+      footerContainer.querySelectorAll('[data-statement-print-date]').forEach(node => {
+        node.textContent = printDate;
+      });
+      
+      const mmToPx = 96 / 25.4;
+      const pageHeightMm = pageOrientation === 'landscape' ? 210 : 297;
+      const topMarginPx = pageTopMarginMm * mmToPx;
+      const bottomMarginPx = pageBottomMarginMm * mmToPx;
+      const bodyStyle = window.getComputedStyle(document.body);
+      const bodyPaddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+      const bodyPaddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+      const printableHeight = Math.max(1, (pageHeightMm * mmToPx) - topMarginPx - bottomMarginPx - bodyPaddingTop - bodyPaddingBottom);
+      
+      document.body.appendChild(printContainer);
+      
+      const contentHeight = Math.max(clone.scrollHeight, clone.getBoundingClientRect().height, 1);
+      const pageCount = Math.max(1, Math.ceil(contentHeight / printableHeight));
+      
+      footerContainer.querySelectorAll('[data-statement-page-count]').forEach(node => {
+        node.textContent = String(pageCount);
+      });
+      
+      const firstChild = footerContainer.firstElementChild;
+      if (firstChild) {
+        printContainer.appendChild(firstChild.cloneNode(true));
+      }
+    } else {
+      document.body.appendChild(printContainer);
+    }
+    
+    window.focus();
+    setTimeout(() => {
+      window.print();
+      
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        window.removeEventListener('focus', cleanup);
+        window.removeEventListener('afterprint', cleanup);
+        setTimeout(() => {
+          if (printContainer.parentNode) {
+            printContainer.remove();
+          }
+        }, 300);
+      };
+      
+      window.addEventListener('focus', cleanup);
+      window.addEventListener('afterprint', cleanup);
+      setTimeout(cleanup, 25000); // 25 seconds fallback
+    }, 250);
+    
+    return true;
+  }
+
+  const bodyClassesList = ['report-print-document'];
+  if (hasStatementPrintFooter) {
+    bodyClassesList.push('report-print-statement');
+    const textContent = element.textContent || '';
+    if (textContent.includes('مورد') || textContent.includes('Supplier')) {
+      bodyClassesList.push('report-print-supplier-statement');
+    } else if (textContent.includes('زبون') || textContent.includes('Customer')) {
+      bodyClassesList.push('report-print-customer-statement');
+    } else {
+      bodyClassesList.push('report-print-account-ledger');
+    }
+  }
+  const bodyClasses = bodyClassesList.join(' ');
+
+  // Create a print iframe (visible & full-viewport so mobile Chrome allows window.print())
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.left = '0';
+  iframe.style.top = '0';
+  iframe.style.width = '100vw';
+  iframe.style.height = '100vh';
+  iframe.style.border = '0';
+  iframe.style.outline = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.zIndex = '2147483647';
+  iframe.style.background = '#ffffff';
+  iframe.style.opacity = '0.01';
+  document.body.appendChild(iframe);
+
+  const printWindow = iframe.contentWindow;
+  if (!printWindow) {
+    document.body.removeChild(iframe);
+    return false;
+  }
 
   const html = `<!doctype html>
 <html lang="${lang}" dir="${dir}">
@@ -549,38 +904,7 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
         min-width: 0 !important;
         table-layout: fixed !important;
       }
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(1),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(1) {
-        width: 12% !important;
-      }
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(2),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(2) {
-        width: 48% !important;
-      }
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(3),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(3),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(4),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(4),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) th:nth-child(5),
-      .financial-reports-page.statement-report-active .statement-report-table:not(.statement-report-table--ledger) td:nth-child(5) {
-        width: 13.33% !important;
-      }
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(1),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(1) {
-        width: 11% !important;
-      }
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(2),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(2) {
-        width: 53% !important;
-      }
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(3),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(3),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(4),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(4),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger th:nth-child(5),
-      .financial-reports-page.statement-report-active .statement-report-table.statement-report-table--ledger td:nth-child(5) {
-        width: 12% !important;
-      }
+
       .financial-reports-page.statement-report-active .statement-report-description,
       .financial-reports-page.statement-report-active .statement-operation-details,
       .financial-reports-page.statement-report-active .statement-detail-card,
@@ -1146,7 +1470,7 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       }
     </style>
   </head>
-  <body>
+  <body class="${bodyClasses}">
     <div data-report-print-root>
       ${clone.outerHTML}
     </div>
@@ -1181,10 +1505,22 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
       };
 
       const doPrint = () => {
+        try {
+          const hostIframe = window.frameElement;
+          if (hostIframe) {
+            hostIframe.style.opacity = '1';
+          }
+        } catch {}
         window.focus();
         setTimeout(() => {
           window.print();
-        }, 120);
+          try {
+            const hostIframe = window.frameElement;
+            if (hostIframe) {
+              hostIframe.style.opacity = '0.01';
+            }
+          } catch {}
+        }, 150);
       };
 
       window.onload = async () => {
@@ -1245,15 +1581,112 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
     } catch {}
   }
 
+  const isMobileWeb = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) && !Capacitor.isNativePlatform();
+
+  if (isMobileWeb) {
+    const printContainer = document.createElement('div');
+    printContainer.className = 'mobile-print-container';
+
+    const setupCleanUp = () => {
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        window.removeEventListener('focus', cleanup);
+        window.removeEventListener('afterprint', cleanup);
+        setTimeout(() => {
+          if (printContainer.parentNode) {
+            printContainer.remove();
+          }
+        }, 300);
+      };
+      window.addEventListener('focus', cleanup);
+      window.addEventListener('afterprint', cleanup);
+      setTimeout(cleanup, 25000); // 25 seconds fallback
+    };
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      const styles = Array.from(doc.head.querySelectorAll('style, link[rel="stylesheet"]'));
+      styles.forEach(style => {
+        printContainer.appendChild(style.cloneNode(true));
+      });
+
+      const styleEl = document.createElement('style');
+      styleEl.innerHTML = `
+        @media print {
+          html, body {
+            overflow: visible !important;
+            height: auto !important;
+            min-height: 0 !important;
+            position: static !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+          }
+          body > *:not(.mobile-print-container) {
+            display: none !important;
+          }
+          .mobile-print-container {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            height: auto !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+          }
+          .mobile-print-container .no-print {
+            display: none !important;
+          }
+        }
+      `;
+      printContainer.appendChild(styleEl);
+
+      printContainer.dir = doc.body.dir || doc.documentElement.dir || 'rtl';
+      printContainer.lang = doc.body.lang || doc.documentElement.lang || 'ar';
+      
+      Array.from(doc.body.childNodes).forEach(node => {
+        printContainer.appendChild(node.cloneNode(true));
+      });
+
+      document.body.appendChild(printContainer);
+
+      window.focus();
+      setTimeout(() => {
+        window.print();
+        setupCleanUp();
+      }, 250);
+
+      return true;
+    } catch (err) {
+      console.error('Error parsing html for mobile printing:', err);
+      printContainer.innerHTML = html;
+      document.body.appendChild(printContainer);
+      window.focus();
+      setTimeout(() => {
+        window.print();
+        setupCleanUp();
+      }, 250);
+      return true;
+    }
+  }
+
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
+  iframe.style.left = '0';
+  iframe.style.top = '0';
+  iframe.style.width = '100vw';
+  iframe.style.height = '100vh';
   iframe.style.border = '0';
   iframe.style.outline = '0';
   iframe.style.pointerEvents = 'none';
-  iframe.style.zIndex = '-1';
-  iframe.style.visibility = 'hidden';
+  iframe.style.zIndex = '2147483647';
+  iframe.style.background = '#ffffff';
+  iframe.style.opacity = '0.01';
   document.body.appendChild(iframe);
 
   const printWindow = iframe.contentWindow;
@@ -1268,9 +1701,21 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
       const printScript = `
         <script>
           window.onload = () => {
+            try {
+              const hostIframe = window.frameElement;
+              if (hostIframe) {
+                hostIframe.style.opacity = '1';
+              }
+            } catch {}
             window.focus();
             setTimeout(() => {
               window.print();
+              try {
+                const hostIframe = window.frameElement;
+                if (hostIframe) {
+                  hostIframe.style.opacity = '0.01';
+                }
+              } catch {}
             }, 150);
           };
         </script>
@@ -1517,66 +1962,7 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
       display: none !important;
     }
 
-    /* Reset column widths of the main table in PDF to desktop standard */
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(1),
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(1),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(1),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(1) {
-      width: 12% !important;
-    }
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(2),
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(2),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(2),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(2) {
-      width: 12% !important;
-    }
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(3),
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(3),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(3),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(3) {
-      width: 39% !important;
-    }
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(4),
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(4),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(4),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(4) {
-      width: 11% !important;
-    }
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(5),
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(5),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(5),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(5) {
-      width: 11% !important;
-    }
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper th:nth-child(6),
-    body .pdf-export-host .directory-statement-table.statement-classic-table--paper td:nth-child(6),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper th:nth-child(6),
-    body .pdf-export-host .statement-report-table.statement-classic-table--paper td:nth-child(6) {
-      width: 15% !important;
-    }
 
-    /* Reset column widths of the inline details tables in PDF to desktop standard */
-    body .pdf-export-host .statement-classic-inline-table--voucher colgroup col:nth-child(1) {
-      width: 24% !important;
-    }
-    body .pdf-export-host .statement-classic-inline-table--voucher colgroup col:nth-child(2) {
-      width: 50% !important;
-    }
-    body .pdf-export-host .statement-classic-inline-table--voucher colgroup col:nth-child(3) {
-      width: 26% !important;
-    }
-    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(1) {
-      width: 39% !important;
-    }
-    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(2) {
-      width: 17% !important;
-    }
-    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(3) {
-      width: 18% !important;
-    }
-    body .pdf-export-host .statement-classic-inline-table:not(.statement-classic-inline-table--voucher) colgroup col:nth-child(4) {
-      width: 26% !important;
-    }
 
     /* Force details fonts and alignment */
     body .pdf-export-host .statement-classic-document-number,
@@ -1600,6 +1986,14 @@ const prepareSnapshotHost = (element: HTMLElement, options: PdfSnapshotOptions) 
     : '';
 
   const snapshotSupportStyles = `
+    html.pdf-export-active,
+    body.pdf-export-active {
+      overflow: visible !important;
+      height: auto !important;
+      min-height: 100% !important;
+      max-height: none !important;
+      position: relative !important;
+    }
     body .pdf-export-host {
       box-sizing: border-box !important;
       -webkit-print-color-adjust: exact !important;
@@ -1793,6 +2187,8 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
   const { host, viewport, clone, backgroundColor, padding } = prepareSnapshotHost(element, options);
 
   try {
+    document.documentElement.classList.add('pdf-export-active');
+    document.body.classList.add('pdf-export-active');
     // Force Arabic font (Tajawal) to be fully loaded before capturing.
     // document.fonts.ready alone is insufficient with display=swap.
     try {
@@ -1824,8 +2220,9 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     const printableWidth = pageWidth - (margin * 2);
     const printableHeight = pageHeight - (margin * 2);
 
-    // Enhanced scale for better quality on A4
-    const scale = options.canvasScale ?? 2.5;
+    // Enhanced scale for better quality on A4. Cap scale to 1.5 on iOS to prevent canvas memory crashes.
+    const isIOS = typeof window !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const scale = isIOS ? Math.min(options.canvasScale ?? 2.5, 1.5) : (options.canvasScale ?? 2.5);
 
     // Use the bounded layout width for capture. scrollWidth can balloon when a child overflows,
     // which shrinks statement reports dramatically inside the PDF.
@@ -1847,14 +2244,38 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
       ]);
     } catch { /* ignore image loading check errors */ }
 
-    // Add a 100px safety buffer to totalHeight to prevent rounding/rendering margin issues from clipping content.
-    // The larger buffer ensures all rows including footer/totals are fully captured across all pages.
+    // Temporarily set overflow to visible and unconstrain heights to get accurate layout height measurements on mobile/WebKit platforms
+    const prevHostOverflow = host.style.overflow;
+    const prevViewportOverflow = viewport.style.overflow;
+    const prevCloneOverflow = clone.style.overflow;
+
+    const prevHostHeight = host.style.height;
+    const prevViewportHeight = viewport.style.height;
+    const prevCloneHeight = clone.style.height;
+
+    host.style.overflow = 'visible';
+    viewport.style.overflow = 'visible';
+    clone.style.overflow = 'visible';
+
+    host.style.height = '99999px';
+    viewport.style.height = 'auto';
+    clone.style.height = 'auto';
+
     // Force layout calculation by querying offsetHeight which triggers reflow
     const _ = clone.offsetHeight;
     const measuredScrollHeight = Math.ceil(clone.scrollHeight);
     const measuredBoundingHeight = Math.ceil(clone.getBoundingClientRect().height);
     const measuredOffsetHeight = Math.ceil(clone.offsetHeight);
-    const totalHeight = Math.max(measuredScrollHeight, measuredBoundingHeight, measuredOffsetHeight, 1) + 100;
+    const totalHeight = Math.max(measuredScrollHeight, measuredBoundingHeight, measuredOffsetHeight, 1) + 200;
+
+    // Restore overflow and height settings
+    host.style.overflow = prevHostOverflow || 'hidden';
+    viewport.style.overflow = prevViewportOverflow || 'hidden';
+    clone.style.overflow = prevCloneOverflow || 'hidden';
+
+    host.style.height = prevHostHeight || 'auto';
+    viewport.style.height = prevViewportHeight || 'auto';
+    clone.style.height = prevCloneHeight || 'auto';
 
     // Calculate proper slice height to fit A4 pages
     // Account for the aspect ratio and ensure content fits within printable area
@@ -1939,6 +2360,10 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
         'FAST'
       );
 
+      // Immediately release canvas graphics memory to prevent accumulative memory exhaustion on iOS
+      canvas.width = 0;
+      canvas.height = 0;
+
       renderedHeight += sliceHeight;
       pageIndex += 1;
     }
@@ -1950,6 +2375,8 @@ export const buildElementPdfFile = async (element: HTMLElement | null, options: 
     const blob = pdf.output('blob');
     return new File([blob], sanitizeDownloadName(fileName), { type: 'application/pdf' });
   } finally {
+    document.documentElement.classList.remove('pdf-export-active');
+    document.body.classList.remove('pdf-export-active');
     host.remove();
   }
 };

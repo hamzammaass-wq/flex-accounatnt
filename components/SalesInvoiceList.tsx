@@ -304,7 +304,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
           <div class="bill-to"><h3>${tr('إلى', 'Bill To')}:</h3><p>${customerName}</p>${printPersonalData && customer?.phone ? `<p>${tr('الجوال', 'Phone')}: ${customer.phone}</p>` : ''}</div>
           <table><thead><tr><th>#</th><th>${tr('رقم الصنف', 'Item No.')}</th><th style="text-align: right;">${tr('الصنف', 'Item')}</th><th>${tr('الكمية', 'Quantity')}</th><th>${tr('السعر', 'Price')}</th><th>${tr('الإجمالي', 'Total')}</th></tr></thead><tbody>${itemsRows}</tbody></table>
           <div style="text-align: left;">${totalsBlock}</div>
-          ${autoPrint ? '<script>window.onload = function() { window.print(); }</script>' : ''}
+          ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
         </body>
       </html>`;
     };

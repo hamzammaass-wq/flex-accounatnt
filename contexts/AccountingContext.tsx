@@ -620,26 +620,59 @@ function resolveDaysLeft(dateIso?: string | null): number {
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 }
 
-const withNormalizedCompanyProfile = (profile: CompanyProfile): CompanyProfile => {
+const withNormalizedCompanyProfile = (
+  profile: CompanyProfile,
+  workspaceSubscription?: WorkspaceSubscriptionAccount
+): CompanyProfile => {
   const createdAt = normalizeIsoDate(profile.createdAt, new Date().toISOString());
-  const trialEndsAt = normalizeIsoDate(
-    profile.trialEndsAt,
+
+  // Determine if workspace subscription is active
+  const isWorkspaceActive = workspaceSubscription && workspaceSubscription.status === 'ACTIVE';
+
+  let subscriptionStatus = profile.subscriptionStatus;
+  let subscriptionPlan = profile.subscriptionPlan;
+  let subscriptionEndsAt = profile.subscriptionEndsAt;
+  let trialEndsAt = profile.trialEndsAt;
+
+  if (isWorkspaceActive) {
+    subscriptionStatus = 'ACTIVE';
+    subscriptionPlan = workspaceSubscription.plan || 'BASIC';
+    subscriptionEndsAt = workspaceSubscription.expiresAt;
+  } else if (workspaceSubscription && (workspaceSubscription.status === 'TRIAL' || workspaceSubscription.status === 'EXPIRED')) {
+    subscriptionStatus = workspaceSubscription.status;
+    subscriptionPlan = workspaceSubscription.plan;
+    trialEndsAt = workspaceSubscription.expiresAt || trialEndsAt;
+  }
+
+  const normalizedTrialEndsAt = normalizeIsoDate(
+    trialEndsAt,
     new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString()
   );
-  const subscriptionStatus = resolveCompanySubscriptionStatus({ ...profile, createdAt, trialEndsAt });
-  const graceDays = normalizeGraceDays(profile.graceDays);
+
+  const resolvedStatus = isWorkspaceActive ? 'ACTIVE' : resolveCompanySubscriptionStatus({
+    ...profile,
+    createdAt,
+    trialEndsAt: normalizedTrialEndsAt,
+    subscriptionStatus,
+    subscriptionEndsAt
+  });
+
+  const resolvedPlan = resolveCompanySubscriptionPlan(
+    { ...profile, subscriptionPlan },
+    resolvedStatus
+  );
 
   return {
     ...profile,
     createdAt,
-    trialEndsAt,
-    subscriptionStatus,
-    subscriptionPlan: resolveCompanySubscriptionPlan(profile, subscriptionStatus),
+    trialEndsAt: normalizedTrialEndsAt,
+    subscriptionStatus: resolvedStatus,
+    subscriptionPlan: resolvedPlan,
     subscriptionStartsAt: normalizeOptionalIsoDate(profile.subscriptionStartsAt)
-      || (subscriptionStatus === 'TRIAL' ? createdAt : undefined),
-    subscriptionEndsAt: normalizeOptionalIsoDate(profile.subscriptionEndsAt),
+      || (resolvedStatus === 'TRIAL' ? createdAt : undefined),
+    subscriptionEndsAt: normalizeOptionalIsoDate(subscriptionEndsAt),
     activationCode: String(profile.activationCode || '').trim() || undefined,
-    graceDays,
+    graceDays: normalizeGraceDays(profile.graceDays),
     logoUrl: normalizeBrandLogoUrl(profile.logoUrl, DEFAULT_BRAND_MARK_URL)
   };
 };
@@ -1534,6 +1567,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const [currentCompanyId, setCurrentCompanyId] = useState<string>('');
+  const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
+    return buildDefaultWorkspaceSubscription();
+  });
 
   const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId, currentUser?.id || null);
   const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId, currentUser?.id || null);
@@ -1610,7 +1646,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [currentUser, defaultCompanySettings]);
 
   useEffect(() => {
-    if (isFirebaseAuthEnabled && firebaseAuth) {
+    if (isFirebaseAuthEnabled && firebaseAuth && (!currentUser || !isGuestUser(currentUser))) {
       if (!isAuthInitialized) return;
       if (!firebaseAuth.currentUser || firebaseAuth.currentUser.uid !== currentUser?.id) {
         // Wait until auth state is synchronized with currentUser state to avoid permission race conditions
@@ -1645,6 +1681,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
             const exists = fetchedCompanies.some((c: any) => c.id === persistedCompanyId);
             const targetCompanyId = exists ? persistedCompanyId : fetchedCompanies[0].id;
             setCurrentCompanyId(targetCompanyId);
+            if (!exists) {
+              try {
+                localStorage.setItem(STORAGE_KEYS.currentCompany, targetCompanyId);
+              } catch {}
+            }
           }
           companiesLoadedForUserIdRef.current = currentUser.id;
           setCompaniesLoaded(true);
@@ -1679,7 +1720,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         const filteredCompanies = rawCompanies.filter((c: any) => c && c.id !== 'cmp_default');
 
         if (filteredCompanies.length > 0) {
-          finalCompanies = filteredCompanies.map(withNormalizedCompanyProfile);
+          finalCompanies = filteredCompanies.map(c => withNormalizedCompanyProfile(c, workspaceSubscription));
         } else {
           // Completely new user! Create their real cloud company immediately
           const newCompanyId = `cmp_${currentUser.id}`;
@@ -1708,6 +1749,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           }];
           needsCloudUpdate = true;
           setCurrentCompanyId(newCompanyId);
+          try {
+            localStorage.setItem(STORAGE_KEYS.currentCompany, newCompanyId);
+          } catch {}
         }
 
         setCompanies(prev => {
@@ -1751,7 +1795,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         unsubscribeFirestore();
       }
     };
-  }, [currentUser, firebaseDb, isAuthInitialized]);
+  }, [currentUser, firebaseDb, isAuthInitialized, workspaceSubscription]);
 
   // Dedicated listener to sync/generate currentUser accountCode and password in Firestore
   useEffect(() => {
@@ -1845,9 +1889,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const cleanCompanies = JSON.parse(JSON.stringify(filtered));
     setDoc(doc(firebaseDb, 'users', currentUser.id), { companies: cleanCompanies }, { merge: true }).catch(console.error);
   }, [companies, companiesLoaded, currentUser]);
-  const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
-    return buildDefaultWorkspaceSubscription();
-  });
   const [cloudMemberships, setCloudMemberships] = useState<CompanyMembership[]>([]);
   const [permissions, setPermissions] = useState<PermissionMatrix>(() => normalizePermissionMatrix());
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -1943,6 +1984,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const bootstrappedUsersRef = useRef<Set<string>>(new Set());
   const lastUserIdRef = useRef<string | null>(null);
   const companiesLoadedForUserIdRef = useRef<string | null>(null);
+  const lastHeartbeatAttemptRef = useRef<Record<string, number>>({});
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -1980,7 +2022,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       ...updates,
       id: existing.id,
       createdAt: existing.createdAt
-    });
+    }, workspaceSubscription);
 
     setCompanies(prev => prev.map(company => company.id === companyId ? next : company));
     if (companyId === currentCompanyId) {
@@ -1994,7 +2036,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }));
     }
     return next;
-  }, [companies, currentCompanyId]);
+  }, [companies, currentCompanyId, workspaceSubscription]);
 
   const buildCompanyProfilePatchFromCloud = useCallback((
     remote: CloudCompanySubscription,
@@ -2133,7 +2175,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         const currentUserId = lastUserIdRef.current;
         const nextUserId = authUser?.uid || null;
 
-        if (nextUserId !== currentUserId) {
+        const isTransitioningFromGuestToFirebase = currentUserId === GUEST_USER_ID && nextUserId !== null;
+        const isTransitioningFromFirebaseToGuest = currentUserId !== GUEST_USER_ID && nextUserId === GUEST_USER_ID;
+        const isStandardUserChange = currentUserId !== GUEST_USER_ID && nextUserId !== GUEST_USER_ID && nextUserId !== currentUserId;
+        const isActualUserChange = isTransitioningFromGuestToFirebase || isTransitioningFromFirebaseToGuest || isStandardUserChange;
+
+        if (isActualUserChange) {
           console.log(`[Auth] User changed synchronously from ${currentUserId} to ${nextUserId}. Clearing states.`);
           lastUserIdRef.current = nextUserId;
 
@@ -2141,8 +2188,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           setCloudMemberships([]);
           setCompanies([]);
           companiesLoadedForUserIdRef.current = null;
-          setCompaniesLoaded(false);
-          setCurrentCompanyId('');
+          setCompaniesLoaded(nextUserId === GUEST_USER_ID);
+          setCurrentCompanyId(nextUserId === GUEST_USER_ID ? 'cmp_default' : '');
           setBaseCurrencyState('ILS');
           setCompanySettings(withNormalizedValuationSettings(defaultCompanySettings));
           setWorkspaceHydratedForCompanyId('');
@@ -2230,8 +2277,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       setCloudMemberships([]);
       setCompanies([]);
       companiesLoadedForUserIdRef.current = null;
-      setCompaniesLoaded(false);
-      setCurrentCompanyId('');
+      setCompaniesLoaded(nextUserId === GUEST_USER_ID);
+      setCurrentCompanyId(nextUserId === GUEST_USER_ID ? 'cmp_default' : '');
       setBaseCurrencyState('ILS');
         setCompanySettings(withNormalizedValuationSettings(defaultCompanySettings));
         setWorkspaceHydratedForCompanyId('');
@@ -2491,33 +2538,57 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return () => unsubscribe();
   }, [cloudSubscription, companies, currentCompanyId, currentDeviceBinding, currentUser, subscriptionAdminEnabled, subscriptionAdminScope]);
 
+  const companiesRef = useRef(companies);
+  companiesRef.current = companies;
+
+  const currentCompanyRef = useRef(currentCompany);
+  currentCompanyRef.current = currentCompany;
+
+  const currentDeviceBindingRef = useRef(currentDeviceBinding);
+  currentDeviceBindingRef.current = currentDeviceBinding;
+
+  const applyCompanySubscriptionLocallyRef = useRef(applyCompanySubscriptionLocally);
+  applyCompanySubscriptionLocallyRef.current = applyCompanySubscriptionLocally;
+
+  const buildCompanyProfilePatchFromCloudRef = useRef(buildCompanyProfilePatchFromCloud);
+  buildCompanyProfilePatchFromCloudRef.current = buildCompanyProfilePatchFromCloud;
+
+  const persistCloudSubscriptionRef = useRef(persistCloudSubscription);
+  persistCloudSubscriptionRef.current = persistCloudSubscription;
+
   useEffect(() => {
-    if (!firebaseDb || !currentCompany || !currentUser || isGuestUser(currentUser)) {
+    if (!firebaseDb || !currentCompanyId || !currentUser || isGuestUser(currentUser)) {
       setCloudSubscription(null);
       return;
     }
 
+    const comp = currentCompanyRef.current;
+    if (!comp) return;
+
     setSubscriptionCloudBusy(true);
-    const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, currentCompany.id);
+    const subscriptionRef = doc(firebaseDb, COMPANY_SUBSCRIPTIONS_COLLECTION, currentCompanyId);
     const unsubscribe = onSnapshot(subscriptionRef, (snapshot) => {
+      const latestComp = currentCompanyRef.current;
+      if (!latestComp) return;
+
       if (!snapshot.exists()) {
-        if (!shouldBootstrapMissingCompanySubscription(companies, currentCompany.id, companyDeleteInFlightRef.current)) {
+        if (!shouldBootstrapMissingCompanySubscription(companiesRef.current, currentCompanyId, companyDeleteInFlightRef.current)) {
           setCloudSubscription(null);
           setSubscriptionCloudBusy(false);
           setSubscriptionCloudError('');
           return;
         }
 
-        if (bootstrappedSubscriptionsRef.current.has(currentCompany.id)) {
+        if (bootstrappedSubscriptionsRef.current.has(currentCompanyId)) {
           setCloudSubscription(null);
           setSubscriptionCloudBusy(false);
           return;
         }
-        bootstrappedSubscriptionsRef.current.add(currentCompany.id);
+        bootstrappedSubscriptionsRef.current.add(currentCompanyId);
 
-        void persistCloudSubscription(currentCompany, {
-          source: currentCompany.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
-          boundDevices: [currentDeviceBinding]
+        void persistCloudSubscriptionRef.current(latestComp, {
+          source: latestComp.subscriptionStatus === 'TRIAL' ? 'TRIAL' : 'MANUAL',
+          boundDevices: [currentDeviceBindingRef.current]
         })
           .then(() => {
             setSubscriptionCloudBusy(false);
@@ -2530,11 +2601,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         return;
       }
 
-      let remote = normalizeCloudCompanySubscription(currentCompany.id, snapshot.data(), currentCompany);
-      const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBinding.deviceId);
+      let remote = normalizeCloudCompanySubscription(currentCompanyId, snapshot.data(), latestComp);
+      const existingDevice = remote.boundDevices.find(device => device.deviceId === currentDeviceBindingRef.current.deviceId);
 
       if (!existingDevice) {
-        const nextDevices = [...remote.boundDevices, { ...currentDeviceBinding, firstSeenAt: new Date().toISOString() }];
+        const now = Date.now();
+        const lastAttempt = lastHeartbeatAttemptRef.current[currentCompanyId] || 0;
+        const throttled = now - lastAttempt < 60000;
+
+        const nextDevices = [...remote.boundDevices, { ...currentDeviceBindingRef.current, firstSeenAt: new Date().toISOString() }];
         const nextRemote = {
           ...remote,
           boundDevices: nextDevices,
@@ -2542,13 +2617,17 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           updatedByUserId: currentUser.id,
           updatedByEmail: currentUser.email
         };
-        void setDoc(
-          subscriptionRef,
-          sanitizeFirestorePayload(nextRemote as unknown as Record<string, unknown>),
-          { merge: true }
-        ).catch(() => {
-          // Let the current snapshot continue even if the auto-bind write fails.
-        });
+
+        if (!throttled) {
+          lastHeartbeatAttemptRef.current[currentCompanyId] = now;
+          void setDoc(
+            subscriptionRef,
+            sanitizeFirestorePayload(nextRemote as unknown as Record<string, unknown>),
+            { merge: true }
+          ).catch(() => {
+            // Let the current snapshot continue even if the auto-bind write fails.
+          });
+        }
         remote = nextRemote;
       } else if (existingDevice) {
         const lastSeen = Date.parse(String(existingDevice.lastSeenAt || ''));
@@ -2556,8 +2635,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         const needsHeartbeat = !Number.isFinite(lastSeen) || (Date.now() - lastSeen) > fiveMinutes;
 
         if (needsHeartbeat) {
+          const now = Date.now();
+          const lastAttempt = lastHeartbeatAttemptRef.current[currentCompanyId] || 0;
+          const throttled = now - lastAttempt < 60000;
+
           const nextDevices = remote.boundDevices.map(device => (
-            device.deviceId === currentDeviceBinding.deviceId
+            device.deviceId === currentDeviceBindingRef.current.deviceId
               ? {
                 ...device,
                 lastSeenAt: new Date().toISOString(),
@@ -2566,14 +2649,19 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
               }
               : device
           ));
-          void setDoc(subscriptionRef, sanitizeFirestorePayload({
-            boundDevices: nextDevices,
-            updatedAt: new Date().toISOString(),
-            updatedByUserId: currentUser.id,
-            updatedByEmail: currentUser.email
-          }), { merge: true }).catch(() => {
-            // Keep working even if heartbeat update fails.
-          });
+
+          if (!throttled) {
+            lastHeartbeatAttemptRef.current[currentCompanyId] = now;
+            void setDoc(subscriptionRef, sanitizeFirestorePayload({
+              boundDevices: nextDevices,
+              updatedAt: new Date().toISOString(),
+              updatedByUserId: currentUser.id,
+              updatedByEmail: currentUser.email
+            }), { merge: true }).catch(() => {
+              // Keep working even if heartbeat update fails.
+            });
+          }
+
           remote = {
             ...remote,
             boundDevices: nextDevices
@@ -2581,19 +2669,19 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }
       }
 
-      const localPatch = buildCompanyProfilePatchFromCloud(remote, currentCompany);
+      const localPatch = buildCompanyProfilePatchFromCloudRef.current(remote, latestComp);
 
       setCloudSubscription(remote);
       setSubscriptionCloudBusy(false);
       setSubscriptionCloudError('');
-      applyCompanySubscriptionLocally(currentCompany.id, localPatch);
+      applyCompanySubscriptionLocallyRef.current(currentCompanyId, localPatch);
     }, (error) => {
       setSubscriptionCloudBusy(false);
       setSubscriptionCloudError(String(error?.message || 'Failed to sync company subscription.'));
     });
 
     return () => unsubscribe();
-  }, [companies, currentCompany, currentDeviceBinding, currentUser, persistCloudSubscription, applyCompanySubscriptionLocally, buildCompanyProfilePatchFromCloud]);
+  }, [currentCompanyId, currentUser, firebaseDb]);
 
   useEffect(() => {
     if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !companies.length) return;
@@ -2733,7 +2821,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     const normalizedScreen = screen.toLowerCase();
     const bypassAllowed = module === 'SETTINGS'
-      && (normalizedScreen.includes('subscription') || normalizedScreen.includes('backup'));
+      && (normalizedScreen.includes('subscription') || normalizedScreen.includes('backup') || normalizedScreen.includes('switcher'));
     if (bypassAllowed) return null;
 
     const isArabic = (companySettings.language ?? 'AR') === 'AR';
@@ -7751,7 +7839,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       status: 'TRIAL',
       plan: 'TRIAL',
       provider: 'TRIAL',
-      maxCompanies: Math.max(1, companies.length),
+      maxCompanies: Math.max(3, companies.length),
       expiresAt: currentCompany?.trialEndsAt
     });
 
@@ -7781,6 +7869,18 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     return unsubscribe;
   }, [companies.length, currentCompany?.trialEndsAt, currentUser]);
+
+  // Re-normalize companies when workspaceSubscription changes
+  useEffect(() => {
+    if (!companies.length || !workspaceSubscription) return;
+    setCompanies(prev => {
+      const next = prev.map(company => withNormalizedCompanyProfile(company, workspaceSubscription));
+      if (JSON.stringify(prev) !== JSON.stringify(next)) {
+        return next;
+      }
+      return prev;
+    });
+  }, [workspaceSubscription]);
 
   // LocalStorage backups removed for server-only mode
 
@@ -8083,6 +8183,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setProductionOrders([]);
 
     setCurrentCompanyId(companyId);
+    try {
+      localStorage.setItem(STORAGE_KEYS.currentCompany, companyId);
+    } catch (e) {
+      console.warn('Failed to save selected company to localStorage:', e);
+    }
     return makeSuccess();
   };
 
@@ -8114,22 +8219,29 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       companyCreateInFlightRef.current = true;
       const nowIso = new Date().toISOString();
       const companyId = newId('cmp');
+
+      const isWorkspaceActive = workspaceSubscription && workspaceSubscription.status === 'ACTIVE';
+      const companySubStatus = isWorkspaceActive ? 'ACTIVE' : 'TRIAL';
+      const companySubPlan = isWorkspaceActive ? workspaceSubscription.plan : 'TRIAL';
+      const companySubEndsAt = isWorkspaceActive ? workspaceSubscription.expiresAt : undefined;
+      const companyTrialEnds = isWorkspaceActive ? undefined : (workspaceSubscription.expiresAt || addDaysIso(nowIso, 14));
+
       const profile: CompanyProfile = {
-      id: companyId,
-      name,
-      taxNumber: input.taxNumber || '',
-      address: input.address || '',
-      phone: input.phone || '',
-      logoUrl: normalizeBrandLogoUrl(input.logoUrl, defaultCompanySettings.logoUrl),
-      createdAt: nowIso,
-      trialEndsAt: addDaysIso(nowIso, 14),
-      subscriptionStatus: input.subscriptionStatus || 'TRIAL',
-      subscriptionPlan: input.subscriptionPlan || 'TRIAL',
-      subscriptionStartsAt: input.subscriptionStartsAt || nowIso,
-      subscriptionEndsAt: input.subscriptionEndsAt,
-      activationCode: String(input.activationCode || '').trim() || undefined,
-      graceDays: Number.isFinite(Number(input.graceDays)) ? Math.max(0, Math.min(30, Math.floor(Number(input.graceDays)))) : 0
-    };
+        id: companyId,
+        name,
+        taxNumber: input.taxNumber || '',
+        address: input.address || '',
+        phone: input.phone || '',
+        logoUrl: normalizeBrandLogoUrl(input.logoUrl, defaultCompanySettings.logoUrl),
+        createdAt: nowIso,
+        trialEndsAt: companyTrialEnds || addDaysIso(nowIso, 14),
+        subscriptionStatus: input.subscriptionStatus || companySubStatus,
+        subscriptionPlan: input.subscriptionPlan || companySubPlan,
+        subscriptionStartsAt: input.subscriptionStartsAt || nowIso,
+        subscriptionEndsAt: input.subscriptionEndsAt || companySubEndsAt,
+        activationCode: String(input.activationCode || '').trim() || undefined,
+        graceDays: Number.isFinite(Number(input.graceDays)) ? Math.max(0, Math.min(30, Math.floor(Number(input.graceDays)))) : 0
+      };
 
       if (!useBackend) {
         await saveCurrentWorkspaceSnapshot(currentCompanyId);
@@ -8147,7 +8259,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         boundDevices: [currentDeviceBinding]
       });
 
-      if (useBackend) {
+      if (useBackend && currentUser && !isGuestUser(currentUser)) {
         const user = firebaseAuth?.currentUser || currentUser;
         if (user) {
           const res = await callBackendApi(user, '/companies', 'POST', {
@@ -8183,6 +8295,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           : prev
       ));
       setCurrentCompanyId(profile.id);
+      try {
+        localStorage.setItem(STORAGE_KEYS.currentCompany, profile.id);
+      } catch (e) {
+        console.warn('Failed to save selected company to localStorage:', e);
+      }
       return makeSuccess();
     } catch (error: any) {
       return makeError('VALIDATION_ERROR', error?.message || 'Failed to create company.');
@@ -8933,7 +9050,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       ...updates,
       id: existing.id,
       createdAt: existing.createdAt
-    });
+    }, workspaceSubscription);
 
     try {
       await persistCloudSubscription(next, {
@@ -9134,7 +9251,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           : nowIso,
         subscriptionEndsAt: addDaysIso(extensionBaseIso, localIssuedCode.durationDays),
         activationCode: localIssuedCode.code
-      });
+      }, workspaceSubscription);
 
       applyCompanySubscriptionLocally(companyId, next);
       if (currentUser && !isGuestUser(currentUser)) {
@@ -9207,7 +9324,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         : nowIso,
       subscriptionEndsAt: addDaysIso(extensionBaseIso, parsedCode.durationDays),
       activationCode: parsedCode.code
-    });
+    }, workspaceSubscription);
 
     applyCompanySubscriptionLocally(companyId, next);
     setSubscriptionCloudError('');
@@ -9249,7 +9366,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       name: requestedName,
       id: existing.id,
       createdAt: existing.createdAt
-    });
+    }, workspaceSubscription);
 
     applyCompanySubscriptionLocally(companyId, next);
     if (useBackend) {
