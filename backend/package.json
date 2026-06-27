@@ -1,7 +1,7 @@
 {
   "name": "smart-accountant-backend",
   "version": "1.0.0",
-  "description": "Custom API Server for AIFLEX Smart Accountant with PostgreSQL",
+  "description": "Custom API Server for accountant flex with PostgreSQL",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

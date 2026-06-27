@@ -111,8 +111,8 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onOpenVoiceAssistant }) => {
   const assistantLanguage = isEnglish ? 'English' : 'Arabic';
   const apiKey = useMemo(() => extractGeminiApiKey(), []);
   const cloudAiEnabled = apiKey.length > 0;
-  const assistantDisplayName = tr('المحاسب الذكي', 'AIFLEX Smart Accountant');
-  const assistantWelcomeTitle = tr('مرحبًا بك في المحاسب الذكي 👋', 'Welcome to Smart Accountant');
+  const assistantDisplayName = tr('المحاسب فلكس', 'accountant flex');
+  const assistantWelcomeTitle = tr('مرحبًا بك في المحاسب فلكس 👋', 'Welcome to accountant flex');
   const assistantWelcomeText = tr(
     'دعنا نساعدك في تحليل بياناتك المالية وتبسيط أعمالك المحاسبية.',
     'Let us help you analyze your financial data and simplify your accounting work.'
@@ -137,12 +137,12 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onOpenVoiceAssistant }) => {
     'An integrated smart assistant that helps you manage accounting operations efficiently by analyzing financial data, suggesting journal entries, and tracking financial performance in real time to save time and reduce manual errors.'
   );
   const assistantMarketingTitle = tr(
-    'المحاسب الذكي - دع الذكاء يدير أرقامك',
-    'Smart Accountant - Let intelligence run your numbers'
+    'المحاسب فلكس - دع الذكاء يدير أرقامك',
+    'accountant flex - Let intelligence run your numbers'
   );
   const assistantMarketingDescription = tr(
-    'ارتقِ بإدارة حساباتك إلى مستوى جديد مع المحاسب الذكي من AIFLEX. حل متطور يعتمد على الذكاء الاصطناعي لتحليل بياناتك المالية، أتمتة القيود اليومية، وتقديم توصيات ذكية تساعدك على اتخاذ قرارات مالية دقيقة بثقة وسرعة.',
-    'Take your accounting to a new level with AIFLEX Smart Accountant. It uses AI to analyze your financial data, automate daily entries, and deliver smart recommendations that support faster and more confident financial decisions.'
+    'ارتقِ بإدارة حساباتك إلى مستوى جديد مع المحاسب فلكس. حل متطور يعتمد على الذكاء الاصطناعي لتحليل بياناتك المالية، أتمتة القيود اليومية، وتقديم توصيات ذكية تساعدك على اتخاذ قرارات مالية دقيقة بثقة وسرعة.',
+    'Take your accounting to a new level with accountant flex. It uses AI to analyze your financial data, automate daily entries, and deliver smart recommendations that support faster and more confident financial decisions.'
   );
   const formatAmount = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value || 0));

@@ -1,5 +1,5 @@
 {
-  "name": "Smart Accountant",
+  "name": "accountant flex",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
   "postCreateCommand": "bash -lc 'if [ ! -f .env.local ] && [ -f .env.example ]; then cp .env.example .env.local; fi; npm ci'",
   "forwardPorts": [

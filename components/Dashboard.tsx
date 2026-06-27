@@ -47,7 +47,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const tr = (ar: string, en: string) => (appLanguage === 'AR' ? ar : en);
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
     translate(appLanguage, key, params);
-  const smartAccountantTitle = tr('المحاسب الذكي', 'AIFLEX Smart Accountant');
+  const smartAccountantTitle = tr('المحاسب فلكس', 'accountant flex');
   const smartAccountantCardText = tr(
     'مساعد محاسبي ذكي يحلل بياناتك، يقترح القيود، ويساعدك على اتخاذ قرارات مالية أفضل بسرعة ودقة.',
     'A smart accounting assistant that analyzes your data, suggests entries, and helps you make better financial decisions quickly and accurately.'

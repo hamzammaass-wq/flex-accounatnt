@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize } from '@capacitor/keyboard';
 
 const firebaseAuthenticationConfig = {
   skipNativeAuth: true,
@@ -8,7 +9,7 @@ const firebaseAuthenticationConfig = {
 
 const config: CapacitorConfig = {
   appId: 'com.smartaccountant.erp',
-  appName: 'المحاسب الذكي (AIFLEX Smart Accountant)',
+  appName: 'المحاسب فلكس (accountant flex)',
   webDir: 'dist',
   server: {
     url: 'https://smart-account-cc181.web.app',
@@ -16,7 +17,7 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Keyboard: {
-      resize: 'body',
+      resize: KeyboardResize.Body,
       resizeOnFullScreen: true,
     },
     FirebaseAuthentication: firebaseAuthenticationConfig,
