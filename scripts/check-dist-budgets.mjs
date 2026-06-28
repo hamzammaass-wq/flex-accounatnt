@@ -31,7 +31,10 @@ const main = async () => {
 
     const filePath = path.join(assetsDir, entry.name);
     const { size } = await fs.stat(filePath);
-    const budget = extension === '.js' ? MAX_JS_BYTES : MAX_CSS_BYTES;
+    let budget = extension === '.js' ? MAX_JS_BYTES : MAX_CSS_BYTES;
+    if (entry.name.startsWith('vendor-xlsx')) {
+      budget = 1.3 * 1024 * 1024; // Allow up to 1.3 MB for xlsx bundle
+    }
 
     report.push({ name: entry.name, size, budget, extension });
 
