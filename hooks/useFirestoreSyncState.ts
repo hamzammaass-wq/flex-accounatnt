@@ -44,7 +44,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     dataRef.current = data;
   }, [data]);
 
-  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true' && isFirebaseAuthEnabled;
 
   // Track Firebase auth UID locally so this hook re-runs when auth state changes.
   // This replaces the old onAuthStateChanged retry inside the main useEffect,
@@ -269,18 +269,23 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     const currentCompanyId = companyIdRef.current;
     const currentCollectionName = collectionNameRef.current;
 
-    if (!useBackend && !firebaseDb) {
-      console.error(`[Sync ERROR] Firebase DB is not initialized! Data for ${currentCollectionName} will NOT be saved.`);
-      if (typeof window !== 'undefined') {
-        showSyncAlertOnce(`⚠️ خطأ حرج: قاعدة البيانات غير متصلة!\nالبيانات لن تُحفظ. تحقق من إعدادات Firebase.`);
-      }
-      return;
-    }
-
     if (!currentUserId || currentUserId === 'guest_user') {
       // Quietly allow guest user mutations in-memory without error logs/popups,
       // but log to console for debugging.
       console.log(`[Sync Info] Guest user mode: changes to ${currentCollectionName} kept in memory.`);
+      return;
+    }
+
+    if (!useBackend && !firebaseDb) {
+      const isFirebaseDisabled = typeof window !== 'undefined' && window.localStorage.getItem('disableFirebase') === 'true';
+      if (isFirebaseDisabled) {
+        console.warn(`[Sync Info] Firebase DB is intentionally disabled. Data for ${currentCollectionName} kept in memory.`);
+      } else {
+        console.error(`[Sync ERROR] Firebase DB is not initialized! Data for ${currentCollectionName} will NOT be saved.`);
+        if (typeof window !== 'undefined') {
+          showSyncAlertOnce(`⚠️ خطأ حرج: قاعدة البيانات غير متصلة!\nالبيانات لن تُحفظ. تحقق من إعدادات Firebase.`);
+        }
+      }
       return;
     }
 

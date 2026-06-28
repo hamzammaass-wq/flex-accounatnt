@@ -163,7 +163,7 @@ export const executeFirestoreWrite = async (
     throw new Error('User object does not support getIdToken');
   }
 
-  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true' && isFirebaseAuthEnabled;
   const backendApiUrl = getBackendApiUrl();
   const url = useBackend ? `${backendApiUrl}/firestore-write-proxy` : getAbsoluteUrl('/api/firestore-write-proxy');
 

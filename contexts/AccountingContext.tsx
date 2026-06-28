@@ -1273,7 +1273,7 @@ const withTimeout = <T extends unknown>(promise: Promise<T>, timeoutMs: number, 
 };
 
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
-  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true' && isFirebaseAuthEnabled;
 
   const [forceEmptyBootstrap] = useState<boolean>(() => {
     try {
@@ -1659,7 +1659,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return;
     }
 
-    const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+    const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true' && isFirebaseAuthEnabled;
     let isSubscribed = true;
 
     if (useBackend) {
@@ -7057,7 +7057,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     // Immediately persist workspace settings to prevent loss during rapid page refreshes
     if (currentCompanyId) {
-      if (useBackend) {
+      if (useBackend && isFirebaseAuthEnabled) {
         if (currentUser) {
           callBackendApi(currentUser, `/companies/${currentCompanyId}`, 'PUT', {
             baseCurrency: code,
@@ -7161,7 +7161,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     // Immediately persist settings snapshot to prevent loss during rapid page refreshes or closures
     if (currentCompanyId) {
-      if (useBackend) {
+      if (useBackend && isFirebaseAuthEnabled) {
         if (currentUser) {
           callBackendApi(currentUser, `/companies/${currentCompanyId}`, 'PUT', {
             name: next.name,
@@ -7596,12 +7596,20 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
-    if (useBackend) {
+    if (useBackend && isFirebaseAuthEnabled) {
       return {
         snapshot: null,
         source: 'none',
         needsRewrite: false
       };
+    }
+
+    let localSnapshot: CompanyWorkspaceSnapshot | null = null;
+    try {
+      const raw = localStorage.getItem(getCompanyWorkspaceKey(companyId));
+      localSnapshot = parseWorkspaceSnapshot(companyId, raw);
+    } catch (e) {
+      console.warn('Failed to read local workspace snapshot:', e);
     }
 
     if (isFirebaseSyncEnabled && firebaseDb && currentUser && !isGuestUser(currentUser)) {
@@ -7622,6 +7630,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       } catch (error) {
         console.warn('Failed to fetch remote workspace snapshot:', error);
       }
+    }
+
+    if (localSnapshot) {
+      return {
+        snapshot: localSnapshot,
+        source: 'local',
+        needsRewrite: false
+      };
     }
 
     return {
@@ -8259,7 +8275,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         boundDevices: [currentDeviceBinding]
       });
 
-      if (useBackend && currentUser && !isGuestUser(currentUser)) {
+      if (useBackend && isFirebaseAuthEnabled && currentUser && !isGuestUser(currentUser)) {
         const user = firebaseAuth?.currentUser || currentUser;
         if (user) {
           const res = await callBackendApi(user, '/companies', 'POST', {
@@ -8367,7 +8383,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       removeWorkspaceSyncQueueItem(companyId);
       setSyncQueueVersion(prev => prev + 1);
 
-      if (useBackend && currentUser && !isGuestUser(currentUser)) {
+      if (useBackend && isFirebaseAuthEnabled && currentUser && !isGuestUser(currentUser)) {
         try {
           await callBackendApi(currentUser, `/companies/${companyId}`, 'DELETE');
           console.log('[Backend Sync] Company deleted successfully on backend');
@@ -9369,7 +9385,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }, workspaceSubscription);
 
     applyCompanySubscriptionLocally(companyId, next);
-    if (useBackend) {
+    if (useBackend && isFirebaseAuthEnabled) {
       if (currentUser && !isGuestUser(currentUser)) {
         callBackendApi(currentUser, `/companies/${companyId}`, 'PUT', {
           name: next.name,
