@@ -1,6 +1,6 @@
-# المحاسب الذكي (AIFLEX Smart Accountant)
+# المحاسب فلكس (flex accaountant)
 
-المحاسب الذكي (AIFLEX Smart Accountant) is a Vite + React + Capacitor application with Firebase Authentication and Firebase Hosting deployment.
+المحاسب فلكس (flex accaountant) is a Vite + React + Capacitor application with Firebase Authentication and Firebase Hosting deployment.
 
 ## Access From Anywhere
 

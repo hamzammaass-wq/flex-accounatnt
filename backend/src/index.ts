@@ -527,6 +527,6 @@ export { app };
 
 if (!process.env.FUNCTIONS_EMULATOR && !process.env.FUNCTION_TARGET && !process.env.FIREBASE_CONFIG) {
   app.listen(PORT, () => {
-    console.log(`[accountant flex Server] Running on port ${PORT}`);
+    console.log(`[flex accaountant Server] Running on port ${PORT}`);
   });
 }

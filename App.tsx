@@ -288,6 +288,7 @@ const AppContent: React.FC = () => {
     const htmlLang = getDocumentLanguageTag(appLanguage);
     document.documentElement.lang = htmlLang;
     document.documentElement.dir = rtl ? 'rtl' : 'ltr';
+    document.title = appLanguage === 'AR' ? 'المحاسب فلكس' : 'flex accaountant';
   }, [appLanguage, rtl]);
 
   useEffect(() => {
