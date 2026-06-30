@@ -153,6 +153,28 @@ const AppContent: React.FC = () => {
     switchCompany,
     createCompany
   } = useAccounting();
+
+  // Prevent infinite render loops by detecting excessive re-renders
+  const renderCountRef = useRef(0);
+  const lastRenderResetRef = useRef(Date.now());
+
+  useEffect(() => {
+    const now = Date.now();
+    const elapsed = now - lastRenderResetRef.current;
+
+    if (elapsed > 2000) {
+      // Reset counter every 2 seconds
+      renderCountRef.current = 0;
+      lastRenderResetRef.current = now;
+    } else {
+      renderCountRef.current++;
+    }
+
+    if (renderCountRef.current > 100) {
+      console.error('[App] CRITICAL: Excessive re-renders detected. Force stopping.');
+      throw new Error('App: Too many re-renders in 2 seconds. Check component logic.');
+    }
+  });
   const [activeTab, setActiveTab] = useState<TabView>('dashboard');
   const [tabHistory, setTabHistory] = useState<TabView[]>([]);
   const [overlay, setOverlay] = useState<OverlayView>(null);

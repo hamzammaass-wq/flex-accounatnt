@@ -73,17 +73,26 @@ const safeStorageKeys = (storage: Storage): string[] => {
   }
 };
 
-const isSafariOrIOS = (): boolean => {
+const isMobile = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent.toLowerCase();
+  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
+};
+
+const isIOSStandalone = (): boolean => {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent.toLowerCase();
   const isIOS = /ipad|iphone|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isSafari = ua.includes('safari') && !ua.includes('chrome') && !ua.includes('chromium') && !ua.includes('crios') && !ua.includes('fxios');
-  return isIOS || isSafari;
+  const standalone = (typeof window.matchMedia === 'function'
+    ? window.matchMedia('(display-mode: standalone)').matches
+    : false) || (navigator as any).standalone === true;
+  return isIOS && standalone;
 };
 
 const shouldPreferRedirectAuth = (): boolean => {
   if (typeof window === 'undefined') return false;
-  if (isSafariOrIOS()) return false;
+  if (isIOSStandalone()) return false;
+  if (isMobile()) return true;
   const standalone = (typeof window.matchMedia === 'function'
     ? window.matchMedia('(display-mode: standalone)').matches
     : false) || (navigator as any).standalone === true;
@@ -698,21 +707,51 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
   }
 
   return (
-    <div className="min-h-dvh bg-[#071120] flex flex-col items-center p-4 sm:p-6 font-tajawal relative overflow-x-hidden w-full">
+    <div className="min-h-dvh bg-[#071120] flex items-center justify-center p-4 sm:p-6 font-tajawal relative overflow-x-hidden w-full">
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(168,85,247,0.12),transparent_24%),linear-gradient(180deg,#071120_0%,#0b1630_100%)] pointer-events-none"></div>
       <div className="fixed top-[-8%] right-[-10%] w-[440px] h-[440px] bg-cyan-400/10 rounded-full blur-[140px] pointer-events-none"></div>
       <div className="fixed bottom-[-10%] left-[-12%] w-[440px] h-[440px] bg-violet-500/12 rounded-full blur-[140px] pointer-events-none"></div>
 
-      <div className="w-full max-w-lg relative z-10 my-auto pt-8 pb-10">
-        <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-10 duration-700">
-          <img
-            src={AUTH_SCREEN_LOGO_URL}
-            alt={t('auth.appName')}
-            className="mx-auto w-full max-w-[22rem] sm:max-w-[25rem] rounded-[2rem] border border-cyan-300/10 shadow-[0_28px_90px_rgba(2,6,23,0.58)] object-contain"
-          />
+      <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-center gap-10 lg:gap-16 w-full max-w-6xl my-auto pt-8 pb-10">
+        
+        {/* Landing Page Info for Google OAuth Review */}
+        <div className="w-full max-w-lg lg:max-w-xl text-center lg:text-right space-y-6 text-white animate-in fade-in slide-in-from-right-10 duration-700 mx-auto lg:mx-0" dir={appLanguage === 'AR' ? 'rtl' : 'ltr'}>
+          <div className="inline-flex px-4 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold mb-2">
+            {appLanguage === 'AR' ? 'الإصدار السحابي' : 'Cloud Edition'}
+          </div>
+          <h1 className="text-4xl lg:text-5xl font-black leading-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+            {appLanguage === 'AR' ? 'نظام فليكس المحاسبي' : 'Flex Accountant System'}
+          </h1>
+          <p className="text-lg text-slate-300 font-medium leading-relaxed">
+            {appLanguage === 'AR' 
+              ? 'الحل السحابي المتكامل لإدارة أعمالك التجارية. تتبع المبيعات، المشتريات، المخزون، والحسابات بكل سهولة وأمان، ومن أي مكان.' 
+              : 'The complete cloud solution for managing your business. Track sales, purchases, inventory, and accounts with ease and security, from anywhere.'}
+          </p>
+          <div className="grid grid-cols-2 gap-4 pt-4">
+             <div className="bg-slate-900/50 border border-slate-800/80 p-5 rounded-2xl flex flex-col items-center lg:items-start text-center lg:text-right transition-all hover:bg-slate-800/50">
+                <Building2 className="w-8 h-8 text-cyan-400 mb-3" />
+                <h3 className="font-bold text-sm text-slate-200">{appLanguage === 'AR' ? 'إدارة متكاملة' : 'Complete Management'}</h3>
+                <p className="text-xs text-slate-400 mt-1">{appLanguage === 'AR' ? 'لجميع الأنشطة التجارية' : 'For all business types'}</p>
+             </div>
+             <div className="bg-slate-900/50 border border-slate-800/80 p-5 rounded-2xl flex flex-col items-center lg:items-start text-center lg:text-right transition-all hover:bg-slate-800/50">
+                <BadgeCheck className="w-8 h-8 text-emerald-400 mb-3" />
+                <h3 className="font-bold text-sm text-slate-200">{appLanguage === 'AR' ? 'تقارير دقيقة' : 'Accurate Reports'}</h3>
+                <p className="text-xs text-slate-400 mt-1">{appLanguage === 'AR' ? 'متابعة الأرباح والخسائر' : 'Track P&L in real-time'}</p>
+             </div>
+          </div>
         </div>
 
-        <div className="bg-slate-900/40 backdrop-blur-xl p-6 sm:p-8 rounded-[2.5rem] border border-slate-800/80 shadow-[0_30px_100px_rgba(0,0,0,0.6)] space-y-6 animate-in zoom-in-95 duration-500 delay-300 w-full">
+        {/* Auth Form Container */}
+        <div className="w-full max-w-lg relative mx-auto lg:mx-0 flex flex-col">
+          <div className="text-center mb-8 animate-in fade-in slide-in-from-bottom-10 duration-700">
+            <img
+              src={AUTH_SCREEN_LOGO_URL}
+              alt={t('auth.appName')}
+              className="mx-auto w-full max-w-[20rem] sm:max-w-[22rem] rounded-[2rem] border border-cyan-300/10 shadow-[0_28px_90px_rgba(2,6,23,0.58)] object-contain"
+            />
+          </div>
+
+          <div className="bg-slate-900/40 backdrop-blur-xl p-6 sm:p-8 rounded-[2.5rem] border border-slate-800/80 shadow-[0_30px_100px_rgba(0,0,0,0.6)] space-y-6 animate-in zoom-in-95 duration-500 delay-300 w-full">
           <div className={`rounded-[1.6rem] border px-4 py-4 ${accessStatusMeta.tone}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1038,6 +1077,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
             </span>
           ) : null}
         </div>
+      </div>
       </div>
     </div>
   );

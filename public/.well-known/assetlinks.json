@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.smartaccountant.erp",
+      "sha256_cert_fingerprints": [
+        "1A:32:31:5A:5B:67:3D:25:30:4A:8C:56:06:25:95:95:FB:F3:0E:ED:85:17:C3:BF:55:01:C1:3A:59:29:1E:FE",
+        "8C:DE:BE:77:07:EB:FA:A7:9B:60:F7:76:AA:45:4F:68:44:E0:B7:7B:51:48:2E:C9:AC:E0:FE:68:D5:78:A0:24"
+      ]
+    }
+  }
+]

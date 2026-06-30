@@ -42,7 +42,7 @@ const getDynamicAuthDomain = () => {
 
 const firebaseConfig = {
   apiKey: firebaseApiKey,
-  authDomain: firebaseAuthDomain,
+  authDomain: getDynamicAuthDomain(),
   projectId: firebaseProjectId,
   storageBucket: firebaseStorageBucket,
   messagingSenderId: firebaseMessagingSenderId,

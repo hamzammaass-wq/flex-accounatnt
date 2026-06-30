@@ -28,22 +28,30 @@ const WORKSPACE_SYNC_COLLECTION = 'workspace_sync_snapshots';
 const WORKSPACE_SUBSCRIPTIONS_COLLECTION = 'workspace_subscriptions';
 const SUBSCRIPTION_ADMINS_COLLECTION = 'subscription_admins';
 
-const isSafariOrIOS = (): boolean => {
+const isMobile = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent.toLowerCase();
+  return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua);
+};
+
+const isIOSStandalone = (): boolean => {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent.toLowerCase();
   const isIOS = /ipad|iphone|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isSafari = ua.includes('safari') && !ua.includes('chrome') && !ua.includes('chromium') && !ua.includes('crios') && !ua.includes('fxios');
-  return isIOS || isSafari;
+  const standalone = (typeof window.matchMedia === 'function'
+    ? window.matchMedia('(display-mode: standalone)').matches
+    : false) || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return isIOS && standalone;
 };
 
 const shouldPreferRedirectAuth = (): boolean => {
   if (typeof window === 'undefined') return false;
-  if (isSafariOrIOS()) return false;
+  if (isIOSStandalone()) return false;
+  if (isMobile()) return true;
   const standalone = (typeof window.matchMedia === 'function'
     ? window.matchMedia('(display-mode: standalone)').matches
     : false) || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  const userAgent = window.navigator.userAgent.toLowerCase();
-  return standalone || /android|iphone|ipad|ipod/.test(userAgent);
+  return standalone;
 };
 
 const openPublicPage = (path: string) => {

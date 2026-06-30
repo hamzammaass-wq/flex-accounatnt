@@ -9,16 +9,20 @@ import {
 import { firebaseDb, firebaseAuth, executeFirestoreWrite, callBackendApi, isFirebaseAuthEnabled } from '../firebaseClient';
 
 let lastAlertTime = 0;
-let lastAlertMessage = '';
 
 export const showSyncAlertOnce = (message: string) => {
   if (typeof window === 'undefined') return;
   const now = Date.now();
-  if (message === lastAlertMessage && now - lastAlertTime < 5000) {
-    return; // Skip duplicate alert within 5 seconds
+  
+  // Log sync warnings/errors silently to the console
+  console.warn(`[Sync Alert] ${message}`);
+  
+  // Throttling: only show at most ONE native alert every 60 seconds globally to prevent thread blocking & browser crash
+  if (now - lastAlertTime < 60000) {
+    return;
   }
+  
   lastAlertTime = now;
-  lastAlertMessage = message;
   alert(message);
 };
 
@@ -40,8 +44,22 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   // Keep a ref to the latest state to allow synchronous state checks outside React's render phase
   const dataRef = useRef<T[]>(initialState);
 
+  // Throttle ref updates to prevent excessive re-renders
+  const lastDataUpdateTimeRef = useRef(0);
   useEffect(() => {
-    dataRef.current = data;
+    const now = Date.now();
+    // Only update ref if enough time has passed (prevents rapid-fire updates)
+    if (now - lastDataUpdateTimeRef.current > 50) {
+      dataRef.current = data;
+      lastDataUpdateTimeRef.current = now;
+    } else {
+      // Schedule deferred update
+      const timer = setTimeout(() => {
+        dataRef.current = data;
+        lastDataUpdateTimeRef.current = Date.now();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
   }, [data]);
 
   const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true' && isFirebaseAuthEnabled;
@@ -53,6 +71,9 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   const [firebaseUid, setFirebaseUid] = useState<string | null>(
     firebaseAuth?.currentUser?.uid ?? null
   );
+
+  const hasSeededRef = useRef(false);
+  const hasRepairedRef = useRef(false);
 
   useEffect(() => {
     if (!firebaseAuth) return;
@@ -101,6 +122,8 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       console.log(`[Sync] Path changed for ${collectionName}. Resetting to initialState.`);
       setData(initialState);
       dataRef.current = initialState;
+      hasSeededRef.current = false;
+      hasRepairedRef.current = false;
     }
     previousPathRef.current = currentPath;
 
@@ -170,15 +193,27 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       };
     }
 
-    if (!firebaseDb || !companyId || !userId) {
-      console.warn(`[Sync] Firebase not ready for ${collectionName}. DB=${!!firebaseDb}, Company=${!!companyId}, User=${!!userId}`);
+    if (!firebaseDb || !companyId || !userId || userId === 'guest_user') {
+      console.warn(`[Sync] Firebase sync skipped or guest user for ${collectionName}. DB=${!!firebaseDb}, Company=${!!companyId}, User=${userId}`);
       return;
     }
 
     const q = collection(firebaseDb, currentPath);
 
+    // Track last update to prevent rapid-fire updates
+    let lastSnapshotTime = 0;
+    const MIN_UPDATE_INTERVAL = 100; // ms
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!isSubscribed) return;
+
+      // Throttle snapshot processing to prevent excessive re-renders
+      const now = Date.now();
+      if (now - lastSnapshotTime < MIN_UPDATE_INTERVAL && !snapshot.metadata.hasPendingWrites) {
+        console.log(`[Sync Throttle] Skipping rapid update for ${collectionName}`);
+        return;
+      }
+      lastSnapshotTime = now;
 
       try {
         const items = snapshot.docs.map(docSnap => ({
@@ -190,7 +225,8 @@ export function useFirestoreSyncState<T extends { id?: string }>(
           let nextVal = items;
 
           // Automatic cloud seeding: If Firestore is empty, push initialState to cloud
-          if (items.length === 0 && initialState.length > 0 && !snapshot.metadata.hasPendingWrites) {
+          if (items.length === 0 && initialState.length > 0 && !snapshot.metadata.hasPendingWrites && !hasSeededRef.current) {
+            hasSeededRef.current = true;
             console.log(`[Sync] Seeding initial data to Firestore collection: ${collectionName}`);
             const ops: Array<{ type: 'set' | 'delete'; path: string; data?: any }> = [];
             initialState.forEach(item => {
@@ -213,9 +249,10 @@ export function useFirestoreSyncState<T extends { id?: string }>(
           }
 
           // Auto-repair missing system items if the collection is partially populated
-          else if (items.length > 0 && initialState.length > 0 && !snapshot.metadata.hasPendingWrites) {
+          else if (items.length > 0 && initialState.length > 0 && !snapshot.metadata.hasPendingWrites && !hasRepairedRef.current) {
             const missingItems = initialState.filter(initItem => !items.some(item => item.id === initItem.id));
             if (missingItems.length > 0) {
+              hasRepairedRef.current = true;
               console.log(`[Sync] Repairing ${missingItems.length} missing system items in ${collectionName}`);
               const ops: Array<{ type: 'set' | 'delete'; path: string; data?: any }> = [];
               missingItems.forEach(item => {
@@ -235,6 +272,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
               nextVal = [...items, ...missingItems];
             }
           }
+
 
           dataRef.current = nextVal;
           return nextVal;

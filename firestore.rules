@@ -132,12 +132,15 @@ service cloud.firestore {
     }
 
     match /workspace_sync_snapshots/{snapshotId} {
-      allow read, write: if isSignedIn();
+      allow read, delete: if isSignedIn() && (snapshotId == request.auth.uid || resource.data.userId == request.auth.uid);
+      allow create, update: if isSignedIn() && (snapshotId == request.auth.uid || request.resource.data.userId == request.auth.uid);
     }
 
     match /account_codes/{codeId} {
-      allow read: if true;
-      allow create, update: if isSignedIn();
+      allow get: if true; // Allow reading a specific code if the ID is known (e.g. for invitations)
+      allow list: if false; // Prevent listing all codes
+      allow create, update: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /users/{userId} {

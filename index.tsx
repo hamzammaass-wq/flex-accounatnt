@@ -173,6 +173,43 @@ const setupBootRecoveryHandlers = () => {
 
   const BOOT_TIME = Date.now();
 
+  // Detect rapid page crashes and prevent infinite reload loops
+  try {
+    const crashCount = Number(sessionStorage.getItem('al_mohaseb_crash_count') || '0');
+    const lastCrashTime = Number(sessionStorage.getItem('al_mohaseb_last_crash_time') || '0');
+    const timeSinceLastCrash = Date.now() - lastCrashTime;
+
+    // Reset counter if last crash was more than 5 minutes ago
+    if (timeSinceLastCrash > 300000) {
+      sessionStorage.setItem('al_mohaseb_crash_count', '0');
+    }
+
+    // If we've crashed too many times recently, show error instead of reloading
+    if (crashCount >= 3 && timeSinceLastCrash < 60000) {
+      console.error('[CRITICAL] Too many crashes detected. Please clear browser cache or contact support.');
+      document.body.innerHTML = `
+        <div style="display: flex; align-items: center; justify-center: center; min-height: 100vh; background: #071120; color: white; padding: 20px; font-family: Cairo, sans-serif; text-align: center;">
+          <div style="max-width: 500px;">
+            <h1 style="font-size: 24px; margin-bottom: 16px;">⚠️ خطأ حرج</h1>
+            <p style="font-size: 14px; margin-bottom: 24px;">تم اكتشاف عدة محاولات فاشلة لتحميل التطبيق. الرجاء:</p>
+            <ul style="text-align: right; font-size: 14px; margin-bottom: 24px;">
+              <li>إعادة تشغيل المتصفح</li>
+              <li>مسح ذاكرة التخزين المؤقت (Clear Cache)</li>
+              <li>التحقق من اتصال الإنترنت</li>
+              <li>تعطيل برامج حظر الإعلانات</li>
+            </ul>
+            <button onclick="sessionStorage.clear(); location.reload();" style="background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer;">
+              إعادة المحاولة
+            </button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+  } catch (err) {
+    console.error('Failed to check crash count:', err);
+  }
+
   window.addEventListener(
     'error',
     (event) => {
@@ -194,6 +231,15 @@ const setupBootRecoveryHandlers = () => {
         stack: event.error instanceof Error ? event.error.stack : undefined,
         source: source || (isLocalScriptLoadFailure ? 'script-load' : 'window')
       });
+
+      // Track crash count for infinite reload prevention
+      try {
+        const crashCount = Number(sessionStorage.getItem('al_mohaseb_crash_count') || '0');
+        sessionStorage.setItem('al_mohaseb_crash_count', String(crashCount + 1));
+        sessionStorage.setItem('al_mohaseb_last_crash_time', String(Date.now()));
+      } catch (err) {
+        // Ignore storage errors
+      }
 
       // Only reload for script load/chunk errors during the initial boot phase (first 15 seconds)
       const isInitialBootPhase = Date.now() - BOOT_TIME < 15000;
@@ -247,13 +293,6 @@ setupBootRecoveryHandlers();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    if (import.meta.env.PROD) {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((registration) => registration.update().catch(() => undefined))
-        .catch(() => undefined);
-      return;
-    }
 
     navigator.serviceWorker
       .getRegistrations()

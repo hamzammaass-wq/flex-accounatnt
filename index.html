@@ -7,7 +7,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>المحاسب فلكس (flex accaountant)</title>
+    <title>Flex Accountant | نظام فليكس المحاسبي</title>
     <link rel="manifest" href="/manifest.webmanifest?v=20260318-brand-v4" />
     <link rel="icon" href="/icons/favicon-32.png?v=20260318-brand-v4" type="image/png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260318-brand-v4" />
@@ -104,13 +104,24 @@
         });
 
         window.addEventListener('load', function () {
-          window.setTimeout(function () {
+          // Reduced timeout from 30s to 15s for faster crash recovery
+          var timeoutId = window.setTimeout(function () {
             var root = document.getElementById('root');
             var hasRenderedContent = !!(root && root.childNodes && root.childNodes.length > 0);
             if (!hasRenderedContent) {
+              console.error('[Boot Recovery] No content rendered after 15 seconds, triggering recovery...');
               recoverBoot();
             }
-          }, 7000);
+          }, 15000);
+
+          // Also check if React rendered something with errors
+          var checkInterval = setInterval(function() {
+            var root = document.getElementById('root');
+            if (root && root.childNodes.length > 0) {
+              clearTimeout(timeoutId);
+              clearInterval(checkInterval);
+            }
+          }, 1000);
         });
       })();
     </script>

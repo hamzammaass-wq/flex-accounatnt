@@ -1754,14 +1754,17 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           } catch {}
         }
 
-        setCompanies(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(finalCompanies)) {
-            return finalCompanies;
-          }
-          return prev;
-        });
-        companiesLoadedForUserIdRef.current = currentUser.id;
-        setCompaniesLoaded(true);
+        // Prevent unnecessary state updates that can cause re-renders
+        const needsUpdate = JSON.stringify(companies) !== JSON.stringify(finalCompanies);
+        if (needsUpdate) {
+          setCompanies(finalCompanies);
+        }
+
+        // Only update companiesLoaded if it hasn't been set for this user yet
+        if (companiesLoadedForUserIdRef.current !== currentUser.id) {
+          companiesLoadedForUserIdRef.current = currentUser.id;
+          setCompaniesLoaded(true);
+        }
 
         if (needsCloudUpdate) {
           if (!bootstrappedUsersRef.current.has(currentUser.id)) {
@@ -1795,7 +1798,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         unsubscribeFirestore();
       }
     };
-  }, [currentUser, firebaseDb, isAuthInitialized, workspaceSubscription]);
+  // CRITICAL: Don't include workspaceSubscription in deps to prevent infinite loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, firebaseDb, isAuthInitialized]);
 
   // Dedicated listener to sync/generate currentUser accountCode and password in Firestore
   useEffect(() => {
@@ -1985,6 +1990,65 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const lastUserIdRef = useRef<string | null>(null);
   const companiesLoadedForUserIdRef = useRef<string | null>(null);
   const lastHeartbeatAttemptRef = useRef<Record<string, number>>({});
+  // activeAccountsRef allows synchronous access to accounts during multi-step mutations
+  const activeAccountsRef = useRef<Account[] | null>(null);
+
+  // Infinite loop detection & prevention
+  const renderCountRef = useRef(0);
+  const lastRenderTimeRef = useRef(Date.now());
+
+  useEffect(() => {
+    const now = Date.now();
+    const timeSinceLastRender = now - lastRenderTimeRef.current;
+
+    // Reset counter if enough time has passed
+    if (timeSinceLastRender > 1000) {
+      renderCountRef.current = 0;
+    } else {
+      renderCountRef.current++;
+    }
+
+    lastRenderTimeRef.current = now;
+
+    // If we're rendering too frequently, log a warning
+    if (renderCountRef.current > 50) {
+      console.error('[CRITICAL] Detected excessive re-renders! Possible infinite loop.');
+      console.error('[CRITICAL] Please check useEffect dependencies and state updates.');
+      console.error('[CRITICAL] Current render count:', renderCountRef.current);
+
+      // Force a pause to prevent browser crash
+      if (renderCountRef.current > 100) {
+        console.error('[EMERGENCY] Forcing render pause to prevent crash...');
+        throw new Error('Emergency stop: Too many re-renders detected (>100 in 1 second). Check console for details.');
+      }
+    }
+  });
+  const getActiveAccounts = (): Account[] => {
+    if (!activeAccountsRef.current) {
+      activeAccountsRef.current = accounts;
+      Promise.resolve().then(() => {
+        activeAccountsRef.current = null;
+      });
+    }
+    return activeAccountsRef.current;
+  };
+
+  // Migration guard refs to prevent infinite render loops
+  const migrationAccountsEnsuredRef = useRef<Set<string>>(new Set());
+  const migrationEmployeeAdvancesRef = useRef<Set<string>>(new Set());
+  const migrationLegacyPartnerRef = useRef<Set<string>>(new Set());
+  const migrationOpeningBalancesRef = useRef<Set<string>>(new Set());
+  const migrationProfitDistRef = useRef<Set<string>>(new Set());
+  const migrationAssetGroupsRef = useRef<Set<string>>(new Set());
+  const migrationHrBackfillRef = useRef<Set<string>>(new Set());
+  const migrationLegacyBankRef = useRef<Set<string>>(new Set());
+  const migrationContactCommercialRef = useRef<Set<string>>(new Set());
+  const migrationContactCustomerRef = useRef<Set<string>>(new Set());
+  const migrationRemovableReceivableRef = useRef<Set<string>>(new Set());
+  const migrationContactPartnerRef = useRef<Set<string>>(new Set());
+  const migrationContactTxRemapRef = useRef<Set<string>>(new Set());
+  const migrationDraftAutoPostRef = useRef<Set<string>>(new Set());
+  const autoFiscalPostingCheckedRef = useRef<Set<string>>(new Set());
   const [googleDriveStatus, setGoogleDriveStatus] = useState<GoogleDriveStatus>({ isConnected: false });
   const trialDaysLeft = useMemo(() => {
     if (!currentCompany || currentCompany.subscriptionStatus !== 'TRIAL') return 0;
@@ -2881,6 +2945,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   // MIGRATION: Ensure new accounts exist in current state (for existing users/sessions)
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationAccountsEnsuredRef.current.has(companyKey)) return;
     const missingAccounts: Account[] = [];
 
     // Check Purchases
@@ -3262,9 +3329,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         return next;
       });
     }
-  }, [baseCurrency, accounts.length]); // Depend on length to avoid infinite loop with simple dependency, but ideally run once or check existence safely
+    migrationAccountsEnsuredRef.current.add(companyKey);
+  }, [currentCompanyId, workspaceHydratedForCompanyId, baseCurrency]); // Depend on length to avoid infinite loop with simple dependency, but ideally run once or check existence safely
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationEmployeeAdvancesRef.current.has(companyKey)) return;
+    migrationEmployeeAdvancesRef.current.add(companyKey);
     const employeeAdvancesAccount = accounts.find(a => a.id === 'acc_employee_advances' && !a.isGroup);
     if (!employeeAdvancesAccount) return;
 
@@ -3295,10 +3367,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       });
       return changed ? next : prev;
     });
-  }, [accounts]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   // Cleanup: remove legacy partner withdrawals account when unused.
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationLegacyPartnerRef.current.has(companyKey)) return;
+    migrationLegacyPartnerRef.current.add(companyKey);
     const legacy = accounts.find(a => a.id === 'acc_partner_withdrawals');
     if (!legacy) return;
 
@@ -3313,10 +3389,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (hasChildren || hasMovements || isLinkedToContact) return;
 
     setAccounts(prev => prev.filter(a => a.id !== legacy.id));
-  }, [accounts, transactions, contacts]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   // Cleanup: remove legacy opening balances branch and remap any postings to retained earnings.
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationOpeningBalancesRef.current.has(companyKey)) return;
+    migrationOpeningBalancesRef.current.add(companyKey);
     const openingBranchIds = new Set(['acc_opening_balances_group', 'acc_opening_inventory']);
     const hasOpeningBranch = accounts.some(account => openingBranchIds.has(account.id));
     const hasOpeningChildren = accounts.some(account => account.parentId === 'acc_opening_balances_group');
@@ -3371,10 +3451,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         remappedTransactionsCount: affectedTransactions
       }
     });
-  }, [accounts, transactions]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   // Migration: merge legacy "profit distribution" account(s) into retained earnings, then delete them.
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationProfitDistRef.current.has(companyKey)) return;
+    migrationProfitDistRef.current.add(companyKey);
     const retained = accounts.find(a => a.id === 'acc_retained_earnings' && !a.isGroup);
     if (!retained) return;
 
@@ -3435,10 +3519,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         remappedTransactionsCount
       }
     });
-  }, [accounts, transactions]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   // MIGRATION: Ensure every fixed asset group is linked to accounts in COA
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationAssetGroupsRef.current.has(companyKey)) return;
     setAssetGroups(prev => {
       let hasChanges = false;
 
@@ -3465,10 +3552,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       return hasChanges ? normalizedGroups : prev;
     });
-  }, [assetGroups]);
+    migrationAssetGroupsRef.current.add(companyKey);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   // MIGRATION: Backfill HR contracts and salary history for existing employees.
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationHrBackfillRef.current.has(companyKey)) return;
+    migrationHrBackfillRef.current.add(companyKey);
     if (!employees.length) return;
 
     setEmployeeContracts(prev => {
@@ -3508,7 +3600,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }));
       return missing.length ? [...prev, ...missing] : prev;
     });
-  }, [employees]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
 
   const summary: FinancialSummary = useMemo(() => {
@@ -3523,7 +3615,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   useEffect(() => {
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (autoFiscalPostingCheckedRef.current.has(companyKey)) return;
     if (autoFiscalPostingInFlightRef.current) return;
+    autoFiscalPostingCheckedRef.current.add(companyKey);
 
     const autoCloseEnabled = companySettings.autoFiscalYearCloseEntries !== false;
     const autoOpeningEnabled = companySettings.autoFiscalYearOpeningEntries !== false;
@@ -3763,7 +3858,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const commitTransaction = (
     t: Omit<Transaction, 'id'>,
-    accountSnapshot: Account[] = accounts
+    accountSnapshot: Account[] = getActiveAccounts()
   ): MutationResult => {
     const validation = validateTransactionInput(t);
     if (validation.length > 0) {
@@ -3880,7 +3975,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addTransaction = (t: Omit<Transaction, 'id'>): MutationResult => (
-    commitTransaction(t, accounts)
+    commitTransaction(t, getActiveAccounts())
   );
 
   const isAutoCommercialSubAccountType = (type: Contact['type']): type is CommercialSubAccountContactType =>
@@ -4000,8 +4095,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     type: CommercialSubAccountContactType,
     preferredId?: string
   ): { linkedAccountId: string } => {
-    const prepared = ensureCommercialContactSubAccountSnapshot(accounts, contactId, contactName, type, preferredId);
+    const activeAccs = getActiveAccounts();
+    const prepared = ensureCommercialContactSubAccountSnapshot(activeAccs, contactId, contactName, type, preferredId);
     if (prepared.changed) {
+      activeAccountsRef.current = prepared.accountSnapshot;
       setAccounts(prev => {
         const next = ensureCommercialContactSubAccountSnapshot(prev, contactId, contactName, type, preferredId);
         return next.changed ? next.accountSnapshot : prev;
@@ -4118,12 +4215,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const resolvePartnerPostingAccounts = (partnerId: string, partnerName?: string) => {
     const partnerContact = contacts.find(c => c.id === partnerId && c.type === 'PARTNER');
     const resolvedName = partnerName || partnerContact?.name || String(partnerId || '').trim() || 'Partner';
-    const prepared = ensurePartnerEquitySubAccountsSnapshot(accounts, partnerId, resolvedName, {
+    const activeAccs = getActiveAccounts();
+    const prepared = ensurePartnerEquitySubAccountsSnapshot(activeAccs, partnerId, resolvedName, {
       currentAccountId: partnerContact?.currentAccountId || partnerContact?.linkedAccountId,
       capitalAccountId: partnerContact?.capitalAccountId,
       drawingsAccountId: partnerContact?.drawingsAccountId
     });
     if (prepared.changed) {
+      activeAccountsRef.current = prepared.accountSnapshot;
       setAccounts(prev => {
         const next = ensurePartnerEquitySubAccountsSnapshot(prev, partnerId, resolvedName, {
           currentAccountId: partnerContact?.currentAccountId || partnerContact?.linkedAccountId,
@@ -5823,6 +5922,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   // Cleanup legacy seeded bank accounts if they still exist and are unused.
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationLegacyBankRef.current.has(companyKey)) return;
+    migrationLegacyBankRef.current.add(companyKey);
     const legacySeededBankIds = ['acc_bank_local', 'acc_bank_usd'];
     const removableIds = legacySeededBankIds.filter(accountId => {
       if (!accounts.some(account => account.id === accountId)) return false;
@@ -5845,7 +5948,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         metadata: { reason: 'REMOVE_LEGACY_DEFAULT_BANK_ACCOUNT' }
       });
     });
-  }, [accounts, transactions, invoices, checks, contacts, assetGroups]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   const addAccount = (account: Omit<Account, 'id'> & { id?: string }): MutationResult => {
     const permission = enforcePermission('ACCOUNTS', 'ADD', 'Chart of Accounts');
@@ -6163,8 +6266,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     capitalAccountId: string;
     drawingsAccountId: string;
   } => {
-    const prepared = ensurePartnerEquitySubAccountsSnapshot(accounts, contactId, contactName, preferred);
+    const activeAccs = getActiveAccounts();
+    const prepared = ensurePartnerEquitySubAccountsSnapshot(activeAccs, contactId, contactName, preferred);
     if (prepared.changed) {
+      activeAccountsRef.current = prepared.accountSnapshot;
       setAccounts(prev => {
         const next = ensurePartnerEquitySubAccountsSnapshot(prev, contactId, contactName, preferred);
         return next.changed ? next.accountSnapshot : prev;
@@ -6325,6 +6430,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationContactCommercialRef.current.has(companyKey)) return;
+    migrationContactCommercialRef.current.add(companyKey);
     const commercialContacts = contacts.filter((contact): contact is Contact & { type: CommercialSubAccountContactType } =>
       shouldAutoCreateCommercialSubAccount(contact.id, contact.type)
     );
@@ -6351,9 +6460,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const patch = patches.get(contact.id);
       return patch ? { ...contact, ...patch } : contact;
     }));
-  }, [contacts, accounts, baseCurrency]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationContactCustomerRef.current.has(companyKey)) return;
+    migrationContactCustomerRef.current.add(companyKey);
     const customerContacts = contacts.filter(contact => contact.type === 'CUSTOMER');
     if (!customerContacts.length) return;
 
@@ -6403,9 +6516,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const patch = patches.get(contact.id);
       return patch ? { ...contact, ...patch } : contact;
     }));
-  }, [contacts]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationRemovableReceivableRef.current.has(companyKey)) return;
+    migrationRemovableReceivableRef.current.add(companyKey);
     const removableIds = accounts
       .filter(account => (
         account.id !== 'acc_receivable'
@@ -6431,9 +6548,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         metadata: { reason: 'REMOVE_LEGACY_CUSTOMER_SUBACCOUNT' }
       });
     });
-  }, [accounts, transactions, invoices, checks, contacts, assetGroups]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationContactPartnerRef.current.has(companyKey)) return;
+    migrationContactPartnerRef.current.add(companyKey);
     const partnerContacts = contacts.filter(c => c.type === 'PARTNER');
     if (!partnerContacts.length) return;
 
@@ -6459,9 +6580,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const patch = patches.get(contact.id);
       return patch ? { ...contact, ...patch } : contact;
     }));
-  }, [contacts, accounts, baseCurrency]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationContactTxRemapRef.current.has(companyKey)) return;
+    migrationContactTxRemapRef.current.add(companyKey);
     const commercialContacts: Array<Contact & { type: CommercialSubAccountContactType; postingAccountId: string }> = contacts
       .filter((contact): contact is Contact & { type: CommercialSubAccountContactType } =>
         shouldAutoCreateCommercialSubAccount(contact.id, contact.type)
@@ -6502,7 +6627,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       });
       return changed ? next : prev;
     });
-  }, [contacts]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
   const deleteContact = (id: string): MutationResult => {
     const existing = contacts.find(c => c.id === id);
     if (!existing) {
@@ -7325,6 +7450,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const [stockTransfers, setStockTransfers] = useFirestoreSyncState<StockTransfer>('stockTransfers', initialStockTransfers, currentCompanyId, currentUser?.id || null);
 
   useEffect(() => {
+    if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+    const companyKey = currentCompanyId;
+    if (migrationDraftAutoPostRef.current.has(companyKey)) return;
+    migrationDraftAutoPostRef.current.add(companyKey);
+
     setTransactions(prev => {
       let changed = false;
       const next = prev.map(transaction => {
@@ -7361,7 +7491,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       });
       return changed ? next : prev;
     });
-  }, [currentCompanyId, transactions, invoices, stockTransfers]);
+  }, [currentCompanyId, workspaceHydratedForCompanyId]);
 
 
   // --- MANUFACTURING STATE ---

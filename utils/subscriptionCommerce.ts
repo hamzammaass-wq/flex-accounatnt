@@ -224,7 +224,7 @@ export const normalizeWorkspaceSubscription = (
     offerNote: String(candidate.offerNote || fallback?.offerNote || '').trim() || undefined,
     lifetimeAccess: candidate.lifetimeAccess === true || fallback?.lifetimeAccess === true,
     unlimitedCompanies,
-    updatedAt: normalizeOptionalIsoDate(candidate.updatedAt) || new Date().toISOString()
+    updatedAt: normalizeOptionalIsoDate(candidate.updatedAt) || fallback?.updatedAt || normalizeOptionalIsoDate(candidate.startedAt) || fallback?.startedAt || new Date().toISOString()
   };
 };
 
