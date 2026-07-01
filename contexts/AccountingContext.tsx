@@ -38,6 +38,14 @@ import { useFirestoreSyncState, showSyncAlertOnce } from '../hooks/useFirestoreS
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, limit as firestoreLimit } from 'firebase/firestore';
 import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
 
+const APP_BOOT_TIMESTAMP = new Date().toISOString();
+
+const addDaysIso = (dateIso: string, days: number): string => {
+  const d = new Date(dateIso);
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+};
+
 // ... (Existing Interfaces)
 
 type GoogleTokenResponse = {
@@ -624,7 +632,7 @@ const withNormalizedCompanyProfile = (
   profile: CompanyProfile,
   workspaceSubscription?: WorkspaceSubscriptionAccount
 ): CompanyProfile => {
-  const createdAt = normalizeIsoDate(profile.createdAt, new Date().toISOString());
+  const createdAt = normalizeIsoDate(profile.createdAt, APP_BOOT_TIMESTAMP);
 
   // Determine if workspace subscription is active
   const isWorkspaceActive = workspaceSubscription && workspaceSubscription.status === 'ACTIVE';
@@ -646,7 +654,7 @@ const withNormalizedCompanyProfile = (
 
   const normalizedTrialEndsAt = normalizeIsoDate(
     trialEndsAt,
-    new Date(Date.now() + (14 * 24 * 60 * 60 * 1000)).toISOString()
+    addDaysIso(createdAt, 14)
   );
 
   const resolvedStatus = isWorkspaceActive ? 'ACTIVE' : resolveCompanySubscriptionStatus({
@@ -1163,11 +1171,7 @@ const clearAppBrowserStorage = async (): Promise<void> => {
   }
 };
 
-const addDaysIso = (dateIso: string, days: number): string => {
-  const d = new Date(dateIso);
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
-};
+// addDaysIso moved to top of file
 
 const readBackupHistory = (companyId: string): BackupHistoryEntry[] => {
   return [];
@@ -8014,11 +8018,19 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return unsubscribe;
-  }, [companies.length, currentCompany?.trialEndsAt, currentUser]);
+  }, [currentCompany?.trialEndsAt, currentUser]);
 
   // Re-normalize companies when workspaceSubscription changes
   useEffect(() => {
     if (!companies.length || !workspaceSubscription) return;
+
+    // Only trigger if subscription status or plan changes
+    const relevantFields = JSON.stringify({
+      status: workspaceSubscription.status,
+      plan: workspaceSubscription.plan,
+      expiresAt: workspaceSubscription.expiresAt
+    });
+
     setCompanies(prev => {
       const next = prev.map(company => withNormalizedCompanyProfile(company, workspaceSubscription));
       if (JSON.stringify(prev) !== JSON.stringify(next)) {
@@ -8026,7 +8038,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       }
       return prev;
     });
-  }, [workspaceSubscription]);
+  }, [workspaceSubscription?.status, workspaceSubscription?.plan, workspaceSubscription?.expiresAt, companies.length]);
 
   // LocalStorage backups removed for server-only mode
 

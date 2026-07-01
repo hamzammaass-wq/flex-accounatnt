@@ -10,6 +10,8 @@ import {
   WorkspaceSubscriptionQuote
 } from '../types';
 
+const APP_BOOT_TIMESTAMP = new Date().toISOString();
+
 const INCLUDED_COMPANIES = 1;
 const MAX_COMPANIES_CAP = 50;
 const DEFAULT_PLAN: CompanySubscriptionPlan = 'BASIC';
@@ -140,7 +142,7 @@ export const buildDefaultWorkspaceSubscription = (input?: {
     explicitMaxCompanies - INCLUDED_COMPANIES
   );
   const maxCompanies = clampCompanyCount(INCLUDED_COMPANIES + extraCompanyCount, explicitMaxCompanies);
-  const startedAt = normalizeOptionalIsoDate(input?.startedAt) || new Date().toISOString();
+  const startedAt = normalizeOptionalIsoDate(input?.startedAt) || APP_BOOT_TIMESTAMP;
 
   return {
     userId: String(input?.userId || '').trim(),
@@ -167,7 +169,7 @@ export const buildDefaultWorkspaceSubscription = (input?: {
     offerNote: undefined,
     lifetimeAccess: false,
     unlimitedCompanies: false,
-    updatedAt: new Date().toISOString()
+    updatedAt: APP_BOOT_TIMESTAMP
   };
 };
 
@@ -212,7 +214,7 @@ export const normalizeWorkspaceSubscription = (
     currency: 'USD',
     basePriceUsd: Math.max(0, Number(candidate.basePriceUsd) || fallback?.basePriceUsd || pricing.basePriceUsd),
     extraCompanyPriceUsd: Math.max(0, Number(candidate.extraCompanyPriceUsd) || fallback?.extraCompanyPriceUsd || pricing.extraCompanyPriceUsd),
-    startedAt: normalizeOptionalIsoDate(candidate.startedAt) || fallback?.startedAt || new Date().toISOString(),
+    startedAt: normalizeOptionalIsoDate(candidate.startedAt) || fallback?.startedAt || APP_BOOT_TIMESTAMP,
     renewalDate: normalizeOptionalIsoDate(candidate.renewalDate) || fallback?.renewalDate,
     expiresAt: normalizeOptionalIsoDate(candidate.expiresAt) || fallback?.expiresAt,
     providerCustomerId: String(candidate.providerCustomerId || fallback?.providerCustomerId || '').trim() || undefined,
@@ -224,7 +226,7 @@ export const normalizeWorkspaceSubscription = (
     offerNote: String(candidate.offerNote || fallback?.offerNote || '').trim() || undefined,
     lifetimeAccess: candidate.lifetimeAccess === true || fallback?.lifetimeAccess === true,
     unlimitedCompanies,
-    updatedAt: normalizeOptionalIsoDate(candidate.updatedAt) || fallback?.updatedAt || normalizeOptionalIsoDate(candidate.startedAt) || fallback?.startedAt || new Date().toISOString()
+    updatedAt: normalizeOptionalIsoDate(candidate.updatedAt) || fallback?.updatedAt || normalizeOptionalIsoDate(candidate.startedAt) || fallback?.startedAt || APP_BOOT_TIMESTAMP
   };
 };
 
