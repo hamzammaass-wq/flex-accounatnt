@@ -9,7 +9,6 @@ import {
   type Auth
 } from 'firebase/auth';
 import { Capacitor } from '@capacitor/core';
-import { getFirestore, enableIndexedDbPersistence, type Firestore } from 'firebase/firestore';
 import { getFunctions, type Functions } from 'firebase/functions';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
@@ -79,9 +78,7 @@ export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
     })()
   : null;
 
-export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
-  ? getFirestore(firebaseApp)
-  : null;
+export const firebaseDb = null;
 
 // CRITICAL: Log Firebase initialization status
 if (typeof window !== 'undefined') {
@@ -119,7 +116,7 @@ export const firebaseFunctions: Functions | null = isFirebaseAuthEnabled && fire
   ? getFunctions(firebaseApp, firebaseFunctionsRegion)
   : null;
 
-export const isFirebaseSyncEnabled = Boolean(firebaseDb);
+export const isFirebaseSyncEnabled = false;
 
 if (firebaseAuth && !Capacitor.isNativePlatform()) {
   void setPersistence(firebaseAuth, browserLocalPersistence);

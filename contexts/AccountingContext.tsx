@@ -2019,14 +2019,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     // If we're rendering too frequently, log a warning
     if (renderCountRef.current > 150) {
-      console.error('[CRITICAL] Detected excessive re-renders! Possible infinite loop.');
-      console.error('[CRITICAL] Please check useEffect dependencies and state updates.');
-      console.error('[CRITICAL] Current render count:', renderCountRef.current);
-
       // Force a pause to prevent browser crash
       if (renderCountRef.current > 300) {
-        console.error('[EMERGENCY] Forcing render pause to prevent crash...');
-        throw new Error('Emergency stop: Too many re-renders detected (>300 in 2 seconds). Check console for details.');
+        console.error('[CRITICAL] Detected excessive re-renders! Possible infinite loop.');
+        throw new Error('AccountingContext: Too many re-renders in 2 seconds. Check component logic.');
       }
     }
   });
@@ -8184,8 +8180,22 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   useEffect(() => {
     if (!isOnline || isSyncing) return;
-    if (readWorkspaceSyncQueue().length === 0) return;
-    void syncData();
+    
+    const queue = readWorkspaceSyncQueue();
+    if (queue.length === 0) return;
+
+    // If all items in the queue have already failed at least once,
+    // delay the retry by 15 seconds to prevent an infinite crash loop.
+    const hasNewItems = queue.some(item => !item.attempts);
+    
+    if (hasNewItems) {
+      void syncData();
+    } else {
+      const timer = window.setTimeout(() => {
+        void syncData();
+      }, 15000);
+      return () => window.clearTimeout(timer);
+    }
   }, [isOnline, isSyncing, syncQueueVersion, syncData]);
 
   useEffect(() => {

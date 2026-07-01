@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react';
-import {
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  FirestoreError
-} from 'firebase/firestore';
-import { firebaseDb } from '../firebaseClient';
+import { callBackendApi } from '../firebaseClient';
 
 export function useFirestoreCollection<T extends { id: string }>(
   companyId: string,
@@ -17,39 +8,42 @@ export function useFirestoreCollection<T extends { id: string }>(
 ) {
   const [data, setData] = useState<T[]>(initialData);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<FirestoreError | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!firebaseDb || !companyId) {
+    if (!companyId) {
       setData(initialData);
       return;
     }
 
+    let isMounted = true;
     setLoading(true);
-    const q = query(collection(firebaseDb, `companies/${companyId}/${collectionName}`));
-    
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const items = snapshot.docs.map((docSnap) => ({
-          ...docSnap.data(),
-          id: docSnap.id
-        })) as T[];
-        setData(items);
-        setLoading(false);
-      },
-      (err) => {
-        console.error(`Error fetching ${collectionName}:`, err);
-        setError(err);
-        setLoading(false);
-      }
-    );
 
-    return () => unsubscribe();
+    const fetchCollection = async () => {
+      try {
+        const response = await callBackendApi(null, `/companies/${companyId}/${collectionName}`);
+        if (isMounted) {
+          setData(response.data || []);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          console.error(`Error fetching ${collectionName}:`, err);
+          setError(err);
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchCollection();
+
+    return () => {
+      isMounted = false;
+    };
   }, [companyId, collectionName]);
 
   const saveItem = async (item: T) => {
-    if (!firebaseDb || !companyId) {
+    if (!companyId) {
       // Offline / Trial fallback
       setData((prev) => {
         const idx = prev.findIndex((p) => p.id === item.id);
@@ -63,19 +57,37 @@ export function useFirestoreCollection<T extends { id: string }>(
       return;
     }
 
-    const docRef = doc(firebaseDb, `companies/${companyId}/${collectionName}`, item.id);
-    await setDoc(docRef, item, { merge: true });
+    try {
+      await callBackendApi(null, `/companies/${companyId}/${collectionName}/${item.id}`, 'PUT', item);
+      setData((prev) => {
+        const idx = prev.findIndex((p) => p.id === item.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = item;
+          return next;
+        }
+        return [...prev, item];
+      });
+    } catch (err) {
+      console.error(`Error saving item in ${collectionName}:`, err);
+      throw err;
+    }
   };
 
   const deleteItem = async (itemId: string) => {
-    if (!firebaseDb || !companyId) {
+    if (!companyId) {
        // Offline / Trial fallback
        setData((prev) => prev.filter((p) => p.id !== itemId));
        return;
     }
 
-    const docRef = doc(firebaseDb, `companies/${companyId}/${collectionName}`, itemId);
-    await deleteDoc(docRef);
+    try {
+      await callBackendApi(null, `/companies/${companyId}/${collectionName}/${itemId}`, 'DELETE');
+      setData((prev) => prev.filter((p) => p.id !== itemId));
+    } catch (err) {
+      console.error(`Error deleting item in ${collectionName}:`, err);
+      throw err;
+    }
   };
 
   return {

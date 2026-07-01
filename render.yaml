@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: smart-account-api
+    env: node
+    # It is recommended to choose a region closest to your Neon database for lowest latency.
+    region: frankfurt
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        sync: false # Set this securely in the Render Dashboard
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false # Set this securely in the Render Dashboard
