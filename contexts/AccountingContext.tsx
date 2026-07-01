@@ -1724,7 +1724,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         const filteredCompanies = rawCompanies.filter((c: any) => c && c.id !== 'cmp_default');
 
         if (filteredCompanies.length > 0) {
-          finalCompanies = filteredCompanies.map(c => withNormalizedCompanyProfile(c, workspaceSubscription));
+          finalCompanies = filteredCompanies.map(c => withNormalizedCompanyProfile(c, workspaceSubscriptionRef.current));
         } else {
           // Completely new user! Create their real cloud company immediately
           const newCompanyId = `cmp_${currentUser.id}`;
@@ -1994,6 +1994,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   const lastUserIdRef = useRef<string | null>(null);
   const companiesLoadedForUserIdRef = useRef<string | null>(null);
   const lastHeartbeatAttemptRef = useRef<Record<string, number>>({});
+  const workspaceSubscriptionRef = useRef<WorkspaceSubscriptionAccount>(workspaceSubscription);
   // activeAccountsRef allows synchronous access to accounts during multi-step mutations
   const activeAccountsRef = useRef<Account[] | null>(null);
 
@@ -8020,25 +8021,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return unsubscribe;
   }, [currentCompany?.trialEndsAt, currentUser]);
 
-  // Re-normalize companies when workspaceSubscription changes
+  // Keep workspaceSubscriptionRef in sync with workspaceSubscription state
   useEffect(() => {
-    if (!companies.length || !workspaceSubscription) return;
+    workspaceSubscriptionRef.current = workspaceSubscription;
+  }, [workspaceSubscription]);
 
-    // Only trigger if subscription status or plan changes
-    const relevantFields = JSON.stringify({
-      status: workspaceSubscription.status,
-      plan: workspaceSubscription.plan,
-      expiresAt: workspaceSubscription.expiresAt
-    });
-
-    setCompanies(prev => {
-      const next = prev.map(company => withNormalizedCompanyProfile(company, workspaceSubscription));
-      if (JSON.stringify(prev) !== JSON.stringify(next)) {
-        return next;
-      }
-      return prev;
-    });
-  }, [workspaceSubscription?.status, workspaceSubscription?.plan, workspaceSubscription?.expiresAt, companies.length]);
+  // Removed: Re-normalize companies when workspaceSubscription changes
+  // This was causing infinite render loops. Companies are already normalized
+  // in the onSnapshot callback (line 1727) when loaded from Firebase.
 
   // LocalStorage backups removed for server-only mode
 
