@@ -1621,6 +1621,9 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
     return [];
   });
+
+  const companiesRef = useRef<CompanyProfile[]>(companies);
+  companiesRef.current = companies;
   
   const [companiesLoaded, setCompaniesLoaded] = useState(false);
 
@@ -1759,7 +1762,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }
 
         // Prevent unnecessary state updates that can cause re-renders
-        const needsUpdate = JSON.stringify(companies) !== JSON.stringify(finalCompanies);
+        const needsUpdate = JSON.stringify(companiesRef.current) !== JSON.stringify(finalCompanies);
         if (needsUpdate) {
           setCompanies(finalCompanies);
         }
@@ -2605,9 +2608,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     return () => unsubscribe();
   }, [cloudSubscription, companies, currentCompanyId, currentDeviceBinding, currentUser, subscriptionAdminEnabled, subscriptionAdminScope]);
-
-  const companiesRef = useRef(companies);
-  companiesRef.current = companies;
 
   const currentCompanyRef = useRef(currentCompany);
   currentCompanyRef.current = currentCompany;
