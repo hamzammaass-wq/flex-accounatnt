@@ -65,8 +65,14 @@ const triggerBootRecoveryReload = () => {
 
 const reloadClean = () => {
   if (typeof window === 'undefined') return;
-  const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash}`;
-  window.location.replace(cleanUrl);
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('cb', String(Date.now()));
+    window.location.replace(url.toString());
+  } catch {
+    const cleanUrl = `${window.location.origin}${window.location.pathname}?cb=${Date.now()}${window.location.hash}`;
+    window.location.replace(cleanUrl);
+  }
 };
 
 const recoverToLogin = async () => {

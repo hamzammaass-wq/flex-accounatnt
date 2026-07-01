@@ -2000,31 +2000,30 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   // Infinite loop detection & prevention
   const renderCountRef = useRef(0);
-  const lastRenderTimeRef = useRef(Date.now());
+  const lastRenderResetRef = useRef(Date.now());
 
   useEffect(() => {
     const now = Date.now();
-    const timeSinceLastRender = now - lastRenderTimeRef.current;
+    const elapsed = now - lastRenderResetRef.current;
 
-    // Reset counter if enough time has passed
-    if (timeSinceLastRender > 1000) {
+    if (elapsed > 2000) {
+      // Reset counter every 2 seconds
       renderCountRef.current = 0;
+      lastRenderResetRef.current = now;
     } else {
       renderCountRef.current++;
     }
 
-    lastRenderTimeRef.current = now;
-
     // If we're rendering too frequently, log a warning
-    if (renderCountRef.current > 50) {
+    if (renderCountRef.current > 150) {
       console.error('[CRITICAL] Detected excessive re-renders! Possible infinite loop.');
       console.error('[CRITICAL] Please check useEffect dependencies and state updates.');
       console.error('[CRITICAL] Current render count:', renderCountRef.current);
 
       // Force a pause to prevent browser crash
-      if (renderCountRef.current > 100) {
+      if (renderCountRef.current > 300) {
         console.error('[EMERGENCY] Forcing render pause to prevent crash...');
-        throw new Error('Emergency stop: Too many re-renders detected (>100 in 1 second). Check console for details.');
+        throw new Error('Emergency stop: Too many re-renders detected (>300 in 2 seconds). Check console for details.');
       }
     }
   });

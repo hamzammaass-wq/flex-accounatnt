@@ -170,7 +170,7 @@ const AppContent: React.FC = () => {
       renderCountRef.current++;
     }
 
-    if (renderCountRef.current > 100) {
+    if (renderCountRef.current > 300) {
       console.error('[App] CRITICAL: Excessive re-renders detected. Force stopping.');
       throw new Error('App: Too many re-renders in 2 seconds. Check component logic.');
     }
