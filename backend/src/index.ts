@@ -12,6 +12,7 @@ import invoiceRouter from './routes/invoices.js';
 import reportRouter from './routes/reports.js';
 import syncRouter from './routes/sync.js';
 import migrateRouter from './routes/migrate.js';
+import offerCodesRouter from './routes/offer-codes.js';
 
 import { getClient, query } from './config/db.js';
 import { resolveDbAccountId } from './utils/account-helpers.js';
@@ -55,6 +56,7 @@ app.use('/api/companies/:companyId/invoices', authenticateUser, invoiceRouter);
 app.use('/api/companies/:companyId/reports', authenticateUser, reportRouter);
 app.use('/api/companies/:companyId/collections', authenticateUser, syncRouter);
 app.use('/api/migrate-database', authenticateUser, migrateRouter);
+app.use('/api/workspace-offer-codes', authenticateUser, offerCodesRouter);
 
 app.post('/api/companies/:companyId/users/:userId/change-password', authenticateUser, async (req: AuthenticatedRequest, res) => {
   const { companyId, userId } = req.params;

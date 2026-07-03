@@ -770,7 +770,12 @@ export const firestoreWriteProxy = onRequest({ cors: true, invoker: 'public' }, 
 import { app as relationalBackendApp } from './backend-dist/index.js';
 
 // Export Relational Backend API as a Firebase Cloud Function
-export const api = onRequest({ cors: true, timeoutSeconds: 60, invoker: 'public' }, relationalBackendApp);
+export const api = onRequest({
+  cors: true,
+  timeoutSeconds: 60,
+  invoker: 'public',
+  secrets: ['DATABASE_URL']
+}, relationalBackendApp);
 export const recoverData = onRequest({ cors: true }, async (req, res) => {
   const userId = req.query.userId || req.body.userId;
   if (!userId) return res.status(400).send('No userId provided');

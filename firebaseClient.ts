@@ -11,6 +11,7 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { getFunctions, type Functions } from 'firebase/functions';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 
 const firebaseApiKey = String(import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyCNYpPDb30fqY0_DkFaLXKGLCH5s5ItWh4').trim();
 const firebaseAuthDomain = String(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'smart-account-cc181.firebaseapp.com').trim();
@@ -78,7 +79,9 @@ export const firebaseAuth: Auth | null = isFirebaseAuthEnabled && firebaseApp
     })()
   : null;
 
-export const firebaseDb = null;
+export const firebaseDb: Firestore | null = isFirebaseAuthEnabled && firebaseApp
+  ? getFirestore(firebaseApp)
+  : null;
 
 // CRITICAL: Log Firebase initialization status
 if (typeof window !== 'undefined') {

@@ -188,14 +188,14 @@ export const verifyCompanyMembership = async (
           `INSERT INTO companies (id, name, base_currency)
            VALUES ($1, $2, 'ILS')
            ON CONFLICT (id) DO NOTHING`,
-          [companyId, req.user?.name ? \`شركة \${req.user.name}\` : 'شركة غير مسمى']
+          [companyId, req.user?.name ? `شركة ${req.user.name}` : 'شركة غير مسمى']
         );
         
         await query(
           `INSERT INTO users (id, email, name, role)
            VALUES ($1, $2, $3, 'USER')
            ON CONFLICT (id) DO NOTHING`,
-          [uid, req.user?.email || \`user_\${uid}@system.local\`, req.user?.name || \`User_\${uid}\`]
+          [uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`]
         );
 
         await query(

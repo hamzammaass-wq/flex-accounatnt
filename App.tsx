@@ -342,7 +342,7 @@ const AppContent: React.FC = () => {
         }
         : prev
     ));
-  }, [currentUser, setCurrentUser]);
+  }, [currentUser?.id, currentUser?.guestTrialStartedAt, currentUser?.guestTrialEndsAt, setCurrentUser]);
 
   useEffect(() => {
     if (!showCompanyMenu) {

@@ -540,11 +540,20 @@ const sortSubscriptionCodesByCreatedAt = (codes: CloudSubscriptionCode[]): Cloud
 );
 
 const loadLocalSubscriptionCodes = (): CloudSubscriptionCode[] => {
-  return [];
+  try {
+    const raw = localStorage.getItem('smart_account_subscription_codes');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 };
 
 const persistLocalSubscriptionCodes = (codes: CloudSubscriptionCode[]): void => {
-  // Disabled local storage cache
+  try {
+    localStorage.setItem('smart_account_subscription_codes', JSON.stringify(codes));
+  } catch (e) {
+    console.error(e);
+  }
 };
 
 const sortWorkspaceOfferCodesByCreatedAt = (codes: WorkspaceOfferCode[]): WorkspaceOfferCode[] => (
@@ -552,11 +561,21 @@ const sortWorkspaceOfferCodesByCreatedAt = (codes: WorkspaceOfferCode[]): Worksp
 );
 
 const loadLocalWorkspaceOfferCodes = (): WorkspaceOfferCode[] => {
-  return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_WORKSPACE_OFFER_CODES_KEY)
+      || localStorage.getItem('smart_account_workspace_offer_codes');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 };
 
 const persistLocalWorkspaceOfferCodes = (codes: WorkspaceOfferCode[]): void => {
-  // Disabled local storage cache
+  try {
+    localStorage.setItem(LOCAL_WORKSPACE_OFFER_CODES_KEY, JSON.stringify(codes));
+  } catch {
+    // localStorage may be unavailable (e.g. private browsing quota exceeded)
+  }
 };
 
 const clampWorkspaceOfferCompanyCount = (value: unknown): number | undefined => {
@@ -1572,8 +1591,24 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const [currentCompanyId, setCurrentCompanyId] = useState<string>('');
   const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.workspaceSubscription);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error(e);
+    }
     return buildDefaultWorkspaceSubscription();
   });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.workspaceSubscription, JSON.stringify(workspaceSubscription));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [workspaceSubscription]);
 
   const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId, currentUser?.id || null);
   const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId, currentUser?.id || null);
@@ -1807,7 +1842,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     };
   // CRITICAL: Don't include workspaceSubscription in deps to prevent infinite loop
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, firebaseDb, isAuthInitialized]);
+  }, [currentUser?.id, firebaseDb, isAuthInitialized]);
 
   // Dedicated listener to sync/generate currentUser accountCode and password in Firestore
   useEffect(() => {
@@ -1964,7 +1999,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       role: 'SUPER_ADMIN',
       createdAt: new Date().toISOString()
     }, { merge: true });
-  }, [currentUser]);
+  }, [currentUser?.id, currentUser?.email, firebaseDb]);
   const programOwnerEnabled = useMemo(
     () => Boolean(
       currentUser
@@ -2183,6 +2218,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     try {
       localStorage.removeItem(STORAGE_KEYS.currentCompany);
       localStorage.removeItem(STORAGE_KEYS.currentUser);
+      localStorage.removeItem(STORAGE_KEYS.workspaceSubscription);
+      localStorage.removeItem('smart_account_subscription_codes');
+      localStorage.removeItem('smart_account_workspace_offer_codes');
+      localStorage.removeItem(LOCAL_WORKSPACE_OFFER_CODES_KEY);
     } catch (e) {
       console.warn('Failed to clear storage keys on logout:', e);
     }
@@ -2291,20 +2330,35 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }
 
         if (!authUser) {
-          setCurrentUser(prev => (
-            isGuestUser(prev)
-              ? {
-                ...prev,
-                companyId: persistedCompanyId,
-                status: 'ACTIVE',
-                lastActive: new Date().toISOString()
-              }
-              : null
-          ));
+          setCurrentUser(prev => (isGuestUser(prev) ? prev : null));
           return;
         }
 
-        setCurrentUser(mapFirebaseAuthUser(authUser, persistedCompanyId));
+        const nextUser = mapFirebaseAuthUser(authUser, persistedCompanyId);
+        setCurrentUser(prev => {
+          if (prev && prev.id === nextUser.id) {
+            if (
+              prev.email === nextUser.email &&
+              prev.name === nextUser.name &&
+              prev.picture === nextUser.picture &&
+              prev.role === nextUser.role &&
+              prev.status === nextUser.status &&
+              prev.companyId === nextUser.companyId
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              email: nextUser.email,
+              name: nextUser.name,
+              picture: nextUser.picture,
+              role: nextUser.role,
+              status: nextUser.status,
+              companyId: nextUser.companyId
+            };
+          }
+          return nextUser;
+        });
       };
 
       const unsubscribe = onAuthStateChanged(firebaseAuth, syncFirebaseSession);
@@ -2317,16 +2371,21 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     setCloudMemberships([]);
     setIsAuthInitialized(true);
-    setCurrentUser(prev => (
-      isGuestUser(prev)
-        ? {
-          ...prev,
-          companyId: currentCompanyId || prev.companyId,
-          status: 'ACTIVE',
-          lastActive: new Date().toISOString()
-        }
-        : null
-    ));
+    setCurrentUser(prev => {
+      const targetCompanyId = currentCompanyId || (prev ? prev.companyId : 'cmp_default');
+      if (isGuestUser(prev) && prev.companyId === targetCompanyId) {
+        return prev;
+      }
+      return {
+        id: GUEST_USER_ID,
+        email: '',
+        name: 'Guest User',
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        companyId: targetCompanyId,
+        lastActive: new Date().toISOString()
+      };
+    });
 
     return () => {
       cancelled = true;
@@ -2454,7 +2513,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [currentUser, localSubscriptionAdminEnabled]);
+  }, [currentUser?.id, currentUser?.email, localSubscriptionAdminEnabled, firebaseDb]);
 
   useEffect(() => {
     if (!subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
@@ -2523,7 +2582,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [currentUser, programOwnerEnabled, subscriptionAdminScope]);
+  }, [currentUser?.id, currentUser?.email, programOwnerEnabled, subscriptionAdminScope, firebaseDb]);
 
   useEffect(() => {
     if (!firebaseDb || !programOwnerEnabled || !currentUser || isGuestUser(currentUser)) return;
@@ -2552,7 +2611,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return () => {
       cancelled = true;
     };
-  }, [currentUser, ensureProgramOwnerAdminDocument, programOwnerEnabled]);
+  }, [currentUser?.id, currentUser?.email, ensureProgramOwnerAdminDocument, programOwnerEnabled, firebaseDb]);
 
   useEffect(() => {
     if (!subscriptionAdminEnabled || !currentUser || isGuestUser(currentUser)) {
@@ -2605,7 +2664,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [cloudSubscription, companies, currentCompanyId, currentDeviceBinding, currentUser, subscriptionAdminEnabled, subscriptionAdminScope]);
+  }, [cloudSubscription, companies, currentCompanyId, currentDeviceBinding, currentUser?.id, currentUser?.email, subscriptionAdminEnabled, subscriptionAdminScope, firebaseDb]);
 
   const currentCompanyRef = useRef(currentCompany);
   currentCompanyRef.current = currentCompany;
@@ -7974,11 +8033,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     } finally {
       setIsSyncing(false);
     }
-  }, [currentUser, isOnline, isSyncing]);
+  }, [currentUser?.id, isOnline, isSyncing, firebaseDb]);
 
   useEffect(() => {
     // Disabled localStorage caching of currentUser
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     const fallback = buildDefaultWorkspaceSubscription({
@@ -7992,6 +8051,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     if (!currentUser || isGuestUser(currentUser) || !firebaseDb) {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEYS.workspaceSubscription);
+        if (stored) {
+          setWorkspaceSubscription(JSON.parse(stored));
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+      }
       setWorkspaceSubscription(normalizeWorkspaceSubscription(fallback, fallback));
       return;
     }
@@ -8016,7 +8084,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     });
 
     return unsubscribe;
-  }, [currentCompany?.trialEndsAt, currentUser]);
+  }, [currentCompany?.trialEndsAt, currentUser?.id, currentUser?.email, firebaseDb]);
 
   // Keep workspaceSubscriptionRef in sync with workspaceSubscription state
   useEffect(() => {
@@ -8720,10 +8788,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const nowIso = new Date().toISOString();
     const companyCountSuffix = companyCount ? `-${companyCount}C` : '';
     const codePrefix = kind === 'DISCOUNT_PERCENT'
-      ? `AIFLEX-OFFER-DISCOUNT-${discountPercent}${companyCountSuffix}`
+      ? `FLX-D-${discountPercent}${companyCountSuffix}`
       : kind === 'LIFETIME'
-        ? `AIFLEX-OFFER-LIFETIME${companyCountSuffix}`
-        : `AIFLEX-OFFER-FREE-${freeDays}${companyCountSuffix}`;
+        ? `FLX-LT${companyCountSuffix}`
+        : `FLX-F-${freeDays}${companyCountSuffix}`;
 
     const issueLocalWorkspaceOfferCode = (): SubscriptionCodeIssueResult => {
       const existingCodes = loadLocalWorkspaceOfferCodes();
@@ -8781,6 +8849,19 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         };
 
         await setDoc(candidateRef, sanitizeFirestorePayload(payload as unknown as Record<string, unknown>), { merge: false });
+        try {
+          await callBackendApi(currentUser, '/workspace-offer-codes', 'POST', {
+            code: candidateCode,
+            kind,
+            discountPercent,
+            freeDays,
+            companyCount,
+            expiresAt,
+            notes
+          });
+        } catch (dbErr) {
+          console.warn('[issueWorkspaceOfferCode] Neon DB sync failed:', dbErr);
+        }
         return { ok: true, code: candidateCode };
       }
 
@@ -8913,14 +8994,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         after: safeClone(nextWorkspace),
         metadata: { offerCode: normalizedCode }
       });
+      try {
+        await callBackendApi(currentUser, `/workspace-offer-codes/${normalizedCode}/redeem`, 'POST');
+      } catch (dbErr) {
+        console.warn('[redeemWorkspaceOfferCode] Neon DB redeem failed:', dbErr);
+      }
       return makeSuccess();
     } catch (error: any) {
       const localOffer = loadLocalWorkspaceOfferCodes().find(item => item.code === normalizedCode);
       if (localOffer) {
-        const localResult = await consumeLocalWorkspaceOfferCode(localOffer);
-        if (localResult.ok) {
-          return localResult;
-        }
+        return consumeLocalWorkspaceOfferCode(localOffer);
       }
       const message = String(error?.message || 'Failed to apply the workspace offer code.');
       setSubscriptionCloudError(message);

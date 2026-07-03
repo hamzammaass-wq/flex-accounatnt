@@ -133,59 +133,18 @@ export const verifyCompanyMembership = async (req, res, next) => {
     try {
         let result = await query(`SELECT role, status, permissions FROM memberships WHERE company_id = $1 AND user_id = $2`, [companyId, uid]);
         if (result.rows.length === 0) {
-            console.log(`[Auth Middleware] Membership not found in PG for user ${uid} and company ${companyId}. Checking Firestore...`);
-            const db = admin.firestore();
-            const userDoc = await db.collection('users').doc(uid).get();
-            const userData = userDoc.exists ? userDoc.data() : null;
-            const firestoreCompanies = userData?.companies || [];
-            const firestoreCompany = firestoreCompanies.find((fc) => fc.id === companyId);
-            if (firestoreCompany) {
-                console.log(`[Auth Middleware] User ${uid} has Firestore access to ${companyId}. Auto-creating PG company and membership...`);
-                // Ensure company exists in PG
-                await query(`INSERT INTO companies (id, name, tax_number, address, phone, logo_url, base_currency, settings)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (id) DO UPDATE
-           SET name = EXCLUDED.name,
-               tax_number = EXCLUDED.tax_number,
-               address = EXCLUDED.address,
-               phone = EXCLUDED.phone,
-               logo_url = EXCLUDED.logo_url,
-               base_currency = EXCLUDED.base_currency,
-               settings = EXCLUDED.settings`, [
-                    companyId,
-                    firestoreCompany.name || 'شركة غير مسمى',
-                    firestoreCompany.taxNumber || firestoreCompany.tax_number || null,
-                    firestoreCompany.address || null,
-                    firestoreCompany.phone || null,
-                    firestoreCompany.logoUrl || firestoreCompany.logo_url || null,
-                    firestoreCompany.baseCurrency || firestoreCompany.base_currency || 'ILS',
-                    JSON.stringify(firestoreCompany.settings || {})
-                ]);
-                // Ensure user exists in users table in PG
+            // If we want to allow auto-creation of a personal company if it doesn't exist:
+            if (companyId === `cmp_${uid}`) {
+                console.log(`[Auth Middleware] Auto-creating personal company ${companyId} for user ${uid}`);
+                await query(`INSERT INTO companies (id, name, base_currency)
+           VALUES ($1, $2, 'ILS')
+           ON CONFLICT (id) DO NOTHING`, [companyId, req.user?.name ? `شركة ${req.user.name}` : 'شركة غير مسمى']);
                 await query(`INSERT INTO users (id, email, name, role)
            VALUES ($1, $2, $3, 'USER')
            ON CONFLICT (id) DO NOTHING`, [uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`]);
-                // Check Firestore company subscription to determine ownership
-                let role = 'MEMBER';
-                if (companyId === `cmp_${uid}`) {
-                    role = 'OWNER';
-                }
-                else {
-                    try {
-                        const subDoc = await db.collection('company_subscriptions').doc(companyId).get();
-                        if (subDoc.exists && subDoc.data()?.ownerUserId === uid) {
-                            role = 'OWNER';
-                        }
-                    }
-                    catch (subErr) {
-                        console.error('[Auth Middleware] Failed to check company subscription owner:', subErr);
-                    }
-                }
-                // Create membership
                 await query(`INSERT INTO memberships (company_id, user_id, role, status)
-           VALUES ($1, $2, $3, 'ACTIVE')
-           ON CONFLICT (company_id, user_id) DO NOTHING`, [companyId, uid, role]);
-                // Re-query membership
+           VALUES ($1, $2, 'OWNER', 'ACTIVE')
+           ON CONFLICT (company_id, user_id) DO NOTHING`, [companyId, uid]);
                 result = await query(`SELECT role, status, permissions FROM memberships WHERE company_id = $1 AND user_id = $2`, [companyId, uid]);
             }
             else {
@@ -195,32 +154,6 @@ export const verifyCompanyMembership = async (req, res, next) => {
         const membership = result.rows[0];
         if (membership.status !== 'ACTIVE') {
             return res.status(403).json({ error: 'Forbidden: Your membership is inactive' });
-        }
-        // Auto-repair/promote membership if they are actually the owner in Firestore
-        if (membership.role === 'MEMBER') {
-            let shouldBeOwner = companyId === `cmp_${uid}`;
-            if (!shouldBeOwner) {
-                try {
-                    const db = admin.firestore();
-                    const subDoc = await db.collection('company_subscriptions').doc(companyId).get();
-                    if (subDoc.exists && subDoc.data()?.ownerUserId === uid) {
-                        shouldBeOwner = true;
-                    }
-                }
-                catch (subErr) {
-                    console.error('[Auth Middleware] Failed to check company subscription owner for promotion:', subErr);
-                }
-            }
-            if (shouldBeOwner) {
-                console.log(`[Auth Middleware] Promoting user ${uid} to OWNER for company ${companyId}`);
-                try {
-                    await query(`UPDATE memberships SET role = 'OWNER' WHERE company_id = $1 AND user_id = $2`, [companyId, uid]);
-                    membership.role = 'OWNER';
-                }
-                catch (updateErr) {
-                    console.error('[Auth Middleware] Failed to update membership role to OWNER:', updateErr);
-                }
-            }
         }
         // Set permissions/role on the request object for down-stream route access control if needed
         req.membership = membership;
