@@ -469,12 +469,12 @@ const COMPANY_SUBSCRIPTION_STATUS_SET = new Set<CompanySubscriptionStatus>(['TRI
 const COMPANY_SUBSCRIPTION_PLAN_SET = new Set<CompanySubscriptionPlan>(['NONE', 'TRIAL', 'BASIC', 'PRO', 'ENTERPRISE']);
 const SUBSCRIPTION_RESTRICTED_ACTIONS = new Set<PermissionAction>(['ADD', 'EDIT', 'DELETE', 'POST', 'PRINT', 'REVERSE']);
 const ACTIVATION_CODE_CATALOG: Array<{ code: string; plan: CompanySubscriptionPlan; durationDays: number }> = [
-  { code: 'AIFLEX-BASIC-30', plan: 'BASIC', durationDays: 30 },
-  { code: 'AIFLEX-BASIC-90', plan: 'BASIC', durationDays: 90 },
-  { code: 'AIFLEX-PRO-90', plan: 'PRO', durationDays: 90 },
-  { code: 'AIFLEX-PRO-180', plan: 'PRO', durationDays: 180 },
-  { code: 'AIFLEX-ENTERPRISE-365', plan: 'ENTERPRISE', durationDays: 365 },
-  { code: 'AIFLEX-ENTERPRISE-730', plan: 'ENTERPRISE', durationDays: 730 }
+  { code: 'FLEX-BASIC-30', plan: 'BASIC', durationDays: 30 },
+  { code: 'FLEX-BASIC-90', plan: 'BASIC', durationDays: 90 },
+  { code: 'FLEX-PRO-90', plan: 'PRO', durationDays: 90 },
+  { code: 'FLEX-PRO-180', plan: 'PRO', durationDays: 180 },
+  { code: 'FLEX-ENTERPRISE-365', plan: 'ENTERPRISE', durationDays: 365 },
+  { code: 'FLEX-ENTERPRISE-730', plan: 'ENTERPRISE', durationDays: 730 }
 ];
 
 const normalizeIsoDate = (value: unknown, fallbackIso: string): string => {
@@ -1500,7 +1500,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   ];
 
   const defaultCompanySettings: CompanySettings = {
-    name: 'AIFLEX ERP',
+    name: 'Flex Accountant',
     taxNumber: '',
     address: '',
     phone: '',
@@ -2413,9 +2413,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     if (!firebaseDb) {
-      setSubscriptionAdminEnabled(localSubscriptionAdminEnabled);
-      setSubscriptionAdminScope(localSubscriptionAdminEnabled ? 'LOCAL' : 'NONE');
-      setSubscriptionAdminRole(localSubscriptionAdminEnabled ? 'SUPER_ADMIN' : 'NONE');
+      const isOwner = isProgramOwnerEmail(currentUser.email);
+      const isAdmin = localSubscriptionAdminEnabled || isSubscriptionAdminEmail(currentUser.email);
+      setSubscriptionAdminEnabled(isAdmin || isOwner);
+      setSubscriptionAdminScope((isAdmin || isOwner) ? 'LOCAL' : 'NONE');
+      setSubscriptionAdminRole(isOwner ? 'SUPER_ADMIN' : (isAdmin ? 'ADMIN' : 'NONE'));
       return;
     }
 
@@ -7784,7 +7786,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       setBaseCurrencyState(normalizedSnapshot.baseCurrency || 'ILS');
       const profile = companies.find(c => c.id === normalizedSnapshot.companyId);
       const profileName = profile?.name || '';
-      const resolvedName = normalizedSnapshot.companySettings?.name && normalizedSnapshot.companySettings.name !== 'AIFLEX ERP'
+      const resolvedName = normalizedSnapshot.companySettings?.name && normalizedSnapshot.companySettings.name !== 'Flex Accountant'
         ? normalizedSnapshot.companySettings.name
         : (profileName || defaultCompanySettings.name);
       setCompanySettings(withNormalizedValuationSettings({
@@ -8044,7 +8046,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (!currentCompanyId || !currentCompany) return;
 
     setBaseCurrencyState(currentCompany.baseCurrency || 'ILS');
-    const resolvedName = currentCompany.settings?.name && currentCompany.settings.name !== 'AIFLEX ERP'
+    const resolvedName = currentCompany.settings?.name && currentCompany.settings.name !== 'Flex Accountant'
       ? currentCompany.settings.name
       : (currentCompany.name || defaultCompanySettings.name);
     setCompanySettings(withNormalizedValuationSettings({
@@ -8959,7 +8961,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-        const candidateCode = normalizeActivationCode(`AIFLEX-${plan}-${durationDays}-${suffix}`);
+        const candidateCode = normalizeActivationCode(`FLEX-${plan}-${durationDays}-${suffix}`);
         if (existingCodes.some(code => code.code === candidateCode)) continue;
 
         const payload: CloudSubscriptionCode = {
@@ -8987,7 +8989,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     try {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
-        const candidateCode = normalizeActivationCode(`AIFLEX-${plan}-${durationDays}-${suffix}`);
+        const candidateCode = normalizeActivationCode(`FLEX-${plan}-${durationDays}-${suffix}`);
         const candidateRef = doc(firebaseDb, SUBSCRIPTION_CODES_COLLECTION, candidateCode);
         const existing = await getDoc(candidateRef);
         if (existing.exists()) continue;
@@ -9975,7 +9977,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const buildBackupFileName = (isoDate: string) =>
-    `aiflex-erp-backup-${isoDate.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    `flex-accountant-backup-${isoDate.slice(0, 19).replace(/[:T]/g, '-')}.json`;
 
   const buildBackupSnapshot = () => ({
     schemaVersion: 1,
@@ -10440,7 +10442,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const token = await requestGoogleAccessToken(true);
       const folderId = String(companySettings.googleDriveFolderId || '').trim();
       const queryParts = [
-        "(name contains 'aiflex-erp-backup-' or name contains 'smart-accountant-backup-')",
+        "(name contains 'flex-accountant-backup-' or name contains 'aiflex-erp-backup-' or name contains 'smart-accountant-backup-')",
         "mimeType = 'application/json'",
         'trashed = false'
       ];

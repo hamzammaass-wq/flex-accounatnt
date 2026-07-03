@@ -7,23 +7,23 @@ const fromRoot = (...parts) => path.resolve(rootDir, ...parts);
 const includeMobileTargets = process.argv.includes('--include-mobile');
 
 const sourceFiles = {
-  logoPng: fromRoot('branding', 'masters', 'aiflex-erp-logo.png'),
-  iconPng: fromRoot('branding', 'masters', 'aiflex-erp-app-icon.png'),
-  iosIconPng: fromRoot('branding', 'masters', 'aiflex-erp-ios-icon.png')
+  logoPng: fromRoot('branding', 'masters', 'flex-erp-logo.png'),
+  iconPng: fromRoot('branding', 'masters', 'flex-erp-app-icon.png'),
+  iosIconPng: fromRoot('branding', 'masters', 'flex-erp-ios-icon.png')
 };
 
 const copyTargets = [
-  [sourceFiles.logoPng, fromRoot('public', 'brand', 'aiflex-erp-logo.png')],
+  [sourceFiles.logoPng, fromRoot('public', 'brand', 'flex-erp-logo.png')],
 ];
 
 const svgTargets = [
   {
     sourcePath: sourceFiles.logoPng,
-    targetPath: fromRoot('public', 'brand', 'aiflex-erp-logo.svg')
+    targetPath: fromRoot('public', 'brand', 'flex-erp-logo.svg')
   },
   {
     sourcePath: sourceFiles.iconPng,
-    targetPath: fromRoot('public', 'brand', 'aiflex-erp-mark.svg')
+    targetPath: fromRoot('public', 'brand', 'flex-erp-mark.svg')
   },
   {
     sourcePath: sourceFiles.iconPng,
@@ -42,7 +42,7 @@ const renderTarget = (relativePath, size, sourcePath = sourceFiles.iconPng) => (
 });
 
 const webIconResizeTargets = [
-  renderTarget('public/brand/aiflex-erp-mark.png', 1024),
+  renderTarget('public/brand/flex-erp-mark.png', 1024),
   renderTarget('public/icons/favicon-32.png', 32),
   renderTarget('public/icons/apple-touch-icon.png', 180),
   renderTarget('public/icons/icon-48.png', 48),

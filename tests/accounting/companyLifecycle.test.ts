@@ -37,7 +37,7 @@ describe('company lifecycle helpers', () => {
 
   it('resolves deletion fallback safely', () => {
     const companies = [
-      buildCompany('cmp_1', 'AIFLEX'),
+      buildCompany('cmp_1', 'Flex Accountant'),
       buildCompany('cmp_2', 'Smart One')
     ];
 
@@ -48,7 +48,7 @@ describe('company lifecycle helpers', () => {
       expect(success.fallback.id).toBe('cmp_2');
     }
 
-    expect(resolveCompanyDeletionTarget([buildCompany('cmp_1', 'AIFLEX')], 'cmp_1')).toMatchObject({
+    expect(resolveCompanyDeletionTarget([buildCompany('cmp_1', 'Flex Accountant')], 'cmp_1')).toMatchObject({
       ok: false,
       reason: 'LAST_COMPANY'
     });
@@ -56,7 +56,7 @@ describe('company lifecycle helpers', () => {
 
   it('skips subscription bootstrapping for companies being deleted or already removed', () => {
     const companies = [
-      buildCompany('cmp_1', 'AIFLEX'),
+      buildCompany('cmp_1', 'Flex Accountant'),
       buildCompany('cmp_2', 'Smart One')
     ];
 

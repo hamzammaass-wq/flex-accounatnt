@@ -851,7 +851,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                           required
                           value={loginEmail}
                           onChange={(e) => setLoginEmail(e.target.value)}
-                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                          className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                           placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                         />
                       </div>
@@ -865,7 +865,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                           required
                           value={loginCode}
                           onChange={(e) => setLoginCode(e.target.value)}
-                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                          className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                           placeholder={appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
                         />
                       </div>
@@ -879,7 +879,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                         required
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
-                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                        className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                         placeholder={appLanguage === 'AR' ? 'كلمة المرور' : 'Password'}
                       />
                     </div>
@@ -888,7 +888,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   <button
                     type="submit"
                     disabled={authBusy || !isFirebaseMode}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm px-5 py-3.5 text-center flex items-center justify-center transition-all disabled:opacity-70"
+                    className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-black rounded-2xl text-sm px-5 py-4 text-center flex items-center justify-center transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(37,99,235,0.4)] disabled:opacity-70 disabled:hover:scale-100"
                   >
                     {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : loginTitle}
                   </button>
@@ -921,7 +921,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                         required
                         value={regCompanyName}
                         onChange={(e) => setRegCompanyName(e.target.value)}
-                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                        className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                         placeholder={appLanguage === 'AR' ? 'اسم الشركة' : 'Company name'}
                       />
                     </div>
@@ -934,7 +934,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                         required
                         value={regFullName}
                         onChange={(e) => setRegFullName(e.target.value)}
-                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                        className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                         placeholder={appLanguage === 'AR' ? 'الاسم الكامل' : 'Full name'}
                       />
                     </div>
@@ -948,7 +948,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                           required
                           value={regEmail}
                           onChange={(e) => setRegEmail(e.target.value)}
-                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                          className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                           placeholder={appLanguage === 'AR' ? 'البريد الإلكتروني' : 'Email'}
                         />
                       </div>
@@ -962,7 +962,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                           required
                           value={regCode}
                           onChange={(e) => setRegCode(e.target.value)}
-                          className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                          className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                           placeholder={appLanguage === 'AR' ? 'كود الحساب' : 'Account Code'}
                         />
                       </div>
@@ -977,7 +977,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                         minLength={6}
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
-                        className="w-full bg-slate-950/40 border border-slate-800 text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block pr-10 p-3.5 placeholder-slate-500 transition-all"
+                        className="w-full bg-slate-950/50 border border-slate-700/50 text-white text-sm rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-400 block pr-10 p-4 placeholder-slate-500 transition-all duration-300 hover:border-slate-600 shadow-inner"
                         placeholder={appLanguage === 'AR' ? 'كلمة المرور (6 أحرف على الأقل)' : 'Password (at least 6 characters)'}
                       />
                     </div>
@@ -990,7 +990,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   <button
                     type="submit"
                     disabled={authBusy || !isFirebaseMode}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm px-5 py-3.5 text-center flex items-center justify-center transition-all disabled:opacity-70"
+                    className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black rounded-2xl text-sm px-5 py-4 text-center flex items-center justify-center transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:opacity-70 disabled:hover:scale-100"
                   >
                     {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : registerTitle}
                   </button>

@@ -1,4 +1,4 @@
-export const DEFAULT_BRAND_LOGO_URL = '/brand/aiflex-erp-logo.png';
+export const DEFAULT_BRAND_LOGO_URL = '/brand/flex-erp-logo.png';
 export const BRAND_MARK_URLS = {
   xs: '/icons/favicon-32.png',
   sm: '/icons/icon-48.png',
@@ -7,7 +7,7 @@ export const BRAND_MARK_URLS = {
   xl: '/icons/icon-192.png',
   xxl: '/icons/icon-256.png',
   app: '/icons/icon-512.png',
-  master: '/brand/aiflex-erp-mark.png'
+  master: '/brand/flex-erp-mark.png'
 } as const;
 export const DEFAULT_BRAND_MARK_URL = BRAND_MARK_URLS.xl;
 
@@ -26,10 +26,10 @@ export const getBrandMarkSrcSet = (): string => ([
 ].join(', '));
 
 const LEGACY_BRAND_ASSET_MAP: Record<string, string> = {
-  '/brand/aiflex-erp-logo.png': DEFAULT_BRAND_LOGO_URL,
-  '/brand/aiflex-erp-logo.svg': DEFAULT_BRAND_LOGO_URL,
-  '/brand/aiflex-erp-mark.png': DEFAULT_BRAND_MARK_URL,
-  '/brand/aiflex-erp-mark.svg': DEFAULT_BRAND_MARK_URL,
+  '/brand/flex-erp-logo.png': DEFAULT_BRAND_LOGO_URL,
+  '/brand/flex-erp-logo.svg': DEFAULT_BRAND_LOGO_URL,
+  '/brand/flex-erp-mark.png': DEFAULT_BRAND_MARK_URL,
+  '/brand/flex-erp-mark.svg': DEFAULT_BRAND_MARK_URL,
   '/icons/favicon-32.png': BRAND_MARK_URLS.xs,
   '/icons/icon-48.png': BRAND_MARK_URLS.sm,
   '/icons/icon-72.png': BRAND_MARK_URLS.md,

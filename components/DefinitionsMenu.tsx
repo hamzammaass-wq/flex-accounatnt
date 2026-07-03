@@ -497,7 +497,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [activationCodeDraft, setActivationCodeDraft] = useState('');
   const [subscriptionStatusMessage, setSubscriptionStatusMessage] = useState('');
   const billingCycleDraft: SubscriptionBillingCycle = 'YEARLY';
-  const [billingCompanyCountDraft, setBillingCompanyCountDraft] = useState('1');
+  const [billingCompanyCountDraft, setBillingCompanyCountDraft] = useState('');
   const [billingStatusMessage, setBillingStatusMessage] = useState('');
   const [workspaceOfferCodeDraft, setWorkspaceOfferCodeDraft] = useState('');
   const [workspaceOfferStatusMessage, setWorkspaceOfferStatusMessage] = useState('');
@@ -615,7 +615,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   ]);
 
   useEffect(() => {
-    setBillingCompanyCountDraft(String(Math.max(1, companies.length + (workspaceRemainingCompanySlots > 0 ? 1 : 0))));
+    // We intentionally leave it empty until the user fills it out.
   }, [companies.length, workspaceRemainingCompanySlots]);
 
   useEffect(() => {
@@ -889,6 +889,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             userEmail: currentUser?.email || '',
             desiredCompanyCount: desiredBillingCompanyCount
           },
+          discountId: workspaceSubscription.offerCode || undefined,
           settings: {
             successUrl: window.location.origin + window.location.pathname
           }
@@ -1395,7 +1396,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `aiflex-erp-backup-${payload.createdAt.slice(0, 10)}.json`;
+    link.download = `flex-accountant-backup-${payload.createdAt.slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
 
@@ -1476,14 +1477,14 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
 
     const payload = {
       exportedAt: new Date().toISOString(),
-      app: 'aiflex-erp',
+      app: 'flex-accountant',
       entries,
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `aiflex-runtime-errors-${payload.exportedAt.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    link.download = `flex-accountant-runtime-errors-${payload.exportedAt.slice(0, 19).replace(/[:T]/g, '-')}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
     setBackupStatus(tr('تم تصدير سجل الأخطاء بنجاح.', 'Runtime error log exported successfully.'));
@@ -2952,7 +2953,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                   <label className="block text-xs font-bold text-slate-500 mb-1">{tr('عدد الشركات المطلوب', 'Required company count')}</label>
                   <input
                     value={billingCompanyCountDraft}
-                    onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                    onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
                     className="w-full p-3 rounded-2xl border border-blue-100 bg-white outline-none font-black dir-ltr"
                     inputMode="numeric"
                     placeholder="1"
@@ -3012,7 +3013,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                       setWorkspaceOfferStatusMessage('');
                     }}
                     className="w-full p-3 rounded-2xl border border-blue-100 bg-white outline-none font-black dir-ltr"
-                    placeholder="AIFLEX-OFFER-..."
+                    placeholder="FLEX-OFFER-..."
                   />
                   <button
                     type="button"
@@ -3412,7 +3413,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                   <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
                   <input
                     value={billingCompanyCountDraft}
-                    onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                    onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
                     className="w-full p-3 rounded-2xl border border-sky-100 bg-white outline-none font-black dir-ltr shadow-sm"
                     inputMode="numeric"
                     placeholder="1"
@@ -3709,7 +3710,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                         <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
                         <input
                           value={billingCompanyCountDraft}
-                          onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                          onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
                           className="w-full p-3 rounded-2xl border border-sky-100 bg-white outline-none font-black dir-ltr shadow-sm"
                           inputMode="numeric"
                           placeholder="1"
@@ -3906,7 +3907,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               <label className="block text-xs font-bold text-slate-500 mb-1">{tr('إجمالي الشركات المطلوبة', 'Total companies needed')}</label>
               <input
                 value={billingCompanyCountDraft}
-                onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2) || '1')}
+                onChange={(e) => setBillingCompanyCountDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
                 className="w-full p-3 rounded-xl border border-indigo-100 bg-white outline-none font-black dir-ltr"
                 inputMode="numeric"
                 placeholder="1"
@@ -4083,7 +4084,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             onChange={(e) => setActivationCodeDraft(normalizeActivationCodeInput(e.target.value))}
             onPaste={handleActivationCodePaste}
             className="w-full p-3 bg-white rounded-xl border border-blue-200 outline-none text-sm font-black dir-ltr"
-            placeholder="AIFLEX-BASIC-30"
+            placeholder="FLEX-BASIC-30"
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="characters"
@@ -4111,9 +4112,9 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           </div>
 
           <div className="rounded-xl border border-dashed border-blue-200 bg-white/80 px-3 py-3 text-[11px] font-bold text-blue-700 leading-6 dir-ltr">
-            AIFLEX-BASIC-30
+            FLEX-BASIC-30
             <br />
-            AIFLEX-BASIC-90
+            FLEX-BASIC-90
           </div>
 
           <button
