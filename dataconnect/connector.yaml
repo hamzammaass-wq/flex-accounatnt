@@ -1,0 +1,4 @@
+connectorId: "default"
+connector:
+  name: "default"
+  source: "./connector"

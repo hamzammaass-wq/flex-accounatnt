@@ -1,0 +1,7 @@
+specVersion: "v1beta"
+serviceId: "smart-account"
+location: "us-central1"
+connectorDirs:
+  - .
+schema:
+  source: "./schema"

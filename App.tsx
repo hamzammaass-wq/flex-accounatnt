@@ -174,7 +174,7 @@ const AppContent: React.FC = () => {
       console.error('[App] CRITICAL: Excessive re-renders detected. Force stopping.');
       throw new Error('App: Too many re-renders in 2 seconds. Check component logic.');
     }
-  });
+  }, []);
   const [activeTab, setActiveTab] = useState<TabView>('dashboard');
   const [tabHistory, setTabHistory] = useState<TabView[]>([]);
   const [overlay, setOverlay] = useState<OverlayView>(null);

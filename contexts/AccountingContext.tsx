@@ -2060,7 +2060,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         throw new Error('AccountingContext: Too many re-renders in 2 seconds. Check component logic.');
       }
     }
-  });
+  }, []);
   const getActiveAccounts = (): Account[] => {
     if (!activeAccountsRef.current) {
       activeAccountsRef.current = accounts;
