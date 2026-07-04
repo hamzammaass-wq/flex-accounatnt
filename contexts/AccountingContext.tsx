@@ -7787,7 +7787,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
+    console.log('[AccountingContext] readWorkspaceSnapshot called', {
+      useBackend,
+      isFirebaseAuthEnabled,
+      companyId
+    });
+
     if (useBackend && isFirebaseAuthEnabled) {
+      console.log('[AccountingContext] ✅ Backend mode enabled, skipping localStorage read');
       return {
         snapshot: null,
         source: 'none',
@@ -7795,9 +7802,18 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       };
     }
 
+    console.warn('[AccountingContext] ⚠️ Backend mode disabled or Firebase not enabled, will read localStorage', {
+      useBackend,
+      isFirebaseAuthEnabled
+    });
+
     let localSnapshot: CompanyWorkspaceSnapshot | null = null;
     try {
       const raw = localStorage.getItem(getCompanyWorkspaceKey(companyId));
+      if (raw) {
+        const sizeMB = (raw.length / 1024 / 1024).toFixed(2);
+        console.log(`[AccountingContext] Reading localStorage: ${sizeMB} MB`);
+      }
       localSnapshot = parseWorkspaceSnapshot(companyId, raw);
     } catch (e) {
       console.warn('Failed to read local workspace snapshot:', e);

@@ -1,3 +1,48 @@
+// ===== CRITICAL: Emergency localStorage cleanup =====
+// This MUST run BEFORE any React imports to prevent Out of Memory crash
+// during AccountingContext initialization with large datasets
+try {
+  console.log('[Startup] Checking for large localStorage entries...');
+  const keys = Object.keys(localStorage);
+  const workspaceKeys = keys.filter(k => k.startsWith('al_mohaseb_workspace_'));
+
+  let cleanedCount = 0;
+  workspaceKeys.forEach(key => {
+    try {
+      const value = localStorage.getItem(key);
+      if (value && value.length > 1000000) { // > 1MB
+        const sizeMB = (value.length / 1024 / 1024).toFixed(2);
+        console.warn(`[Startup] 🧹 Removing large localStorage entry: ${key} (${sizeMB} MB)`);
+        localStorage.removeItem(key);
+        cleanedCount++;
+      }
+    } catch (err) {
+      console.error(`[Startup] ❌ Error processing ${key}:`, err);
+      // If we can't read it, try to remove it anyway
+      try {
+        localStorage.removeItem(key);
+        cleanedCount++;
+      } catch {}
+    }
+  });
+
+  if (cleanedCount > 0) {
+    console.log(`[Startup] ✅ Cleaned ${cleanedCount} large localStorage entries`);
+  } else {
+    console.log('[Startup] ✅ No large localStorage entries found');
+  }
+} catch (err) {
+  console.error('[Startup] ❌ localStorage cleanup failed:', err);
+  // Try nuclear option: clear all workspace data
+  try {
+    const keys = Object.keys(localStorage);
+    keys.filter(k => k.startsWith('al_mohaseb_workspace_')).forEach(k => {
+      try { localStorage.removeItem(k); } catch {}
+    });
+  } catch {}
+}
+// ===== End of emergency cleanup =====
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { signOut as firebaseSignOut } from 'firebase/auth';
