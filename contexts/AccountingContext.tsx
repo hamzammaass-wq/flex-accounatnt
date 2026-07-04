@@ -1296,7 +1296,10 @@ const withTimeout = <T extends unknown>(promise: Promise<T>, timeoutMs: number, 
 };
 
 export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
-  const useBackend = import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true' && isFirebaseAuthEnabled;
+  // ALWAYS use backend mode - Odoo-style online-only architecture
+  // No localStorage fallback to prevent Out of Memory crashes
+  const useBackend = true;
+  const isFirebaseAuthEnabled = true;
 
   const [forceEmptyBootstrap] = useState<boolean>(() => {
     try {
@@ -7787,6 +7790,16 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
+    // Backend mode (Odoo-style): NEVER read localStorage
+    // All data loads from PostgreSQL via useFirestoreSyncState hooks
+    console.log('[AccountingContext] Backend mode: skipping localStorage read for company', companyId);
+    return {
+      snapshot: null,
+      source: 'none',
+      needsRewrite: false
+    };
+
+    /* OLD CODE DISABLED - kept for reference
     console.log('[AccountingContext] readWorkspaceSnapshot called', {
       useBackend,
       isFirebaseAuthEnabled,
@@ -7852,6 +7865,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       source: 'none',
       needsRewrite: false
     };
+    */
   };
 
   const applyWorkspaceSnapshot = (snapshot: CompanyWorkspaceSnapshot) => {
@@ -7911,6 +7925,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const saveCurrentWorkspaceSnapshot = async (companyId: string): Promise<boolean> => {
+    // Backend mode (Odoo-style): workspace syncs automatically via useFirestoreSyncState hooks
+    // No need to build massive snapshot objects in memory - each collection saves independently
+    console.log('[AccountingContext] Backend mode: skipping workspace snapshot save for company', companyId);
+    return true;
+
+    /* OLD CODE DISABLED - kept for reference
     const snapshot: CompanyWorkspaceSnapshot = {
       schemaVersion: 1,
       companyId,
@@ -7981,6 +8001,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     upsertWorkspaceSyncQueueItem(companyId, snapshot.updatedAt, currentUser?.id);
     setSyncQueueVersion(prev => prev + 1);
     return true;
+    */
   };
 
   const persistLastWorkspaceSyncAt = (value: Date) => {
@@ -7992,6 +8013,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const syncData = useCallback<AccountingContextType['syncData']>(async () => {
+    // Backend mode (Odoo-style): useFirestoreSyncState handles sync automatically
+    // Each collection syncs to PostgreSQL immediately on change via /api/.../sync endpoint
+    console.log('[AccountingContext] syncData called but backend mode handles sync automatically');
+    return;
+
+    /* OLD CODE DISABLED - kept for reference
     if (!isOnline || isSyncing) return;
     if (!isFirebaseSyncEnabled || !firebaseDb || !firebaseAuth) return;
     if (!currentUser || isGuestUser(currentUser)) return;
@@ -8049,6 +8076,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     } finally {
       setIsSyncing(false);
     }
+    */
   }, [currentUser?.id, isOnline, isSyncing, firebaseDb]);
 
   useEffect(() => {
@@ -8142,6 +8170,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   }, [useBackend, currentCompanyId, currentCompany, isAuthInitialized]);
 
   useEffect(() => {
+    // DISABLED: Backend mode handles all data loading via useFirestoreSyncState hooks
+    // This effect caused Out of Memory crashes by reading large localStorage snapshots
+    // In Odoo-style online-only mode, we never read from localStorage
+    console.log('[AccountingContext] localStorage hydration disabled - using backend mode');
+    return;
+
+    /* OLD CODE DISABLED - kept for reference
     if (useBackend) return; // Managed by the backend settings useEffect
 
     if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) {
@@ -8200,12 +8235,20 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return () => {
       cancelled = true;
     };
+    */
   }, [currentCompanyId, cloudMemberships, isAuthInitialized]);
 
   useEffect(() => {
+    // DISABLED: Backend mode persists data via useFirestoreSyncState hooks automatically
+    // No need to build workspace snapshots manually - this was causing memory exhaustion
+    // In Odoo-style online-only mode, every change syncs to PostgreSQL immediately
+    console.log('[AccountingContext] Workspace snapshot persistence disabled - using backend mode');
+    return;
+
+    /* OLD CODE DISABLED - kept for reference
     if (useBackend) return;
     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
-    
+
     // Debounce the heavy JSON stringification process
     // This prevents the browser from crashing (OOM/Aw Snap) when multiple collections sync concurrently from Firestore.
     const timer = setTimeout(() => {
@@ -8213,6 +8256,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }, 1500);
 
     return () => clearTimeout(timer);
+    */
   }, [
     currentCompanyId,
     workspaceHydratedForCompanyId,
