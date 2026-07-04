@@ -17,6 +17,7 @@ import { APP_NAVIGATION_EVENT_NAME, AppNavigationTarget } from './utils/appNavig
 import { DEFAULT_BRAND_MARK_URL } from './utils/brandAssets';
 import { useMemoryMonitor, logMemoryStats } from './utils/memoryMonitor';
 import ErrorBoundary from './components/ErrorBoundary';
+import { ConnectionStatus } from './components/ConnectionStatus';
 
 // Fix: Added 'fixed-assets' to TabView to resolve type mismatch in Dashboard and App components
 export type TabView =
@@ -1133,6 +1134,7 @@ const App: React.FC = () => {
 
   return (
     <ErrorBoundary>
+      <ConnectionStatus />
       <AccountingProvider>
         <AppContent />
       </AccountingProvider>
