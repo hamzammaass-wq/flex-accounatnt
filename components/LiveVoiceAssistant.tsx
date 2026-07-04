@@ -9,8 +9,11 @@ const LiveVoiceAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [isConnecting, setIsConnecting] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [modelTranscript, setModelTranscript] = useState('');
-    
+
     const audioContextRef = useRef<AudioContext | null>(null);
+    const inputAudioContextRef = useRef<AudioContext | null>(null);
+    const processorRef = useRef<ScriptProcessorNode | null>(null);
+    const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const sessionRef = useRef<any>(null);
     const nextStartTimeRef = useRef<number>(0);
@@ -53,23 +56,23 @@ const LiveVoiceAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     onopen: () => {
                         setIsActive(true);
                         setIsConnecting(false);
-                        const inputCtx = new AudioContext({ sampleRate: 16000 });
-                        const source = inputCtx.createMediaStreamSource(streamRef.current!);
-                        const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-                        
-                        processor.onaudioprocess = (e) => {
+                        inputAudioContextRef.current = new AudioContext({ sampleRate: 16000 });
+                        sourceNodeRef.current = inputAudioContextRef.current.createMediaStreamSource(streamRef.current!);
+                        processorRef.current = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
+
+                        processorRef.current.onaudioprocess = (e) => {
                             const inputData = e.inputBuffer.getChannelData(0);
                             const l = inputData.length;
                             const int16 = new Int16Array(l);
                             for (let i = 0; i < l; i++) int16[i] = inputData[i] * 32768;
-                            
+
                             const base64 = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
                             sessionPromise.then(s => s.sendRealtimeInput({
                                 media: { data: base64, mimeType: 'audio/pcm;rate=16000' }
                             }));
                         };
-                        source.connect(processor);
-                        processor.connect(inputCtx.destination);
+                        sourceNodeRef.current.connect(processorRef.current);
+                        processorRef.current.connect(inputAudioContextRef.current.destination);
                     },
                     onmessage: async (msg: LiveServerMessage) => {
                         if (msg.serverContent?.modelTurn?.parts[0]?.inlineData?.data) {
@@ -114,15 +117,98 @@ const LiveVoiceAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             });
             sessionRef.current = await sessionPromise;
         } catch (e) {
-            console.error(e);
+            console.error('Error starting session:', e);
             setIsConnecting(false);
+            // Clean up any partially initialized resources
+            stopSession();
         }
     };
 
     const stopSession = () => {
-        if (sessionRef.current) sessionRef.current.close();
-        if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-        setIsActive(false);
+        try {
+            // Stop all audio buffer sources
+            if (sourcesRef.current.size > 0) {
+                sourcesRef.current.forEach(source => {
+                    try {
+                        source.stop();
+                        source.disconnect();
+                    } catch (e) {
+                        // Source may already be stopped
+                    }
+                });
+                sourcesRef.current.clear();
+            }
+
+            // Disconnect and clean up input audio nodes
+            if (processorRef.current) {
+                try {
+                    processorRef.current.onaudioprocess = null;
+                    processorRef.current.disconnect();
+                    processorRef.current = null;
+                } catch (e) {
+                    console.warn('Error cleaning up processor:', e);
+                }
+            }
+
+            if (sourceNodeRef.current) {
+                try {
+                    sourceNodeRef.current.disconnect();
+                    sourceNodeRef.current = null;
+                } catch (e) {
+                    console.warn('Error cleaning up source node:', e);
+                }
+            }
+
+            // Close audio contexts
+            if (inputAudioContextRef.current) {
+                try {
+                    inputAudioContextRef.current.close();
+                    inputAudioContextRef.current = null;
+                } catch (e) {
+                    console.warn('Error closing input audio context:', e);
+                }
+            }
+
+            if (audioContextRef.current) {
+                try {
+                    audioContextRef.current.close();
+                    audioContextRef.current = null;
+                } catch (e) {
+                    console.warn('Error closing main audio context:', e);
+                }
+            }
+
+            // Close WebSocket session
+            if (sessionRef.current) {
+                try {
+                    sessionRef.current.close();
+                    sessionRef.current = null;
+                } catch (e) {
+                    console.warn('Error closing session:', e);
+                }
+            }
+
+            // Stop media stream tracks
+            if (streamRef.current) {
+                try {
+                    streamRef.current.getTracks().forEach(track => {
+                        track.stop();
+                    });
+                    streamRef.current = null;
+                } catch (e) {
+                    console.warn('Error stopping media stream:', e);
+                }
+            }
+
+            // Reset state
+            nextStartTimeRef.current = 0;
+            setIsActive(false);
+            setIsConnecting(false);
+        } catch (error) {
+            console.error('Error in stopSession:', error);
+            setIsActive(false);
+            setIsConnecting(false);
+        }
     };
 
     useEffect(() => {

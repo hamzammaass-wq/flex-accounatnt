@@ -63,6 +63,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 }) => {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const cooldownRef = useRef(false);
+  const cooldownTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const [scanCount, setScanCount] = useState(0);
   const [lastScanned, setLastScanned] = useState('');
@@ -157,11 +158,16 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     if (continuous) {
       // In continuous mode, apply cooldown to prevent duplicate scans
       cooldownRef.current = true;
-      setTimeout(() => {
+      // Clear any existing cooldown timer
+      if (cooldownTimerRef.current) {
+        window.clearTimeout(cooldownTimerRef.current);
+      }
+      cooldownTimerRef.current = window.setTimeout(() => {
         if (mountedRef.current) {
           cooldownRef.current = false;
           setShowSuccess(false);
         }
+        cooldownTimerRef.current = null;
       }, cooldownMs);
     } else {
       // In single mode, close after scan
@@ -247,12 +253,14 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         console.warn('[BarcodeScannerModal] Failed to start scanner with advanced constraints. Retrying with basic constraints...', err);
 
         try {
+          // Ensure complete cleanup before retry
           if (scannerRef.current) {
             try {
               if (scannerRef.current.isScanning) {
                 await scannerRef.current.stop();
               }
               await scannerRef.current.clear();
+              scannerRef.current = null;
             } catch (cleanupErr) {
               console.warn('[BarcodeScannerModal] Cleanup failed before retry:', cleanupErr);
             }
@@ -303,6 +311,11 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
     return () => {
       cancelled = true;
+      // Clear cooldown timer if active
+      if (cooldownTimerRef.current) {
+        window.clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
       stopScanner();
     };
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps

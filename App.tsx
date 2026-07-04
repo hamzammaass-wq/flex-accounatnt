@@ -15,6 +15,8 @@ import { applyAppTheme } from './utils/appTheme';
 import { DRILLDOWN_EVENT_NAME, DrilldownTarget } from './utils/drilldown';
 import { APP_NAVIGATION_EVENT_NAME, AppNavigationTarget } from './utils/appNavigation';
 import { DEFAULT_BRAND_MARK_URL } from './utils/brandAssets';
+import { useMemoryMonitor, logMemoryStats } from './utils/memoryMonitor';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Fix: Added 'fixed-assets' to TabView to resolve type mismatch in Dashboard and App components
 export type TabView =
@@ -170,11 +172,29 @@ const AppContent: React.FC = () => {
       renderCountRef.current++;
     }
 
-    if (renderCountRef.current > 300) {
-      console.error('[App] CRITICAL: Excessive re-renders detected. Force stopping.');
+    // Log warnings at different thresholds
+    if (renderCountRef.current === 100) {
+      console.warn('[App] WARNING: High re-render count detected (100 renders in 2s)');
+    } else if (renderCountRef.current === 200) {
+      console.warn('[App] WARNING: Very high re-render count detected (200 renders in 2s)');
+      logMemoryStats('App');
+    } else if (renderCountRef.current > 300) {
+      console.error('[App] CRITICAL: Excessive re-renders detected (>300 in 2s). Force stopping.');
+      logMemoryStats('App-Critical');
       throw new Error('App: Too many re-renders in 2 seconds. Check component logic.');
     }
   }, []);
+
+  // Monitor memory usage globally
+  useMemoryMonitor({
+    enabled: true,
+    interval: 15000,
+    warningThreshold: 80,
+    criticalThreshold: 90,
+    onCritical: () => {
+      console.error('[App] Memory usage critical. Consider closing some tabs or reloading the page.');
+    }
+  });
   const [activeTab, setActiveTab] = useState<TabView>('dashboard');
   const [tabHistory, setTabHistory] = useState<TabView[]>([]);
   const [overlay, setOverlay] = useState<OverlayView>(null);
@@ -1112,9 +1132,11 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <AccountingProvider>
-      <AppContent />
-    </AccountingProvider>
+    <ErrorBoundary>
+      <AccountingProvider>
+        <AppContent />
+      </AccountingProvider>
+    </ErrorBoundary>
   );
 };
 

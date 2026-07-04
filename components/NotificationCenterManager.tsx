@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
   Plus,
@@ -136,6 +136,9 @@ const NotificationCenterManager: React.FC = () => {
   }, [currentCompanyId, todayIso]); // Only on company switch, don't run on every settings change to avoid loops!
 
   // Save to company settings on changes
+  const debounceTimerRef = useRef<number | null>(null);
+  const updateCountRef = useRef(0);
+
   useEffect(() => {
     const currentAlertsState = companySettings.alertsState || {};
     if (
@@ -145,7 +148,24 @@ const NotificationCenterManager: React.FC = () => {
       return;
     }
 
-    const timer = setTimeout(() => {
+    // Circuit breaker: prevent excessive updates
+    updateCountRef.current++;
+    if (updateCountRef.current > 100) {
+      console.error('[NotificationCenterManager] Circuit breaker: Too many settings updates detected. Stopping.');
+      return;
+    }
+
+    // Reset counter after a period of stability
+    const resetTimer = window.setTimeout(() => {
+      updateCountRef.current = 0;
+    }, 10000);
+
+    // Clear previous debounce timer
+    if (debounceTimerRef.current) {
+      window.clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = window.setTimeout(() => {
       updateCompanySettings({
         ...companySettings,
         alertsState: {
@@ -153,10 +173,16 @@ const NotificationCenterManager: React.FC = () => {
           notifiedAlertIds
         }
       });
-    }, 500); // debounce setting updates
+      debounceTimerRef.current = null;
+    }, 500);
 
-    return () => clearTimeout(timer);
-  }, [manualAlerts, notifiedAlertIds]);
+    return () => {
+      if (debounceTimerRef.current) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+      window.clearTimeout(resetTimer);
+    };
+  }, [manualAlerts, notifiedAlertIds, companySettings, updateCompanySettings]);
 
   const contactNameMap = useMemo(
     () => new Map(contacts.map(c => [c.id, c.name])),
