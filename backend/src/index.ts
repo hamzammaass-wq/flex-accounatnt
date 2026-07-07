@@ -153,8 +153,17 @@ app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req: 
   }
 
   try {
+    const userRecord = await admin.auth().getUser(userId);
+    const email = userRecord.email || '';
+    const name = userRecord.displayName || '';
     const subscriptionData = { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies };
-    await query('UPDATE users SET subscription = $1 WHERE id = $2', [JSON.stringify(subscriptionData), userId]);
+    
+    await query(
+      `INSERT INTO users (id, email, name, subscription) 
+       VALUES ($1, $2, $3, $4) 
+       ON CONFLICT (id) DO UPDATE SET subscription = EXCLUDED.subscription`,
+      [userId, email, name, JSON.stringify(subscriptionData)]
+    );
     res.json({ ok: true });
   } catch (error: any) {
     console.error('[Update Subscription Error]', error);
@@ -193,9 +202,21 @@ app.post('/api/admin/users/:userId/edit', authenticateUser, async (req: Authenti
     }
 
     if (email) {
-      await query('UPDATE users SET name = $1, role = $2, email = $3 WHERE id = $4', [fullName, role, email, userId]);
+      await query(
+        `INSERT INTO users (id, email, name, role) 
+         VALUES ($1, $2, $3, $4) 
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, email = EXCLUDED.email`,
+        [userId, email, fullName, role]
+      );
     } else {
-      await query('UPDATE users SET name = $1, role = $2 WHERE id = $3', [fullName, role, userId]);
+      const userRecord = await admin.auth().getUser(userId);
+      const fallbackEmail = userRecord.email || '';
+      await query(
+        `INSERT INTO users (id, email, name, role) 
+         VALUES ($1, $2, $3, $4) 
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role`,
+        [userId, fallbackEmail, fullName, role]
+      );
     }
 
     await query('UPDATE memberships SET role = $1 WHERE user_id = $2', [role, userId]);
