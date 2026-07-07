@@ -102,13 +102,13 @@ app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, 
   }
 
   try {
-    // Fetch all Auth users
-    const authList = await admin.auth().listUsers();
+    // Fetch limited Auth users
+    const authList = await admin.auth().listUsers(500);
     
-    // Fetch all PG users
-    const pgUsersRes = await query('SELECT * FROM users');
+    // Fetch limited PG users
+    const pgUsersRes = await query('SELECT * FROM users ORDER BY created_at DESC LIMIT 500');
     const pgUsers: Record<string, any> = {};
-    pgUsersRes.rows.forEach(r => {
+    pgUsersRes.rows.forEach((r: any) => {
       pgUsers[r.id] = r;
     });
 
@@ -117,13 +117,18 @@ app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, 
       const pgData = pgUsers[authUser.uid] || {};
       const email = authUser.email || pgData.email || '';
       
+      let parsedSubscription = pgData.subscription;
+      if (typeof parsedSubscription === 'string') {
+        try { parsedSubscription = JSON.parse(parsedSubscription); } catch(e) {}
+      }
+
       mergedUsers.push({
         id: authUser.uid,
         name: authUser.displayName || pgData.name || email || '',
         email: email,
         role: pgData.role || 'USER',
         status: 'ACTIVE',
-        subscription: {
+        subscription: parsedSubscription || {
           status: 'LIFETIME',
           plan: 'PRO',
           lifetimeAccess: true,
@@ -147,9 +152,59 @@ app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req: 
     return res.status(403).json({ error: 'Forbidden: Only the program owner can manage subscriptions' });
   }
 
-  // Without Firestore, we'd save this to a Postgres table if needed.
-  // For now, we return OK to satisfy the frontend admin panel.
-  res.json({ ok: true });
+  try {
+    const subscriptionData = { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies };
+    await query('UPDATE users SET subscription = $1 WHERE id = $2', [JSON.stringify(subscriptionData), userId]);
+    res.json({ ok: true });
+  } catch (error: any) {
+    console.error('[Update Subscription Error]', error);
+    res.status(500).json({ error: error.message || 'Failed to update subscription' });
+  }
+});
+app.post('/api/admin/users/:userId/edit', authenticateUser, async (req: AuthenticatedRequest, res) => {
+  const { userId } = req.params;
+  const { fullName, role, accountCode } = req.body;
+
+  if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+    return res.status(403).json({ error: 'Forbidden: Only the program owner can edit users' });
+  }
+
+  try {
+    let email = undefined;
+    if (accountCode) {
+      const normalizedCode = accountCode.trim().toLowerCase();
+      email = `code_${normalizedCode}@smart.local`;
+      
+      try {
+        await admin.auth().updateUser(userId, {
+          email,
+          displayName: fullName
+        });
+      } catch (e: any) {
+        if (e.code === 'auth/email-already-exists') {
+          return res.status(400).json({ error: 'ACCOUNT_CODE_EXISTS' });
+        }
+        throw e;
+      }
+    } else {
+      await admin.auth().updateUser(userId, {
+        displayName: fullName
+      });
+    }
+
+    if (email) {
+      await query('UPDATE users SET name = $1, role = $2, email = $3 WHERE id = $4', [fullName, role, email, userId]);
+    } else {
+      await query('UPDATE users SET name = $1, role = $2 WHERE id = $3', [fullName, role, userId]);
+    }
+
+    await query('UPDATE memberships SET role = $1 WHERE user_id = $2', [role, userId]);
+
+    res.json({ ok: true });
+  } catch (error: any) {
+    console.error('[Edit User Error]', error);
+    res.status(500).json({ error: error.message || 'Failed to edit user' });
+  }
 });
 
 app.delete('/api/admin/users/:userId', authenticateUser, async (req: AuthenticatedRequest, res) => {
