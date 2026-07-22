@@ -132,6 +132,7 @@ const EquityPartnersManager: React.FC = () => {
   const [capitalFilterPartnerId, setCapitalFilterPartnerId] = useState('ALL');
   const [capitalFilterFrom, setCapitalFilterFrom] = useState('');
   const [capitalFilterTo, setCapitalFilterTo] = useState('');
+  const [showQuickAccount, setShowQuickAccount] = useState(false);
 
   const [ledgerPartnerId, setLedgerPartnerId] = useState('');
 
@@ -166,7 +167,7 @@ const EquityPartnersManager: React.FC = () => {
   const postingAccounts = useMemo(() => accounts.filter(a => !a.isGroup), [accounts]);
   const equityAccounts = useMemo(() => postingAccounts.filter(a => a.type === 'EQUITY'), [postingAccounts]);
   const fundingAccounts = useMemo(
-    () => postingAccounts.filter(a => a.parentId === 'acc_cash_root' || a.parentId === 'acc_bank_root'),
+    () => postingAccounts.filter(a => a.type === 'ASSET'),
     [postingAccounts]
   );
   const retainedEarningsAccount = useMemo(() => {
@@ -773,7 +774,17 @@ const EquityPartnersManager: React.FC = () => {
               <EnglishDateInput value={capitalDate} onChange={setCapitalDate} displayFormat="DMY" className={`${inputClass} text-[11px] dir-ltr`} />
               <input type="text" min="0" max="100" inputMode="decimal" lang={englishNumberLang} value={englishDigits(capitalSharePercent)} onChange={e => setCapitalSharePercent(normalizeDecimalInput(e.target.value))} placeholder={tr('نسبة المشاركة %', 'Share %')} className={`${inputClass} dir-ltr text-right`} />
               <input value={capitalPartnerType} onChange={e => setCapitalPartnerType(e.target.value)} placeholder={tr('نوع الشريك (اختياري)', 'Partner type (optional)')} className={inputClass} />
-              <select value={capitalFundingAccountId} onChange={e => setCapitalFundingAccountId(e.target.value)} className={`${inputClass} text-[11px]`}>{fundingAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select>
+              <div className="flex items-center gap-1">
+                <select value={capitalFundingAccountId} onChange={e => setCapitalFundingAccountId(e.target.value)} className={`${inputClass} text-[11px] flex-1`}>{fundingAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select>
+                <button
+                    type="button"
+                    onClick={() => setShowQuickAccount(true)}
+                    className="w-8 h-8 shrink-0 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-xl flex justify-center items-center font-bold text-lg"
+                    title={tr('إضافة حساب', 'Add account')}
+                >
+                    +
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('CREATE')} className="p-2.5 rounded-xl bg-blue-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('إضافة رأس مال', 'Create Capital Entry')}</button>
@@ -1113,6 +1124,15 @@ const EquityPartnersManager: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      {showQuickAccount && (
+        <QuickAddAccountModal
+          onClose={() => setShowQuickAccount(false)}
+          onSave={(id) => {
+            setCapitalFundingAccountId(id);
+            setShowQuickAccount(false);
+          }}
+        />
       )}
     </div>
   );
