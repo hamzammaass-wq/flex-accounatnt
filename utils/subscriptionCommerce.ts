@@ -260,14 +260,25 @@ export const buildWorkspaceSubscriptionQuote = (input: {
   desiredCompanyCount: number;
   discountPercent?: number;
   offerCode?: string;
+  isAlreadyActive?: boolean;
+  currentCompanyCount?: number;
 }): WorkspaceSubscriptionQuote => {
   const desiredCompanyCount = clampCompanyCount(input.desiredCompanyCount);
-  const extraCompanyCount = Math.max(0, desiredCompanyCount - INCLUDED_COMPANIES);
+  const currentCount = input.currentCompanyCount || INCLUDED_COMPANIES;
+  
+  const extraCompanyCount = input.isAlreadyActive
+    ? Math.max(0, desiredCompanyCount - currentCount)
+    : Math.max(0, desiredCompanyCount - INCLUDED_COMPANIES);
+
   const pricing = PRICING[input.billingCycle];
   const availability = getSubscriptionProviderAvailability();
-  const subtotalPriceUsd = pricing.basePriceUsd + (extraCompanyCount * pricing.extraCompanyPriceUsd);
-  const discountPercent = clampDiscountPercent(input.discountPercent);
+  
+  const basePriceUsd = input.isAlreadyActive ? 0 : pricing.basePriceUsd;
+  const subtotalPriceUsd = basePriceUsd + (extraCompanyCount * pricing.extraCompanyPriceUsd);
+  
+  const discountPercent = input.isAlreadyActive ? 0 : clampDiscountPercent(input.discountPercent);
   const discountAmountUsd = Number(((subtotalPriceUsd * discountPercent) / 100).toFixed(2));
+
   const quote: WorkspaceSubscriptionQuote = {
     plan: DEFAULT_PLAN,
     billingCycle: input.billingCycle,
@@ -277,7 +288,7 @@ export const buildWorkspaceSubscriptionQuote = (input: {
     extraCompanyCount,
     maxCompanies: desiredCompanyCount,
     currency: 'USD',
-    basePriceUsd: pricing.basePriceUsd,
+    basePriceUsd: basePriceUsd,
     extraCompanyPriceUsd: pricing.extraCompanyPriceUsd,
     subtotalPriceUsd,
     discountPercent,

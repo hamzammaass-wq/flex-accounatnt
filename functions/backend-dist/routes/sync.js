@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { verifyCompanyMembership } from '../middleware/auth.js';
 import { query, getClient } from '../config/db.js';
+import { upsertUser } from '../utils/user-helpers.js';
 import { prefixAccountId, unprefixAccountId, resolveDbAccountId } from '../utils/account-helpers.js';
 const router = Router({ mergeParams: true });
 // Helper to sanitize dates
@@ -52,33 +53,102 @@ router.get('/:collectionName', verifyCompanyMembership, async (req, res) => {
         }
     }
     try {
+        let limitVal = req.query.limit ? Math.max(1, Math.min(1000, Number(req.query.limit))) : 50;
+        let offsetVal = req.query.offset ? Math.max(0, Number(req.query.offset)) : 0;
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
         let result;
         if (collectionName === 'transactions') {
-            result = await query(`SELECT t.*, 
-          COALESCE((SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.company_id = t.company_id AND jl.entry_id = t.id), '[]'::json) as lines
-         FROM journal_entries t
-         WHERE t.company_id = $1
-         ORDER BY t.date DESC, t.created_at DESC`, [companyId]);
+            let queryText = `
+        SELECT t.*, 
+          COALESCE((SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.entry_id = t.id), '[]'::json) as lines
+        FROM journal_entries t
+        WHERE t.company_id = $1
+      `;
+            const queryParams = [companyId];
+            let paramIndex = 2;
+            if (startDate) {
+                queryText += ` AND t.date >= $${paramIndex}`;
+                queryParams.push(startDate);
+                paramIndex++;
+            }
+            else {
+                // Enforce default date range if not specified (current month by default to avoid loading all historical data)
+                queryText += ` AND t.date >= date_trunc('month', CURRENT_DATE)`;
+            }
+            if (endDate) {
+                queryText += ` AND t.date <= $${paramIndex}`;
+                queryParams.push(endDate);
+                paramIndex++;
+            }
+            queryText += ` ORDER BY t.date DESC, t.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+            queryParams.push(limitVal, offsetVal);
+            result = await query(queryText, queryParams);
         }
         else if (collectionName === 'invoices') {
-            result = await query(`SELECT i.*, 
-          COALESCE((SELECT json_agg(item.*) FROM invoice_items item WHERE item.company_id = i.company_id AND item.invoice_id = i.id), '[]'::json) as items
-         FROM invoices i
-         WHERE i.company_id = $1
-         ORDER BY i.date DESC, i.created_at DESC`, [companyId]);
+            let queryText = `
+        SELECT i.*, 
+          COALESCE((SELECT json_agg(item.*) FROM invoice_items item WHERE item.invoice_id = i.id), '[]'::json) as items
+        FROM invoices i
+        WHERE i.company_id = $1
+      `;
+            const queryParams = [companyId];
+            let paramIndex = 2;
+            if (startDate) {
+                queryText += ` AND i.date >= $${paramIndex}`;
+                queryParams.push(startDate);
+                paramIndex++;
+            }
+            else {
+                queryText += ` AND i.date >= date_trunc('month', CURRENT_DATE)`;
+            }
+            if (endDate) {
+                queryText += ` AND i.date <= $${paramIndex}`;
+                queryParams.push(endDate);
+                paramIndex++;
+            }
+            queryText += ` ORDER BY i.date DESC, i.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+            queryParams.push(limitVal, offsetVal);
+            result = await query(queryText, queryParams);
         }
         else if (collectionName === 'products') {
-            result = await query(`SELECT p.*,
+            let queryText = `
+        SELECT p.*,
           COALESCE((SELECT json_agg(json_build_object('warehouseId', pws.warehouse_id, 'quantity', pws.quantity))
-           FROM product_warehouse_stock pws WHERE pws.company_id = p.company_id AND pws.product_id = p.id), '[]'::json) as "warehouseStock"
+           FROM product_warehouse_stock pws WHERE pws.product_id = p.id), '[]'::json) as "warehouseStock"
          FROM products p
-         WHERE p.company_id = $1`, [companyId]);
+         WHERE p.company_id = $1
+      `;
+            const queryParams = [companyId];
+            if (true) {
+                let reqLimit = req.query.limit;
+                if (!reqLimit) {
+                    limitVal = 1000;
+                    offsetVal = 0;
+                }
+                queryText += ` LIMIT $2 OFFSET $3`;
+                queryParams.push(limitVal, offsetVal);
+            }
+            result = await query(queryText, queryParams);
         }
         else if (collectionName === 'stockTransfers') {
-            result = await query(`SELECT st.*,
-          COALESCE((SELECT json_agg(sti.*) FROM stock_transfer_items sti WHERE sti.company_id = st.company_id AND sti.transfer_id = st.id), '[]'::json) as items
+            let queryText = `
+        SELECT st.*,
+          COALESCE((SELECT json_agg(sti.*) FROM stock_transfer_items sti WHERE sti.transfer_id = st.id), '[]'::json) as items
          FROM stock_transfers st
-         WHERE st.company_id = $1`, [companyId]);
+         WHERE st.company_id = $1
+      `;
+            const queryParams = [companyId];
+            if (true) {
+                let reqLimit = req.query.limit;
+                if (!reqLimit) {
+                    limitVal = 1000;
+                    offsetVal = 0;
+                }
+                queryText += ` LIMIT $2 OFFSET $3`;
+                queryParams.push(limitVal, offsetVal);
+            }
+            result = await query(queryText, queryParams);
         }
         else if (collectionName === 'employeeContracts') {
             result = await query(`SELECT ec.* FROM employee_contracts ec
@@ -111,8 +181,8 @@ router.get('/:collectionName', verifyCompanyMembership, async (req, res) => {
                END
              )
              FROM journal_lines jl
-             JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
-             WHERE jl.company_id = $1 AND je.company_id = $1
+             JOIN journal_entries je ON jl.entry_id = je.id
+             WHERE je.company_id = $1
                AND jl.account_id = a.id AND je.status = 'POSTED'
            ), 0) as balance
          FROM accounts a
@@ -123,7 +193,71 @@ router.get('/:collectionName', verifyCompanyMembership, async (req, res) => {
             result = await query(`SELECT * FROM currencies WHERE company_id = $1`, [companyId]);
         }
         else {
-            result = await query(`SELECT * FROM ${dbTable} WHERE company_id = $1`, [companyId]);
+            let queryText = `SELECT * FROM ${dbTable} WHERE company_id = $1`;
+            const queryParams = [companyId];
+            let paramIndex = 2;
+            // Only paginate other collections if explicitly requested
+            if (true) {
+                let reqLimit = req.query.limit;
+                if (!reqLimit) {
+                    limitVal = 1000;
+                    offsetVal = 0;
+                }
+                const hasDateColumn = ['invoice_settlements', 'stock_transfers'].includes(dbTable);
+                const hasTimestampColumn = ['audit_logs'].includes(dbTable);
+                const hasDueDateColumn = ['checks'].includes(dbTable);
+                if (startDate) {
+                    if (hasDateColumn) {
+                        queryText += ` AND date >= $${paramIndex}`;
+                        queryParams.push(startDate);
+                        paramIndex++;
+                    }
+                    else if (hasDueDateColumn) {
+                        queryText += ` AND due_date >= $${paramIndex}`;
+                        queryParams.push(startDate);
+                        paramIndex++;
+                    }
+                    else if (hasTimestampColumn) {
+                        queryText += ` AND timestamp >= $${paramIndex}`;
+                        queryParams.push(startDate);
+                        paramIndex++;
+                    }
+                }
+                if (endDate) {
+                    if (hasDateColumn) {
+                        queryText += ` AND date <= $${paramIndex}`;
+                        queryParams.push(endDate);
+                        paramIndex++;
+                    }
+                    else if (hasDueDateColumn) {
+                        queryText += ` AND due_date <= $${paramIndex}`;
+                        queryParams.push(endDate);
+                        paramIndex++;
+                    }
+                    else if (hasTimestampColumn) {
+                        queryText += ` AND timestamp <= $${paramIndex}`;
+                        queryParams.push(endDate);
+                        paramIndex++;
+                    }
+                }
+                if (dbTable === 'audit_logs') {
+                    queryText += ` ORDER BY timestamp DESC`;
+                }
+                else if (dbTable === 'invoice_settlements' || dbTable === 'stock_transfers') {
+                    queryText += ` ORDER BY date DESC`;
+                }
+                else if (dbTable === 'checks') {
+                    queryText += ` ORDER BY due_date DESC, created_at DESC`;
+                }
+                queryText += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+                queryParams.push(limitVal, offsetVal);
+            }
+            else {
+                if (dbTable === 'contacts') {
+                    queryText += ` ORDER BY name ASC`;
+                }
+            }
+            result = await query(queryText, queryParams);
         }
         // Convert keys to camelCase if needed, or send as is since the model keys in schema are designed to match
         if (collectionName === 'transactions' && result) {
@@ -608,10 +742,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                    amount = EXCLUDED.amount, effective_from = EXCLUDED.effective_from, effective_to = EXCLUDED.effective_to`, [item.id, companyId, item.employeeId, item.type, item.status || 'ACTIVE', item.label, Number(item.amount || 0), parseDate(item.effectiveFrom), parseDate(item.effectiveTo)]);
                     }
                     else if (collectionName === 'users') {
-                        await client.query(`INSERT INTO users (id, email, name, picture, role)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (id) DO UPDATE
-               SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture, role = EXCLUDED.role`, [item.id, item.email, item.name || '', item.picture || null, item.role || 'USER']);
+                        await upsertUser(item.id, item.email, item.name || '', item.role || 'USER', item.picture || null, undefined, client);
                         // Link the user to the company
                         await client.query(`INSERT INTO memberships (company_id, user_id, role, status)
                VALUES ($1, $2, $3, 'ACTIVE')

@@ -137,8 +137,7 @@ export async function migrateUserFirestoreData(uid: string): Promise<number> {
             contact.preferredPriceTier || 'RETAIL',
             prefixAccountId(companyId, contact.linkedAccountId),
             prefixAccountId(companyId, contact.currentAccountId),
-            prefixAccountId(companyId, contact.capitalAccountId),
-            prefixAccountId(companyId, contact.drawingsAccountId)
+            prefixAccountId(companyId, contact.capitalAccountId)
           ]
         );
       }

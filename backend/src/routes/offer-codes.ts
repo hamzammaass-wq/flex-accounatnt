@@ -97,6 +97,18 @@ router.post('/:codeId/redeem', async (req: AuthenticatedRequest, res) => {
     );
 
     if (result.rows.length === 0) {
+      // Check if it's a permanent code
+      const permResult = await query(
+        `SELECT * FROM workspace_offer_codes 
+         WHERE code = $1 
+         AND status = 'PERMANENT'
+         AND (expires_at IS NULL OR expires_at > NOW())`,
+        [normalizedCode]
+      );
+      if (permResult.rows.length > 0) {
+        return res.json({ ok: true, offer: permResult.rows[0] });
+      }
+
       // Check why it failed
       const existing = await query(
         'SELECT status, expires_at FROM workspace_offer_codes WHERE code = $1',
@@ -106,7 +118,7 @@ router.post('/:codeId/redeem', async (req: AuthenticatedRequest, res) => {
         return res.status(404).json({ error: 'Offer code is invalid.' });
       }
       const row = existing.rows[0];
-      if (row.status !== 'AVAILABLE') {
+      if (row.status !== 'AVAILABLE' && row.status !== 'PERMANENT') {
         return res.status(400).json({ error: 'This offer code is no longer available.' });
       }
       if (row.expires_at && new Date(row.expires_at) < new Date()) {

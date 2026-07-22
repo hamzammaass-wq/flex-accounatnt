@@ -21,6 +21,20 @@ const firebaseMessagingSenderId = String(import.meta.env.VITE_FIREBASE_MESSAGING
 const firebaseAppId = String(import.meta.env.VITE_FIREBASE_APP_ID || '1:879535686153:web:5dd72b985ee2c5d4d3eed8').trim();
 const firebaseFunctionsRegion = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1').trim() || 'us-central1';
 
+// 1. Graceful Initialization Failure: Halt immediately if config is completely missing/malformed
+if (!firebaseApiKey || !firebaseProjectId) {
+  console.error("CRITICAL ERROR: Firebase Configuration is missing. Halting Firebase initialization to prevent infinite retry loops.");
+  if (typeof window !== 'undefined') {
+    window.document.body.innerHTML = `
+      <div style="padding: 20px; font-family: sans-serif; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; margin: 20px;">
+        <h2>Configuration Error</h2>
+        <p>The application failed to initialize because critical environment variables (Firebase API Key) are missing.</p>
+        <p>Please check your CI/CD pipeline secrets or local .env file.</p>
+      </div>
+    `;
+  }
+}
+
 export const isFirebaseAuthEnabled = Boolean(
   firebaseApiKey && firebaseAuthDomain && firebaseProjectId && firebaseAppId
 ) && (typeof window === 'undefined' || window.localStorage.getItem('disableFirebase') !== 'true');

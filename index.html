@@ -16,6 +16,23 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script>
       (function () {
+        // Synchronously unregister service worker and clear caches at boot
+        // to break out of any cached/broken Service Worker loops immediately.
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            for (var i = 0; i < registrations.length; i++) {
+              registrations[i].unregister().catch(function() {});
+            }
+          }).catch(function() {});
+        }
+        if ('caches' in window) {
+          caches.keys().then(function (keys) {
+            for (var i = 0; i < keys.length; i++) {
+              caches.delete(keys[i]).catch(function() {});
+            }
+          }).catch(function() {});
+        }
+
         var BOOT_RECOVERY_KEY = 'al_mohaseb_boot_recovery_once';
         var CHUNK_LOAD_ERROR_PATTERN = /(Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed)/i;
         var BOOT_TIME = Date.now();
@@ -104,24 +121,40 @@
         });
 
         window.addEventListener('load', function () {
-          // Reduced timeout from 30s to 15s for faster crash recovery
+          // Show slow loading message after 8 seconds on slow connections
+          var slowLoadingTimeout = window.setTimeout(function () {
+            var root = document.getElementById('root');
+            var hasRenderedContent = !!(root && root.childNodes && root.childNodes.length > 0);
+            if (!hasRenderedContent) {
+              var msgEl = document.getElementById('boot-loading-msg');
+              if (msgEl) msgEl.style.opacity = '1';
+            }
+          }, 8000);
+
+          // Trigger boot recovery only after 60 seconds to support slow mobile connections
           var timeoutId = window.setTimeout(function () {
             var root = document.getElementById('root');
             var hasRenderedContent = !!(root && root.childNodes && root.childNodes.length > 0);
             if (!hasRenderedContent) {
-              console.error('[Boot Recovery] No content rendered after 15 seconds, triggering recovery...');
+              console.error('[Boot Recovery] No content rendered after 60 seconds, triggering recovery...');
               recoverBoot();
             }
-          }, 15000);
+          }, 60000);
 
-          // Also check if React rendered something with errors
+          // Check if React has successfully mounted and clean up timeouts/elements
           var checkInterval = setInterval(function() {
             var root = document.getElementById('root');
             if (root && root.childNodes.length > 0) {
               clearTimeout(timeoutId);
+              clearTimeout(slowLoadingTimeout);
               clearInterval(checkInterval);
+              var msgEl = document.getElementById('boot-loading-msg');
+              if (msgEl) {
+                msgEl.style.opacity = '0';
+                setTimeout(function() { msgEl.remove(); }, 300);
+              }
             }
-          }, 1000);
+          }, 500);
         });
       })();
     </script>
@@ -167,6 +200,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-loading-msg" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(3, 11, 26, 0.9); color: white; padding: 12px 24px; border-radius: 16px; font-family: Cairo, sans-serif; font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.1); pointer-events: none; transition: opacity 0.3s; opacity: 0; display: flex; align-items: center; gap: 8px; z-index: 9999;">
+      <div style="width: 14px; height: 14px; border: 2px solid #3b82f6; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      <span>جاري تحميل التطبيق... قد يستغرق ذلك بعض الوقت على الاتصالات البطيئة.</span>
+    </div>
     <script type="module" src="/index.tsx" onerror="window.__bootRecovery && window.__bootRecovery()"></script>
+    <style>
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
   </body>
 </html>

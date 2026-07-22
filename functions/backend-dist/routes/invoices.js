@@ -3,15 +3,41 @@ import { verifyCompanyMembership } from '../middleware/auth.js';
 import { query, getClient } from '../config/db.js';
 import { resolveDbAccountId } from '../utils/account-helpers.js';
 const router = Router({ mergeParams: true });
+// Get aggregate invoice statistics for dashboard
+router.get('/stats', verifyCompanyMembership, async (req, res) => {
+    const { companyId } = req.params;
+    try {
+        const result = await query(`SELECT 
+         COUNT(*) as total_count,
+         COALESCE(SUM(total_amount * COALESCE(exchange_rate, 1)), 0) as total_sum,
+         COALESCE(SUM(CASE WHEN status = 'PAID' THEN total_amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as paid_sum,
+         COALESCE(SUM(CASE WHEN status = 'UNPAID' THEN total_amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as unpaid_sum
+       FROM invoices
+       WHERE company_id = $1`, [companyId]);
+        res.json({
+            totalCount: Number(result.rows[0]?.total_count || 0),
+            totalSum: Number(result.rows[0]?.total_sum || 0),
+            paidSum: Number(result.rows[0]?.paid_sum || 0),
+            unpaidSum: Number(result.rows[0]?.unpaid_sum || 0)
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // Get all invoices for a company
 router.get('/', verifyCompanyMembership, async (req, res) => {
     const { companyId } = req.params;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(1000, Number(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
     try {
         const result = await query(`SELECT i.*, 
-        (SELECT json_agg(item.*) FROM invoice_items item WHERE item.company_id = i.company_id AND item.invoice_id = i.id) as items
+        (SELECT COALESCE(json_agg(item.*), '[]'::json) FROM invoice_items item WHERE item.company_id = i.company_id AND item.invoice_id = i.id) as items
        FROM invoices i
        WHERE i.company_id = $1
-       ORDER BY i.date DESC, i.created_at DESC`, [companyId]);
+       ORDER BY i.date DESC, i.created_at DESC
+       LIMIT $2 OFFSET $3`, [companyId, limit, offset]);
         res.json(result.rows);
     }
     catch (error) {

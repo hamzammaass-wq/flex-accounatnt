@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import admin from 'firebase-admin';
 import { query } from '../config/db.js';
+import { upsertUser } from '../utils/user-helpers.js';
 
 // Initialize Firebase Admin SDK
 // Firebase Admin needs credentials. If running in Google Cloud, it initializes automatically.
@@ -44,14 +45,7 @@ export const authenticateUser = async (
     const name = 'Cleanup Superuser';
     
     try {
-      await query(
-        `INSERT INTO users (id, email, name, role)
-         VALUES ($1, $2, $3, 'ADMIN')
-         ON CONFLICT (id) DO UPDATE
-         SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), role = EXCLUDED.role
-         RETURNING *`,
-        [uid, email, name]
-      );
+      await upsertUser(uid, email, name, 'ADMIN');
     } catch (dbErr) {
       console.error('[Auth Middleware] Failed to upsert cleanup superuser:', dbErr);
     }
@@ -65,12 +59,7 @@ export const authenticateUser = async (
     const email = 'developer@system.local';
     const name = 'Developer User';
     
-    await query(
-      `INSERT INTO users (id, email, name, role)
-       VALUES ($1, $2, $3, 'USER')
-       ON CONFLICT (id) DO NOTHING`,
-      [uid, email, name]
-    );
+    await upsertUser(uid, email, name, 'USER');
 
     req.user = { uid, email, name };
     return next();
@@ -94,14 +83,7 @@ export const authenticateUser = async (
     const role = 'USER';
 
     try {
-      await query(
-        `INSERT INTO users (id, email, name, picture, role)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE
-         SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
-         RETURNING *`,
-        [uid, email, name, picture, role]
-      );
+      await upsertUser(uid, email, name, role, picture);
     } catch (dbErr: any) {
       if (dbErr.code === '23505' && (dbErr.constraint === 'users_email_key' || String(dbErr.message).includes('users_email_key'))) {
         console.log(`[Auth Middleware] Email conflict detected for ${email}. Checking if old user exists in Firebase Auth...`);
@@ -118,14 +100,7 @@ export const authenticateUser = async (
               await query('DELETE FROM users WHERE id = $1', [oldUid]);
               
               // Retry the insert
-              await query(
-                `INSERT INTO users (id, email, name, picture, role)
-                 VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (id) DO UPDATE
-                 SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
-                 RETURNING *`,
-                [uid, email, name, picture, role]
-              );
+              await upsertUser(uid, email, name, role, picture);
             } else {
               throw authErr;
             }
@@ -191,12 +166,7 @@ export const verifyCompanyMembership = async (
           [companyId, req.user?.name ? `شركة ${req.user.name}` : 'شركة غير مسمى']
         );
         
-        await query(
-          `INSERT INTO users (id, email, name, role)
-           VALUES ($1, $2, $3, 'USER')
-           ON CONFLICT (id) DO NOTHING`,
-          [uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`]
-        );
+        await upsertUser(uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`, 'USER');
 
         await query(
           `INSERT INTO memberships (company_id, user_id, role, status)

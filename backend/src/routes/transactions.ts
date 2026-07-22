@@ -5,17 +5,50 @@ import { prefixAccountId } from '../utils/account-helpers.js';
 
 const router = Router({ mergeParams: true });
 
-// Get all transactions
-router.get('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res: Response) => {
+// Get aggregate transaction statistics for dashboard
+router.get('/stats', verifyCompanyMembership, async (req: AuthenticatedRequest, res: Response) => {
   const { companyId } = req.params;
   try {
     const result = await query(
+      `SELECT 
+         COUNT(*) as total_count,
+         COALESCE(SUM(CASE WHEN type = 'INCOME' AND status != 'DRAFT' AND category NOT IN ('voucher_receipt', 'supplier_debit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_income,
+         COALESCE(SUM(CASE WHEN type = 'EXPENSE' AND status != 'DRAFT' AND category NOT IN ('voucher_payment', 'customer_credit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_expense
+       FROM journal_entries
+       WHERE company_id = $1`,
+      [companyId]
+    );
+
+    const totalIncome = Number(result.rows[0]?.total_income || 0);
+    const totalExpense = Number(result.rows[0]?.total_expense || 0);
+
+    res.json({
+      totalCount: Number(result.rows[0]?.total_count || 0),
+      totalIncome,
+      totalExpense,
+      netBalance: totalIncome - totalExpense
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all transactions
+router.get('/', verifyCompanyMembership, async (req: AuthenticatedRequest, res: Response) => {
+  const { companyId } = req.params;
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(1000, Number(req.query.limit) || 50));
+  const offset = (page - 1) * limit;
+
+  try {
+    const result = await query(
       `SELECT t.*, 
-        (SELECT json_agg(jl.*) FROM journal_lines jl WHERE jl.company_id = t.company_id AND jl.entry_id = t.id) as lines
+        (SELECT COALESCE(json_agg(jl.*), '[]'::json) FROM journal_lines jl WHERE jl.company_id = t.company_id AND jl.entry_id = t.id) as lines
        FROM journal_entries t
        WHERE t.company_id = $1
-       ORDER BY t.date DESC, t.created_at DESC`,
-      [companyId]
+       ORDER BY t.date DESC, t.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [companyId, limit, offset]
     );
     res.json(result.rows);
   } catch (error: any) {

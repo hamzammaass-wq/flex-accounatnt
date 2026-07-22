@@ -2,8 +2,17 @@ import { initializePaddle, type Paddle } from '@paddle/paddle-js';
 
 let paddleInstance: Paddle | null = null;
 
-export const getPaddleInstance = async (): Promise<Paddle | null> => {
-  if (paddleInstance) return paddleInstance;
+export const getPaddleInstance = async (paddleCustomerId?: string): Promise<Paddle | null> => {
+  if (paddleInstance) {
+    if (paddleCustomerId) {
+      try {
+        paddleInstance.Update({ pwCustomer: { id: paddleCustomerId } });
+      } catch (e) {
+        console.warn('[PaddleLoader] Failed to update pwCustomer:', e);
+      }
+    }
+    return paddleInstance;
+  }
 
   const token = String(import.meta.env.VITE_PADDLE_CLIENT_TOKEN || '').trim();
   if (!token) {
@@ -17,6 +26,7 @@ export const getPaddleInstance = async (): Promise<Paddle | null> => {
     paddleInstance = await initializePaddle({
       token,
       environment: environment as 'sandbox' | 'production',
+      pwCustomer: paddleCustomerId ? { id: paddleCustomerId } : undefined,
       eventCallback: (event: any) => {
         if (event.name === 'checkout.completed') {
           console.log('[PaddleLoader] Checkout completed:', event.data);

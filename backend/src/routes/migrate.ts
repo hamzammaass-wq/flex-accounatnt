@@ -3,6 +3,7 @@ import admin from 'firebase-admin';
 import { type AuthenticatedRequest } from '../middleware/auth.js';
 import { pool } from '../config/db.js';
 import { prefixAccountId } from '../utils/account-helpers.js';
+import { upsertUser } from '../utils/user-helpers.js';
 
 const router = Router();
 
@@ -66,13 +67,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       );
 
       // Create owner user if not exists
-      await pgClient.query(
-        `INSERT INTO users (id, email, name, role)
-         VALUES ($1, $2, $3, 'ADMIN')
-         ON CONFLICT (id) DO UPDATE
-         SET role = COALESCE(users.role, EXCLUDED.role)`,
-        [userId, docData.userEmail || `user_${userId}@system.local`, docData.userName || `User_${userId}`]
-      );
+      await upsertUser(userId, docData.userEmail || `user_${userId}@system.local`, docData.userName || `User_${userId}`, 'ADMIN', undefined, undefined, pgClient);
 
       // Create Membership
       await pgClient.query(
@@ -149,8 +144,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
             contact.preferredPriceTier || 'RETAIL',
             prefixAccountId(companyId, contact.linkedAccountId),
             prefixAccountId(companyId, contact.currentAccountId),
-            prefixAccountId(companyId, contact.capitalAccountId),
-            prefixAccountId(companyId, contact.drawingsAccountId)
+            prefixAccountId(companyId, contact.capitalAccountId)
           ]
         );
       }

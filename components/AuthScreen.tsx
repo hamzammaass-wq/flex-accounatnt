@@ -19,7 +19,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { translate, isCodeEmail, extractCodeFromEmail } from '../utils/i18n';
 import { clearWorkspaceSnapshotStorage, hasAnyWorkspaceSnapshotRecord } from '../utils/workspaceSnapshotStorage';
 import PolicyGuideScreen from './PolicyGuideScreen';
-import authScreenLogo from '../AI FLEX LOGO.png';
+import authScreenLogo from '../FLEX ACCOUNTANT LOGO.png';
 
 type AuthMode = 'LOGIN' | 'REGISTER';
 type AuthInfoMode = 'NONE' | 'POLICY' | 'USAGE_GUIDE';
@@ -200,6 +200,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
   const [hasGuestWorkspaceData, setHasGuestWorkspaceData] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [infoMode, setInfoMode] = useState<AuthInfoMode>('NONE');
+  const [showIosGuide, setShowIosGuide] = useState(false);
 
   const biometricEnabled = companySettings.biometricLoginEnabled ?? false;
   const isSecureContextForBiometric = useMemo(() => (typeof window !== 'undefined' ? window.isSecureContext : false), []);
@@ -1017,7 +1018,38 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                 </button>
               </div>
 
-              <div className="text-center text-[11px] text-slate-400 font-bold leading-6">
+              {/* Download Buttons */}
+              <div className="flex flex-col sm:flex-row gap-3 mt-6 pt-6 border-t border-slate-800/60 w-full justify-center">
+                <a
+                  href="https://play.google.com/store/apps/details?id=com.smartaccountant.erp"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-3 py-3 px-5 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl text-slate-200 transition-all hover:bg-slate-900 group flex-1"
+                >
+                  <svg viewBox="0 0 512 512" className="w-6 h-6 group-hover:scale-110 transition-transform">
+                    <path d="M325.3 234.3L104.6 13l280.8 161.2-60.1 60.1zM47 0C34 6.8 25.3 19.2 25.3 35.3v441.3c0 16.1 8.7 28.5 21.7 35.3l256.6-256L47 0zm425.2 225.6l-58.9-34.1-65.7 64.5 65.7 64.5 60.1-34.1c18-14.3 18-46.5-1.2-60.8zM104.6 499l280.8-161.2-60.1-60.1L104.6 499z" fill="#00f076" />
+                  </svg>
+                  <div className="text-left leading-tight" dir="ltr">
+                    <div className="text-[10px] text-slate-400 font-medium">GET IT ON</div>
+                    <div className="text-sm font-bold">Google Play</div>
+                  </div>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowIosGuide(true)}
+                  className="flex items-center justify-center gap-3 py-3 px-5 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl text-slate-200 transition-all hover:bg-slate-900 group flex-1"
+                >
+                  <svg viewBox="0 0 384 512" className="w-6 h-6 fill-current group-hover:scale-110 transition-transform">
+                    <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/>
+                  </svg>
+                  <div className="text-left leading-tight" dir="ltr">
+                    <div className="text-[10px] text-slate-400 font-medium">Download on the</div>
+                    <div className="text-sm font-bold">App Store</div>
+                  </div>
+                </button>
+              </div>
+
+              <div className="text-center text-[11px] text-slate-400 font-bold leading-6 mt-4">
                 <a
                   href="/pricing.html"
                   target="_blank"
@@ -1079,6 +1111,74 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
         </div>
       </div>
       </div>
+
+      {showIosGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-slate-900 border border-slate-700/50 rounded-[2rem] p-6 max-w-sm w-full shadow-2xl relative" dir={appLanguage === 'AR' ? 'rtl' : 'ltr'}>
+            <button
+              onClick={() => setShowIosGuide(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center shadow-inner">
+                <svg viewBox="0 0 384 512" className="w-8 h-8 fill-current text-white"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+              </div>
+            </div>
+            <h3 className="text-xl font-bold text-white text-center mb-2">
+              {appLanguage === 'AR' ? 'تثبيت التطبيق على iOS' : 'Install App on iOS'}
+            </h3>
+            <p className="text-sm text-slate-300 text-center mb-6">
+              {appLanguage === 'AR' 
+                ? 'للحصول على أفضل تجربة، يمكنك تثبيت التطبيق على الشاشة الرئيسية لجهازك.' 
+                : 'For the best experience, you can install the app on your home screen.'}
+            </p>
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</div>
+                <div className="text-sm text-slate-300">
+                  {appLanguage === 'AR' 
+                    ? <>افتح متصفح <strong>Safari</strong></>
+                    : <>Open the <strong>Safari</strong> browser</>}
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</div>
+                <div className="text-sm text-slate-300 flex-1">
+                  {appLanguage === 'AR' 
+                    ? <>اضغط على زر المشاركة في أسفل الشاشة</>
+                    : <>Tap the Share button at the bottom of the screen</>}
+                  <div className="mt-2 flex justify-center">
+                    <div className="bg-slate-800 rounded-lg p-2">
+                      <svg className="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">3</div>
+                <div className="text-sm text-slate-300">
+                  {appLanguage === 'AR' 
+                    ? <>اختر <strong>"إضافة إلى الصفحة الرئيسية"</strong> (Add to Home Screen)</>
+                    : <>Select <strong>"Add to Home Screen"</strong></>}
+                  <div className="mt-2 flex justify-center">
+                    <div className="bg-slate-800 rounded-lg p-2">
+                      <svg className="w-5 h-5 text-slate-200" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowIosGuide(false)}
+              className="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 px-4 rounded-xl transition-colors"
+            >
+              {appLanguage === 'AR' ? 'حسناً، فهمت' : 'Got it'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { TransactionType, Invoice } from '../types';
 import { getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
@@ -29,7 +29,7 @@ interface PurchaseInvoiceListProps {
 }
 
 const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, onEditInvoice, onAddImportExpense }) => {
-  const { invoices, contacts, products, baseCurrency, companySettings, postInvoice, deleteInvoice, returnInvoiceItem, reverseInvoice } = useAccounting();
+  const { invoices, contacts, products, baseCurrency, companySettings, postInvoice, deleteInvoice, returnInvoiceItem, reverseInvoice, loadMoreInvoices, setInvoiceDateRange, useBackend, invoicesLoading, invoicesHasMore } = useAccounting();
   const [activeTab, setActiveTab] = useState<'INVOICES' | 'RETURNS'>('INVOICES');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSupplierId, setFilterSupplierId] = useState('ALL');
@@ -42,6 +42,34 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
   const [filterMaxAmount, setFilterMaxAmount] = useState('');
   const [isFilterDialogOpen, setIsFilterDialogOpen] = useState(false);
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
+
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!useBackend || !invoicesHasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !invoicesLoading) {
+          loadMoreInvoices();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (loadMoreRef.current) observer.unobserve(loadMoreRef.current);
+    };
+  }, [useBackend, loadMoreInvoices, invoicesLoading, invoicesHasMore]);
+
+  React.useEffect(() => {
+    if (useBackend) {
+      setInvoiceDateRange(filterDateFrom || undefined, filterDateTo || undefined);
+    }
+  }, [filterDateFrom, filterDateTo, useBackend, setInvoiceDateRange]);
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const taxVisibleInInvoices = getInvoiceTaxVisibility(companySettings, 'purchase');
   const printPersonalData = companySettings.printPersonalData ?? true;
@@ -289,58 +317,325 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
     const invoiceTaxMode = resolveInvoiceTaxMode(invoice);
     const taxableInvoice = taxVisibleInInvoices && isInvoiceTaxApplied(invoiceTaxMode, invoice.taxRate, invoice.taxAmount);
 
-    const totalsBlock = `
-      <div style="text-align: left; display: inline-block; min-width: 280px;">
-        <p><strong>${tr('الإجمالي قبل الضريبة', 'Subtotal')}:</strong> ${formatPrintNumber(invoice.subTotal)} ${invoice.currency}</p>
-        ${invoice.discountAmount > 0 ? `<p><strong>${tr('الخصم', 'Discount')}:</strong> -${formatPrintNumber(invoice.discountAmount)} ${invoice.currency}</p>` : ''}
-        ${taxVisibleInInvoices ? `<p><strong>${tr('طريقة الضريبة', 'Tax mode')}:</strong> ${getInvoiceTaxModeDescription(invoiceTaxMode, tr)}</p>` : ''}
-        ${(taxableInvoice && invoice.taxAmount > 0) ? `<p><strong>${tr('الضريبة', 'Tax')} (${invoice.taxRate}%):</strong> +${formatPrintNumber(invoice.taxAmount)} ${invoice.currency}</p>` : ''}
-        <h3>${tr('الإجمالي النهائي', 'Grand Total')}: ${formatPrintNumber(invoice.totalAmount)} ${invoice.currency}</h3>
-        ${invoiceFooterNote ? `<p style="margin-top:8px; color:#666; font-size:12px;">${invoiceFooterNote}</p>` : ''}
-      </div>
-    `;
+    const logoHtml = companySettings.logoUrl ? `<img src="${companySettings.logoUrl}" alt="Logo" class="company-logo" />` : '';
 
     return `
       <!DOCTYPE html>
       <html dir="${printDir}" lang="${printLang}">
         <head>
+          <meta charset="utf-8" />
           <title>${title} - ${invoice.invoiceNumber}</title>
           <style>
-            body { font-family: ${printFont}; padding: ${40 + topSpacerPx}px 40px 40px 40px; color: #333; line-height: 1.6; }
-            .invoice-header { display: flex; justify-content: space-between; border-bottom: 2px solid #6366f1; padding-bottom: 20px; margin-bottom: 30px; }
-            .company-info h1 { margin: 0; color: #312e81; font-size: 26px; }
-            .company-info p { margin: 4px 0; color: #666; font-size: 13px; }
-            .invoice-meta { text-align: left; }
-            .invoice-meta h2 { margin: 0; color: #6366f1; font-size: 24px; }
-            .invoice-meta p { margin: 4px 0; color: #888; font-size: 13px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-            th { background: #6366f1; color: white; padding: 12px; text-align: center; font-size: 14px; }
-            td { padding: 12px; text-align: center; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
-            ${INVOICE_ITEM_BARCODE_CSS}
+              @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+              
+              :root {
+                  --primary: #1e3a8a;
+                  --secondary: #3b82f6;
+                  --text-main: #1e293b;
+                  --text-muted: #64748b;
+                  --border-light: #e2e8f0;
+                  --bg-light: #f8fafc;
+              }
+
+              * { box-sizing: border-box; }
+              
+              body { 
+                  font-family: ${isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', 'Cairo', sans-serif"}; 
+                  margin: 0; 
+                  padding: ${40 + topSpacerPx}px 40px 40px 40px; 
+                  color: var(--text-main); 
+                  background: #fff;
+                  font-size: 14px;
+                  line-height: 1.6;
+              }
+
+              .sheet {
+                  max-width: 900px;
+                  margin: 0 auto;
+                  border: 1px solid var(--border-light);
+                  border-radius: 12px;
+                  padding: 30px;
+                  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+              }
+
+              /* Header */
+              .header {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: flex-start;
+                  border-bottom: 2px solid var(--primary);
+                  padding-bottom: 20px;
+                  margin-bottom: 25px;
+              }
+
+              .company-info {
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+              }
+              
+              .company-logo {
+                  max-height: 70px;
+                  max-width: 150px;
+                  object-fit: contain;
+                  margin-bottom: 8px;
+              }
+
+              .company-name {
+                  font-size: 22px;
+                  font-weight: 800;
+                  color: var(--primary);
+                  margin: 0;
+              }
+
+              .invoice-title-section {
+                  text-align: center;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: flex-end;
+              }
+
+              .invoice-badge {
+                  background: var(--primary);
+                  color: #fff;
+                  font-size: 22px;
+                  font-weight: 800;
+                  padding: 10px 30px;
+                  border-radius: 8px;
+                  letter-spacing: 1px;
+                  margin-bottom: 12px;
+                  box-shadow: 0 4px 6px -1px rgba(30, 58, 138, 0.2);
+              }
+
+              .meta-details {
+                  display: grid;
+                  grid-template-columns: auto auto;
+                  gap: 4px 16px;
+                  font-size: 14px;
+                  text-align: right;
+              }
+              html[dir="ltr"] .meta-details { text-align: left; }
+              .meta-details .k { color: var(--text-muted); font-weight: 600; }
+              .meta-details .v { font-weight: 700; color: var(--text-main); }
+
+              /* Meta Boxes */
+              .meta-cards {
+                  display: grid;
+                  grid-template-columns: repeat(2, 1fr);
+                  gap: 15px;
+                  margin-bottom: 25px;
+              }
+
+              .meta-card {
+                  background: var(--bg-light);
+                  border: 1px solid var(--border-light);
+                  border-radius: 8px;
+                  padding: 15px;
+              }
+
+              .meta-card strong {
+                  display: block;
+                  font-size: 12px;
+                  color: var(--text-muted);
+                  margin-bottom: 6px;
+              }
+
+              .meta-card span {
+                  font-size: 15px;
+                  font-weight: 800;
+                  color: var(--primary);
+              }
+
+              .notes {
+                  margin-bottom: 25px;
+                  padding: 15px;
+                  border-radius: 8px;
+                  background: var(--bg-light);
+                  border: 1px solid var(--border-light);
+                  font-size: 13px;
+              }
+
+              /* Table */
+              table { 
+                  width: 100%; 
+                  border-collapse: separate; 
+                  border-spacing: 0;
+                  border: 1px solid var(--border-light);
+                  border-radius: 8px;
+                  overflow: hidden;
+                  margin-bottom: 20px;
+              }
+              th, td { 
+                  padding: 12px 16px; 
+                  text-align: start; 
+                  border-bottom: 1px solid var(--border-light);
+              }
+              th { 
+                  background: var(--bg-light); 
+                  color: var(--primary); 
+                  font-weight: 800; 
+                  font-size: 13px;
+              }
+              tr:last-child td { border-bottom: none; }
+              td { font-size: 14px; font-weight: 600; }
+
+              /* Totals Section */
+              .totals-section {
+                  display: flex;
+                  justify-content: flex-end;
+                  margin-bottom: 30px;
+              }
+              .totals-box {
+                  background: var(--primary);
+                  color: #fff;
+                  padding: 20px 30px;
+                  border-radius: 8px;
+                  min-width: 300px;
+              }
+              .totals-row { 
+                  display: flex; 
+                  justify-content: space-between; 
+                  margin-bottom: 10px; 
+                  font-size: 14px; 
+                  font-weight: 600;
+              }
+              .totals-row.total { 
+                  margin-top: 15px; 
+                  padding-top: 15px; 
+                  border-top: 1px solid rgba(255,255,255,0.2); 
+                  font-size: 20px; 
+                  font-weight: 800; 
+                  margin-bottom: 0;
+              }
+
+              /* Signatures Section */
+              .signatures {
+                  display: grid;
+                  grid-template-columns: repeat(2, 1fr);
+                  gap: 40px;
+                  margin-top: 50px;
+                  padding-top: 30px;
+                  page-break-inside: avoid;
+              }
+
+              .signature-box {
+                  text-align: center;
+              }
+
+              .signature-line {
+                  border-top: 1px dashed var(--text-muted);
+                  margin-bottom: 10px;
+                  width: 80%;
+                  margin-left: auto;
+                  margin-right: auto;
+              }
+
+              .signature-label {
+                  font-size: 14px;
+                  font-weight: 700;
+                  color: var(--text-main);
+              }
+
+              ${INVOICE_ITEM_BARCODE_CSS}
+
+              /* Print */
+              @media print {
+                  body { padding: 0; background: #fff; }
+                  .sheet { 
+                      border: none; 
+                      box-shadow: none; 
+                      padding: 0; 
+                      max-width: 100%; 
+                  }
+                  .invoice-badge, .totals-box {
+                      -webkit-print-color-adjust: exact;
+                      print-color-adjust: exact;
+                  }
+                  th, .meta-card, .notes {
+                      -webkit-print-color-adjust: exact;
+                      print-color-adjust: exact;
+                  }
+              }
           </style>
         </head>
         <body>
-          <div class="invoice-header">
-            <div class="company-info">
-              <h1>${companySettings.name}</h1>
-              ${taxVisibleInInvoices ? `<p>${tr('الرقم الضريبي', 'Tax Number')}: ${companySettings.taxNumber || '-'}</p>` : ''}
-            </div>
-            <div class="invoice-meta">
-              <h2>${title}</h2>
-              <p>${tr('رقم', 'No.')}: ${invoice.invoiceNumber}</p>
-              <p>${tr('التاريخ', 'Date')}: ${date}</p>
-              ${dueDateLine}
-            </div>
+          <div class="sheet">
+              <div class="header">
+                  <div class="company-info">
+                      ${logoHtml}
+                      <h2 class="company-name">${companySettings.name || ''}</h2>
+                      ${taxVisibleInInvoices ? `<div style="font-size:12px; color:var(--text-muted); margin-top:4px;">${tr('الرقم الضريبي', 'Tax No')}: ${companySettings.taxNumber || '-'}</div>` : ''}
+                  </div>
+                  <div class="invoice-title-section">
+                      <div class="invoice-badge">${title}</div>
+                      <div class="meta-details">
+                          <span class="k">${tr('رقم', 'No.')}:</span>
+                          <span class="v" dir="ltr">${invoice.invoiceNumber}</span>
+                          
+                          <span class="k">${tr('التاريخ', 'Date')}:</span>
+                          <span class="v" dir="ltr">${date}</span>
+                          
+                          ${dueDateLine ? `<span class="k">${tr('تاريخ الإنتهاء', 'Expiry')}:</span><span class="v" dir="ltr">${formatDate(invoice.dueDate!)}</span>` : ''}
+
+                          <span class="k">${tr('العملة', 'Currency')}:</span>
+                          <span class="v">${invoice.currency || 'SAR'}</span>
+                      </div>
+                  </div>
+              </div>
+              
+              <div class="meta-cards">
+                  <div class="meta-card">
+                      <strong>${tr('المورد', 'Supplier')}</strong>
+                      <span>${supplierName}</span>
+                      ${printPersonalData && supplier?.phone ? `<div style="margin-top:4px;font-size:12px;color:var(--text-muted)">${tr('الجوال', 'Phone')}: <span dir="ltr">${supplier.phone}</span></div>` : ''}
+                  </div>
+                  <div class="meta-card">
+                      <strong>${tr('الحالة', 'Status')}</strong>
+                      <span>${getStatusConfig(invoice.status).label}</span>
+                  </div>
+              </div>
+              
+              ${invoice.notes ? `<div class="notes"><strong>${tr('التفاصيل', 'Details')}:</strong> ${invoice.notes.replace(/\n/g, '<br />')}</div>` : ''}
+              
+              <table>
+                  <thead>
+                      <tr>
+                          <th>#</th>
+                          <th>${tr('الرمز', 'Code')}</th>
+                          <th>${tr('الصنف', 'Item')}</th>
+                          <th>${tr('الكمية', 'Qty')}</th>
+                          <th>${tr('السعر', 'Price')}</th>
+                          <th>${tr('الإجمالي', 'Total')}</th>
+                      </tr>
+                  </thead>
+                  <tbody>${itemsRows || `<tr><td colspan="6" style="text-align: center;">${tr('لا توجد بنود بعد', 'No line items yet')}</td></tr>`}</tbody>
+              </table>
+              
+              <div class="totals-section">
+                  <div class="totals-box">
+                      <div class="totals-row"><span>${tr('الإجمالي قبل الضريبة', 'Subtotal')}</span><span dir="ltr">${formatPrintNumber(invoice.subTotal)} ${invoice.currency}</span></div>
+                      ${invoice.discountAmount > 0 ? `<div class="totals-row"><span>${tr('الخصم', 'Discount')}</span><span dir="ltr">${formatPrintNumber(invoice.discountAmount)} ${invoice.currency}</span></div>` : ''}
+                      ${taxVisibleInInvoices ? `<div class="totals-row"><span>${tr('طريقة الضريبة', 'Tax mode')}</span><span>${getInvoiceTaxModeDescription(invoiceTaxMode, tr)}</span></div>` : ''}
+                      ${(taxableInvoice && invoice.taxAmount > 0) ? `<div class="totals-row"><span>${tr('الضريبة', 'Tax')}</span><span dir="ltr">${formatPrintNumber(invoice.taxAmount)} ${invoice.currency}</span></div>` : ''}
+                      <div class="totals-row total"><span>${tr('الإجمالي', 'Total')}</span><span dir="ltr">${formatPrintNumber(invoice.totalAmount)} ${invoice.currency}</span></div>
+                      ${invoiceFooterNote ? `<div style="font-size:12px; opacity:0.8; margin-top:10px; text-align:center">${invoiceFooterNote}</div>` : ''}
+                  </div>
+              </div>
+
+              <div class="signatures">
+                  <div class="signature-box">
+                      <div class="signature-line"></div>
+                      <div class="signature-label">${tr('توقيع المحاسب', 'Accountant Signature')}</div>
+                  </div>
+                  <div class="signature-box">
+                      <div class="signature-line"></div>
+                      <div class="signature-label">${tr('توقيع المورد / المستلم', 'Supplier / Receiver Signature')}</div>
+                  </div>
+              </div>
           </div>
-          <p><strong>${tr('المورد', 'Supplier')}:</strong> ${supplierName}${printPersonalData && supplier?.phone ? ` | ${tr('الجوال', 'Phone')}: ${supplier.phone}` : ''}</p>
-          <table>
-            <thead><tr><th>#</th><th>${tr('رقم الصنف', 'Item No.')}</th><th style="text-align:right;">${tr('البيان', 'Description')}</th><th>${tr('الكمية', 'Quantity')}</th><th>${tr('السعر', 'Price')}</th><th>${tr('الإجمالي', 'Total')}</th></tr></thead>
-            <tbody>${itemsRows}</tbody></table>
-          <div style="text-align: left;">${totalsBlock}</div>
           ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
         </body>
-      </html>
-    `;
+      </html>`;
   };
 
   const handlePrintInvoice = (invoice: Invoice) => {
@@ -721,6 +1016,15 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
               </div>
             )}
           </div>
+
+          {useBackend && invoicesHasMore && filteredInvoices.length > 0 && (
+            <div className="flex justify-center mt-6 h-10 items-center">
+              <div ref={loadMoreRef} className="text-gray-400 text-xs flex flex-col items-center gap-2">
+                <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                {tr('جاري التحميل...', 'Loading...')}
+              </div>
+            </div>
+          )}
         </div>
       );
     };

@@ -7,6 +7,7 @@ import ProductCard from './ProductCard';
 import ContactEditorDialog from './ContactEditorDialog';
 import EnglishDateInput from './EnglishDateInput';
 import QuickAddProductModal from './QuickAddProductModal';
+import QuickAddAccountModal from './QuickAddAccountModal';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import ResponsiveOverlay from './layout/ResponsiveOverlay';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
@@ -518,6 +519,8 @@ interface SearchableAccountSelectProps {
     className?: string;
     inputClassName?: string;
     inputTestId?: string;
+    onCreateNew?: (name: string) => void;
+    createNewLabel?: string;
 }
 
 const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
@@ -530,12 +533,15 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
     isEnglish,
     className = '',
     inputClassName = '',
-    inputTestId
+    inputTestId,
+    onCreateNew,
+    createNewLabel
 }) => {
     const [query, setQuery] = useState('');
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const dropdownRef = useRef<HTMLDivElement | null>(null);
+    const inputRef = useRef<HTMLInputElement | null>(null);
     const inputPaddingClass = getSearchableInputPaddingClass(isEnglish);
     const actionButtonPositionClass = getSearchableActionButtonPositionClass(isEnglish);
     const searchIconPositionClass = getSearchableIconPositionClass(isEnglish);
@@ -662,9 +668,12 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
                     }
                     if (event.key === 'Enter') {
                         event.preventDefault();
-                        const firstMatch = filteredAccounts[0];
-                        if (firstMatch) {
-                            handleSelect(firstMatch.id);
+                        const exactMatch = accounts.find(a => displayAccountName(a).trim().toLowerCase() === query.trim().toLowerCase());
+                        if (exactMatch) {
+                            handleSelect(exactMatch.id);
+                        } else if (onCreateNew && query.trim()) {
+                            onCreateNew(query.trim());
+                            setIsOpen(false);
                         } else {
                             setIsOpen(false);
                             setQuery(selectedLabel);
@@ -712,6 +721,19 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
                         </button>
                     )) : (
                         <div className="px-3 py-3 text-xs font-black text-slate-400">{emptyLabel}</div>
+                    )}
+                    {onCreateNew && query.trim() && !accounts.some(a => displayAccountName(a).trim().toLowerCase() === query.trim().toLowerCase()) && (
+                        <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                                onCreateNew(query.trim());
+                                setIsOpen(false);
+                            }}
+                            className="w-full text-start px-3 py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border-t border-indigo-100 transition-colors"
+                        >
+                            <span className="inline-flex items-center gap-1.5"><Plus size={14} />{createNewLabel || (isEnglish ? `Add account "${query}"` : `إضافة حساب "${query}"`)}</span>
+                        </button>
                     )}
                 </div>,
                 document.body
@@ -1193,6 +1215,7 @@ const InvoiceScreen: React.FC<{
     const [taxRateOverride, setTaxRateOverride] = useState(String(companySettings.defaultTaxRate ?? 0));
     const [dueDate, setDueDate] = useState(sharedState.date);
     const [discount, setDiscount] = useState('');
+    const [discountType, setDiscountType] = useState<'amount' | 'percentage'>('amount');
     const [notes, setNotes] = useState('');
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [showInvoiceActions, setShowInvoiceActions] = useState(false);
@@ -1206,6 +1229,9 @@ const InvoiceScreen: React.FC<{
 
     const [showQuickContact, setShowQuickContact] = useState(false);
     const [quickContactInitialName, setQuickContactInitialName] = useState('');
+    const [showQuickAccount, setShowQuickAccount] = useState(false);
+    const [quickAccountInitialName, setQuickAccountInitialName] = useState('');
+    const [quickAccountTarget, setQuickAccountTarget] = useState<'payment' | 'expense' | null>(null);
     const [showQuickProduct, setShowQuickProduct] = useState(false);
     const [quickProductInitialName, setQuickProductInitialName] = useState('');
     const [isExchangeRateEditorOpen, setIsExchangeRateEditorOpen] = useState(false);
@@ -1598,11 +1624,15 @@ const InvoiceScreen: React.FC<{
 
             // Standard Calculation
             if (field === 'quantity') {
-                updates.total = safeValue * item.unitPrice;
+                updates.total = Number((safeValue * item.unitPrice).toFixed(3));
             }
             if (field === 'unitPrice') {
                 const qty = (typeof updates.quantity === 'number') ? updates.quantity : item.quantity;
-                updates.total = qty * safeValue;
+                updates.total = Number((qty * safeValue).toFixed(3));
+            }
+            if (field === 'total') {
+                const qty = (typeof updates.quantity === 'number') ? updates.quantity : item.quantity;
+                updates.unitPrice = qty > 0 ? Number((safeValue / qty).toFixed(3)) : 0;
             }
 
             return { ...item, ...updates };
@@ -1790,12 +1820,42 @@ const InvoiceScreen: React.FC<{
     const effectiveTaxMode = taxVisibleInInvoices ? taxMode : 'NONE';
     const taxRateValue = effectiveTaxMode === 'NONE' ? 0 : Math.max(0, parseFloat(taxRateOverride) || 0);
     const taxModeDescription = getInvoiceTaxModeDescription(effectiveTaxMode, tr);
+    const itemsTotalAmount = items.reduce((sum, item) => sum + item.total, 0);
+    const discountValue = parseFloat(discount) || 0;
+    const computedDiscountAmount = discountType === 'percentage' ? (itemsTotalAmount * discountValue) / 100 : discountValue;
+
     const totals = useMemo(() => calculateInvoiceTaxSummary({
-        itemsTotal: items.reduce((sum, item) => sum + item.total, 0),
-        discountAmount: parseFloat(discount) || 0,
+        itemsTotal: itemsTotalAmount,
+        discountAmount: computedDiscountAmount,
         taxRate: taxRateValue,
         taxMode: effectiveTaxMode
-    }), [items, discount, taxRateValue, effectiveTaxMode]);
+    }), [itemsTotalAmount, computedDiscountAmount, taxRateValue, effectiveTaxMode]);
+
+    const handleFinalNetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        if (val === '') {
+            setDiscount('');
+            return;
+        }
+        
+        const targetFinalNet = parseFloat(val);
+        if (isNaN(targetFinalNet)) return;
+
+        const subtotal = itemsTotalAmount;
+        
+        let newDiscount = 0;
+        if (effectiveTaxMode === 'EXCLUSIVE') {
+            newDiscount = subtotal - (targetFinalNet / (1 + taxRateValue / 100));
+        } else {
+            newDiscount = subtotal - targetFinalNet;
+        }
+
+        if (!isNaN(newDiscount)) {
+            setDiscountType('amount');
+            setDiscount(newDiscount.toFixed(3));
+        }
+    };
+
 
     const invoiceCategory = useMemo(() => {
         if (isPurchase) return 'purchase_invoice';
@@ -2157,6 +2217,211 @@ const InvoiceScreen: React.FC<{
     const handlePrintPreview = () => {
         const draft = buildDraftInvoice();
         try {
+            if (isExpenseStyle) {
+                const printDir = isEnglish ? 'ltr' : 'rtl';
+                const printLang = isEnglish ? 'en' : 'ar';
+                const isImport = mode === 'IMPORT_EXPENSES';
+                const title = isImport ? tr('سند مصروفات استيراد', 'Import Expense Voucher') : tr('سند مصروف', 'Expense Voucher');
+                const contactName = selectedCounterpartyLabel;
+
+                const tableRows = draft.items.map((item, index) => {
+                    const product = item.productId ? products.find(p => p.id === item.productId) : undefined;
+                    const itemName = escapeHtml(product ? displayProductName(product) : item.description);
+                    const qty = Number(item.quantity) || 0;
+                    const total = Number(item.total) || 0;
+                    const price = qty > 0 ? (total / qty) : total;
+
+                    return `
+                        <tr>
+                            <td style="text-align: center;">${index + 1}</td>
+                            <td style="text-align: ${isEnglish ? 'left' : 'right'};"><strong>${itemName}</strong></td>
+                            <td style="text-align: center;" dir="ltr">${qty > 0 ? qty : '-'}</td>
+                            <td style="text-align: center;" dir="ltr">${price > 0 ? price.toLocaleString() : '-'}</td>
+                            <td style="text-align: ${isEnglish ? 'left' : 'right'}; font-weight: bold; color: #1e3a8a;" dir="ltr">${total.toLocaleString()} ${baseCurrency}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                const html = `
+                    <!DOCTYPE html>
+                    <html dir="${printDir}" lang="${printLang}">
+                    <head>
+                        <meta charset="utf-8" />
+                        <title>${title}</title>
+                        <style>
+                            @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+                            :root {
+                                --primary: #1e3a8a;
+                                --text-main: #1e293b;
+                                --text-muted: #64748b;
+                                --border-light: #e2e8f0;
+                                --bg-light: #f8fafc;
+                            }
+                            * { box-sizing: border-box; }
+                            body {
+                                font-family: 'Cairo', system-ui, sans-serif;
+                                margin: 0; padding: 0; color: var(--text-main);
+                                line-height: 1.6;
+                            }
+                            .voucher-container {
+                                max-width: 800px;
+                                margin: 0 auto;
+                                padding: 40px;
+                            }
+                            .header {
+                                display: flex; justify-content: space-between; align-items: flex-start;
+                                border-bottom: 3px solid var(--primary);
+                                padding-bottom: 20px; margin-bottom: 30px;
+                            }
+                            .company-name { color: var(--primary); font-size: 28px; font-weight: 800; margin: 0 0 5px 0; }
+                            .company-info p { margin: 2px 0; color: var(--text-muted); font-size: 14px; }
+                            .voucher-title { font-size: 26px; font-weight: 800; margin: 0 0 15px 0; color: #0f172a; text-align: ${isEnglish ? 'right' : 'left'}; }
+                            .meta-box {
+                                background: var(--bg-light); border: 1px solid var(--border-light);
+                                padding: 12px 20px; border-radius: 8px; display: inline-block;
+                                text-align: ${isEnglish ? 'left' : 'right'};
+                            }
+                            .meta-box p { margin: 4px 0; font-size: 14px; }
+                            .meta-box strong { color: var(--text-main); }
+                            
+                            .info-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+                            .card { border: 1px solid var(--border-light); border-radius: 12px; padding: 16px; background: #fff; }
+                            .card h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin: 0 0 8px 0; }
+                            .card p { font-size: 16px; font-weight: 700; margin: 0; color: var(--text-main); }
+                            
+                            .table-container { margin-bottom: 30px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light); }
+                            table { width: 100%; border-collapse: collapse; }
+                            th { background-color: var(--primary); color: white; padding: 14px 12px; font-weight: 600; font-size: 14px; text-align: center; }
+                            td { padding: 12px; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+                            tr:last-child td { border-bottom: none; }
+                            tr:nth-child(even) { background-color: var(--bg-light); }
+                            
+                            .totals-section { display: flex; justify-content: flex-end; margin-bottom: 40px; }
+                            .totals-box { 
+                                width: 350px; background: var(--primary); color: white; 
+                                border-radius: 12px; padding: 20px;
+                                display: flex; justify-content: space-between; align-items: center;
+                                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                            }
+                            .totals-box span:first-child { font-size: 18px; font-weight: 600; }
+                            .totals-box span:last-child { font-size: 24px; font-weight: 800; }
+                            
+                            .notes-section {
+                                margin-bottom: 40px; padding: 16px; background: var(--bg-light); 
+                                border-radius: 8px; border-${isEnglish ? 'left' : 'right'}: 4px solid var(--primary);
+                            }
+                            .notes-section strong { color: var(--text-muted); font-size: 12px; text-transform: uppercase; display: block; margin-bottom: 8px; }
+                            .notes-section p { margin: 0; font-size: 14px; color: var(--text-main); white-space: pre-wrap; }
+                            
+                            .signatures {
+                                display: grid; grid-template-columns: 1fr 1fr; gap: 40px; 
+                                margin-top: 60px; padding-top: 40px; 
+                            }
+                            .signature-box { text-align: center; }
+                            .signature-box p { margin: 0 0 40px 0; color: var(--text-muted); font-weight: 600; }
+                            .signature-line { border-bottom: 1px dashed var(--border-light); width: 80%; margin: 0 auto; }
+                            
+                            .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #94a3b8; }
+                            
+                            @media print {
+                                body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: white; }
+                                .voucher-container { padding: 0; max-width: 100%; margin: 0; }
+                                .header { border-bottom: 2px solid var(--primary); }
+                                .totals-box { background: var(--primary) !important; color: white !important; }
+                                th { background-color: var(--primary) !important; color: white !important; }
+                                tr:nth-child(even) { background-color: var(--bg-light) !important; }
+                                @page { margin: 15mm; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="voucher-container">
+                            <!-- Header Section -->
+                            <div class="header">
+                                <div>
+                                    <h1 class="company-name">${escapeHtml(companySettings.name || 'Smart Accountant')}</h1>
+                                    <div class="company-info">
+                                        ${companySettings.address ? `<p>${escapeHtml(companySettings.address)}</p>` : ''}
+                                        ${companySettings.taxNumber ? `<p>${escapeHtml(tr('الرقم الضريبي', 'Tax No'))}: ${escapeHtml(companySettings.taxNumber)}</p>` : ''}
+                                    </div>
+                                </div>
+                                <div>
+                                    <h2 class="voucher-title">${title}</h2>
+                                    <div class="meta-box">
+                                        <p><strong>${tr('رقم القيد', 'Entry No.')}:</strong> ${draft.invoiceNumber}</p>
+                                        <p><strong>${tr('التاريخ', 'Date')}:</strong> ${draft.date}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Meta Info Cards -->
+                            <div class="info-cards">
+                                <div class="card">
+                                    <h3>${tr('المستفيد / المورد', 'Beneficiary / Supplier')}</h3>
+                                    <p>${escapeHtml(contactName || tr('مصروف عام', 'General Expense'))}</p>
+                                </div>
+                                <div class="card">
+                                    <h3>${tr('طريقة الدفع', 'Payment Method')}</h3>
+                                    <p>${paymentType === 'CASH' ? tr('نقدي', 'Cash') : tr('آجل', 'Credit')}</p>
+                                </div>
+                            </div>
+
+                            <!-- Table -->
+                            <div class="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 50px;">#</th>
+                                            <th style="text-align: ${isEnglish ? 'left' : 'right'};">${tr('البيان', 'Description')}</th>
+                                            <th>${tr('الكمية', 'Qty')}</th>
+                                            <th>${tr('السعر', 'Price')}</th>
+                                            <th style="text-align: ${isEnglish ? 'left' : 'right'};">${tr('المجموع', 'Total')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${tableRows}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Totals Section -->
+                            <div class="totals-section">
+                                <div class="totals-box">
+                                    <span>${tr('الإجمالي', 'Total')}:</span>
+                                    <span dir="ltr">${draft.totalAmount.toLocaleString()} ${baseCurrency}</span>
+                                </div>
+                            </div>
+
+                            ${notes.trim() ? `
+                                <div class="notes-section">
+                                    <strong>${tr('ملاحظات', 'Notes')}</strong>
+                                    <p>${escapeHtml(notes.trim())}</p>
+                                </div>
+                            ` : ''}
+
+                            <!-- Signatures -->
+                            <div class="signatures">
+                                <div class="signature-box">
+                                    <p>${tr('المحاسب', 'Accountant')}</p>
+                                    <div class="signature-line"></div>
+                                </div>
+                                <div class="signature-box">
+                                    <p>${tr('المستلم / المعتمد', 'Receiver / Approver')}</p>
+                                    <div class="signature-line"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="footer">
+                                ${tr('تم إنشاء هذا السند بواسطة نظام فليكس إي آر بي', 'Generated by Flex ERP')}
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                `;
+                printHtmlContent(html);
+                return;
+            }
+
             const printDir = isEnglish ? 'ltr' : 'rtl';
             const printLang = isEnglish ? 'en' : 'ar';
             const draftTaxMode = resolveInvoiceTaxMode(draft);
@@ -2178,6 +2443,8 @@ const InvoiceScreen: React.FC<{
             const notesBlock = notes.trim()
                 ? `<div class="notes"><strong>${escapeHtml(tr('التفاصيل', 'Details'))}:</strong> ${escapeHtml(notes.trim()).replace(/\n/g, '<br />')}</div>`
                 : '';
+            const logoHtml = companySettings.logoUrl ? `<img src="${companySettings.logoUrl}" alt="Logo" class="company-logo" />` : '';
+            
             const html = `
                 <!DOCTYPE html>
                 <html dir="${printDir}" lang="${printLang}">
@@ -2185,39 +2452,264 @@ const InvoiceScreen: React.FC<{
                         <meta charset="utf-8" />
                         <title>${escapeHtml(invoiceScreenTitle)} - ${escapeHtml(draft.invoiceNumber)}</title>
                         <style>
-                            body { font-family: ${isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', Arial, sans-serif"}; margin: 0; padding: 32px; color: #0f172a; background: #f8fafc; }
-                            .sheet { max-width: 920px; margin: 0 auto; background: #fff; border-radius: 24px; padding: 28px; box-shadow: 0 16px 50px rgba(15, 23, 42, 0.08); }
-                            .header { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 2px solid #e2e8f0; }
-                            .title { font-size: 28px; font-weight: 900; margin: 0 0 8px; color: #1d4ed8; }
-                            .muted { margin: 0; color: #64748b; font-size: 13px; }
-                            .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 22px 0; }
-                            .meta-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px 16px; }
-                            .meta-card strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 6px; }
-                            .meta-card span { font-size: 16px; font-weight: 800; }
-                            .notes { margin: 18px 0 0; padding: 14px 16px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; }
-                            table { width: 100%; border-collapse: collapse; margin-top: 24px; overflow: hidden; border-radius: 18px; }
-                            th { background: #0f172a; color: #fff; font-size: 12px; padding: 12px 10px; }
-                            td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center; }
-                            .totals { margin-top: 22px; display: flex; justify-content: flex-end; }
-                            .totals-box { min-width: 280px; background: #0f172a; color: #fff; border-radius: 20px; padding: 18px 20px; }
-                            .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
-                            .totals-row.total { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.18); font-size: 18px; font-weight: 900; }
+                            @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+                            
+                            :root {
+                                --primary: #1e3a8a;
+                                --secondary: #3b82f6;
+                                --text-main: #1e293b;
+                                --text-muted: #64748b;
+                                --border-light: #e2e8f0;
+                                --bg-light: #f8fafc;
+                            }
+
+                            * { box-sizing: border-box; }
+                            
+                            body { 
+                                font-family: ${isEnglish ? "'Segoe UI', Arial, sans-serif" : "'Tajawal', 'Cairo', sans-serif"}; 
+                                margin: 0; 
+                                padding: 40px; 
+                                color: var(--text-main); 
+                                background: #fff;
+                                font-size: 14px;
+                                line-height: 1.6;
+                            }
+
+                            .sheet {
+                                max-width: 900px;
+                                margin: 0 auto;
+                                border: 1px solid var(--border-light);
+                                border-radius: 12px;
+                                padding: 30px;
+                                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                            }
+
+                            /* Header */
+                            .header {
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: flex-start;
+                                border-bottom: 2px solid var(--primary);
+                                padding-bottom: 20px;
+                                margin-bottom: 25px;
+                            }
+
+                            .company-info {
+                                display: flex;
+                                flex-direction: column;
+                                gap: 8px;
+                            }
+                            
+                            .company-logo {
+                                max-height: 70px;
+                                max-width: 150px;
+                                object-fit: contain;
+                                margin-bottom: 8px;
+                            }
+
+                            .company-name {
+                                font-size: 22px;
+                                font-weight: 800;
+                                color: var(--primary);
+                                margin: 0;
+                            }
+
+                            .invoice-title-section {
+                                text-align: center;
+                                display: flex;
+                                flex-direction: column;
+                                align-items: flex-end;
+                            }
+
+                            .invoice-badge {
+                                background: var(--primary);
+                                color: #fff;
+                                font-size: 22px;
+                                font-weight: 800;
+                                padding: 10px 30px;
+                                border-radius: 8px;
+                                letter-spacing: 1px;
+                                margin-bottom: 12px;
+                                box-shadow: 0 4px 6px -1px rgba(30, 58, 138, 0.2);
+                            }
+
+                            .meta-details {
+                                display: grid;
+                                grid-template-columns: auto auto;
+                                gap: 4px 16px;
+                                font-size: 14px;
+                                text-align: right;
+                            }
+                            html[dir="ltr"] .meta-details { text-align: left; }
+                            .meta-details .k { color: var(--text-muted); font-weight: 600; }
+                            .meta-details .v { font-weight: 700; color: var(--text-main); }
+
+                            /* Meta Boxes */
+                            .meta-cards {
+                                display: grid;
+                                grid-template-columns: repeat(4, 1fr);
+                                gap: 15px;
+                                margin-bottom: 25px;
+                            }
+
+                            .meta-card {
+                                background: var(--bg-light);
+                                border: 1px solid var(--border-light);
+                                border-radius: 8px;
+                                padding: 15px;
+                            }
+
+                            .meta-card strong {
+                                display: block;
+                                font-size: 12px;
+                                color: var(--text-muted);
+                                margin-bottom: 6px;
+                            }
+
+                            .meta-card span {
+                                font-size: 15px;
+                                font-weight: 800;
+                                color: var(--primary);
+                            }
+
+                            .notes {
+                                margin-bottom: 25px;
+                                padding: 15px;
+                                border-radius: 8px;
+                                background: var(--bg-light);
+                                border: 1px solid var(--border-light);
+                                font-size: 13px;
+                            }
+
+                            /* Table */
+                            table { 
+                                width: 100%; 
+                                border-collapse: separate; 
+                                border-spacing: 0;
+                                border: 1px solid var(--border-light);
+                                border-radius: 8px;
+                                overflow: hidden;
+                                margin-bottom: 20px;
+                            }
+                            th, td { 
+                                padding: 12px 16px; 
+                                text-align: start; 
+                                border-bottom: 1px solid var(--border-light);
+                            }
+                            th { 
+                                background: var(--bg-light); 
+                                color: var(--primary); 
+                                font-weight: 800; 
+                                font-size: 13px;
+                            }
+                            tr:last-child td { border-bottom: none; }
+                            td { font-size: 14px; font-weight: 600; }
+
+                            /* Totals Section */
+                            .totals-section {
+                                display: flex;
+                                justify-content: flex-end;
+                                margin-bottom: 30px;
+                            }
+                            .totals-box {
+                                background: var(--primary);
+                                color: #fff;
+                                padding: 20px 30px;
+                                border-radius: 8px;
+                                min-width: 300px;
+                            }
+                            .totals-row { 
+                                display: flex; 
+                                justify-content: space-between; 
+                                margin-bottom: 10px; 
+                                font-size: 14px; 
+                                font-weight: 600;
+                            }
+                            .totals-row.total { 
+                                margin-top: 15px; 
+                                padding-top: 15px; 
+                                border-top: 1px solid rgba(255,255,255,0.2); 
+                                font-size: 20px; 
+                                font-weight: 800; 
+                                margin-bottom: 0;
+                            }
+
+                            /* Signatures Section */
+                            .signatures {
+                                display: grid;
+                                grid-template-columns: repeat(2, 1fr);
+                                gap: 40px;
+                                margin-top: 50px;
+                                padding-top: 30px;
+                                page-break-inside: avoid;
+                            }
+
+                            .signature-box {
+                                text-align: center;
+                            }
+
+                            .signature-line {
+                                border-top: 1px dashed var(--text-muted);
+                                margin-bottom: 10px;
+                                width: 80%;
+                                margin-left: auto;
+                                margin-right: auto;
+                            }
+
+                            .signature-label {
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: var(--text-main);
+                            }
+
+                            /* Print */
+                            @media print {
+                                body { padding: 0; background: #fff; }
+                                .sheet { 
+                                    border: none; 
+                                    box-shadow: none; 
+                                    padding: 0; 
+                                    max-width: 100%; 
+                                }
+                                .invoice-badge {
+                                    -webkit-print-color-adjust: exact;
+                                    print-color-adjust: exact;
+                                }
+                                .totals-box {
+                                    -webkit-print-color-adjust: exact;
+                                    print-color-adjust: exact;
+                                }
+                                th, .meta-card, .notes {
+                                    -webkit-print-color-adjust: exact;
+                                    print-color-adjust: exact;
+                                }
+                            }
                         </style>
                     </head>
                     <body>
                         <div class="sheet">
                             <div class="header">
-                                <div>
-                                    <h1 class="title">${escapeHtml(invoiceScreenTitle)}</h1>
-                                    <p class="muted">${escapeHtml(companySettings.name || '')}</p>
+                                <div class="company-info">
+                                    ${logoHtml}
+                                    <h2 class="company-name">${escapeHtml(companySettings.name || '')}</h2>
+                                    ${companySettings.taxNumber ? `<div style="font-size:12px; color:var(--text-muted); margin-top:4px;">${escapeHtml(tr('الرقم الضريبي', 'Tax No'))}: ${escapeHtml(companySettings.taxNumber)}</div>` : ''}
                                 </div>
-                                <div style="text-align:${isEnglish ? 'left' : 'right'};">
-                                    <p class="muted">${escapeHtml(tr('رقم الفاتورة', 'Invoice No.'))}: <strong>${escapeHtml(draft.invoiceNumber)}</strong></p>
-                                    <p class="muted">${escapeHtml(tr('التاريخ', 'Date'))}: <strong>${escapeHtml(draft.date)}</strong></p>
-                                    <p class="muted">${escapeHtml(tr('العملة', 'Currency'))}: <strong>${escapeHtml(draft.currency)}</strong></p>
+                                <div class="invoice-title-section">
+                                    <div class="invoice-badge">${escapeHtml(invoiceScreenTitle)}</div>
+                                    <div class="meta-details">
+                                        <span class="k">${escapeHtml(tr('رقم الفاتورة', 'Invoice No.'))}:</span>
+                                        <span class="v" dir="ltr">${escapeHtml(draft.invoiceNumber)}</span>
+                                        
+                                        <span class="k">${escapeHtml(tr('التاريخ', 'Date'))}:</span>
+                                        <span class="v" dir="ltr">${escapeHtml(draft.date)}</span>
+
+                                        <span class="k">${escapeHtml(tr('العملة', 'Currency'))}:</span>
+                                        <span class="v">${escapeHtml(draft.currency)}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="meta">
+                            
+                            <div class="meta-cards">
                                 <div class="meta-card">
                                     <strong>${escapeHtml(isSalesFlow ? tr('العميل', 'Customer') : tr('المورد', 'Supplier'))}</strong>
                                     <span>${escapeHtml(selectedCounterpartyLabel)}</span>
@@ -2235,7 +2727,9 @@ const InvoiceScreen: React.FC<{
                                     <span>${escapeHtml(selectedPaymentAccount ? displayAccountName(selectedPaymentAccount) : '-')}</span>
                                 </div>
                             </div>
+                            
                             ${notesBlock}
+                            
                             <table>
                                 <thead>
                                     <tr>
@@ -2247,18 +2741,31 @@ const InvoiceScreen: React.FC<{
                                         <th>${escapeHtml(tr('الإجمالي', 'Total'))}</th>
                                     </tr>
                                 </thead>
-                                <tbody>${rowsHtml || `<tr><td colspan="6">${escapeHtml(tr('لا توجد بنود بعد', 'No line items yet'))}</td></tr>`}</tbody>
+                                <tbody>${rowsHtml || `<tr><td colspan="6" style="text-align: center;">${escapeHtml(tr('لا توجد بنود بعد', 'No line items yet'))}</td></tr>`}</tbody>
                             </table>
-                            <div class="totals">
+                            
+                            <div class="totals-section">
                                 <div class="totals-box">
-                                    <div class="totals-row"><span>${escapeHtml(tr('الإجمالي قبل الضريبة', 'Subtotal'))}</span><strong>${formatAmount(draft.subTotal)} ${escapeHtml(draft.currency)}</strong></div>
-                                    <div class="totals-row"><span>${escapeHtml(tr('الخصم', 'Discount'))}</span><strong>${formatAmount(draft.discountAmount)} ${escapeHtml(draft.currency)}</strong></div>
-                                    ${taxVisibleInInvoices ? `<div class="totals-row"><span>${escapeHtml(tr('طريقة الضريبة', 'Tax mode'))}</span><strong>${escapeHtml(getInvoiceTaxModeDescription(draftTaxMode, tr))}</strong></div>` : ''}
-                                    ${(taxVisibleInInvoices && draft.taxAmount > 0) ? `<div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><strong>${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</strong></div>` : ''}
-                                    <div class="totals-row total"><span>${escapeHtml(tr('الصافي', 'Net'))}</span><strong>${formatAmount(draft.totalAmount)} ${escapeHtml(draft.currency)}</strong></div>
+                                    <div class="totals-row"><span>${escapeHtml(tr('الإجمالي قبل الضريبة', 'Subtotal'))}</span><span dir="ltr">${formatAmount(draft.subTotal)} ${escapeHtml(draft.currency)}</span></div>
+                                    <div class="totals-row"><span>${escapeHtml(tr('الخصم', 'Discount'))}</span><span dir="ltr">${formatAmount(draft.discountAmount)} ${escapeHtml(draft.currency)}</span></div>
+                                    ${taxVisibleInInvoices ? `<div class="totals-row"><span>${escapeHtml(tr('طريقة الضريبة', 'Tax mode'))}</span><span>${escapeHtml(getInvoiceTaxModeDescription(draftTaxMode, tr))}</span></div>` : ''}
+                                    ${(taxVisibleInInvoices && draft.taxAmount > 0) ? `<div class="totals-row"><span>${escapeHtml(tr('الضريبة', 'Tax'))}</span><span dir="ltr">${formatAmount(draft.taxAmount)} ${escapeHtml(draft.currency)}</span></div>` : ''}
+                                    <div class="totals-row total"><span>${escapeHtml(tr('الصافي', 'Net'))}</span><span dir="ltr">${formatAmount(draft.totalAmount)} ${escapeHtml(draft.currency)}</span></div>
+                                </div>
+                            </div>
+
+                            <div class="signatures">
+                                <div class="signature-box">
+                                    <div class="signature-line"></div>
+                                    <div class="signature-label">${escapeHtml(tr('المحاسب المعتمد', 'Authorized Accountant'))}</div>
+                                </div>
+                                <div class="signature-box">
+                                    <div class="signature-line"></div>
+                                    <div class="signature-label">${escapeHtml(tr('توقيع المستلم', 'Receiver Signature'))}</div>
                                 </div>
                             </div>
                         </div>
+                        <script>window.focus(); window.print();</script>
                     </body>
                 </html>
             `;
@@ -2840,12 +3347,35 @@ const InvoiceScreen: React.FC<{
                     )}
 
                     {!isQuotation && paymentType === 'CASH' && (
-                        <div className="relative min-w-0">
-                            <select value={paymentAccountId} onChange={e => setPaymentAccountId(e.target.value)} data-testid="invoice-payment-account" className="w-full text-[12px] font-black bg-blue-50/30 border border-blue-100 text-blue-700 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-blue-300">
-                                <option value="">{tr('الصندوق/البنك', 'Cash/Bank')}</option>
-                                {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
-                            </select>
-                            <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={13} />
+                        <div className="relative min-w-0 flex items-center gap-1">
+                            <div className="relative w-full">
+                                <SearchableAccountSelect
+                                    accounts={financialAccounts}
+                                    selectedId={paymentAccountId}
+                                    onSelect={setPaymentAccountId}
+                                    displayAccountName={displayAccountName}
+                                    placeholder={tr('الصندوق/البنك', 'Cash/Bank')}
+                                    emptyLabel={tr('لا يوجد حساب مطابق', 'No matching account found')}
+                                    isEnglish={isEnglish}
+                                    inputClassName="w-full text-[12px] font-black bg-blue-50/30 border border-blue-100 text-blue-700 rounded-xl py-2 px-3 pl-8 pr-8 appearance-none focus:outline-none focus:border-blue-300"
+                                    onCreateNew={(name) => {
+                                        setQuickAccountInitialName(name);
+                                        setShowQuickAccount(true);
+                                    }}
+                                />
+                                <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={13} />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setQuickAccountTarget('payment');
+                                    setQuickAccountInitialName('');
+                                    setShowQuickAccount(true);
+                                }}
+                                className="shrink-0 w-8 h-8 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                            >
+                                <Plus size={14} />
+                            </button>
                         </div>
                     )}
                 </div>
@@ -2862,6 +3392,11 @@ const InvoiceScreen: React.FC<{
                             isEnglish={isEnglish}
                             className="w-full"
                             inputClassName={`w-full bg-emerald-50/40 border border-emerald-100 text-emerald-700 rounded-xl py-2 px-3 text-[12px] font-black outline-none focus:ring-1 focus:ring-emerald-200 ${isEnglish ? 'pl-9 pr-9 text-left' : 'pr-9 pl-9 text-right'}`}
+                            onCreateNew={(name) => {
+                                setQuickAccountTarget('expense');
+                                setQuickAccountInitialName(name);
+                                setShowQuickAccount(true);
+                            }}
                         />
                         {selectedExpenseAccount && (
                             <div className="rounded-lg bg-emerald-50 px-3 py-1.5 text-[10px] font-black text-emerald-700">
@@ -2907,7 +3442,7 @@ const InvoiceScreen: React.FC<{
                     && (selectedContact.type === 'CUSTOMER' || selectedContact.type === 'SUPPLIER')
                     && selectedContact.preferredPriceTier && (
                     <div className="mt-1 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[10px] font-black text-indigo-700">
-                        {tr('\u062a\u0633\u0639\u064a\u0631 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629 \u0644\u0647\u0630\u0627 \u0627\u0644\u0637\u0631\u0641', 'Invoice pricing for this contact')}: {selectedContactPriceTierLabel}
+                        {tr('تسعير الفاتورة لهذا الطرف', 'Invoice pricing for this contact')}: {selectedContactPriceTierLabel}
                     </div>
                 )}
                 <div className="invoice-meta-inline-grid grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.25fr)_180px]">
@@ -2994,22 +3529,6 @@ const InvoiceScreen: React.FC<{
                         </button>
                     )}
 
-                    {!isExpenseVoucherManualOnly && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setIsSearchFocused(false);
-                                setIsManualItem(true);
-                                setShowQuickProduct(true);
-                            }}
-                            className="invoice-manual-item-button flex w-[64px] shrink-0 flex-col items-center gap-1 text-center"
-                        >
-                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shadow-sm active:-translate-y-0.5 active:scale-95 transition-all hover:bg-amber-100">
-                                <Package size={16} />
-                            </span>
-                            <span className="text-[9px] font-black text-slate-500">{tr('إضافة بند يدوي', 'Manual line')}</span>
-                        </button>
-                    )}
 
                     {isExpenseVoucherManualOnly && (
                         <div className="space-y-2">
@@ -3060,53 +3579,65 @@ const InvoiceScreen: React.FC<{
                     {!isExpenseVoucherManualOnly && !isManualItem && isSearchFocused && (
                         <>
                             <div className="fixed inset-0 z-[190]" onClick={() => setIsSearchFocused(false)}></div>
-                            <div className="absolute top-full left-0 right-0 z-[200] mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in max-h-[30vh] overflow-y-auto">
-                                {searchResults.length > 0 ? searchResults.map(p => (
-                                    <button key={p.id} type="button" onClick={() => { addItem(p); setIsSearchFocused(false); setSearch(''); }} className="w-full p-3 flex items-center justify-between border-b border-gray-50 last:border-0 hover:bg-indigo-50 transition-colors text-start">
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-start">
-                                                <p className="text-[11px] font-black text-slate-800">{displayProductName(p)}</p>
-                                                <div className="flex items-center gap-2 mt-0.5">
-                                                    {isServiceProduct(p) ? (
-                                                        <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700">{tr('خدمة', 'Service')}</span>
-                                                    ) : (
-                                                        <span className={`text-[9px] font-bold ${p.stock <= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{p.stock} {tr('متوفر', 'avail')}</span>
-                                                    )}
-                                                    {p.barcode && <span className="text-[9px] font-mono text-gray-400">{p.barcode}</span>}
+                            <div className="absolute top-full left-0 right-0 z-[200] mt-1 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in flex flex-col">
+                                <div className="max-h-[30vh] overflow-y-auto">
+                                    {searchResults.length > 0 ? searchResults.map(p => (
+                                        <button key={p.id} type="button" onClick={() => { addItem(p); setIsSearchFocused(false); setSearch(''); }} className="w-full p-3 flex items-center justify-between border-b border-gray-50 last:border-0 hover:bg-indigo-50 transition-colors text-start">
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-start">
+                                                    <p className="text-[11px] font-black text-slate-800">{displayProductName(p)}</p>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        {isServiceProduct(p) ? (
+                                                            <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700">{tr('خدمة', 'Service')}</span>
+                                                        ) : (
+                                                            <span className={`text-[9px] font-bold ${p.stock <= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{p.stock} {tr('متوفر', 'avail')}</span>
+                                                        )}
+                                                        {p.barcode && <span className="text-[9px] font-mono text-gray-400">{p.barcode}</span>}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div className="text-left">
-                                            <div className="font-black text-indigo-600 text-[11px] dir-ltr">
-                                                {resolveInvoiceEntryPrice(p).toLocaleString()}
-                                            </div>
-                                            {typeof resolveLastInvoicePrice(p.id) === 'number' && (
-                                                <div className="mt-0.5 text-[9px] font-bold text-emerald-600">
-                                                    {tr('آخر سعر', 'Last price')}: {resolveLastInvoicePrice(p.id)?.toLocaleString()}
+                                            <div className="text-left">
+                                                <div className="font-black text-indigo-600 text-[11px] dir-ltr">
+                                                    {resolveInvoiceEntryPrice(p).toLocaleString()}
                                                 </div>
-                                            )}
-                                        </div>
-                                    </button>
-                                )) : (
-                                    <div className="p-4 text-center text-gray-400 text-[10px] font-bold">{tr('لا يوجد تطابق', 'No match')}</div>
-                                )}
-                                {searchResults.length === 0 && search.trim() && (
-                                    <div className="px-4 pb-4">
-                                        <button
-                                            type="button"
-                                            onMouseDown={(event) => event.preventDefault()}
-                                            onClick={() => {
-                                                setQuickProductInitialName(search.trim());
-                                                setShowQuickProduct(true);
-                                                setIsSearchFocused(false);
-                                            }}
-                                            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-black text-indigo-700 transition-colors hover:bg-indigo-100"
-                                        >
-                                            <PackagePlus size={14} />
-                                            {tr('إضافة صنف جديد', 'Add New Item')}
+                                                {typeof resolveLastInvoicePrice(p.id) === 'number' && (
+                                                    <div className="mt-0.5 text-[9px] font-bold text-emerald-600">
+                                                        {tr('آخر سعر', 'Last price')}: {resolveLastInvoicePrice(p.id)?.toLocaleString()}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </button>
-                                    </div>
-                                )}
+                                    )) : (
+                                        <div className="p-4 text-center text-gray-400 text-[10px] font-bold">{tr('لا يوجد تطابق', 'No match')}</div>
+                                    )}
+                                </div>
+                                <div className="p-3 border-t border-gray-100 bg-gray-50 flex items-center gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={() => {
+                                            setQuickProductInitialName(search.trim());
+                                            setShowQuickProduct(true);
+                                            setIsSearchFocused(false);
+                                        }}
+                                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-indigo-100 bg-white px-3 py-2.5 text-[11px] font-black text-indigo-700 transition-colors hover:bg-indigo-50 shadow-sm"
+                                    >
+                                        <PackagePlus size={14} />
+                                        {tr('صنف جديد', 'New Item')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={() => {
+                                            setIsSearchFocused(false);
+                                            setIsManualItem(true);
+                                        }}
+                                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-[11px] font-black text-amber-700 transition-colors hover:bg-amber-50 shadow-sm"
+                                    >
+                                        <Package size={14} />
+                                        {tr('بند يدوي', 'Manual line')}
+                                    </button>
+                                </div>
                             </div>
                         </>
                     )}
@@ -3188,9 +3719,16 @@ const InvoiceScreen: React.FC<{
                                             )}
                                         </td>
                                         <td className="border-b border-slate-100 px-1.5 py-1 text-center align-middle">
-                                            <span className="invoice-line-total inline-flex min-w-[4.3rem] items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-2 py-2 text-[17px] sm:text-[18px] font-black text-slate-900 shadow-sm dir-ltr">
-                                                {formatAmount(Number(item.total || 0))}
-                                            </span>
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                lang="en"
+                                                value={getItemNumericCellDisplayValue(idx, 'total' as any, item.total)}
+                                                onFocus={() => beginItemNumericCellEdit(idx, 'total' as any, item.total)}
+                                                onChange={e => handleItemNumericCellChange(idx, 'total' as any, e.target.value)}
+                                                onBlur={e => finishItemNumericCellEdit(idx, 'total' as any, e.currentTarget.value)}
+                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-blue-50 px-1 py-1 text-center text-[13px] font-black dir-ltr outline-none focus:border-indigo-300 text-blue-900"
+                                            />
                                         </td>
                                         <td
                                             className={`invoice-stock-cell border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black ${serviceLine ? 'text-amber-600' : item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
@@ -3222,8 +3760,15 @@ const InvoiceScreen: React.FC<{
                         <div className="flex gap-4">
                             <div className="flex flex-col">
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">{tr('خصم إضافي', 'Extra Disc')}</span>
-                                <div className="relative w-20">
-                                    <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className="w-full bg-slate-800 text-white text-[11px] font-black rounded-lg py-1 px-1.5 border border-slate-700 focus:border-indigo-500 text-center" />
+                                <div className="relative w-24 flex">
+                                    <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className={`w-full bg-slate-800 text-white text-[11px] font-black rounded-lg py-1 px-1.5 border border-slate-700 focus:border-indigo-500 text-center ${isEnglish ? 'rounded-r-none border-r-0' : 'rounded-l-none border-l-0'}`} />
+                                    <button
+                                        type="button"
+                                        onClick={() => setDiscountType(t => t === 'amount' ? 'percentage' : 'amount')}
+                                        className={`flex items-center justify-center bg-slate-700 text-white border border-slate-600 px-1.5 text-[10px] font-black hover:bg-slate-600 transition-colors ${isEnglish ? 'rounded-r-lg border-l-0' : 'rounded-l-lg border-r-0'}`}
+                                    >
+                                        {discountType === 'percentage' ? '%' : '$'}
+                                    </button>
                                 </div>
                             </div>
                             {taxVisibleInInvoices && (
@@ -3257,7 +3802,14 @@ const InvoiceScreen: React.FC<{
                     {/* Final Total row */}
                     <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
                         <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
-                        <span data-testid="invoice-final-total" className="min-w-0 text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white">{totals.total.toLocaleString()}</span>
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            data-testid="invoice-final-total"
+                            value={Number((totals.total).toFixed(3))}
+                            onChange={handleFinalNetChange}
+                            className="min-w-0 w-32 bg-transparent text-right text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white outline-none focus:text-indigo-300"
+                        />
                     </div>
                 </div>
 
@@ -3288,8 +3840,15 @@ const InvoiceScreen: React.FC<{
                             <div className="flex gap-4">
                                 <div className="flex flex-col">
                                     <span className="text-[9px] font-bold uppercase tracking-widest leading-tight text-slate-400">{tr('خصم إضافي', 'Extra Disc')}</span>
-                                    <div className="relative w-20">
-                                        <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className="w-full rounded-lg border border-slate-700 bg-slate-800 px-1.5 py-1 text-center text-[11px] font-black text-white focus:border-indigo-500" />
+                                    <div className="relative w-24 flex">
+                                        <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className={`w-full rounded-lg border border-slate-700 bg-slate-800 px-1.5 py-1 text-center text-[11px] font-black text-white focus:border-indigo-500 ${isEnglish ? 'rounded-r-none border-r-0' : 'rounded-l-none border-l-0'}`} />
+                                        <button
+                                            type="button"
+                                            onClick={() => setDiscountType(t => t === 'amount' ? 'percentage' : 'amount')}
+                                            className={`flex items-center justify-center bg-slate-700 text-white border border-slate-600 px-1.5 text-[10px] font-black hover:bg-slate-600 transition-colors ${isEnglish ? 'rounded-r-lg border-l-0' : 'rounded-l-lg border-r-0'}`}
+                                        >
+                                            {discountType === 'percentage' ? '%' : '$'}
+                                        </button>
                                     </div>
                                 </div>
                                 {taxVisibleInInvoices && (
@@ -3320,7 +3879,13 @@ const InvoiceScreen: React.FC<{
                         </div>
                         <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
                             <span className="text-[12px] font-black text-blue-300 sm:text-[13px]">{tr('الصافي النهائي', 'Final Net')}</span>
-                            <span className="min-w-0 text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem]">{totals.total.toLocaleString()}</span>
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                value={Number((totals.total).toFixed(3))}
+                                onChange={handleFinalNetChange}
+                                className="min-w-0 w-28 bg-transparent text-right text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem] outline-none focus:text-indigo-300"
+                            />
                         </div>
                     </div>
                 }
@@ -3620,6 +4185,23 @@ const InvoiceScreen: React.FC<{
                     </div>
                 </div>
             )}
+            
+            {showQuickAccount && (
+                <QuickAddAccountModal
+                    initialName={quickAccountInitialName}
+                    onClose={() => { setQuickAccountInitialName(''); setShowQuickAccount(false); setQuickAccountTarget(null); }}
+                    onSave={(newId) => {
+                        if (quickAccountTarget === 'payment') {
+                            setPaymentAccountId(newId);
+                        } else if (quickAccountTarget === 'expense') {
+                            setExpenseAccountId(newId);
+                        }
+                        setQuickAccountInitialName('');
+                        setShowQuickAccount(false);
+                        setQuickAccountTarget(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -3668,6 +4250,8 @@ const VoucherScreen: React.FC<{
     const [description, setDescription] = useState('');
     const [showQuickContact, setShowQuickContact] = useState(false);
     const [quickContactInitialName, setQuickContactInitialName] = useState('');
+    const [showQuickAccount, setShowQuickAccount] = useState(false);
+    const [quickAccountInitialName, setQuickAccountInitialName] = useState('');
     const [showVoucherActions, setShowVoucherActions] = useState(false);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -3987,13 +4571,23 @@ const VoucherScreen: React.FC<{
     };
 
     const updateCashLine = (id: string, field: keyof CashLine, val: string) => {
-        setCashLines(prev => prev.map(l => l.id === id ? { ...l, [field]: val } : l));
+        let finalVal = val;
+        if (field === 'amount') finalVal = toEnglishDigits(val).replace(/[^0-9.]/g, '');
+        setCashLines(prev => prev.map(l => l.id === id ? { ...l, [field]: finalVal } : l));
     };
 
     const updateCheckLine = (id: string, field: keyof CheckLine, val: string) => {
         setCheckLines(prev => prev.map(l => {
             if (l.id !== id) return l;
-            const updates = { [field]: val } as any;
+            
+            let finalVal = val;
+            if (field === 'amount') {
+                finalVal = toEnglishDigits(val).replace(/[^0-9.]/g, '');
+            } else if (field === 'checkNumber' || field === 'accountNumber') {
+                finalVal = toEnglishDigits(val).replace(/\D/g, '');
+            }
+            
+            const updates = { [field]: finalVal } as any;
 
             // If selecting a bank account for outgoing check, also set the bankName for display/record
             if (field === 'bankAccountId') {
@@ -4183,57 +4777,168 @@ const VoucherScreen: React.FC<{
                 : `<tr><td colspan="6">${escapeVoucherHtml(tr('لا توجد بنود بعد.', 'No lines yet.'))}</td></tr>`;
 
             const html = `
-                <!doctype html>
+                <!DOCTYPE html>
                 <html dir="${printDir}" lang="${printLang}">
                 <head>
                     <meta charset="utf-8" />
                     <title>${escapeVoucherHtml(voucherTitle)} - ${escapeVoucherHtml(voucherReference)}</title>
                     <style>
-                        body { font-family: ${printFont}; margin: 24px; color: #0f172a; }
-                        .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
-                        .title { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
-                        .meta { font-size: 13px; color: #475569; line-height: 1.8; }
-                        .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-                        .card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; }
-                        .lbl { font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 6px; }
-                        .val { font-size: 16px; font-weight: 800; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-                        th, td { border: 1px solid #e2e8f0; padding: 10px; font-size: 12px; text-align: ${isEnglish ? 'left' : 'right'}; }
-                        th { background: #f8fafc; }
-                        .num { direction: ltr; text-align: center; font-weight: 800; }
-                        .notes { margin-top: 18px; padding: 12px; border-radius: 14px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12px; }
-                        @media print { body { margin: 12px; } }
+                        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+                        :root {
+                            --primary: #1e3a8a;
+                            --text-main: #1e293b;
+                            --text-muted: #64748b;
+                            --border-light: #e2e8f0;
+                            --bg-light: #f8fafc;
+                        }
+                        * { box-sizing: border-box; }
+                        body {
+                            font-family: 'Cairo', system-ui, sans-serif;
+                            margin: 0; padding: 0; color: var(--text-main);
+                            line-height: 1.6;
+                        }
+                        .voucher-container { max-width: 800px; margin: 0 auto; padding: 40px; }
+                        .header {
+                            display: flex; justify-content: space-between; align-items: flex-start;
+                            border-bottom: 3px solid var(--primary);
+                            padding-bottom: 20px; margin-bottom: 30px;
+                        }
+                        .company-name { color: var(--primary); font-size: 28px; font-weight: 800; margin: 0 0 5px 0; }
+                        .company-info p { margin: 2px 0; color: var(--text-muted); font-size: 14px; }
+                        .voucher-title { font-size: 26px; font-weight: 800; margin: 0 0 15px 0; color: #0f172a; text-align: ${isEnglish ? 'right' : 'left'}; }
+                        .meta-box {
+                            background: var(--bg-light); border: 1px solid var(--border-light);
+                            padding: 12px 20px; border-radius: 8px; display: inline-block;
+                            text-align: ${isEnglish ? 'left' : 'right'};
+                        }
+                        .meta-box p { margin: 4px 0; font-size: 14px; }
+                        .meta-box strong { color: var(--text-main); }
+                        
+                        .info-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+                        .card { border: 1px solid var(--border-light); border-radius: 12px; padding: 16px; background: #fff; }
+                        .card h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin: 0 0 8px 0; }
+                        .card p { font-size: 16px; font-weight: 700; margin: 0; color: var(--text-main); }
+                        
+                        .table-container { margin-bottom: 30px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light); }
+                        table { width: 100%; border-collapse: collapse; }
+                        th { background-color: var(--primary); color: white; padding: 14px 12px; font-weight: 600; font-size: 14px; text-align: center; }
+                        td { padding: 12px; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+                        tr:last-child td { border-bottom: none; }
+                        tr:nth-child(even) { background-color: var(--bg-light); }
+                        
+                        .totals-section { display: flex; justify-content: flex-end; margin-bottom: 40px; }
+                        .totals-box { 
+                            width: 350px; background: var(--primary); color: white; 
+                            border-radius: 12px; padding: 20px;
+                            display: flex; justify-content: space-between; align-items: center;
+                            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                        }
+                        .totals-box span:first-child { font-size: 18px; font-weight: 600; }
+                        .totals-box span:last-child { font-size: 24px; font-weight: 800; }
+                        
+                        .notes-section {
+                            margin-bottom: 40px; padding: 16px; background: var(--bg-light); 
+                            border-radius: 8px; border-${isEnglish ? 'left' : 'right'}: 4px solid var(--primary);
+                        }
+                        .notes-section strong { color: var(--text-muted); font-size: 12px; text-transform: uppercase; display: block; margin-bottom: 8px; }
+                        .notes-section p { margin: 0; font-size: 14px; color: var(--text-main); white-space: pre-wrap; }
+                        
+                        .signatures {
+                            display: grid; grid-template-columns: 1fr 1fr; gap: 40px; 
+                            margin-top: 60px; padding-top: 40px; 
+                        }
+                        .signature-box { text-align: center; }
+                        .signature-box p { margin: 0 0 40px 0; color: var(--text-muted); font-weight: 600; }
+                        .signature-line { border-bottom: 1px dashed var(--border-light); width: 80%; margin: 0 auto; }
+                        
+                        .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #94a3b8; }
+                        
+                        @media print {
+                            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: white; }
+                            .voucher-container { padding: 0; max-width: 100%; margin: 0; }
+                            .header { border-bottom: 2px solid var(--primary); }
+                            .totals-box { background: var(--primary) !important; color: white !important; }
+                            th { background-color: var(--primary) !important; color: white !important; }
+                            tr:nth-child(even) { background-color: var(--bg-light) !important; }
+                            @page { margin: 15mm; }
+                        }
                     </style>
                 </head>
                 <body>
-                    <div class="head">
-                        <div>
-                            <div class="title">${escapeVoucherHtml(voucherTitle)}</div>
-                            <div class="meta">${escapeVoucherHtml(tr('المرجع', 'Reference'))}: <strong>${escapeVoucherHtml(voucherReference)}</strong></div>
-                            <div class="meta">${escapeVoucherHtml(tr('التاريخ', 'Date'))}: <strong>${escapeVoucherHtml(sharedState.date)}</strong></div>
-                            <div class="meta">${escapeVoucherHtml(tr('الطرف', 'Counterparty'))}: <strong>${escapeVoucherHtml(counterpartyLabel)}</strong></div>
-                        </div>
-                        <div class="cards">
-                            <div class="card">
-                                <div class="lbl">${escapeVoucherHtml(tr('الإجمالي', 'Total'))}</div>
-                                <div class="val">${escapeVoucherHtml(totalAmount.toLocaleString())} ${escapeVoucherHtml(voucherCurrency)}</div>
+                    <div class="voucher-container">
+                        <div class="header">
+                            <div>
+                                <h1 class="company-name">${escapeHtml(companySettings.name || 'Smart Accountant')}</h1>
+                                <div class="company-info">
+                                    ${companySettings.address ? `<p>${escapeHtml(companySettings.address)}</p>` : ''}
+                                    ${companySettings.taxNumber ? `<p>${escapeHtml(tr('الرقم الضريبي', 'Tax No'))}: ${escapeHtml(companySettings.taxNumber)}</p>` : ''}
+                                </div>
+                            </div>
+                            <div>
+                                <h2 class="voucher-title">${escapeVoucherHtml(voucherTitle)}</h2>
+                                <div class="meta-box">
+                                    <p><strong>${escapeVoucherHtml(tr('المرجع', 'Reference'))}:</strong> ${escapeVoucherHtml(voucherReference)}</p>
+                                    <p><strong>${escapeVoucherHtml(tr('التاريخ', 'Date'))}:</strong> ${escapeVoucherHtml(sharedState.date)}</p>
+                                </div>
                             </div>
                         </div>
+
+                        <div class="info-cards">
+                            <div class="card">
+                                <h3>${escapeVoucherHtml(tr('الطرف', 'Counterparty'))}</h3>
+                                <p>${escapeVoucherHtml(counterpartyLabel)}</p>
+                            </div>
+                            <div class="card">
+                                <h3>${escapeVoucherHtml(tr('العملة', 'Currency'))}</h3>
+                                <p>${escapeVoucherHtml(voucherCurrency)}</p>
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">#</th>
+                                        <th style="text-align: ${isEnglish ? 'left' : 'right'};">${escapeVoucherHtml(tr('نوع البند', 'Line Type'))}</th>
+                                        <th style="text-align: ${isEnglish ? 'left' : 'right'};">${escapeVoucherHtml(tr('الحساب/البنك', 'Account/Bank'))}</th>
+                                        <th>${escapeVoucherHtml(tr('المرجع', 'Reference'))}</th>
+                                        <th>${escapeVoucherHtml(tr('تاريخ الاستحقاق', 'Due Date'))}</th>
+                                        <th style="text-align: ${isEnglish ? 'left' : 'right'};">${escapeVoucherHtml(tr('المبلغ', 'Amount'))}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rowsHtml}</tbody>
+                            </table>
+                        </div>
+
+                        <div class="totals-section">
+                            <div class="totals-box">
+                                <span>${escapeVoucherHtml(tr('الإجمالي', 'Total'))}:</span>
+                                <span dir="ltr">${escapeVoucherHtml(totalAmount.toLocaleString())} ${escapeVoucherHtml(voucherCurrency)}</span>
+                            </div>
+                        </div>
+
+                        ${description.trim() ? `
+                            <div class="notes-section">
+                                <strong>${escapeVoucherHtml(tr('البيان', 'Description'))}</strong>
+                                <p>${escapeVoucherHtml(description.trim())}</p>
+                            </div>
+                        ` : ''}
+
+                        <div class="signatures">
+                            <div class="signature-box">
+                                <p>${tr('المحاسب', 'Accountant')}</p>
+                                <div class="signature-line"></div>
+                            </div>
+                            <div class="signature-box">
+                                <p>${tr('المستلم / المعتمد', 'Receiver / Approver')}</p>
+                                <div class="signature-line"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="footer">
+                            ${tr('تم إنشاء هذا السند بواسطة نظام فليكس إي آر بي', 'Generated by Flex ERP')}
+                        </div>
                     </div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>${escapeVoucherHtml(tr('نوع البند', 'Line Type'))}</th>
-                                <th>${escapeVoucherHtml(tr('الحساب/البنك', 'Account/Bank'))}</th>
-                                <th>${escapeVoucherHtml(tr('المرجع', 'Reference'))}</th>
-                                <th>${escapeVoucherHtml(tr('تاريخ الاستحقاق', 'Due Date'))}</th>
-                                <th>${escapeVoucherHtml(tr('المبلغ', 'Amount'))}</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rowsHtml}</tbody>
-                    </table>
-                    ${description.trim() ? `<div class="notes"><strong>${escapeVoucherHtml(tr('البيان', 'Description'))}:</strong> ${escapeVoucherHtml(description.trim())}</div>` : ''}
                 </body>
                 </html>
             `;
@@ -4774,7 +5479,7 @@ const VoucherScreen: React.FC<{
                                             </td>
                                             <td className="border-b border-slate-100 px-2 py-1.5 text-center">
                                                 <div className="font-black text-slate-700">{due}</div>
-                                                <div className={`text-[10px] font-bold ${isOver ? 'text-rose-500' : 'text-emerald-600'}`}>
+                                                <div className={`text-[10px] font-bold ${isOver ? 'text-rose-500' : 'emerald-600'}`}>
                                                     {isOver ? tr('متأخرة', 'Overdue') : tr('مفتوحة', 'Open')}
                                                 </div>
                                             </td>
@@ -4791,7 +5496,7 @@ const VoucherScreen: React.FC<{
                                                     type="text"
                                                     inputMode="decimal"
                                                     value={allocatedValue}
-                                                    onChange={e => updateInvoiceAllocation(inv.id, e.target.value)}
+                                                    onChange={e => updateInvoiceAllocation(inv.id, toEnglishDigits(e.target.value))}
                                                     onBlur={e => notifyAmountAdded(e.target.value)}
                                                     placeholder={tr('مبلغ مخصص', 'Allocated amount')}
                                                     className="w-full rounded-lg border border-blue-100 bg-white px-2 py-1.5 text-center text-[11px] font-black dir-ltr outline-none focus:border-blue-300"
@@ -4844,22 +5549,36 @@ const VoucherScreen: React.FC<{
                                 <div className="cash-line-grid grid gap-2 min-[430px]:grid-cols-[minmax(0,1.3fr)_minmax(0,0.85fr)]">
                                     <div className="min-w-0">
                                         <div className={checkFieldLabelClass}>{tr('الحساب المالي', 'Cash / Bank')}</div>
-                                        <select
-                                            value={line.accountId}
-                                            onChange={e => updateCashLine(line.id, 'accountId', e.target.value)}
-                                            data-testid={`voucher-cash-line-${idx + 1}-account`}
-                                            className={`${sheetInputClass} ${isEnglish ? 'text-left' : 'text-right'}`}
-                                        >
-                                            <option value="">{tr('الصندوق / البنك', 'Cash / Bank')}</option>
-                                            {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
-                                        </select>
+                                        <div className="relative flex items-center gap-1">
+                                            <div className="relative w-full">
+                                                <select
+                                                    value={line.accountId}
+                                                    onChange={e => updateCashLine(line.id, 'accountId', e.target.value)}
+                                                    data-testid={`voucher-cash-line-${idx + 1}-account`}
+                                                    className={`${sheetInputClass} ${isEnglish ? 'text-left' : 'text-right'}`}
+                                                >
+                                                    <option value="">{tr('الصندوق / البنك', 'Cash / Bank')}</option>
+                                                    {financialAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}
+                                                </select>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setQuickAccountInitialName('');
+                                                    setShowQuickAccount(true);
+                                                }}
+                                                className="shrink-0 w-8 h-8 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                                            >
+                                                <Plus size={14} />
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="min-w-0">
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
                                         <div className="flex items-stretch gap-2">
                                             <input
-                                                type="number"
+                                                type="text"
                                                 inputMode="decimal"
                                                 placeholder={tr('المبلغ', 'Amount')}
                                                 value={line.amount}
@@ -4941,7 +5660,7 @@ const VoucherScreen: React.FC<{
                                     <div className={checkFieldWrapClass}>
                                         <div className={checkFieldLabelClass}>{tr('رقم الشيك', 'Check Number')}</div>
                                         <div className={checkFieldControlClass}>
-                                            <input placeholder={tr('رقم الشيك', 'Check Number')} value={line.checkNumber} onChange={e => updateCheckLine(line.id, 'checkNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
+                                            <input type="text" inputMode="numeric" placeholder={tr('رقم الشيك', 'Check Number')} value={line.checkNumber} onChange={e => updateCheckLine(line.id, 'checkNumber', e.target.value)} className={`${sheetInputClass} dir-ltr`} disabled={line.isEndorsed} />
                                         </div>
                                     </div>
 
@@ -4964,7 +5683,7 @@ const VoucherScreen: React.FC<{
                                     <div className={checkFieldWrapClass}>
                                         <div className={checkFieldLabelClass}>{tr('رقم الحساب', 'Account Number')}</div>
                                         <div className={checkFieldControlClass}>
-                                            <input placeholder={tr('رقم الحساب', 'Account Number')} value={line.accountNumber || ''} onChange={e => updateCheckLine(line.id, 'accountNumber', e.target.value)} className={sheetInputClass} disabled={line.isEndorsed} />
+                                            <input type="text" inputMode="numeric" placeholder={tr('رقم الحساب', 'Account Number')} value={line.accountNumber || ''} onChange={e => updateCheckLine(line.id, 'accountNumber', e.target.value)} className={`${sheetInputClass} dir-ltr`} disabled={line.isEndorsed} />
                                         </div>
                                     </div>
                                 </div>
@@ -4987,7 +5706,12 @@ const VoucherScreen: React.FC<{
                                     <div className={checkFieldWrapClass}>
                                         <div className={`${checkFieldLabelClass} text-center`}>{tr('المبلغ', 'Amount')}</div>
                                         <div className={checkFieldControlClass}>
-                                            <input type="number" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => updateCheckLine(line.id, 'amount', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr`} disabled={line.isEndorsed} />
+                                            <input type="text" inputMode="decimal" placeholder={tr('المبلغ', 'Amount')} value={line.amount} onChange={e => {
+                                                let val = e.target.value.replace(/[^0-9.]/g, '');
+                                                const parts = val.split('.');
+                                                if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                                                updateCheckLine(line.id, 'amount', val);
+                                            }} onBlur={e => notifyAmountAdded(e.target.value)} className={`${sheetInputClass} text-center dir-ltr`} disabled={line.isEndorsed} />
                                         </div>
                                     </div>
 
@@ -5112,6 +5836,19 @@ const VoucherScreen: React.FC<{
                     }}
                 />
             )}
+            
+            {showQuickAccount && (
+                <QuickAddAccountModal
+                    onClose={() => { setQuickAccountInitialName(''); setShowQuickAccount(false); }}
+                    onSave={(newId) => {
+                        // The user will need to select it again manually or we'd need to track which line it was,
+                        // for now we just close it and let them pick it from the dropdown.
+                        setQuickAccountInitialName('');
+                        setShowQuickAccount(false);
+                    }}
+                    initialName={quickAccountInitialName}
+                />
+            )}
         </div>
     );
 };
@@ -5158,6 +5895,8 @@ const JournalScreen: React.FC<{
         { id: '1', accountId: '', debit: '', credit: '', description: '' },
         { id: '2', accountId: '', debit: '', credit: '', description: '' }
     ]);
+    const [showQuickAccount, setShowQuickAccount] = useState(false);
+    const [quickAccountInitialName, setQuickAccountInitialName] = useState('');
 
     const customerContacts = useMemo(() => contacts.filter(c => c.type === 'CUSTOMER'), [contacts]);
     const supplierContacts = useMemo(() => contacts.filter(c => c.type === 'SUPPLIER'), [contacts]);
@@ -5228,7 +5967,10 @@ const JournalScreen: React.FC<{
 
     const isAccountOrDescendantOf = (accountId: string, rootId: string) => {
         let cursorId: string | undefined = accountId;
+        const visited = new Set<string>();
         while (cursorId) {
+            if (visited.has(cursorId)) break;
+            visited.add(cursorId);
             if (cursorId === rootId) return true;
             const cursor = accountMap.get(cursorId);
             cursorId = cursor?.parentId;
@@ -5635,12 +6377,15 @@ const JournalScreen: React.FC<{
         };
 
         for (const debitLine of debitLegs) {
-            while (debitLine.remaining > 0.0001) {
+            let maxIterations = 10000;
+            while (debitLine.remaining > 0.0001 && maxIterations-- > 0) {
                 let selectedCreditIndex = findExactCreditLegIndex(debitLine.remaining);
                 if (selectedCreditIndex === -1) {
-                    while (creditIndex < creditLegs.length && creditLegs[creditIndex].remaining <= 0.0001) {
+                    let innerIterations = 10000;
+                    while (creditIndex < creditLegs.length && creditLegs[creditIndex].remaining <= 0.0001 && innerIterations-- > 0) {
                         creditIndex += 1;
                     }
+                    if (innerIterations <= 0) break;
                     selectedCreditIndex = creditIndex;
                 }
 
@@ -5655,6 +6400,9 @@ const JournalScreen: React.FC<{
                 postingPairs.push({ amount, debitLine, creditLine });
                 debitLine.remaining = Number((debitLine.remaining - amount).toFixed(6));
                 creditLine.remaining = Number((creditLine.remaining - amount).toFixed(6));
+            }
+            if (maxIterations <= 0) {
+                return alert(tr('Balancing process took too many iterations, aborted to prevent freeze', 'Balancing process took too many iterations, aborted to prevent freeze'));
             }
         }
 
@@ -5897,6 +6645,10 @@ const JournalScreen: React.FC<{
                                     className="w-full min-w-0"
                                     inputTestId={`journal-line-${idx + 1}-account`}
                                     inputClassName="w-full min-w-0 h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none border border-slate-200"
+                                    onCreateNew={(name) => {
+                                        setQuickAccountInitialName(name);
+                                        setShowQuickAccount(true);
+                                    }}
                                 />
                                 <button data-testid={`journal-line-${idx + 1}-remove`} onClick={() => handleRemoveLine(line.id)} className="text-rose-400 p-2 rounded-xl"><Trash2 size={16} /></button>
                             </div>
@@ -6153,6 +6905,13 @@ const JournalScreen: React.FC<{
                     ? 'bg-blue-600 text-white hover:bg-blue-500'
                     : 'bg-slate-700 text-slate-300'}
             />
+            {showQuickAccount && (
+                <QuickAddAccountModal
+                    onClose={() => { setQuickAccountInitialName(''); setShowQuickAccount(false); }}
+                    onSave={() => { setQuickAccountInitialName(''); setShowQuickAccount(false); }}
+                    initialName={quickAccountInitialName}
+                />
+            )}
         </div>
     );
 };

@@ -2638,8 +2638,7 @@ ${JSON.stringify(payload)}
         address: address || existing?.address,
         linkedAccountId: selectedPostingAccountId || existing?.linkedAccountId,
         currentAccountId: selectedPostingAccountId || existing?.currentAccountId,
-        capitalAccountId: existing?.capitalAccountId,
-        drawingsAccountId: existing?.drawingsAccountId
+        capitalAccountId: existing?.capitalAccountId
       };
 
       if (existing) {

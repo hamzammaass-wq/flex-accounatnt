@@ -2,6 +2,7 @@ import { Router } from 'express';
 import admin from 'firebase-admin';
 import { pool } from '../config/db.js';
 import { prefixAccountId } from '../utils/account-helpers.js';
+import { upsertUser } from '../utils/user-helpers.js';
 const router = Router();
 // Helper to sanitize dates
 const parseDate = (d) => {
@@ -50,10 +51,7 @@ router.post('/', async (req, res) => {
          SET name = EXCLUDED.name, tax_number = EXCLUDED.tax_number, address = EXCLUDED.address,
              phone = EXCLUDED.phone, logo_url = EXCLUDED.logo_url, base_currency = EXCLUDED.base_currency, settings = EXCLUDED.settings`, [companyId, companyName, taxNumber, address, phone, logoUrl, baseCurrency, JSON.stringify(companySettings)]);
             // Create owner user if not exists
-            await pgClient.query(`INSERT INTO users (id, email, name, role)
-         VALUES ($1, $2, $3, 'ADMIN')
-         ON CONFLICT (id) DO UPDATE
-         SET role = COALESCE(users.role, EXCLUDED.role)`, [userId, docData.userEmail || `user_${userId}@system.local`, docData.userName || `User_${userId}`]);
+            await upsertUser(userId, docData.userEmail || `user_${userId}@system.local`, docData.userName || `User_${userId}`, 'ADMIN', undefined, undefined, pgClient);
             // Create Membership
             await pgClient.query(`INSERT INTO memberships (company_id, user_id, role, status)
          VALUES ($1, $2, 'OWNER', 'ACTIVE')

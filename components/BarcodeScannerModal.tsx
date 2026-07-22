@@ -75,6 +75,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [scanAttempts, setScanAttempts] = useState(0);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const manualInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Track mounted state
   useEffect(() => {
@@ -177,6 +178,92 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }, [continuous, cooldownMs, soundEnabled, onScan, onClose, stopScanner]);
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      try {
+        if (soundEnabled) playBeep();
+        
+        // Stop live scanning if active
+        if (scannerRef.current?.isScanning) {
+          await scannerRef.current.stop();
+        }
+
+        // Helper to get an image element from file
+        const getImgElement = (f: File): Promise<HTMLImageElement> => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = URL.createObjectURL(f);
+          });
+        };
+
+        const img = await getImgElement(file);
+        
+        // 1. Try Native BarcodeDetector API (Extremely fast, available on modern Android/iOS 17+)
+        if ('BarcodeDetector' in window) {
+          try {
+            const detector = new (window as any).BarcodeDetector({ 
+              formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e'] 
+            });
+            const barcodes = await detector.detect(img);
+            if (barcodes.length > 0) {
+              handleScanResult(barcodes[0].rawValue);
+              if (fileInputRef.current) fileInputRef.current.value = '';
+              return;
+            }
+          } catch (detectorErr) {
+            console.warn('[BarcodeScannerModal] Native detector failed, falling back:', detectorErr);
+          }
+        }
+
+        // 2. Fallback to html5-qrcode
+        // Resize image first because huge iOS photos (12MP+) crash the WASM decoder or fail to find barcodes
+        const canvas = document.createElement('canvas');
+        const MAX_DIM = 1024;
+        let { width, height } = img;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          // Convert dataurl back to file
+          const res = await fetch(resizedDataUrl);
+          const blob = await res.blob();
+          const resizedFile = new File([blob], "resized.jpg", { type: "image/jpeg" });
+          
+          let qr = scannerRef.current;
+          if (!qr) {
+            qr = new Html5Qrcode(READER_ID);
+            scannerRef.current = qr;
+          }
+          
+          const decodedText = await qr.scanFile(resizedFile, false);
+          handleScanResult(decodedText);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+
+        throw new Error("Could not process image");
+
+      } catch (err: any) {
+        console.error('[BarcodeScannerModal] File scan error:', err);
+        // Special message if the error is exactly "NotFoundException" from zxing
+        setError(tr('لم يتم العثور على باركود بوضوح. تأكد من إضاءة الصورة واقترابها.', 'No clear barcode found in image. Make sure it is well lit and close.'));
+      }
+      
+      // Reset input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // Start scanner when modal opens
   useEffect(() => {
     if (!open) return;
@@ -209,33 +296,28 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         scannerRef.current = html5QrCode;
 
         const config = {
-          fps: 30, // Increased from 15 to 30 for faster scanning
+          fps: 10,
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true,
           },
+          // Restoring a square qrbox is critical for iOS. Without it, the high-res full frame makes barcodes too small to detect in WASM.
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            // Dynamic qrbox - 90% of the smaller dimension for better coverage
             const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-            const boxSize = Math.floor(minDimension * 0.9);
-            return { width: boxSize, height: Math.floor(boxSize * 0.6) };
-          },
-          aspectRatio: 1.777778, // 16:9 ratio
-          videoConstraints: {
-            facingMode: 'environment',
-            width: { ideal: 1920, min: 640 },
-            height: { ideal: 1080, min: 480 },
-            // Advanced camera settings for better barcode scanning
-            focusMode: { ideal: 'continuous' } as any,
-            focusDistance: { ideal: 0.15 } as any, // Focus at ~15cm for barcodes
-            // Increase exposure for better barcode contrast
-            exposureMode: { ideal: 'continuous' } as any,
-            // Add zoom support if available (slight zoom helps with small barcodes)
-            zoom: { ideal: 1.2, max: 3 } as any,
+            const boxSize = Math.floor(minDimension * 0.85);
+            return { width: boxSize, height: boxSize };
           },
         };
 
+        // Proper video constraints for iOS (placed in the correct argument)
+        const videoConstraints = {
+          facingMode: 'environment',
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+          advanced: [{ focusMode: 'continuous' } as any, { zoom: 1.5 } as any]
+        };
+
         await html5QrCode.start(
-          { facingMode: 'environment' },
+          videoConstraints,
           config,
           (decodedText) => {
             if (!cancelled) handleScanResult(decodedText);
@@ -273,15 +355,11 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           scannerRef.current = html5QrCode;
 
           const basicConfig = {
-            fps: 30,
+            fps: 10,
             qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
               const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-              const boxSize = Math.floor(minDimension * 0.9);
-              return { width: boxSize, height: Math.floor(boxSize * 0.6) };
-            },
-            aspectRatio: 1.777778,
-            videoConstraints: {
-              facingMode: 'environment',
+              const boxSize = Math.floor(minDimension * 0.85);
+              return { width: boxSize, height: boxSize };
             },
           };
 
@@ -348,7 +426,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         {/* Scanning Overlay */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
           <div
-            className={`w-full max-w-[min(90vw,500px)] aspect-[16/9] rounded-2xl border-[3px] relative transition-colors duration-300 ${
+            className={`w-full max-w-[min(85vw,400px)] aspect-square rounded-2xl border-[3px] relative transition-colors duration-300 ${
               showSuccess ? 'border-emerald-400' : 'border-blue-400/80'
             }`}
             style={{
@@ -430,13 +508,20 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <div className="bg-white rounded-2xl p-6 mx-6 max-w-md text-center space-y-3">
               <div className="text-red-500 text-4xl">📷</div>
               <p className="text-sm font-bold text-gray-800">
-                {tr(
-                  'تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.',
-                  'Unable to access camera. Please grant permission.'
-                )}
+                {error.includes('صلاحيات') || error.toLowerCase().includes('permission') 
+                  ? tr('تعذر الوصول للكاميرا. يرجى التأكد من منح الصلاحيات.', 'Unable to access camera. Please grant permission.')
+                  : tr('لم نتمكن من القراءة', 'Could not read')}
               </p>
               <p className="text-[11px] text-gray-500 font-mono dir-ltr break-all">{error}</p>
-              <div className="flex gap-2 justify-center pt-2">
+              <div className="flex flex-wrap gap-2 justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center gap-1.5"
+                >
+                  <Camera size={14} />
+                  {tr('استخدام كاميرا الهاتف الأساسية', 'Use Native Camera')}
+                </button>
                 <button
                   type="button"
                   onClick={() => { setError(''); setShowManualInput(true); }}
@@ -499,6 +584,25 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
           {/* Right: Action buttons */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Native Camera Capture Button (Crucial for iOS) */}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="h-10 px-3 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white transition-all hover:bg-emerald-500 shadow-lg shadow-emerald-900/20"
+              title={tr('التقاط صورة للكاميرا الأساسية', 'Native Camera')}
+            >
+              <Camera size={16} />
+              <span className="text-[10px] font-black">{tr('تصوير دقيق', 'HQ Scan')}</span>
+            </button>
+
             {/* Flashlight/Torch toggle */}
             <button
               type="button"

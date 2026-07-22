@@ -1,4 +1,6 @@
-import { initializeApp } from 'firebase-admin/app';
+
+// Force Redeploy: 2026-07-06T00:12:28+03:00
+import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { logger } from 'firebase-functions';
@@ -508,9 +510,56 @@ const verifyPaddleSignature = (req) => {
   }
 };
 
+let cachedPaddleIps = null;
+let paddleIpsFetchedAt = 0;
+
+const verifyPaddleIP = async (req) => {
+  try {
+    const now = Date.now();
+    if (!cachedPaddleIps || now - paddleIpsFetchedAt > 1000 * 60 * 60) {
+      const response = await fetch('https://api.paddle.com/ips');
+      if (response.ok) {
+        const json = await response.json();
+        if (json && json.data && json.data.ipv4_cidrs) {
+          cachedPaddleIps = json.data.ipv4_cidrs.map(cidr => cidr.split('/')[0]);
+          paddleIpsFetchedAt = now;
+        }
+      }
+    }
+    
+    if (!cachedPaddleIps) {
+      logger.warn('Paddle IPs not loaded, bypassing IP check for now.');
+      return true; 
+    }
+
+    const clientIp = req.ip || '';
+    const forwardedFor = req.headers['x-forwarded-for'] || '';
+    
+    const ips = forwardedFor.split(',').map(i => i.trim()).filter(Boolean);
+    if (clientIp && !ips.includes(clientIp)) ips.push(clientIp);
+    
+    for (const ip of ips) {
+      if (cachedPaddleIps.includes(ip)) return true;
+    }
+    
+    logger.warn(`Unauthorized IP for Paddle Webhook: ${ips.join(', ')}`);
+    return false;
+  } catch (err) {
+    logger.error('Failed to verify Paddle IP', err);
+    return cachedPaddleIps ? false : true;
+  }
+};
+
 export const paddleSubscriptionNotifications = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  // 0. Verify IP
+  const isIpAllowed = await verifyPaddleIP(req);
+  if (!isIpAllowed) {
+    res.status(403).send('Forbidden: Invalid IP');
     return;
   }
 

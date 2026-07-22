@@ -1,4 +1,4 @@
-﻿import { Account, Transaction, TransactionType } from '../types';
+import { Account, Transaction, TransactionType } from '../types';
 
 export type DistributionMethod = 'CAPITAL_RATIO' | 'CUSTOM_RATIO' | 'FIXED_AMOUNT';
 export type SettlementNegativePolicy = 'BLOCK_NEGATIVE' | 'LIMIT_NEGATIVE';
@@ -80,17 +80,7 @@ export const buildAccountBalanceMap = (transactions: Transaction[]): Map<string,
   return map;
 };
 
-export const calculateDrawingsBalance = (transactions: Transaction[], drawingsAccountId?: string): number => {
-  if (!drawingsAccountId) return 0;
-  let debit = 0;
-  let credit = 0;
-  transactions.forEach(tx => {
-    if (!isPostedTransaction(tx)) return;
-    if (tx.debitAccountId === drawingsAccountId) debit += tx.amount;
-    if (tx.creditAccountId === drawingsAccountId) credit += tx.amount;
-  });
-  return roundMoney(Math.max(0, debit - credit));
-};
+
 
 export const createPartnerCapitalPosting = (input: {
   amount: number;

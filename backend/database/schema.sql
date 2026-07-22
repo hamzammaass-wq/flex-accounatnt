@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(200),
   picture TEXT,
   role VARCHAR(50),
+  account_code VARCHAR(50) UNIQUE,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 

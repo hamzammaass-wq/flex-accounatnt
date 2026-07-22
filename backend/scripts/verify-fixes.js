@@ -31,7 +31,7 @@ const verify = async () => {
         bank_account_id, account_number, currency, issue_date, type, deposited_bank_id, 
         original_contact_id, endorsee_contact_id, image_url, image_urls, description, endorsee_name
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-      ON CONFLICT (id) DO UPDATE 
+      ON CONFLICT (company_id, id) DO UPDATE 
       SET status = EXCLUDED.status
     `, [
       testCheckId, companyId, '12345', 'Palestine Bank', new Date(), 1500.0, 'PENDING', null,
@@ -49,7 +49,7 @@ const verify = async () => {
       INSERT INTO audit_logs (
         id, company_id, timestamp, user_id, user_name, entity_type, entity_id, action, before, after, metadata, screen, device
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      ON CONFLICT (id) DO UPDATE
+      ON CONFLICT (company_id, id) DO UPDATE
       SET action = EXCLUDED.action
     `, [
       testAuditId, companyId, new Date(), 'u9ufZgGvXFO3JfBHwgIdaPUCqcI3', 'Yusuf Tester', 'verification', 'test_123', 'TEST_RUN',

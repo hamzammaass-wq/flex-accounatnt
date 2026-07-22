@@ -74,6 +74,7 @@ type PartnerCapitalContributionInput = {
   fundingAccountId: string;
   date: string;
   note?: string;
+  isReduction?: boolean;
 };
 
 type PartnerCurrentReceiptInput = {
@@ -98,13 +99,11 @@ type PartnerCashDisbursementInput = {
 type PartnerAccountPreference = {
   currentAccountId?: string;
   capitalAccountId?: string;
-  drawingsAccountId?: string;
 };
 
 type EnsuredPartnerEquityAccountsResult = {
   currentAccountId: string;
   capitalAccountId: string;
-  drawingsAccountId: string;
   accountSnapshot: Account[];
   changed: boolean;
 };
@@ -395,7 +394,8 @@ const PERMISSION_MODULES: PermissionModule[] = [
   'HR',
   'SETTLEMENTS',
   'BANK_RECON',
-  'SETTINGS'
+  'SETTINGS',
+  'FIXED_ASSETS'
 ];
 
 const newId = (prefix: string): string =>
@@ -524,10 +524,8 @@ const normalizeActivationCode = (value: unknown): string =>
   String(value || '')
     .trim()
     .toUpperCase()
-    .replace(/[_\s]+/g, '-')
-    .replace(/[^A-Z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[_\s\-]+/g, '')
+    .replace(/[^A-Z0-9]/g, '');
 
 const parseActivationCode = (value: unknown): { code: string; plan: CompanySubscriptionPlan; durationDays: number } | null => {
   const normalized = normalizeActivationCode(value);
@@ -645,6 +643,25 @@ function resolveDaysLeft(dateIso?: string | null): number {
   const ms = new Date(dateIso).getTime() - Date.now();
   if (!Number.isFinite(ms)) return 0;
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+}
+
+function isDeepEqual(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!isDeepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const keysA = Object.keys(a).filter(k => a[k] !== undefined);
+  const keysB = Object.keys(b).filter(k => b[k] !== undefined);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (!isDeepEqual(a[k], b[k])) return false;
+  }
+  return true;
 }
 
 const withNormalizedCompanyProfile = (
@@ -1527,7 +1544,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     { code: 'EUR', name: 'يورو', symbol: '€', rate: 4.05 }
   ];
 
-  const defaultCompanySettings: CompanySettings = {
+  const defaultCompanySettings: CompanySettings = useMemo(() => ({
     name: 'Flex Accountant',
     taxNumber: '',
     address: '',
@@ -1596,7 +1613,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     googleDriveFolderId: '',
     darkModeEnabled: false,
     language: detectPreferredAppLanguage()
-  };
+  }), []);
 
   const [currentCompanyId, setCurrentCompanyId] = useState<string>('');
   const [workspaceSubscription, setWorkspaceSubscription] = useState<WorkspaceSubscriptionAccount>(() => {
@@ -1721,7 +1738,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
           if (!isSubscribed) return;
 
           setCompanies(prev => {
-            if (JSON.stringify(prev) !== JSON.stringify(fetchedCompanies)) {
+            if (!isDeepEqual(prev, fetchedCompanies)) {
               return fetchedCompanies;
             }
             return prev;
@@ -1806,7 +1823,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         }
 
         // Prevent unnecessary state updates that can cause re-renders
-        const needsUpdate = JSON.stringify(companiesRef.current) !== JSON.stringify(finalCompanies);
+        const needsUpdate = !isDeepEqual(companiesRef.current, finalCompanies);
         if (needsUpdate) {
           setCompanies(finalCompanies);
         }
@@ -1943,6 +1960,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     const filtered = companies.filter(c => c && c.id !== 'cmp_default');
     const cleanCompanies = JSON.parse(JSON.stringify(filtered));
+
+    // Prevent echoing exactly what we received from Firestore
+    if (isDeepEqual(companiesRef.current, filtered)) {
+      return;
+    }
+
     setDoc(doc(firebaseDb, 'users', currentUser.id), { companies: cleanCompanies }, { merge: true }).catch(console.error);
   }, [companies, companiesLoaded, currentUser]);
   const [cloudMemberships, setCloudMemberships] = useState<CompanyMembership[]>([]);
@@ -2134,6 +2157,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       id: existing.id,
       createdAt: existing.createdAt
     }, workspaceSubscription);
+
+    if (isDeepEqual(existing, next)) {
+      return next;
+    }
 
     setCompanies(prev => prev.map(company => company.id === companyId ? next : company));
     if (companyId === currentCompanyId) {
@@ -2817,6 +2844,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return () => unsubscribe();
   }, [currentCompanyId, currentUser, firebaseDb]);
 
+  const companiesSyncKey = useMemo(() => {
+    return JSON.stringify(companies.map(c => ({ id: c.id, name: c.name })));
+  }, [companies]);
+
   useEffect(() => {
     if (!firebaseDb || !currentUser || isGuestUser(currentUser) || !companies.length) return;
 
@@ -2831,7 +2862,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     ));
 
     void Promise.allSettled(syncPromises);
-  }, [companies, currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companiesSyncKey, currentUser]);
 
   const makeSuccess = (): Extract<MutationResult, { ok: true }> => ({ ok: true });
   const makeError = (
@@ -4253,13 +4285,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       fallbackId: 'acc_partners_capital',
       preferredId: preferred?.capitalAccountId
     });
-    const drawingsAccountId = ensureChild({
-      id: `acc_partner_drawings_${safeContactId}`,
-      expectedName: `مسحوبات ${partnerName}`,
-      parent: parentDrawings,
-      fallbackId: 'acc_partner_drawings',
-      preferredId: preferred?.drawingsAccountId
-    });
+
 
     let accountSnapshot = sourceAccounts;
     if (patches.size > 0 || additions.length > 0) {
@@ -4276,7 +4302,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     return {
       currentAccountId,
       capitalAccountId,
-      drawingsAccountId,
       accountSnapshot,
       changed: accountSnapshot !== sourceAccounts
     };
@@ -4288,24 +4313,21 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const activeAccs = getActiveAccounts();
     const prepared = ensurePartnerEquitySubAccountsSnapshot(activeAccs, partnerId, resolvedName, {
       currentAccountId: partnerContact?.currentAccountId || partnerContact?.linkedAccountId,
-      capitalAccountId: partnerContact?.capitalAccountId,
-      drawingsAccountId: partnerContact?.drawingsAccountId
+      capitalAccountId: partnerContact?.capitalAccountId
     });
     if (prepared.changed) {
       activeAccountsRef.current = prepared.accountSnapshot;
       setAccounts(prev => {
         const next = ensurePartnerEquitySubAccountsSnapshot(prev, partnerId, resolvedName, {
           currentAccountId: partnerContact?.currentAccountId || partnerContact?.linkedAccountId,
-          capitalAccountId: partnerContact?.capitalAccountId,
-          drawingsAccountId: partnerContact?.drawingsAccountId
+          capitalAccountId: partnerContact?.capitalAccountId
         });
         return next.changed ? next.accountSnapshot : prev;
       });
     }
     const ensured = {
       currentAccountId: prepared.currentAccountId,
-      capitalAccountId: prepared.capitalAccountId,
-      drawingsAccountId: prepared.drawingsAccountId
+      capitalAccountId: prepared.capitalAccountId
     };
     return { partnerContact, resolvedName, ensured, accountSnapshot: prepared.accountSnapshot };
   };
@@ -4322,14 +4344,18 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     const { resolvedName, ensured, accountSnapshot } = resolvePartnerPostingAccounts(input.partnerId, input.partnerName);
+    
+    const isReduction = !!input.isReduction;
+    const descPrefix = isReduction ? 'Partner capital reduction' : 'Partner capital contribution';
+    
     return commitTransaction({
       amount: Number(amount.toFixed(2)),
-      description: `Partner capital contribution - ${resolvedName}${input.note ? ` - ${input.note}` : ''}`,
+      description: `${descPrefix} - ${resolvedName}${input.note ? ` - ${input.note}` : ''}`,
       category: 'partner_capital',
       type: TransactionType.TRANSFER,
       date: input.date,
-      debitAccountId: input.fundingAccountId,
-      creditAccountId: ensured.capitalAccountId,
+      debitAccountId: isReduction ? ensured.capitalAccountId : input.fundingAccountId,
+      creditAccountId: isReduction ? input.fundingAccountId : ensured.capitalAccountId,
       contactId: input.partnerId,
       currency: baseCurrency,
       exchangeRate: 1,
@@ -8954,6 +8980,22 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const normalizedCode = normalizeActivationCode(code);
     if (!normalizedCode) return makeError('VALIDATION_ERROR', 'Offer code is required.');
     void desiredCompanyCount;
+
+    if (useBackend) {
+      try {
+        const res = await callBackendApi(currentUser, `/workspace-offer-codes/${normalizedCode}/redeem`, 'POST');
+        if (res && res.offer) {
+          const next = buildWorkspaceSubscriptionFromOfferCode(workspaceSubscription, res.offer);
+          setWorkspaceSubscription(next);
+          setSubscriptionCloudError('');
+          return makeSuccess();
+        }
+        return makeError('VALIDATION_ERROR', 'Offer code is invalid.');
+      } catch (err: any) {
+        const msg = err?.response?.data?.error || err.message || 'Offer code is invalid.';
+        return makeError('VALIDATION_ERROR', msg);
+      }
+    }
 
     const applyLocalNextWorkspace = async (offer: WorkspaceOfferCode): Promise<MutationResult> => {
       const next = buildWorkspaceSubscriptionFromOfferCode(workspaceSubscription, offer);

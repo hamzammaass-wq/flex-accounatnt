@@ -4,6 +4,7 @@ import { type AuthenticatedRequest, verifyCompanyMembership } from '../middlewar
 import { query, getClient } from '../config/db.js';
 import { migrateUserFirestoreData } from '../utils/migration.js';
 import { seedNewCompany } from '../utils/seeding.js';
+import { upsertUser } from '../utils/user-helpers.js';
 
 
 const router = Router();
@@ -76,12 +77,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
             // Check if user exists in PostgreSQL users table
             const userCheck = await query(`SELECT id FROM users WHERE id = $1`, [uid]);
             if (userCheck.rows.length === 0) {
-              await query(
-                `INSERT INTO users (id, email, name, role)
-                 VALUES ($1, $2, $3, 'USER')
-                 ON CONFLICT (id) DO NOTHING`,
-                [uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`]
-              );
+              await upsertUser(uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`, 'USER');
             }
 
             // Check if membership exists in PostgreSQL, if not, auto-create it
@@ -204,13 +200,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
             [newCompanyId, newCompanyName]
           );
 
-          await query(
-            `INSERT INTO users (id, email, name, role)
-             VALUES ($1, $2, $3, 'ADMIN')
-             ON CONFLICT (id) DO UPDATE
-             SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), role = COALESCE(users.role, EXCLUDED.role)`,
-            [uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`]
-          );
+          await upsertUser(uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`, 'ADMIN');
 
           await query(
             `INSERT INTO memberships (company_id, user_id, role, status)
@@ -233,22 +223,37 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
-    // Fetch user's workspace subscription from Firestore to override company subscription settings dynamically
+    // Fetch user's workspace subscription from Postgres first
     let wsSubscription: any = null;
     try {
-      const db = admin.firestore();
-      const wsDoc = await db.collection('workspace_subscriptions').doc(uid).get();
-      if (wsDoc.exists) {
-        wsSubscription = wsDoc.data();
+      const userRes = await query(`SELECT subscription FROM users WHERE id = $1`, [uid]);
+      if (userRes.rows.length > 0 && userRes.rows[0].subscription) {
+        let sub = userRes.rows[0].subscription;
+        if (typeof sub === 'string') {
+          try { sub = JSON.parse(sub); } catch(e) {}
+        }
+        wsSubscription = sub;
       }
-    } catch (wsErr) {
-      console.error('[Companies GET] Failed to fetch workspace subscription:', wsErr);
+    } catch (pgErr) {
+      console.error('[Companies GET] Failed to fetch workspace subscription from PG:', pgErr);
+    }
+
+    if (!wsSubscription) {
+      try {
+        const db = admin.firestore();
+        const wsDoc = await db.collection('workspace_subscriptions').doc(uid).get();
+        if (wsDoc.exists) {
+          wsSubscription = wsDoc.data();
+        }
+      } catch (wsErr) {
+        console.error('[Companies GET] Failed to fetch workspace subscription:', wsErr);
+      }
     }
 
     const mappedRows = result.rows.map((row: any) => {
       const settings = row.settings || {};
 
-      const isWorkspaceActive = wsSubscription && wsSubscription.status === 'ACTIVE';
+      const isWorkspaceActive = wsSubscription && (wsSubscription.status === 'ACTIVE' || wsSubscription.status === 'LIFETIME');
       let status = settings.subscriptionStatus || 'TRIAL';
       let plan = settings.subscriptionPlan || 'TRIAL';
       let endsAt = settings.subscriptionEndsAt;
@@ -257,10 +262,10 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
       if (isWorkspaceActive) {
         status = 'ACTIVE';
         plan = wsSubscription.plan || 'BASIC';
-        endsAt = wsSubscription.expiresAt;
-      } else if (wsSubscription && (wsSubscription.status === 'TRIAL' || wsSubscription.status === 'EXPIRED')) {
+        endsAt = wsSubscription.lifetimeAccess ? '2099-12-31T23:59:59.000Z' : wsSubscription.expiresAt;
+      } else if (wsSubscription && (wsSubscription.status === 'TRIAL' || wsSubscription.status === 'EXPIRED' || wsSubscription.status === 'SUSPENDED')) {
         status = wsSubscription.status;
-        plan = wsSubscription.plan;
+        plan = wsSubscription.plan || 'TRIAL';
         trialEnds = wsSubscription.expiresAt || trialEnds;
       }
 
@@ -311,10 +316,22 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 
     let maxCompanies = 3; // Default trial limit
     try {
-      const db = admin.firestore();
-      const wsDoc = await db.collection('workspace_subscriptions').doc(uid!).get();
-      if (wsDoc.exists) {
-        const wsData = wsDoc.data() || {};
+      const userRes = await client.query(`SELECT subscription FROM users WHERE id = $1`, [uid]);
+      let wsData: any = null;
+      if (userRes.rows.length > 0 && userRes.rows[0].subscription) {
+        let sub = userRes.rows[0].subscription;
+        if (typeof sub === 'string') { try { sub = JSON.parse(sub); } catch(e) {} }
+        wsData = sub;
+      }
+      if (!wsData) {
+        const db = admin.firestore();
+        const wsDoc = await db.collection('workspace_subscriptions').doc(uid!).get();
+        if (wsDoc.exists) {
+          wsData = wsDoc.data() || {};
+        }
+      }
+      
+      if (wsData) {
         if (wsData.unlimitedCompanies === true) {
           maxCompanies = Infinity;
         } else {
@@ -329,7 +346,6 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     }
 
     if (currentCount >= maxCompanies) {
-      client.release();
       return res.status(403).json({
         error: `Subscription limit reached. You are allowed up to ${maxCompanies} companies, but you already have ${currentCount}.`
       });
@@ -456,16 +472,29 @@ router.put('/:companyId', verifyCompanyMembership, async (req: AuthenticatedRequ
     // Fetch workspace subscription to override company subscription settings dynamically
     let wsSubscription: any = null;
     try {
-      const db = admin.firestore();
-      const wsDoc = await db.collection('workspace_subscriptions').doc(uid!).get();
-      if (wsDoc.exists) {
-        wsSubscription = wsDoc.data();
+      const userRes = await query(`SELECT subscription FROM users WHERE id = $1`, [uid]);
+      if (userRes.rows.length > 0 && userRes.rows[0].subscription) {
+        let sub = userRes.rows[0].subscription;
+        if (typeof sub === 'string') { try { sub = JSON.parse(sub); } catch(e) {} }
+        wsSubscription = sub;
       }
-    } catch (wsErr) {
-      console.error('[Companies PUT] Failed to fetch workspace subscription:', wsErr);
+    } catch (pgErr) {
+      console.error('[Companies PUT] Failed to fetch workspace subscription from PG:', pgErr);
     }
 
-    const isWorkspaceActive = wsSubscription && wsSubscription.status === 'ACTIVE';
+    if (!wsSubscription) {
+      try {
+        const db = admin.firestore();
+        const wsDoc = await db.collection('workspace_subscriptions').doc(uid!).get();
+        if (wsDoc.exists) {
+          wsSubscription = wsDoc.data();
+        }
+      } catch (wsErr) {
+        console.error('[Companies PUT] Failed to fetch workspace subscription from Firestore:', wsErr);
+      }
+    }
+
+    const isWorkspaceActive = wsSubscription && (wsSubscription.status === 'ACTIVE' || wsSubscription.status === 'LIFETIME');
     let status = dbSettings.subscriptionStatus || 'TRIAL';
     let plan = dbSettings.subscriptionPlan || 'TRIAL';
     let endsAt = dbSettings.subscriptionEndsAt;
@@ -474,10 +503,10 @@ router.put('/:companyId', verifyCompanyMembership, async (req: AuthenticatedRequ
     if (isWorkspaceActive) {
       status = 'ACTIVE';
       plan = wsSubscription.plan || 'BASIC';
-      endsAt = wsSubscription.expiresAt;
-    } else if (wsSubscription && (wsSubscription.status === 'TRIAL' || wsSubscription.status === 'EXPIRED')) {
+      endsAt = wsSubscription.lifetimeAccess ? '2099-12-31T23:59:59.000Z' : wsSubscription.expiresAt;
+    } else if (wsSubscription && (wsSubscription.status === 'TRIAL' || wsSubscription.status === 'EXPIRED' || wsSubscription.status === 'SUSPENDED')) {
       status = wsSubscription.status;
-      plan = wsSubscription.plan;
+      plan = wsSubscription.plan || 'TRIAL';
       trialEnds = wsSubscription.expiresAt || trialEnds;
     }
 

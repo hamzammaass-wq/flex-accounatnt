@@ -121,6 +121,7 @@ const ImportantAccountsHub: React.FC<ImportantAccountsHubProps> = ({
   const collectSubtreeIds = (rootId: string) => {
     const ids = new Set<string>();
     const visit = (nodeId: string) => {
+      if (ids.has(nodeId)) return; // Prevent infinite recursion on circular references
       ids.add(nodeId);
       accounts.filter(account => account.parentId === nodeId).forEach(child => visit(child.id));
     };

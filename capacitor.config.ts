@@ -11,10 +11,6 @@ const config: CapacitorConfig = {
   appId: 'com.smartaccountant.erp',
   appName: 'المحاسب فلكس (flex accaountant)',
   webDir: 'dist',
-  server: {
-    url: 'https://smart-account-cc181.web.app',
-    cleartext: true,
-  },
   plugins: {
     Keyboard: {
       resize: KeyboardResize.Body,

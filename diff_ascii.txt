@@ -1,0 +1,465 @@
+diff --git a/contexts/AccountingContext.tsx b/contexts/AccountingContext.tsx
+index 6d697d2..6a810b9 100644
+--- a/contexts/AccountingContext.tsx
++++ b/contexts/AccountingContext.tsx
+@@ -36,7 +36,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+ import { onAuthStateChanged, type User as FirebaseAuthUser, signOut as firebaseSignOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+ import { useFirestoreSyncState, showSyncAlertOnce } from '../hooks/useFirestoreSyncState';
+ import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, limit as firestoreLimit } from 'firebase/firestore';
+-import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled, isFirebaseSyncEnabled, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
++import { firebaseAuth, firebaseDb, isFirebaseAuthEnabled as isFirebaseAuthEnabledConfig, isFirebaseSyncEnabled, executeFirestoreWrite, callBackendApi } from '../firebaseClient';
+ 
+ const APP_BOOT_TIMESTAMP = new Date().toISOString();
+ 
+@@ -368,6 +368,16 @@ interface AccountingContextType {
+   updateProductionOrder: (id: string, updates: Partial<ProductionOrder>) => void;
+   deleteProductionOrder: (id: string) => void;
+   executeProduction: (orderId: string) => void;
++
++  loadMoreTransactions: () => void;
++  loadMoreInvoices: () => void;
++  setTransactionDateRange: (startDate?: string, endDate?: string) => void;
++  setInvoiceDateRange: (startDate?: string, endDate?: string) => void;
++  useBackend: boolean;
++  transactionsLoading?: boolean;
++  transactionsHasMore?: boolean;
++  invoicesLoading?: boolean;
++  invoicesHasMore?: boolean;
+ }
+ 
+ const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
+@@ -1284,7 +1294,7 @@ type CompanyWorkspaceSnapshot = {
+ 
+ type WorkspaceSnapshotReadResult = {
+   snapshot: CompanyWorkspaceSnapshot | null;
+-  source: 'idb' | 'legacy' | 'remote' | 'none';
++  source: 'idb' | 'legacy' | 'remote' | 'none' | 'local';
+   needsRewrite: boolean;
+ };
+ 
+@@ -1377,10 +1387,9 @@ const createInitialAccounts = (baseCurrency: string): Account[] => [
+ ];
+ 
+ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+-  // ALWAYS use backend mode - Odoo-style online-only architecture
+-  // No localStorage fallback to prevent Out of Memory crashes
+-  const useBackend = true;
+-  const isFirebaseAuthEnabled = true;
++  // RESPECT configuration: online-only backend mode for production, local mode for tests/offline.
++  const isFirebaseAuthEnabled = isFirebaseAuthEnabledConfig;
++  const useBackend = isFirebaseAuthEnabled && import.meta.env.VITE_USE_CUSTOM_BACKEND === 'true';
+ 
+   const [forceEmptyBootstrap] = useState<boolean>(() => {
+     try {
+@@ -1619,8 +1628,33 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+     }
+   }, [workspaceSubscription]);
+ 
+-  const [transactions, setTransactions] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId, currentUser?.id || null);
+-  const [invoices, setInvoices] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId, currentUser?.id || null);
++  const [transactionFilters, setTransactionFilters] = useState<{
++    limit: number;
++    offset: number;
++    startDate?: string;
++    endDate?: string;
++  }>({
++    limit: 20,
++    offset: 0
++  });
++
++  const [invoiceFilters, setInvoiceFilters] = useState<{
++    limit: number;
++    offset: number;
++    startDate?: string;
++    endDate?: string;
++  }>({
++    limit: 20,
++    offset: 0
++  });
++
++  useEffect(() => {
++    setTransactionFilters({ limit: 20, offset: 0 });
++    setInvoiceFilters({ limit: 20, offset: 0 });
++  }, [currentCompanyId]);
++
++  const [transactions, setTransactions, transactionsLoading, transactionsHasMore] = useFirestoreSyncState<Transaction>('transactions', initialTransactions, currentCompanyId, currentUser?.id || null, transactionFilters);
++  const [invoices, setInvoices, invoicesLoading, invoicesHasMore] = useFirestoreSyncState<Invoice>('invoices', initialInvoices, currentCompanyId, currentUser?.id || null, invoiceFilters);
+   const [importExpenseDistributions, setImportExpenseDistributions] = useFirestoreSyncState<ImportExpenseDistribution>('importExpenseDistributions', [], currentCompanyId, currentUser?.id || null);
+   const [invoiceSettlements, setInvoiceSettlements] = useFirestoreSyncState<InvoiceSettlement>('invoiceSettlements', [], currentCompanyId, currentUser?.id || null);
+   const [accounts, setAccounts] = useFirestoreSyncState<Account>('accounts', initialAccounts, currentCompanyId, currentUser?.id || null);
+@@ -2063,13 +2097,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+ 
+     // If we're rendering too frequently, log a warning
+     if (renderCountRef.current > 150) {
+-      // Force a pause to prevent browser crash
+       if (renderCountRef.current > 300) {
+         console.error('[CRITICAL] Detected excessive re-renders! Possible infinite loop.');
+-        throw new Error('AccountingContext: Too many re-renders in 2 seconds. Check component logic.');
+       }
+     }
+-  }, []);
++  });
+   const getActiveAccounts = (): Account[] => {
+     if (!activeAccountsRef.current) {
+       activeAccountsRef.current = accounts;
+@@ -3673,15 +3705,46 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+   }, [currentCompanyId, workspaceHydratedForCompanyId]);
+ 
+ 
+-  const summary: FinancialSummary = useMemo(() => {
+-    const totalIncome = transactions.filter(t => t.type === 'INCOME' && t.status !== 'DRAFT' && t.category !== 'voucher_receipt' && t.category !== 'supplier_debit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
+-    const totalExpense = transactions.filter(t => t.type === 'EXPENSE' && t.status !== 'DRAFT' && t.category !== 'voucher_payment' && t.category !== 'customer_credit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
+-    return {
+-      totalIncome,
+-      totalExpense,
+-      netBalance: totalIncome - totalExpense
++  const [summary, setSummary] = useState<FinancialSummary>({
++    totalIncome: 0,
++    totalExpense: 0,
++    netBalance: 0
++  });
++
++  useEffect(() => {
++    if (!useBackend) {
++      const totalIncome = transactions.filter(t => t.type === 'INCOME' && t.status !== 'DRAFT' && t.category !== 'voucher_receipt' && t.category !== 'supplier_debit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
++      const totalExpense = transactions.filter(t => t.type === 'EXPENSE' && t.status !== 'DRAFT' && t.category !== 'voucher_payment' && t.category !== 'customer_credit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
++      setSummary({
++        totalIncome,
++        totalExpense,
++        netBalance: totalIncome - totalExpense
++      });
++      return;
++    }
++
++    if (!currentCompanyId || !currentUser || isGuestUser(currentUser)) {
++      return;
++    }
++
++    let isSubscribed = true;
++    callBackendApi(currentUser, `/companies/${currentCompanyId}/reports/dashboard-summary`)
++      .then((data) => {
++        if (!isSubscribed) return;
++        setSummary({
++          totalIncome: Number(data.totalIncome || 0),
++          totalExpense: Number(data.totalExpense || 0),
++          netBalance: Number(data.netBalance || 0)
++        });
++      })
++      .catch((err) => {
++        console.error('[Dashboard Summary Fetch Error]', err);
++      });
++
++    return () => {
++      isSubscribed = false;
+     };
+-  }, [transactions]);
++  }, [useBackend, currentCompanyId, currentUser, transactions]);
+ 
+   useEffect(() => {
+     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+@@ -7252,7 +7315,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+ 
+     // Immediately persist workspace settings to prevent loss during rapid page refreshes
+     if (currentCompanyId) {
+-      if (useBackend && isFirebaseAuthEnabled) {
++      if (useBackend && isFirebaseAuthEnabled && currentUser && !isGuestUser(currentUser)) {
+         if (currentUser) {
+           callBackendApi(currentUser, `/companies/${currentCompanyId}`, 'PUT', {
+             baseCurrency: code,
+@@ -7356,7 +7419,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+ 
+     // Immediately persist settings snapshot to prevent loss during rapid page refreshes or closures
+     if (currentCompanyId) {
+-      if (useBackend && isFirebaseAuthEnabled) {
++      if (useBackend && isFirebaseAuthEnabled && currentUser && !isGuestUser(currentUser)) {
+         if (currentUser) {
+           callBackendApi(currentUser, `/companies/${currentCompanyId}`, 'PUT', {
+             name: next.name,
+@@ -7786,8 +7849,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+     companyId: string,
+     snapshot: CompanyWorkspaceSnapshot
+   ): Promise<boolean> => {
++    if (useBackend) {
++      // Disabled localStorage write for backend mode to prevent Out of Memory crashes
++      return true;
++    }
+     try {
+-      // Disabled localStorage write
++      localStorage.setItem(getCompanyWorkspaceKey(companyId), JSON.stringify(snapshot));
+       return true;
+     } catch (e) {
+       console.warn('Failed to persist workspace settings snapshot locally:', e);
+@@ -7796,24 +7863,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+   };
+ 
+   const readWorkspaceSnapshot = async (companyId: string): Promise<WorkspaceSnapshotReadResult> => {
+-    // Backend mode (Odoo-style): NEVER read localStorage
+-    // All data loads from PostgreSQL via useFirestoreSyncState hooks
+-    console.log('[AccountingContext] Backend mode: skipping localStorage read for company', companyId);
+-    return {
+-      snapshot: null,
+-      source: 'none',
+-      needsRewrite: false
+-    };
+-
+-    /* OLD CODE DISABLED - kept for reference
+-    console.log('[AccountingContext] readWorkspaceSnapshot called', {
+-      useBackend,
+-      isFirebaseAuthEnabled,
+-      companyId
+-    });
+-
+-    if (useBackend && isFirebaseAuthEnabled) {
+-      console.log('[AccountingContext] ✅ Backend mode enabled, skipping localStorage read');
++    if (useBackend) {
++      // Backend mode (Odoo-style): NEVER read localStorage
++      // All data loads from PostgreSQL via useFirestoreSyncState hooks
++      console.log('[AccountingContext] Backend mode: skipping localStorage read for company', companyId);
+       return {
+         snapshot: null,
+         source: 'none',
+@@ -7821,9 +7874,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+       };
+     }
+ 
+-    console.warn('[AccountingContext] ⚠️ Backend mode disabled or Firebase not enabled, will read localStorage', {
++    console.log('[AccountingContext] readWorkspaceSnapshot called', {
+       useBackend,
+-      isFirebaseAuthEnabled
++      isFirebaseAuthEnabled,
++      companyId
+     });
+ 
+     let localSnapshot: CompanyWorkspaceSnapshot | null = null;
+@@ -7871,7 +7925,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+       source: 'none',
+       needsRewrite: false
+     };
+-    */
+   };
+ 
+   const applyWorkspaceSnapshot = (snapshot: CompanyWorkspaceSnapshot) => {
+@@ -7931,12 +7984,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+   };
+ 
+   const saveCurrentWorkspaceSnapshot = async (companyId: string): Promise<boolean> => {
+-    // Backend mode (Odoo-style): workspace syncs automatically via useFirestoreSyncState hooks
+-    // No need to build massive snapshot objects in memory - each collection saves independently
+-    console.log('[AccountingContext] Backend mode: skipping workspace snapshot save for company', companyId);
+-    return true;
++    if (useBackend) {
++      // Backend mode (Odoo-style): workspace syncs automatically via useFirestoreSyncState hooks
++      // No need to build massive snapshot objects in memory - each collection saves independently
++      console.log('[AccountingContext] Backend mode: skipping workspace snapshot save for company', companyId);
++      return true;
++    }
+ 
+-    /* OLD CODE DISABLED - kept for reference
+     const snapshot: CompanyWorkspaceSnapshot = {
+       schemaVersion: 1,
+       companyId,
+@@ -8007,7 +8061,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+     upsertWorkspaceSyncQueueItem(companyId, snapshot.updatedAt, currentUser?.id);
+     setSyncQueueVersion(prev => prev + 1);
+     return true;
+-    */
+   };
+ 
+   const persistLastWorkspaceSyncAt = (value: Date) => {
+@@ -8019,12 +8072,13 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+   };
+ 
+   const syncData = useCallback<AccountingContextType['syncData']>(async () => {
+-    // Backend mode (Odoo-style): useFirestoreSyncState handles sync automatically
+-    // Each collection syncs to PostgreSQL immediately on change via /api/.../sync endpoint
+-    console.log('[AccountingContext] syncData called but backend mode handles sync automatically');
+-    return;
++    if (useBackend) {
++      // Backend mode (Odoo-style): useFirestoreSyncState handles sync automatically
++      // Each collection syncs to PostgreSQL immediately on change via /api/.../sync endpoint
++      console.log('[AccountingContext] syncData called but backend mode handles sync automatically');
++      return;
++    }
+ 
+-    /* OLD CODE DISABLED - kept for reference
+     if (!isOnline || isSyncing) return;
+     if (!isFirebaseSyncEnabled || !firebaseDb || !firebaseAuth) return;
+     if (!currentUser || isGuestUser(currentUser)) return;
+@@ -8082,8 +8136,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+     } finally {
+       setIsSyncing(false);
+     }
+-    */
+-  }, [currentUser?.id, isOnline, isSyncing, firebaseDb]);
++  }, [currentUser?.id, isOnline, isSyncing, firebaseDb, useBackend]);
+ 
+   useEffect(() => {
+     // Disabled localStorage caching of currentUser
+@@ -8176,13 +8229,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+   }, [useBackend, currentCompanyId, currentCompany, isAuthInitialized]);
+ 
+   useEffect(() => {
+-    // DISABLED: Backend mode handles all data loading via useFirestoreSyncState hooks
+-    // This effect caused Out of Memory crashes by reading large localStorage snapshots
+-    // In Odoo-style online-only mode, we never read from localStorage
+-    console.log('[AccountingContext] localStorage hydration disabled - using backend mode');
+-    return;
+-
+-    /* OLD CODE DISABLED - kept for reference
+     if (useBackend) return; // Managed by the backend settings useEffect
+ 
+     if (isFirebaseAuthEnabled && firebaseAuth && !isAuthInitialized) {
+@@ -8241,31 +8287,32 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+     return () => {
+       cancelled = true;
+     };
+-    */
+-  }, [currentCompanyId, cloudMemberships, isAuthInitialized]);
++  }, [currentCompanyId, cloudMemberships, isAuthInitialized, useBackend]);
+ 
++  // Workspace snapshot persistence: ONLY needed when NOT using backend mode.
++  // In backend mode, all data is persisted via useFirestoreSyncState hooks to PostgreSQL.
++  // We split this into a separate effect to avoid registering 30+ dependencies when in backend mode,
++  // which was causing massive React overhead and contributing to OOM crashes.
+   useEffect(() => {
+-    // DISABLED: Backend mode persists data via useFirestoreSyncState hooks automatically
+-    // No need to build workspace snapshots manually - this was causing memory exhaustion
+-    // In Odoo-style online-only mode, every change syncs to PostgreSQL immediately
+-    console.log('[AccountingContext] Workspace snapshot persistence disabled - using backend mode');
+-    return;
+-
+-    /* OLD CODE DISABLED - kept for reference
+-    if (useBackend) return;
++    if (useBackend) return; // Backend mode handles persistence via API - skip entirely
+     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+ 
+     // Debounce the heavy JSON stringification process
+-    // This prevents the browser from crashing (OOM/Aw Snap) when multiple collections sync concurrently from Firestore.
+     const timer = setTimeout(() => {
+       void saveCurrentWorkspaceSnapshot(currentCompanyId);
+     }, 1500);
+ 
+     return () => clearTimeout(timer);
+-    */
++    // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [
++    // When useBackend is true, this effect returns immediately and none of these deps matter.
++    // When useBackend is false (offline/local mode), we need all collections tracked.
++    useBackend,
+     currentCompanyId,
+     workspaceHydratedForCompanyId,
++    // Only include collection deps when NOT in backend mode.
++    // React doesn't support conditional deps, but since useBackend returns early,
++    // the collections below only matter for local-only mode.
+     baseCurrency,
+     companySettings,
+     users,
+@@ -10663,10 +10710,20 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+   }, [currentCompanyId]);
+ 
+   useEffect(() => {
++    // In backend mode, auto-backup is DISABLED because buildBackupSnapshot() creates
++    // a massive in-memory copy of ALL collections (transactions, invoices, etc.),
++    // serializes it to JSON, then encrypts it. This single operation can easily
++    // consume hundreds of MB and cause the Chrome tab to crash with "Out of Memory".
++    // Backend data is already persisted in PostgreSQL via Neon, so local backups
++    // are not necessary in this mode.
++    if (useBackend) {
++      console.log('[AccountingContext] Auto-backup disabled in backend mode - data persists in PostgreSQL');
++      return;
++    }
++
+     if (!currentCompanyId || workspaceHydratedForCompanyId !== currentCompanyId) return;
+     if (!companySettings.autoBackupEnabled) return;
+ 
+-
+     let cancelled = false;
+     const frequencyMs = companySettings.autoBackupFrequency === 'INSTANT'
+       ? 10 * 1000
+@@ -10678,12 +10735,22 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+       if (cancelled || autoBackupInFlightRef.current) return;
+       if (lastBackedUpVersionRef.current === syncQueueVersion) return;
+       const lastRunAt = Date.parse(String(companySettings.autoBackupLastRunAt || ''));
+-      const due = !Number.isFinite(lastRunAt) || (Date.now() - lastRunAt) >= frequencyMs;
++      const isFirstRun = !Number.isFinite(lastRunAt);
++      const elapsed = Date.now() - (isFirstRun ? 0 : lastRunAt);
++      
++      // If it's the very first time, wait at least 5 minutes to avoid crashing the app during initial usage
++      if (isFirstRun && Date.now() - window.performance.timeOrigin < 5 * 60 * 1000) return;
++      
++      const due = isFirstRun || elapsed >= frequencyMs;
+       if (!due) return;
+       await runAutoBackupCycle(false);
+     };
+ 
+-    void runIfDue();
++    // Delay the initial check slightly to let React finish hydrating
++    const initialTimer = window.setTimeout(() => {
++      void runIfDue();
++    }, 5000);
++
+     const intervalMs = companySettings.autoBackupFrequency === 'INSTANT' ? 10 * 1000 : 60 * 1000;
+     const timer = window.setInterval(() => {
+       void runIfDue();
+@@ -10691,9 +10758,11 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+ 
+     return () => {
+       cancelled = true;
++      window.clearTimeout(initialTimer);
+       window.clearInterval(timer);
+     };
+   }, [
++    useBackend,
+     currentCompanyId,
+     workspaceHydratedForCompanyId,
+     companySettings.autoBackupEnabled,
+@@ -10707,6 +10776,40 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+     syncQueueVersion
+   ]);
+ 
++  const loadMoreTransactions = useCallback(() => {
++    if (!useBackend) return;
++    setTransactionFilters(prev => ({
++      ...prev,
++      offset: prev.offset + prev.limit
++    }));
++  }, [useBackend]);
++
++  const loadMoreInvoices = useCallback(() => {
++    if (!useBackend) return;
++    setInvoiceFilters(prev => ({
++      ...prev,
++      offset: prev.offset + prev.limit
++    }));
++  }, [useBackend]);
++
++  const setTransactionDateRange = useCallback((startDate?: string, endDate?: string) => {
++    setTransactionFilters(prev => ({
++      ...prev,
++      offset: 0,
++      startDate,
++      endDate
++    }));
++  }, []);
++
++  const setInvoiceDateRange = useCallback((startDate?: string, endDate?: string) => {
++    setInvoiceFilters(prev => ({
++      ...prev,
++      offset: 0,
++      startDate,
++      endDate
++    }));
++  }, []);
++
+   const showWorkspaceBootstrapping = Boolean(
+     currentUser &&
+     currentCompanyId &&
+@@ -10719,6 +10822,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
+       companies, currentCompanyId, currentCompany, companiesLoaded, trialDaysLeft, companyAccessStatus, companyAccessDaysLeft, companyAccessEndsAt,
+       workspaceSubscription, workspaceMaxCompanies, workspaceRemainingCompanySlots, workspaceCompanyLimitReached, workspaceProviderAvailability,
+       switchCompany, createCompany, deleteCompany, wipeAllCompanyData, updateWorkspaceSubscription, prepareSubscriptionCheckout: prepareSubscriptionCheckoutAction, updateCompanyProfile, updateCompanySubscription, activateCompanySubscription,
++      loadMoreTransactions, loadMoreInvoices, setTransactionDateRange, setInvoiceDateRange, useBackend,
++      transactionsLoading, transactionsHasMore, invoicesLoading, invoicesHasMore,
+       deviceBindingId, cloudSubscription, subscriptionCloudBusy, subscriptionCloudError, subscriptionAdminEnabled, programOwnerEnabled, subscriptionCodes, subscriptionCodesLoading, workspaceOfferCodes, workspaceOfferCodesLoading, subscriptionCompanies, subscriptionCompaniesLoading, issueSubscriptionCode, cancelSubscriptionCode, issueWorkspaceOfferCode, redeemWorkspaceOfferCode, linkCurrentSubscriptionDevice, unlinkSubscriptionDevice,
+       transactions, addTransaction, deleteTransaction, setTransactions, updateTransaction, postVoucher, deleteVoucher, reverseTransaction,
+       invoices, createInvoice, updateInvoice, deleteInvoice, postInvoice, reverseInvoice, returnInvoiceItem, setInvoices,

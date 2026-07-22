@@ -184,7 +184,7 @@ const AppContent: React.FC = () => {
       logMemoryStats('App-Critical');
       throw new Error('App: Too many re-renders in 2 seconds. Check component logic.');
     }
-  }, []);
+  });
 
   // Monitor memory usage globally
   useMemoryMonitor({
@@ -618,6 +618,15 @@ const AppContent: React.FC = () => {
           return;
         }
         handleNavigate('directory');
+        return;
+      }
+      if (target.kind === 'EDIT_TRANSACTION') {
+        openEditTransaction({
+          mode: target.mode,
+          invoiceId: target.invoiceId,
+          voucherId: target.voucherId,
+          voucherType: target.voucherType
+        });
       }
     };
     window.addEventListener(DRILLDOWN_EVENT_NAME, handleDrilldown as EventListener);

@@ -12,11 +12,17 @@ interface JournalManagerProps {
 }
 
 const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal }) => {
-  const { transactions, accounts, deleteTransaction, updateTransaction, reverseTransaction, companySettings, auditLogs } = useAccounting();
+  const { transactions, accounts, deleteTransaction, updateTransaction, reverseTransaction, companySettings, auditLogs, loadMoreTransactions, setTransactionDateRange, useBackend } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+
+  React.useEffect(() => {
+    if (useBackend) {
+      setTransactionDateRange(startDate || undefined, endDate || undefined);
+    }
+  }, [startDate, endDate, useBackend, setTransactionDateRange]);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
@@ -318,6 +324,18 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
           </div>
         ))}
       </div>
+
+      {useBackend && (
+        <div className="flex justify-center mt-6">
+          <button
+            onClick={loadMoreTransactions}
+            className="px-6 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-2xl font-black text-xs transition-all active:scale-95 flex items-center gap-2"
+          >
+            <RotateCcw className="w-4 h-4 animate-spin-hover" />
+            {tr('تحميل المزيد من القيود', 'Load More Entries')}
+          </button>
+        </div>
+      )}
 
       {renderDetailModal()}
     </div>

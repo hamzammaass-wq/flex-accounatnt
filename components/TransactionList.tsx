@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../constants';
 import EnglishDateInput from './EnglishDateInput';
@@ -48,7 +48,7 @@ const CATEGORY_TRANSLATIONS: Record<string, { ar: string; en: string }> = {
 };
 
 const TransactionList: React.FC<TransactionListProps> = () => {
-  const { transactions, deleteTransaction, reverseTransaction, updateTransaction, baseCurrency, contacts, companySettings } = useAccounting();
+  const { transactions, deleteTransaction, reverseTransaction, updateTransaction, baseCurrency, contacts, companySettings, loadMoreTransactions, setTransactionDateRange, useBackend, transactionsLoading, transactionsHasMore } = useAccounting();
   const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
   const tr = (ar: string, en: string) => (isEnglish ? en : ar);
   const openContactStatement = (contactId?: string) => {
@@ -61,6 +61,34 @@ const TransactionList: React.FC<TransactionListProps> = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [showFilters, setShowFilters] = useState(false);
+
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (!useBackend || !transactionsHasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !transactionsLoading) {
+          loadMoreTransactions();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+    
+    return () => {
+      if (loadMoreRef.current) observer.unobserve(loadMoreRef.current);
+    };
+  }, [useBackend, loadMoreTransactions, transactionsLoading, transactionsHasMore]);
+
+  React.useEffect(() => {
+    if (useBackend) {
+      setTransactionDateRange(startDate || undefined, endDate || undefined);
+    }
+  }, [startDate, endDate, useBackend, setTransactionDateRange]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const formatAmount = (value: number) => new Intl.NumberFormat('en-US-u-nu-latn', { maximumFractionDigits: 2 }).format(value || 0);
@@ -457,6 +485,15 @@ const TransactionList: React.FC<TransactionListProps> = () => {
           );
         })}
       </div>
+
+      {useBackend && transactionsHasMore && (
+        <div className="flex justify-center mt-6 h-10 items-center">
+          <div ref={loadMoreRef} className="text-gray-400 text-xs flex flex-col items-center gap-2">
+             <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+             {tr('جاري التحميل...', 'Loading...')}
+          </div>
+        </div>
+      )}
 
       {deleteId && (
         <ResponsiveDialog

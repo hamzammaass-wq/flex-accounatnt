@@ -273,7 +273,8 @@ const PERMISSION_MODULES: PermissionModule[] = [
   'HR',
   'SETTLEMENTS',
   'BANK_RECON',
-  'SETTINGS'
+  'SETTINGS',
+  'FIXED_ASSETS'
 ];
 
 const PERMISSION_ACTIONS: PermissionAction[] = ['VIEW', 'ADD', 'EDIT', 'DELETE', 'POST', 'PRINT', 'REVERSE'];
@@ -307,6 +308,7 @@ const getPermissionModuleLabel = (module: PermissionModule, tr: (ar: string, en:
     case 'SETTLEMENTS': return tr('التسويات', 'Settlements');
     case 'BANK_RECON': return tr('مطابقة البنك', 'Bank Reconciliation');
     case 'SETTINGS': return tr('الإعدادات', 'Settings');
+    case 'FIXED_ASSETS': return tr('مجموعات الأصول', 'Fixed Assets');
     default: return module;
   }
 };
@@ -413,9 +415,8 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     toEnglishDigits(String(value ?? ''))
       .trim()
       .toUpperCase()
-      .replace(/[-\u2013\u2014]+/g, '-')
-      .replace(/\s+/g, '')
-      .replace(/[^A-Z0-9-]/g, '');
+      .replace(/[-\u2013\u2014\s]+/g, '')
+      .replace(/[^A-Z0-9]/g, '');
 
   useEffect(() => {
     if (initialMode) setMode(initialMode);
@@ -526,6 +527,14 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [adminSelectedUserForDelete, setAdminSelectedUserForDelete] = useState('');
   const [adminDeleteUserLoading, setAdminDeleteUserLoading] = useState(false);
   const [adminDeleteUserStatus, setAdminDeleteUserStatus] = useState('');
+
+  // Admin Edit User State
+  const [adminSelectedUserForEdit, setAdminSelectedUserForEdit] = useState('');
+  const [adminEditUserCode, setAdminEditUserCode] = useState('');
+  const [adminEditUserFullName, setAdminEditUserFullName] = useState('');
+  const [adminEditUserRole, setAdminEditUserRole] = useState('ACCOUNTANT');
+  const [adminEditUserLoading, setAdminEditUserLoading] = useState(false);
+  const [adminEditUserStatus, setAdminEditUserStatus] = useState('');
 
   // Admin Subscription Management State
   const [adminSelectedUserForSubscription, setAdminSelectedUserForSubscription] = useState<string>('');
@@ -771,10 +780,12 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
         billingCycle: billingCycleDraft,
         desiredCompanyCount: desiredBillingCompanyCount,
         discountPercent: workspaceSubscription.discountPercent,
-        offerCode: workspaceSubscription.offerCode
+        offerCode: workspaceSubscription.offerCode,
+        isAlreadyActive: workspaceSubscription.status === 'ACTIVE' && workspaceSubscription.provider === provider,
+        currentCompanyCount: workspaceSubscription.desiredCompanyCount || 1,
       })
     ))
-  ), [billingCycleDraft, desiredBillingCompanyCount, visibleSubscriptionProviders, workspaceSubscription.discountPercent, workspaceSubscription.offerCode]);
+  ), [billingCycleDraft, desiredBillingCompanyCount, visibleSubscriptionProviders, workspaceSubscription.discountPercent, workspaceSubscription.offerCode, workspaceSubscription.status, workspaceSubscription.provider, workspaceSubscription.desiredCompanyCount]);
 
   const formatUsd = (value: number) => `$${Number(value || 0).toFixed(Number.isInteger(value) ? 0 : 2)}`;
 
@@ -864,7 +875,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     if (provider === 'PADDLE') {
       try {
         setBillingStatusMessage(appLanguage === 'AR' ? 'جاري تجهيز بوابة الدفع...' : 'Initializing payment gateway...');
-        const paddle = await getPaddleInstance();
+        const paddle = await getPaddleInstance(workspaceSubscription?.providerCustomerId);
         if (!paddle) {
           throw new Error('Paddle initialization failed. Make sure client token is valid.');
         }
@@ -876,10 +887,23 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           throw new Error('VITE_PADDLE_BASE_PRICE_ID is not configured.');
         }
 
-        const extraCount = Math.max(0, desiredBillingCompanyCount - 1);
-        const items = [{ priceId: basePriceId, quantity: 1 }];
+        const currentCount = workspaceSubscription?.desiredCompanyCount || 1;
+        const isActive = workspaceSubscription?.status === 'ACTIVE' && workspaceSubscription?.provider === 'PADDLE';
+        const extraCount = isActive
+          ? Math.max(0, desiredBillingCompanyCount - currentCount)
+          : Math.max(0, desiredBillingCompanyCount - 1);
+        
+        const items = [];
+        if (!isActive) {
+          items.push({ priceId: basePriceId, quantity: 1 });
+        }
+        
         if (extraCount > 0 && extraPriceId) {
           items.push({ priceId: extraPriceId, quantity: extraCount });
+        }
+
+        if (items.length === 0) {
+          throw new Error('No items to purchase. Desired company count is not greater than current.');
         }
 
         paddle.Checkout.open({
@@ -889,10 +913,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             userEmail: currentUser?.email || '',
             desiredCompanyCount: desiredBillingCompanyCount
           },
-          discountId: workspaceSubscription.offerCode || undefined,
-          settings: {
-            successUrl: window.location.origin + window.location.pathname
-          }
+          discountCode: isActive ? undefined : (workspaceSubscription.offerCode || undefined)
         });
 
         setBillingStatusMessage('');
@@ -2090,6 +2111,62 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     }
   };
 
+  const handleAdminEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firebaseAuth?.currentUser || !adminSelectedUserForEdit) return;
+
+    if (!adminEditUserFullName.trim()) {
+      setAdminEditUserStatus(tr('يرجى إدخال الاسم الكامل.', 'Please enter the full name.'));
+      return;
+    }
+
+    if (adminEditUserCode.trim() && !/^[a-zA-Z0-9_.-]{3,}$/.test(adminEditUserCode.trim())) {
+      setAdminEditUserStatus(tr('يجب أن يتكون كود الحساب من 3 أحرف أو أرقام على الأقل.', 'Account code must be at least 3 characters or numbers.'));
+      return;
+    }
+
+    setAdminEditUserLoading(true);
+    setAdminEditUserStatus('');
+
+    try {
+      const token = await firebaseAuth.currentUser.getIdToken();
+      const backendApiUrl = getBackendApiUrl();
+      
+      const response = await fetch(`${backendApiUrl}/admin/users/${adminSelectedUserForEdit}/edit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          accountCode: adminEditUserCode.trim(),
+          fullName: adminEditUserFullName.trim(),
+          role: adminEditUserRole
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        if (resData.error === 'ACCOUNT_CODE_EXISTS') {
+          throw new Error(tr('كود الحساب هذا مستخدم بالفعل.', 'This account code is already in use.'));
+        }
+        throw new Error(resData.error || 'Failed to edit user');
+      }
+
+      setAdminEditUserStatus(tr('تم تعديل بيانات المستخدم بنجاح!', 'User updated successfully!'));
+      fetchGlobalUsers();
+      setTimeout(() => {
+        setAdminSelectedUserForEdit('');
+        setAdminEditUserStatus('');
+      }, 1500);
+    } catch (err: any) {
+      console.error('[Admin Edit User Error]', err);
+      setAdminEditUserStatus(`${tr('فشل تعديل المستخدم:', 'Failed to edit user:')} ${err.message}`);
+    } finally {
+      setAdminEditUserLoading(false);
+    }
+  };
+
   const handleAdminDeleteUser = async () => {
     if (!firebaseAuth?.currentUser || !adminSelectedUserForDelete) return;
 
@@ -2444,6 +2521,19 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                       >
                         {tr('إدارة الاشتراك', 'Subscription')}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminSelectedUserForEdit(u.id);
+                          setAdminEditUserFullName(u.name);
+                          setAdminEditUserCode(u.accountCode || (isCodeEmail(u.email) ? extractCodeFromEmail(u.email) : ''));
+                          setAdminEditUserRole(u.role || 'USER');
+                          setAdminEditUserStatus('');
+                        }}
+                        className="text-xs text-emerald-600 hover:text-emerald-800 font-bold underline ml-2"
+                      >
+                        {tr('تعديل', 'Edit')}
+                      </button>
                       {u.email !== 'hamza.mm.aa.ss@gmail.com' && (
                         <button
                           type="button"
@@ -2644,6 +2734,101 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   ) : (
                     tr('تحديث الاشتراك', 'Update Subscription')
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Edit User Modal */}
+      {adminSelectedUserForEdit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-white/20 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                <User size={24} className="text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">{tr('تعديل بيانات المستخدم', 'Edit User Data')}</h3>
+                <p className="text-sm text-slate-500 font-medium">
+                  {globalUsers.find(u => u.id === adminSelectedUserForEdit)?.name || ''}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleAdminEditUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {tr('كود الحساب', 'Account Code')}
+                </label>
+                <input
+                  type="text"
+                  value={adminEditUserCode}
+                  onChange={(e) => setAdminEditUserCode(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all font-mono"
+                  placeholder="CODE123"
+                  dir="ltr"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {tr('الاسم الكامل', 'Full Name')}
+                </label>
+                <input
+                  type="text"
+                  value={adminEditUserFullName}
+                  onChange={(e) => setAdminEditUserFullName(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {tr('الصلاحية', 'Role')}
+                </label>
+                <select
+                  value={adminEditUserRole}
+                  onChange={(e) => setAdminEditUserRole(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all font-bold"
+                >
+                  <option value="ACCOUNTANT">{tr('محاسب (كامل الصلاحيات)', 'Accountant (Full Access)')}</option>
+                  <option value="ADMIN">{tr('مدير (إدارة كاملة)', 'Admin (Full Management)')}</option>
+                  <option value="USER">{tr('عرض فقط', 'Viewer (Read Only)')}</option>
+                </select>
+              </div>
+
+              {adminEditUserStatus && (
+                <div className={`text-[11px] font-bold p-2.5 rounded-lg border text-center ${
+                  adminEditUserStatus.includes('نجاح') || adminEditUserStatus.includes('success')
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                    : 'bg-rose-50 border-rose-100 text-rose-700'
+                }`}>
+                  {adminEditUserStatus}
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-end pt-4 border-t border-slate-100 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setAdminSelectedUserForEdit('')}
+                  className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition-all"
+                  disabled={adminEditUserLoading}
+                >
+                  {tr('إلغاء', 'Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminEditUserLoading}
+                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center transition-all disabled:opacity-75"
+                >
+                  {adminEditUserLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    tr('حفظ التعديلات', 'Save Changes')
                   )}
                 </button>
               </div>

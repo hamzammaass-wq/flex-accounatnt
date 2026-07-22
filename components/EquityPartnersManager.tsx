@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, FileText, Layers3, Percent, Plus, Printer, Wallet } from 'lucide-react';
+import { BarChart3, FileText, Layers3, Percent, Plus, Printer, Wallet, Minus } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import EnglishDateInput from './EnglishDateInput';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
@@ -8,7 +8,6 @@ import { getDisplayAccountName, getDisplayContactName } from '../utils/displayNa
 import {
   buildAccountBalanceMap,
   buildProfitDistributionDraft,
-  calculateDrawingsBalance,
   createEquitySettlementPosting,
   isIsoDate,
   isPostedTransaction,
@@ -16,6 +15,7 @@ import {
   validateEquitySettlementInput
 } from '../utils/equityPartners';
 import { compressImageFile } from '../utils/imageCompression';
+import QuickAddAccountModal from './QuickAddAccountModal';
 
 type TabKey = 'DASHBOARD' | 'CAPITAL' | 'PARTNER_ACCOUNTS' | 'PROFIT_DISTRIBUTION' | 'SETTLEMENT';
 
@@ -62,7 +62,6 @@ type PartnerRow = {
   partnerType?: string;
   capitalAccountId?: string;
   currentAccountId?: string;
-  drawingsAccountId?: string;
   sharePercent: number;
   capital: number;
   current: number;
@@ -321,12 +320,8 @@ const EquityPartnersManager: React.FC = () => {
     const rows = partners.map(partner => {
       const capitalAccountId = partner.capitalAccountId;
       const currentAccountId = partner.currentAccountId || partner.linkedAccountId;
-      const drawingsAccountId = partner.drawingsAccountId;
       const capital = roundMoney(accountBalanceById.get(capitalAccountId || '') || 0);
-      const current = roundMoney(
-        (accountBalanceById.get(currentAccountId || '') || 0)
-        - calculateDrawingsBalance(postedTransactions, drawingsAccountId)
-      );
+      const current = roundMoney(accountBalanceById.get(currentAccountId || '') || 0);
       const partnerType = String(partnerMeta[partner.id]?.partnerType || (partner as unknown as { partnerType?: string }).partnerType || '').trim() || undefined;
       const sharePercent = roundMoney(Number(partnerMeta[partner.id]?.sharePercent || 0));
       return {
@@ -335,7 +330,6 @@ const EquityPartnersManager: React.FC = () => {
         partnerType,
         capitalAccountId,
         currentAccountId,
-        drawingsAccountId,
         sharePercent,
         capital,
         current,
@@ -363,7 +357,7 @@ const EquityPartnersManager: React.FC = () => {
   const ledgerLines = useMemo(() => {
     const partner = partnerById.get(ledgerPartnerId);
     if (!partner) return [] as Array<{ id: string; date: string; docType: string; docNo: string; debit: number; credit: number; running: number; note: string }>;
-    const ids = [partner.capitalAccountId, partner.currentAccountId, partner.drawingsAccountId].filter((v): v is string => Boolean(v));
+    const ids = [partner.capitalAccountId, partner.currentAccountId].filter((v): v is string => Boolean(v));
     let running = 0;
     return postedTransactions
       .filter(tx => ids.some(id => tx.debitAccountId === id || tx.creditAccountId === id))
@@ -478,7 +472,7 @@ const EquityPartnersManager: React.FC = () => {
     return { ok: true, totalAllocated: draft.totalAllocated, remainder: draft.remainder, message: '' };
   }, [distDate, distPeriod, distTotalProfit, distMethod, retainedEarningsAccountId, partnerRows, baseCurrency, distCustomRatios, distFixedAmounts, distNote]);
 
-  const postCapital = (mode: 'CREATE' | 'INCREASE') => {
+  const postCapital = (mode: 'CREATE' | 'INCREASE' | 'DECREASE') => {
     if (!canCreateEntries || !canPostEntries) return alert(tr('لا تملك صلاحية كافية.', 'Insufficient permission.'));
     const amount = roundMoney(Number(capitalAmount) || 0);
     if (amount <= 0) return alert(tr('أدخل مبلغ رأس مال صحيح.', 'Enter a valid capital amount.'));
@@ -505,7 +499,8 @@ const EquityPartnersManager: React.FC = () => {
       amount,
       fundingAccountId: capitalFundingAccountId,
       date: capitalDate,
-      note: mode === 'CREATE' ? 'create_capital_entry' : 'increase_capital_entry'
+      note: mode === 'CREATE' ? 'create_capital_entry' : mode === 'INCREASE' ? 'increase_capital_entry' : 'decrease_capital_entry',
+      isReduction: mode === 'DECREASE'
     });
     if (!result.ok) return alert(result.message);
 
@@ -515,10 +510,10 @@ const EquityPartnersManager: React.FC = () => {
       setPartnerMeta(prev => ({ ...prev, [partnerId]: { ...prev[partnerId], ...(share > 0 ? { sharePercent: share } : {}), ...(typeText ? { partnerType: typeText } : {}) } }));
     }
 
-    appendAuditLog({ entityType: 'partner_capital', entityId: partnerId, action: mode === 'CREATE' ? 'CREATE_CAPITAL_ENTRY' : 'INCREASE_CAPITAL', screen: 'Equity & Partners > Capital' });
+    appendAuditLog({ entityType: 'partner_capital', entityId: partnerId, action: mode === 'CREATE' ? 'CREATE_CAPITAL_ENTRY' : mode === 'INCREASE' ? 'INCREASE_CAPITAL' : 'DECREASE_CAPITAL', screen: 'Equity & Partners > Capital' });
     setCapitalAmount('');
     setCapitalPartnerName('');
-    alert(mode === 'CREATE' ? tr('تمت إضافة رأس المال.', 'Capital entry posted.') : tr('تمت زيادة رأس المال.', 'Capital increase posted.'));
+    alert(mode === 'CREATE' ? tr('تمت إضافة رأس المال.', 'Capital entry posted.') : mode === 'INCREASE' ? tr('تمت زيادة رأس المال.', 'Capital increase posted.') : tr('تم تخفيض رأس المال.', 'Capital reduction posted.'));
   };
 
   const updatePartnerSharePercent = (partnerId: string, value: string) => {
@@ -780,9 +775,10 @@ const EquityPartnersManager: React.FC = () => {
               <input value={capitalPartnerType} onChange={e => setCapitalPartnerType(e.target.value)} placeholder={tr('نوع الشريك (اختياري)', 'Partner type (optional)')} className={inputClass} />
               <select value={capitalFundingAccountId} onChange={e => setCapitalFundingAccountId(e.target.value)} className={`${inputClass} text-[11px]`}>{fundingAccounts.map(a => <option key={a.id} value={a.id}>{displayAccountName(a)}</option>)}</select>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('CREATE')} className="p-2.5 rounded-xl bg-blue-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('إضافة رأس مال', 'Create Capital Entry')}</button>
               <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('INCREASE')} className="p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('زيادة رأس مال', 'Increase Capital')}</button>
+              <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('DECREASE')} className="p-2.5 rounded-xl bg-red-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Minus size={13} />{tr('تخفيض رأس مال', 'Decrease Capital')}</button>
             </div>
           </div>
 

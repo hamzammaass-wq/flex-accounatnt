@@ -1,7 +1,8 @@
 export type DrilldownTarget =
   | { kind: 'ACCOUNT_LEDGER'; accountId: string }
   | { kind: 'CONTACT_STATEMENT'; contactId: string }
-  | { kind: 'PRODUCT_MOVEMENT'; productId: string };
+  | { kind: 'PRODUCT_MOVEMENT'; productId: string }
+  | { kind: 'EDIT_TRANSACTION'; mode: any; invoiceId?: string; voucherId?: string; voucherType?: 'RECEIPT' | 'PAYMENT' };
 
 export const DRILLDOWN_EVENT_NAME = 'smart-account:drilldown';
 

@@ -164,6 +164,12 @@ export const useMobileInteractions = ({
     // Keep window scroll at 0, 0 to prevent WebView shift/bounce when inputs are focused on mobile/Android
     const onScroll = () => {
       if (allowWindowScroll) return;
+      
+      // Do not fight the native scroll when an input is focused, as this causes infinite scroll/jumping
+      const active = document.activeElement;
+      const isInputFocused = active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+      if (isInputFocused) return;
+
       if (window.scrollY !== 0 || window.scrollX !== 0) {
         window.scrollTo(0, 0);
       }

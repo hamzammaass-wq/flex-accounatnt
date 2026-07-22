@@ -22,11 +22,19 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   collectionName: string,
   initialState: T[],
   companyId: string | null,
-  userId: string | null
-): [T[], Dispatch<SetStateAction<T[]>>] {
+  userId: string | null,
+  queryParams?: {
+    limit?: number;
+    offset?: number;
+    startDate?: string;
+    endDate?: string;
+  }
+): [T[], Dispatch<SetStateAction<T[]>>, boolean, boolean] {
   const [data, setData] = useState<T[]>(initialState);
   const dataRef = useRef<T[]>(initialState);
   const lastDataUpdateTimeRef = useRef(0);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   useEffect(() => {
     const now = Date.now();
@@ -42,17 +50,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     }
   }, [data]);
 
-  const [firebaseUid, setFirebaseUid] = useState<string | null>(
-    firebaseAuth?.currentUser?.uid ?? null
-  );
 
-  useEffect(() => {
-    if (!firebaseAuth) return;
-    const unsub = firebaseAuth.onAuthStateChanged((u: any) => {
-      setFirebaseUid(u?.uid ?? null);
-    });
-    return unsub;
-  }, []);
 
   const userIdRef = useRef<string | null>(userId);
   const companyIdRef = useRef<string | null>(companyId);
@@ -66,6 +64,13 @@ export function useFirestoreSyncState<T extends { id?: string }>(
   const pendingPrevRef = useRef<T[] | null>(null);
   const isWriteScheduledRef = useRef<boolean>(false);
 
+  const limit = queryParams?.limit;
+  const page = queryParams?.page;
+  const providedOffset = queryParams?.offset;
+  const offset = providedOffset !== undefined ? providedOffset : (page !== undefined && limit !== undefined ? (page - 1) * limit : undefined);
+  const startDate = queryParams?.startDate;
+  const endDate = queryParams?.endDate;
+
   useEffect(() => {
     let isSubscribed = true;
     const currentPath = `users/${userId}/companies/${companyId}/${collectionName}`;
@@ -75,19 +80,47 @@ export function useFirestoreSyncState<T extends { id?: string }>(
       console.log(`[Sync] Path changed for ${collectionName}. Resetting to initialState.`);
       setData(initialState);
       dataRef.current = initialState;
+      setHasMore(true);
     }
     previousPathRef.current = currentPath;
 
     if (!companyId) return;
+
+    const isPaginated = limit !== undefined && offset !== undefined;
+    if (isPaginated && offset > 0 && !hasMore && !pathChanged) {
+      return;
+    }
+
     const user = firebaseAuth?.currentUser;
     if (!user) {
       return;
     }
 
-    callBackendApi(user, `/companies/${companyId}/collections/${collectionName}`)
+    let url = `/companies/${companyId}/collections/${collectionName}`;
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.append('limit', String(limit));
+    if (offset !== undefined) params.append('offset', String(offset));
+    if (page !== undefined) params.append('page', String(page));
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const queryString = params.toString();
+    if (queryString) url += `?${queryString}`;
+
+    setLoading(true);
+    callBackendApi(user, url)
       .then((items) => {
         if (!isSubscribed) return;
-        if ((!items || items.length === 0) && initialState.length > 0) {
+        setLoading(false);
+
+        const fetchedCount = items ? items.length : 0;
+        const currentLimit = limit ?? 20;
+        if (fetchedCount < currentLimit) {
+          setHasMore(false);
+        } else {
+          setHasMore(true);
+        }
+
+        if ((!items || items.length === 0) && initialState.length > 0 && (!offset || offset === 0)) {
           console.log(`[Backend Sync] Seeding initial data for ${collectionName} in company ${companyId}`);
           setData(initialState);
           dataRef.current = initialState;
@@ -103,7 +136,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
               console.error(`[Backend Sync] Failed to seed initial data for ${collectionName}:`, err);
             });
         } else {
-          const missingItems = initialState.length > 0
+          const missingItems = initialState.length > 0 && (!offset || offset === 0)
             ? initialState.filter(initItem => !items.some((item: any) => item.id === initItem.id))
             : [];
             
@@ -124,12 +157,27 @@ export function useFirestoreSyncState<T extends { id?: string }>(
                 console.error(`[Backend Sync] Failed to repair system items for ${collectionName}:`, err);
               });
           } else {
-            setData(items || []);
-            dataRef.current = items || [];
+            if (offset && offset > 0) {
+              setData(prev => {
+                const existingIds = new Set(prev.map(x => x.id));
+                const newItems = (items || []).filter((x: any) => !existingIds.has(x.id));
+                if (newItems.length === 0) {
+                  return prev;
+                }
+                const combined = [...prev, ...newItems];
+                dataRef.current = combined;
+                return combined;
+              });
+            } else {
+              setData(items || []);
+              dataRef.current = items || [];
+            }
           }
         }
       })
       .catch((err: any) => {
+        if (!isSubscribed) return;
+        setLoading(false);
         console.error(`[Backend Sync] Fetch error for ${collectionName}:`, err);
         if (typeof window !== 'undefined') {
           showSyncAlertOnce(`❌ مشكلة في الاتصال بالسيرفر لقسم (${collectionName}). التفاصيل: ${err.message || err}`);
@@ -139,7 +187,7 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     return () => {
       isSubscribed = false;
     };
-  }, [companyId, collectionName, userId, firebaseUid]);
+  }, [companyId, collectionName, userId, limit, offset, startDate, endDate]);
 
   const setSyncedData = useCallback((action: SetStateAction<T[]>) => {
     const prev = dataRef.current;
@@ -232,5 +280,5 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     }
   }, []);
 
-  return [data, setSyncedData];
+  return [data, setSyncedData, loading, hasMore];
 }

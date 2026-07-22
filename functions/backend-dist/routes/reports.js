@@ -93,4 +93,26 @@ router.get('/contact-statement/:contactId', verifyCompanyMembership, async (req,
         res.status(500).json({ error: error.message });
     }
 });
+// 4. Dashboard Summary Stats (Calculated server-side using fast COUNT and SUM)
+router.get('/dashboard-summary', verifyCompanyMembership, async (req, res) => {
+    const { companyId } = req.params;
+    try {
+        const result = await query(`SELECT 
+        COALESCE(SUM(CASE WHEN type = 'INCOME' AND status != 'DRAFT' AND category NOT IN ('voucher_receipt', 'supplier_debit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_income,
+        COALESCE(SUM(CASE WHEN type = 'EXPENSE' AND status != 'DRAFT' AND category NOT IN ('voucher_payment', 'customer_credit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_expense
+       FROM journal_entries
+       WHERE company_id = $1`, [companyId]);
+        const totalIncome = Number(result.rows[0]?.total_income || 0);
+        const totalExpense = Number(result.rows[0]?.total_expense || 0);
+        const netBalance = totalIncome - totalExpense;
+        res.json({
+            totalIncome,
+            totalExpense,
+            netBalance
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 export default router;

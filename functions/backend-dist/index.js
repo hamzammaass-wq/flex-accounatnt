@@ -14,7 +14,17 @@ import migrateRouter from './routes/migrate.js';
 import offerCodesRouter from './routes/offer-codes.js';
 import { getClient, query } from './config/db.js';
 import { resolveDbAccountId } from './utils/account-helpers.js';
+import { upsertUser } from './utils/user-helpers.js';
 dotenv.config();
+const isCodeEmail = (email) => {
+    return email ? /^code_[a-zA-Z0-9_.-]+@smart\.local$/.test(email) : false;
+};
+const extractCodeFromEmail = (email) => {
+    if (!email)
+        return '';
+    const match = email.match(/^code_([a-zA-Z0-9_.-]+)@smart\.local$/);
+    return match ? match[1] : email;
+};
 const app = express();
 const PORT = process.env.PORT || 5000;
 // Enable CORS for frontend web client (dev environment, native Capacitor apps and production firebase hosting URL)
@@ -69,8 +79,6 @@ app.post('/api/companies/:companyId/users/:userId/change-password', authenticate
         }
         // Update password in Firebase Auth
         await admin.auth().updateUser(userId, { password: newPassword });
-        // Update password in PostgreSQL
-        await query('UPDATE users SET password = $1 WHERE id = $2', [newPassword, userId]);
         res.json({ ok: true });
     }
     catch (error) {
@@ -83,25 +91,38 @@ app.get('/api/admin/users', authenticateUser, async (req, res) => {
         return res.status(403).json({ error: 'Forbidden: Only the program owner can list all users' });
     }
     try {
-        // Fetch all Auth users
-        const authList = await admin.auth().listUsers();
-        // Fetch all PG users
-        const pgUsersRes = await query('SELECT * FROM users');
+        // Fetch limited Auth users
+        const authList = await admin.auth().listUsers(500);
+        // Fetch limited PG users
+        const pgUsersRes = await query('SELECT * FROM users ORDER BY created_at DESC LIMIT 500');
         const pgUsers = {};
-        pgUsersRes.rows.forEach(r => {
+        pgUsersRes.rows.forEach((r) => {
             pgUsers[r.id] = r;
         });
         const mergedUsers = [];
         for (const authUser of authList.users) {
             const pgData = pgUsers[authUser.uid] || {};
             const email = authUser.email || pgData.email || '';
+            let parsedSubscription = pgData.subscription;
+            if (typeof parsedSubscription === 'string') {
+                try {
+                    parsedSubscription = JSON.parse(parsedSubscription);
+                }
+                catch (e) { }
+            }
+            const isCode = isCodeEmail(email);
+            let accountCode = pgData.account_code || null;
+            if (!accountCode && isCode) {
+                accountCode = extractCodeFromEmail(email);
+            }
             mergedUsers.push({
                 id: authUser.uid,
                 name: authUser.displayName || pgData.name || email || '',
                 email: email,
+                accountCode: accountCode,
                 role: pgData.role || 'USER',
                 status: 'ACTIVE',
-                subscription: {
+                subscription: parsedSubscription || {
                     status: 'LIFETIME',
                     plan: 'PRO',
                     lifetimeAccess: true,
@@ -116,15 +137,89 @@ app.get('/api/admin/users', authenticateUser, async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to list users' });
     }
 });
+app.post('/api/admin/sync-codes', authenticateUser, async (req, res) => {
+    if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    try {
+        const usersRes = await query('SELECT email, account_code FROM users WHERE account_code IS NOT NULL');
+        const db = admin.firestore();
+        let count = 0;
+        for (const u of usersRes.rows) {
+            if (u.account_code) {
+                await db.collection('account_codes').doc(u.account_code).set({ email: u.email });
+                count++;
+            }
+        }
+        res.json({ ok: true, synced: count });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req, res) => {
     const { userId } = req.params;
     const { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies } = req.body;
     if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
         return res.status(403).json({ error: 'Forbidden: Only the program owner can manage subscriptions' });
     }
-    // Without Firestore, we'd save this to a Postgres table if needed.
-    // For now, we return OK to satisfy the frontend admin panel.
-    res.json({ ok: true });
+    try {
+        const userRecord = await admin.auth().getUser(userId);
+        const email = userRecord.email || '';
+        const name = userRecord.displayName || '';
+        const subscriptionData = { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies };
+        await upsertUser(userId, email, name, 'USER', undefined, subscriptionData);
+        res.json({ ok: true });
+    }
+    catch (error) {
+        console.error('[Update Subscription Error]', error);
+        res.status(500).json({ error: error.message || 'Failed to update subscription' });
+    }
+});
+app.post('/api/admin/users/:userId/edit', authenticateUser, async (req, res) => {
+    const { userId } = req.params;
+    const { fullName, role, accountCode } = req.body;
+    if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+        return res.status(403).json({ error: 'Forbidden: Only the program owner can edit users' });
+    }
+    try {
+        let email = undefined;
+        if (accountCode) {
+            const normalizedCode = accountCode.trim().toLowerCase();
+            email = `code_${normalizedCode}@smart.local`;
+            try {
+                await admin.auth().updateUser(userId, {
+                    email,
+                    displayName: fullName
+                });
+            }
+            catch (e) {
+                if (e.code === 'auth/email-already-exists') {
+                    return res.status(400).json({ error: 'ACCOUNT_CODE_EXISTS' });
+                }
+                throw e;
+            }
+        }
+        else {
+            await admin.auth().updateUser(userId, {
+                displayName: fullName
+            });
+        }
+        if (email) {
+            await upsertUser(userId, email, fullName, role);
+        }
+        else {
+            const userRecord = await admin.auth().getUser(userId);
+            const fallbackEmail = userRecord.email || '';
+            await upsertUser(userId, fallbackEmail, fullName, role);
+        }
+        await query('UPDATE memberships SET role = $1 WHERE user_id = $2', [role, userId]);
+        res.json({ ok: true });
+    }
+    catch (error) {
+        console.error('[Edit User Error]', error);
+        res.status(500).json({ error: error.message || 'Failed to edit user' });
+    }
 });
 app.delete('/api/admin/users/:userId', authenticateUser, async (req, res) => {
     const { userId } = req.params;
@@ -192,8 +287,7 @@ app.post('/api/companies/:companyId/users/create', authenticateUser, async (req,
             throw e;
         }
         // Write user profile to Postgres
-        await query(`INSERT INTO users (id, email, name, role) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`, [userRecord.uid, email, fullName, 'USER']);
+        await upsertUser(userRecord.uid, email, fullName, 'USER');
         // Create membership
         await query(`INSERT INTO memberships (company_id, user_id, role, status) VALUES ($1, $2, $3, 'ACTIVE')
        ON CONFLICT (company_id, user_id) DO NOTHING`, [companyId, userRecord.uid, role]);

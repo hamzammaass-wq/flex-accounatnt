@@ -1,4 +1,4 @@
-﻿
+
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
 import { AccountType, Account } from '../types';
@@ -91,14 +91,61 @@ const AccountsTree: React.FC = () => {
         [accounts]
     );
 
-    const buildTree = (parentId: string | undefined, list: Account[]): any[] => {
-        return list
-            .filter(a => a.parentId === parentId)
-            .sort((a, b) => a.code.localeCompare(b.code))
-            .map(a => ({
-                ...a,
-                children: buildTree(a.id, list)
-            }));
+    const buildTree = (list: Account[]): any[] => {
+        const idMap = new Map<string, any>();
+        const roots: any[] = [];
+
+        // First pass: Create all nodes with empty children array
+        list.forEach(a => {
+            idMap.set(a.id, { ...a, children: [] });
+        });
+
+        // Second pass: Connect children to parents
+        list.forEach(a => {
+            const node = idMap.get(a.id);
+            const pId = a.parentId === null ? undefined : a.parentId;
+            if (pId && idMap.has(pId)) {
+                // Prevent circular references
+                const cycleSet = new Set<string>([a.id]);
+                let isCycle = false;
+                let currentId = pId;
+                
+                while (currentId) {
+                    if (cycleSet.has(currentId)) {
+                        isCycle = true;
+                        break;
+                    }
+                    cycleSet.add(currentId);
+                    const parentNode = idMap.get(currentId);
+                    currentId = parentNode ? parentNode.parentId : undefined;
+                }
+                
+                if (isCycle) {
+                    console.error(`Circular reference detected in Chart of Accounts for account ID: ${a.id}. Bypassing corrupted node parent linkage.`);
+                    // Break the cycle by putting this node in roots
+                    roots.push(node);
+                } else {
+                    idMap.get(pId).children.push(node);
+                }
+            } else {
+                roots.push(node);
+            }
+        });
+
+        // Safe sort to prevent infinite recursion on circular refs
+        const sortNodes = (nodes: any[], visited = new Set<string>()) => {
+            nodes.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+            nodes.forEach(n => {
+                if (n.children.length > 0 && !visited.has(n.id)) {
+                    const nextVisited = new Set(visited);
+                    nextVisited.add(n.id);
+                    sortNodes(n.children, nextVisited);
+                }
+            });
+        };
+
+        sortNodes(roots);
+        return roots;
     };
 
     const treeData = useMemo(() => {
@@ -113,7 +160,7 @@ const AccountsTree: React.FC = () => {
                 a.code.includes(searchTerm)
             );
         }
-        return buildTree(undefined, filtered);
+        return buildTree(filtered);
     }, [visibleAccounts, activeType, searchTerm]);
 
     const handleFormSubmit = (e: React.FormEvent) => {
@@ -194,7 +241,10 @@ const AccountsTree: React.FC = () => {
         setShowAddForm(false);
     };
 
-    const renderAccountNode = (account: any, depth = 0) => {
+    const renderAccountNode = (account: any, depth = 0, visited = new Set<string>()) => {
+        if (visited.has(account.id)) return null;
+        const currentVisited = new Set(visited).add(account.id);
+        
         const isExpanded = expandedGroups.has(account.id);
         const hasChildren = account.children && account.children.length > 0;
         const theme = getAccountColor(account.type);
@@ -278,7 +328,7 @@ const AccountsTree: React.FC = () => {
 
                 {!isFlatView && hasChildren && isExpanded && (
                     <div className="mr-2 border-r border-slate-100/50">
-                        {account.children.map((child: any) => renderAccountNode(child, depth + 1))}
+                        {account.children.map((child: any) => renderAccountNode(child, depth + 1, currentVisited))}
                     </div>
                 )}
             </div>

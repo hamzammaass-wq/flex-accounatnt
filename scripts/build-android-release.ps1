@@ -30,7 +30,7 @@ try {
   Pop-Location
 }
 
-$tasks = @()
+$tasks = @('clean')
 if (-not $BundleOnly) {
   $tasks += 'assembleRelease'
 }

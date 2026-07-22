@@ -16,8 +16,19 @@ import offerCodesRouter from './routes/offer-codes.js';
 
 import { getClient, query } from './config/db.js';
 import { resolveDbAccountId } from './utils/account-helpers.js';
+import { upsertUser } from './utils/user-helpers.js';
 
 dotenv.config();
+
+const isCodeEmail = (email: string | undefined | null): boolean => {
+  return email ? /^code_[a-zA-Z0-9_.-]+@smart\.local$/.test(email) : false;
+};
+
+const extractCodeFromEmail = (email: string | undefined | null): string => {
+  if (!email) return '';
+  const match = email.match(/^code_([a-zA-Z0-9_.-]+)@smart\.local$/);
+  return match ? match[1] : email;
+};
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -86,9 +97,6 @@ app.post('/api/companies/:companyId/users/:userId/change-password', authenticate
     // Update password in Firebase Auth
     await admin.auth().updateUser(userId, { password: newPassword });
 
-    // Update password in PostgreSQL
-    await query('UPDATE users SET password = $1 WHERE id = $2', [newPassword, userId]);
-
     res.json({ ok: true });
   } catch (error: any) {
     console.error('[Change Password Error]', error);
@@ -122,10 +130,17 @@ app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, 
         try { parsedSubscription = JSON.parse(parsedSubscription); } catch(e) {}
       }
 
+      const isCode = isCodeEmail(email);
+      let accountCode = pgData.account_code || null;
+      if (!accountCode && isCode) {
+        accountCode = extractCodeFromEmail(email);
+      }
+
       mergedUsers.push({
         id: authUser.uid,
         name: authUser.displayName || pgData.name || email || '',
         email: email,
+        accountCode: accountCode,
         role: pgData.role || 'USER',
         status: 'ACTIVE',
         subscription: parsedSubscription || {
@@ -144,6 +159,26 @@ app.get('/api/admin/users', authenticateUser, async (req: AuthenticatedRequest, 
   }
 });
 
+app.post('/api/admin/sync-codes', authenticateUser, async (req: AuthenticatedRequest, res) => {
+  if (req.user?.email !== 'hamza.mm.aa.ss@gmail.com') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const usersRes = await query('SELECT email, account_code FROM users WHERE account_code IS NOT NULL');
+    const db = admin.firestore();
+    let count = 0;
+    for (const u of usersRes.rows) {
+      if (u.account_code) {
+        await db.collection('account_codes').doc(u.account_code).set({ email: u.email });
+        count++;
+      }
+    }
+    res.json({ ok: true, synced: count });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req: AuthenticatedRequest, res) => {
   const { userId } = req.params;
   const { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies } = req.body;
@@ -158,12 +193,7 @@ app.post('/api/admin/users/:userId/subscription', authenticateUser, async (req: 
     const name = userRecord.displayName || '';
     const subscriptionData = { plan, status, expiresAt, maxCompanies, lifetimeAccess, unlimitedCompanies };
     
-    await query(
-      `INSERT INTO users (id, email, name, subscription) 
-       VALUES ($1, $2, $3, $4) 
-       ON CONFLICT (id) DO UPDATE SET subscription = EXCLUDED.subscription`,
-      [userId, email, name, JSON.stringify(subscriptionData)]
-    );
+    await upsertUser(userId, email, name, 'USER', undefined, subscriptionData);
     res.json({ ok: true });
   } catch (error: any) {
     console.error('[Update Subscription Error]', error);
@@ -202,21 +232,11 @@ app.post('/api/admin/users/:userId/edit', authenticateUser, async (req: Authenti
     }
 
     if (email) {
-      await query(
-        `INSERT INTO users (id, email, name, role) 
-         VALUES ($1, $2, $3, $4) 
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, email = EXCLUDED.email`,
-        [userId, email, fullName, role]
-      );
+      await upsertUser(userId, email, fullName, role);
     } else {
       const userRecord = await admin.auth().getUser(userId);
       const fallbackEmail = userRecord.email || '';
-      await query(
-        `INSERT INTO users (id, email, name, role) 
-         VALUES ($1, $2, $3, $4) 
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role`,
-        [userId, fallbackEmail, fullName, role]
-      );
+      await upsertUser(userId, fallbackEmail, fullName, role);
     }
 
     await query('UPDATE memberships SET role = $1 WHERE user_id = $2', [role, userId]);
@@ -304,11 +324,7 @@ app.post('/api/companies/:companyId/users/create', authenticateUser, async (req:
     }
 
     // Write user profile to Postgres
-    await query(
-      `INSERT INTO users (id, email, name, role) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`,
-      [userRecord.uid, email, fullName, 'USER']
-    );
+    await upsertUser(userRecord.uid, email, fullName, 'USER');
 
     // Create membership
     await query(

@@ -17,7 +17,8 @@ import {
     Building2, Wallet, Globe, ScrollText, CheckCircle2, XCircle, AlertCircle,
     Calculator, Percent, ArrowUpRight, ArrowDownLeft, Search, Filter, RotateCcw,
     RefreshCw, TrendingDown, Clock, BookOpen, ListFilter, Box, ClipboardList,
-    UserCheck, Receipt, Banknote, ListChecks, Hash, Tag, FileSpreadsheet, Factory
+    UserCheck, Receipt, Banknote, ListChecks, Hash, Tag, FileSpreadsheet, Factory,
+    LayoutGrid, List
 } from 'lucide-react';
 
 type ReportCategory = 'FINANCIAL' | 'SALES' | 'PURCHASES' | 'INVENTORY' | 'TREASURY' | 'JOURNALS' | 'MANUFACTURING' | 'ANALYTICS' | 'MENU';
@@ -321,6 +322,7 @@ const FinancialReports: React.FC = () => {
     const [manualExpenseBeneficiaryFilter, setManualExpenseBeneficiaryFilter] = useState('ALL');
     const [manualExpenseAccountFilter, setManualExpenseAccountFilter] = useState('ALL');
     const [checkReportDateBasis, setCheckReportDateBasis] = useState<'ISSUE_DATE' | 'DUE_DATE'>('DUE_DATE');
+    const [ledgerViewMode, setLedgerViewMode] = useState<'standard' | 'detailed'>('standard');
     const resetReportDateRange = () => {
         setStartDate(currentFiscalYearRange.startDate);
         setEndDate(todayIso);
@@ -5906,7 +5908,10 @@ const FinancialReports: React.FC = () => {
         const accountById = new Map<string, Account>(accounts.map(acc => [acc.id, acc] as [string, Account]));
         const isUnderParent = (accountId: string, targetParentId: string) => {
             let current = accountById.get(accountId);
+            const visited = new Set<string>();
             while (current) {
+                if (visited.has(current.id)) break;
+                visited.add(current.id);
                 if (current.id === targetParentId) return true;
                 if (!current.parentId) return false;
                 current = accountById.get(current.parentId);
@@ -6230,7 +6235,10 @@ const FinancialReports: React.FC = () => {
 
         const isUnderParent = (account: Account, targetParentId: string) => {
             let currId = account.parentId;
+            const visited = new Set<string>();
             while (currId) {
+                if (visited.has(currId)) break;
+                visited.add(currId);
                 if (currId === targetParentId) return true;
                 const parent = accountById.get(currId);
                 currId = parent?.parentId;
@@ -8355,7 +8363,7 @@ const FinancialReports: React.FC = () => {
             .filter(shouldIncludeOpening)
             .reduce((sum, tx) => sum + entryDelta(tx), 0);
 
-        const periodRows = transactions
+        const rawPeriodRows = transactions
             .filter(t => t.status === 'POSTED')
             .filter(t => t.debitAccountId === acc.id || t.creditAccountId === acc.id)
             .filter(t => t.date >= startDate && t.date <= endDate)
@@ -8363,6 +8371,27 @@ const FinancialReports: React.FC = () => {
                 const byDate = a.date.localeCompare(b.date);
                 return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
             });
+
+        const groupedMap = new Map<string, Transaction>();
+        const periodRows: Transaction[] = [];
+
+        rawPeriodRows.forEach(t => {
+            const isDebit = t.debitAccountId === acc.id;
+            const side = isDebit ? 'debit' : 'credit';
+            const key = (t.invoiceId || t.voucherId) ? `${t.invoiceId || t.voucherId}_${side}` : t.id;
+
+            if (key !== t.id && groupedMap.has(key)) {
+                const existing = groupedMap.get(key)!;
+                existing.amount += t.amount;
+                if (String(existing.description || '').includes('ضريبة') && !String(t.description || '').includes('ضريبة')) {
+                    existing.description = t.description;
+                }
+            } else {
+                const clone = { ...t };
+                groupedMap.set(key, clone);
+                periodRows.push(clone);
+            }
+        });
 
         let runningBalance = openingBalance;
         const ledgerEntries = periodRows.map(tx => {
@@ -8521,13 +8550,19 @@ const FinancialReports: React.FC = () => {
                                     const preview = buildLedgerClassicStatementPreview(tx, acc.id);
                                     const detailBlock = renderUnifiedClassicStatementInlineDetails(preview, secondaryDesc || primaryDesc);
                                     const documentLabel =
-                                        tx.category === 'receipt' || tx.category === 'voucher_receipt'
+                                        tx.category === 'sales_invoice' ? tr('مبيعات', 'Sales')
+                                        : tx.category === 'purchase_invoice' ? tr('مشتريات', 'Purchases')
+                                        : tx.category === 'sales_return' ? tr('مردود مبيعات', 'Sales Return')
+                                        : tx.category === 'purchase_return' ? tr('مردود مشتريات', 'Purchase Return')
+                                        : tx.category === 'receipt' || tx.category === 'voucher_receipt'
                                             ? tr('قبض', 'Receipt')
                                             : tx.category === 'payment' || tx.category === 'voucher_payment'
                                                 ? tr('صرف', 'Payment')
-                                                : tx.voucherId
-                                                    ? tr('سند', 'Voucher')
-                                                    : tr('قيد', 'Entry');
+                                                : tx.invoiceId 
+                                                    ? tr('فاتورة', 'Invoice')
+                                                    : tx.voucherId
+                                                        ? tr('سند', 'Voucher')
+                                                        : tr('قيد', 'Entry');
                                     return (
                                         <React.Fragment key={tx.id}>
                                             <tr className="statement-classic-row">
@@ -8536,7 +8571,7 @@ const FinancialReports: React.FC = () => {
                                                     <td className="statement-classic-document-cell">
                                                         <div className="statement-classic-document-wrap">
                                                             <span className="statement-classic-document-label">{documentLabel}</span>
-                                                            <span className="statement-classic-document-number dir-ltr">#{tx.voucherId || tx.id}</span>
+                                                            <span className="statement-classic-document-number dir-ltr">#{preview.invoice?.invoiceNumber || tx.voucherId || tx.id}</span>
                                                         </div>
                                                     </td>
                                                 )}
@@ -8547,7 +8582,7 @@ const FinancialReports: React.FC = () => {
                                                 <td className="statement-classic-amount-cell dir-ltr">{credit > 0 ? formatValue(credit) : '-'}</td>
                                                 <td className="statement-classic-balance-cell dir-ltr font-black">{formatValue(Math.abs(rowBalance))}</td>
                                             </tr>
-                                            {detailBlock && (
+                                            {detailBlock && ledgerViewMode === 'detailed' && (
                                                 <tr className="statement-classic-detail-row">
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td colSpan={hideVoucherColumnInStatement ? 1 : 2} className="statement-classic-detail-cell">{detailBlock}</td>
@@ -8601,6 +8636,22 @@ const FinancialReports: React.FC = () => {
                             <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>
                                 {tr('حركة كشف الحساب التفصيلي', 'Detailed Account Statement')}
                             </p>
+                        </div>
+                        <div className="flex bg-gray-100 rounded-lg p-0.5 shrink-0">
+                            <button 
+                                onClick={() => setLedgerViewMode('standard')} 
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] sm:text-[11px] font-bold transition-all ${ledgerViewMode === 'standard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                <List size={14} />
+                                <span className="hidden sm:inline">{tr('عادي', 'Standard')}</span>
+                            </button>
+                            <button 
+                                onClick={() => setLedgerViewMode('detailed')} 
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] sm:text-[11px] font-bold transition-all ${ledgerViewMode === 'detailed' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                <LayoutGrid size={14} />
+                                <span className="hidden sm:inline">{tr('مفصل', 'Detailed')}</span>
+                            </button>
                         </div>
                     </div>
 

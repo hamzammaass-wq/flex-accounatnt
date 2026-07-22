@@ -140,7 +140,7 @@ const FixedAssetsManager: React.FC = () => {
 
     const handleAddAsset = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name || !cost || !supplierId) return alert(tr('يرجى تعبئة الحقول الأساسية (الاسم، السعر، المورد)', 'Please fill required fields (name, price, supplier)'));
+        if (!name) return alert(tr('يرجى تعبئة اسم الأصل', 'Please enter asset name'));
 
         const basePrice = parseFloat(cost) || 0;
         const extraExp = parseFloat(clearanceCost) || 0;
@@ -164,22 +164,24 @@ const FixedAssetsManager: React.FC = () => {
             status: 'ACTIVE'
         });
 
-        const supplierName = displayContactName(contacts.find(c => c.id === supplierId));
-        const supplierAccountId = getSupplierAccountId(supplierId);
+        if (basePrice > 0) {
+            const supplierName = supplierId ? displayContactName(contacts.find(c => c.id === supplierId)) : tr('بدون مورد', 'No supplier');
+            const supplierAccountId = getSupplierAccountId(supplierId);
 
-        addTransaction({
-            amount: basePrice,
-            description: `${tr('شراء أصل ثابت', 'Fixed asset purchase')}: ${name} - ${tr('المورد', 'Supplier')}: ${supplierName}`,
-            category: 'journal',
-            type: TransactionType.EXPENSE,
-            date: purchaseDate,
-            debitAccountId: assetPostingAccountId,
-            creditAccountId: supplierAccountId,
-            contactId: supplierId,
-            currency: baseCurrency,
-            exchangeRate: 1,
-            status: 'POSTED'
-        });
+            addTransaction({
+                amount: basePrice,
+                description: `${tr('شراء أصل ثابت', 'Fixed asset purchase')}: ${name} - ${tr('الجهة', 'Contact')}: ${supplierName}`,
+                category: 'journal',
+                type: TransactionType.EXPENSE,
+                date: purchaseDate,
+                debitAccountId: assetPostingAccountId,
+                creditAccountId: supplierAccountId,
+                contactId: supplierId || undefined,
+                currency: baseCurrency,
+                exchangeRate: 1,
+                status: 'POSTED'
+            });
+        }
 
         if (extraExp > 0) {
             const isCredit = clearancePaymentType === 'CREDIT';
@@ -555,11 +557,11 @@ const FixedAssetsManager: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1">{tr('المورد (البائع الأصلي)', 'Supplier (Original Seller)')}</label>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-1">{tr('الجهة (البائع للأصل)', 'Contact (Asset Seller)')}</label>
                                 <div className="relative">
-                                    <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className="w-full p-4 bg-white rounded-2xl border border-gray-100 text-sm font-bold outline-none appearance-none" required>
-                                        <option value="">{tr('-- اختر المورد --', '-- Select Supplier --')}</option>
-                                        {contacts.filter(c => c.type === 'SUPPLIER').map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
+                                    <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className="w-full p-4 bg-white rounded-2xl border border-gray-100 text-sm font-bold outline-none appearance-none">
+                                        <option value="">{tr('-- بدون تحديد / أخرى --', '-- Not specified / Other --')}</option>
+                                        {contacts.filter(c => c.type === 'SUPPLIER' || c.type === 'CUSTOMER' || c.type === 'PARTNER').map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
                                     </select>
                                     <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={16} />
                                 </div>
@@ -568,7 +570,7 @@ const FixedAssetsManager: React.FC = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest px-1 block mb-1">{tr('سعر الشراء الأساسي', 'Base Purchase Price')}</label>
-                                    <input type="number" inputMode="decimal" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} className="w-full p-3 bg-white rounded-2xl border border-emerald-100 text-sm font-black outline-none dir-ltr text-center text-emerald-700" required />
+                                    <input type="number" inputMode="decimal" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} className="w-full p-3 bg-white rounded-2xl border border-emerald-100 text-sm font-black outline-none dir-ltr text-center text-emerald-700" />
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-black text-orange-600 uppercase tracking-widest px-1 block mb-1">{tr('مصاريف تخليص/شحن', 'Clearance/Shipping Cost')}</label>

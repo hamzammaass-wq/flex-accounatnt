@@ -326,6 +326,7 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
                 </div>
               `
             : '';
+
         const rows = parts.map((part, index) => {
             const paymentAccount = isReceipt
                 ? accounts.find(account => account.id === part.debitAccountId)
@@ -346,75 +347,379 @@ const VoucherManager: React.FC<VoucherManagerProps> = ({ type, onAddNew, onEditV
             return `
               <tr>
                 <td>${index + 1}</td>
-                <td style="text-align:right;">${escapeHtml(part.description)}</td>
-                <td style="text-align:right;">${escapeHtml(paymentAccount ? displayAccountName(paymentAccount) : '-')}</td>
-                <td style="text-align:right;">${escapeHtml(counterAccount ? displayAccountName(counterAccount) : '-')}</td>
-                <td style="text-align:right;">${escapeHtml(referenceText)}</td>
-                <td dir="ltr">${Number(part.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td>${escapeHtml(part.description)}</td>
+                <td>${escapeHtml(paymentAccount ? displayAccountName(paymentAccount) : '-')}</td>
+                <td>${escapeHtml(counterAccount ? displayAccountName(counterAccount) : '-')}</td>
+                <td>${escapeHtml(referenceText)}</td>
+                <td class="amount-col" dir="ltr">${Number(part.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
             `;
         }).join('');
+
+        const printTitle = isReceipt ? tr('سند قبض', 'Receipt Voucher') : tr('سند صرف', 'Payment Voucher');
+        const partyLabel = isReceipt ? tr('استلمنا من السيد/السادة', 'Received from Mr/M/s') : tr('صرفنا للسيد/السادة', 'Paid to Mr/M/s');
+        const logoHtml = companySettings.logoUrl ? `<img src="${companySettings.logoUrl}" alt="Logo" class="company-logo" />` : '';
 
         return `
         <!DOCTYPE html>
         <html dir="${printDir}" lang="${printLang}">
           <head>
-            <title>${isReceipt ? tr('سند قبض', 'Receipt Voucher') : tr('سند صرف', 'Payment Voucher')} - ${voucherId}</title>
+            <title>${printTitle} - ${voucherId}</title>
             <style>
-              body { font-family: ${printFont}; padding: 32px; color: #1f2937; }
-              .header { display:flex; justify-content:space-between; border-bottom:2px solid #1e40af; padding-bottom:16px; margin-bottom:20px; }
-              .meta-grid { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; margin-bottom:14px; }
-              .meta-card { border:1px solid #e5e7eb; background:#f8fafc; border-radius:8px; padding:8px; font-size:11px; }
-              .meta-card .k { color:#64748b; font-weight:700; margin-bottom:2px; display:block; }
-              .meta-card .v { color:#0f172a; font-weight:800; }
-              table { width:100%; border-collapse:collapse; margin-top:12px; }
-              th, td { border-bottom:1px solid #e5e7eb; padding:10px; font-size:13px; text-align:center; }
-              th { background:#eef2ff; color:#1e40af; font-weight:800; }
-              .account-balance-box { margin-top: 14px; border:1px solid #dbeafe; background:#eff6ff; border-radius:10px; padding:10px 12px; }
-              .account-balance-title { font-size:12px; font-weight:800; color:#1e40af; margin-bottom:8px; }
-              .account-balance-row { display:flex; justify-content:space-between; gap:10px; padding:4px 0; font-size:12px; border-top:1px dashed #bfdbfe; }
-              .account-balance-row:first-of-type { border-top:none; }
-              .footer-note { margin-top: 12px; font-size: 11px; color:#64748b; }
+              @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+              
+              :root {
+                --primary: #1e3a8a;
+                --secondary: #3b82f6;
+                --text-main: #1e293b;
+                --text-muted: #64748b;
+                --border-light: #e2e8f0;
+                --bg-light: #f8fafc;
+              }
+
+              * { box-sizing: border-box; }
+              
+              body { 
+                font-family: ${printFont.includes('Tajawal') ? "'Tajawal', 'Cairo', sans-serif" : printFont}; 
+                margin: 0; 
+                padding: 40px; 
+                color: var(--text-main); 
+                background: #fff;
+                font-size: 14px;
+                line-height: 1.6;
+              }
+
+              .voucher-container {
+                max-width: 850px;
+                margin: 0 auto;
+                border: 1px solid var(--border-light);
+                border-radius: 12px;
+                padding: 30px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+              }
+
+              .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                border-bottom: 2px solid var(--primary);
+                padding-bottom: 20px;
+                margin-bottom: 25px;
+              }
+
+              .company-info {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              }
+              
+              .company-logo {
+                max-height: 70px;
+                max-width: 150px;
+                object-fit: contain;
+                margin-bottom: 8px;
+              }
+
+              .company-name {
+                font-size: 22px;
+                font-weight: 800;
+                color: var(--primary);
+                margin: 0;
+              }
+
+              .voucher-title-section {
+                text-align: center;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+              }
+
+              .voucher-badge {
+                background: var(--primary);
+                color: #fff;
+                font-size: 22px;
+                font-weight: 800;
+                padding: 10px 30px;
+                border-radius: 8px;
+                letter-spacing: 1px;
+                margin-bottom: 12px;
+                box-shadow: 0 4px 6px -1px rgba(30, 58, 138, 0.2);
+              }
+
+              .meta-details {
+                display: grid;
+                grid-template-columns: auto auto;
+                gap: 4px 16px;
+                font-size: 14px;
+                text-align: right;
+              }
+              html[dir="ltr"] .meta-details { text-align: left; }
+              .meta-details .k { color: var(--text-muted); font-weight: 600; }
+              .meta-details .v { font-weight: 700; color: var(--text-main); }
+
+              .main-info {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                background: var(--bg-light);
+                border: 1px solid var(--border-light);
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 25px;
+                gap: 20px;
+              }
+
+              .party-info {
+                flex: 1;
+              }
+
+              .party-label {
+                font-size: 13px;
+                color: var(--text-muted);
+                font-weight: 600;
+                margin-bottom: 4px;
+              }
+
+              .party-name {
+                font-size: 20px;
+                font-weight: 800;
+                color: var(--primary);
+                margin: 0;
+              }
+              
+              .party-contact {
+                font-size: 13px;
+                color: var(--text-muted);
+                margin-top: 4px;
+              }
+
+              .amount-box {
+                background: #fff;
+                border: 2px dashed var(--secondary);
+                border-radius: 8px;
+                padding: 15px 25px;
+                text-align: center;
+                min-width: 200px;
+              }
+
+              .amount-label {
+                font-size: 13px;
+                color: var(--text-muted);
+                font-weight: 700;
+                margin-bottom: 4px;
+              }
+
+              .amount-value {
+                font-size: 26px;
+                font-weight: 800;
+                color: var(--primary);
+                margin: 0;
+              }
+
+              table { 
+                width: 100%; 
+                border-collapse: separate; 
+                border-spacing: 0;
+                border: 1px solid var(--border-light);
+                border-radius: 8px;
+                overflow: hidden;
+                margin-bottom: 20px;
+              }
+              th, td { 
+                padding: 12px 16px; 
+                text-align: start; 
+                border-bottom: 1px solid var(--border-light);
+              }
+              th { 
+                background: var(--bg-light); 
+                color: var(--primary); 
+                font-weight: 800; 
+                font-size: 13px;
+              }
+              tr:last-child td { border-bottom: none; }
+              td { font-size: 14px; font-weight: 600; }
+              .amount-col { text-align: end; }
+              th.amount-col { text-align: end; }
+
+              .totals-section {
+                display: flex;
+                justify-content: flex-end;
+                margin-bottom: 30px;
+              }
+              .totals-box {
+                background: var(--primary);
+                color: #fff;
+                padding: 12px 30px;
+                border-radius: 8px;
+                display: flex;
+                gap: 20px;
+                align-items: center;
+              }
+              .totals-label { font-size: 16px; font-weight: 700; }
+              .totals-value { font-size: 22px; font-weight: 800; }
+
+              .account-balance-box { 
+                margin-bottom: 30px; 
+                border: 1px solid var(--border-light); 
+                background: var(--bg-light); 
+                border-radius: 8px; 
+                padding: 16px; 
+              }
+              .account-balance-title { 
+                font-size: 14px; 
+                font-weight: 800; 
+                color: var(--primary); 
+                margin-bottom: 12px; 
+              }
+              .account-balance-row { 
+                display: flex; 
+                justify-content: space-between; 
+                padding: 8px 0; 
+                font-size: 13px; 
+                font-weight: 600;
+                border-top: 1px dashed var(--border-light); 
+              }
+              .account-balance-row:first-of-type { border-top: none; }
+
+              .signatures {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 40px;
+                margin-top: 50px;
+                padding-top: 30px;
+                page-break-inside: avoid;
+              }
+
+              .signature-box {
+                text-align: center;
+              }
+
+              .signature-line {
+                border-top: 1px dashed var(--text-muted);
+                margin-bottom: 10px;
+                width: 100%;
+              }
+
+              .signature-label {
+                font-size: 14px;
+                font-weight: 700;
+                color: var(--text-main);
+              }
+
+              .footer-note { 
+                margin-top: 30px; 
+                text-align: center;
+                font-size: 12px; 
+                color: var(--text-muted); 
+                border-top: 1px solid var(--border-light);
+                padding-top: 15px;
+              }
+
               @media print {
-                body { padding: 10px; }
+                body { padding: 0; background: #fff; }
+                .voucher-container { 
+                  border: none; 
+                  box-shadow: none; 
+                  padding: 0; 
+                  max-width: 100%; 
+                }
+                .voucher-badge {
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
+                .totals-box {
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
+                th, .main-info, .account-balance-box {
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
               }
             </style>
           </head>
           <body>
-            <div class="header">
-              <div>
-                <h2>${escapeHtml(companySettings.name)}</h2>
-                <div>${isReceipt ? tr('سند قبض', 'Receipt Voucher') : tr('سند صرف', 'Payment Voucher')}</div>
+            <div class="voucher-container">
+              <div class="header">
+                <div class="company-info">
+                  ${logoHtml}
+                  <h2 class="company-name">${escapeHtml(companySettings.name)}</h2>
+                  ${companySettings.taxNumber ? `<div style="font-size:12px; color:var(--text-muted); margin-top:4px;">${tr('الرقم الضريبي', 'Tax No')}: ${escapeHtml(companySettings.taxNumber)}</div>` : ''}
+                </div>
+                <div class="voucher-title-section">
+                  <div class="voucher-badge">${printTitle}</div>
+                  <div class="meta-details">
+                    <span class="k">${tr('رقم السند', 'Voucher No')}:</span>
+                    <span class="v" dir="ltr">${voucherId}</span>
+                    
+                    <span class="k">${tr('التاريخ', 'Date')}:</span>
+                    <span class="v" dir="ltr">${formatDate(first.date)}</span>
+
+                    <span class="k">${tr('الحالة', 'Status')}:</span>
+                    <span class="v">${voucherStatus}</span>
+                  </div>
+                </div>
               </div>
-              <div style="text-align:left;">
-                <div>${tr('رقم السند', 'Voucher')}: ${voucherId}</div>
-                <div>${tr('التاريخ', 'Date')}: ${formatDate(first.date)}</div>
-                <div>${tr('الطرف', 'Contact')}: ${escapeHtml(contactName)}</div>
+
+              <div class="main-info">
+                <div class="party-info">
+                  <div class="party-label">${partyLabel}</div>
+                  <h3 class="party-name">${escapeHtml(contactName)}</h3>
+                  ${contact?.phone || contact?.taxNumber ? `
+                  <div class="party-contact">
+                    ${contact?.phone ? `<span>${escapeHtml(contact.phone)}</span>` : ''}
+                    ${contact?.phone && contact?.taxNumber ? ' | ' : ''}
+                    ${contact?.taxNumber ? `<span>${tr('الرقم الضريبي', 'Tax No')}: ${escapeHtml(contact.taxNumber)}</span>` : ''}
+                  </div>` : ''}
+                </div>
+                <div class="amount-box">
+                  <div class="amount-label">${tr('المبلغ الإجمالي', 'Total Amount')}</div>
+                  <h2 class="amount-value" dir="ltr">
+                    ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}
+                  </h2>
+                </div>
               </div>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>${tr('البيان', 'Description')}</th>
+                    <th>${tr(isReceipt ? 'حساب التحصيل' : 'حساب الدفع', isReceipt ? 'Receipt Account' : 'Payment Account')}</th>
+                    <th>${tr('الحساب المقابل', 'Counter Account')}</th>
+                    <th>${tr('المرجع/التفاصيل', 'Reference / Details')}</th>
+                    <th class="amount-col">${tr('المبلغ', 'Amount')}</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+
+              <div class="totals-section">
+                <div class="totals-box">
+                  <span class="totals-label">${tr('الإجمالي', 'Total')}:</span>
+                  <span class="totals-value" dir="ltr">${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}</span>
+                </div>
+              </div>
+
+              ${accountBalancesHtml}
+
+              <div class="signatures">
+                <div class="signature-box">
+                  <div class="signature-line"></div>
+                  <div class="signature-label">${tr('المحاسب', 'Accountant')}</div>
+                </div>
+                <div class="signature-box">
+                  <div class="signature-line"></div>
+                  <div class="signature-label">${isReceipt ? tr('المستلم', 'Receiver') : tr('توقيع المستلم', 'Receiver Signature')}</div>
+                </div>
+                <div class="signature-box">
+                  <div class="signature-line"></div>
+                  <div class="signature-label">${tr('المدير المالي', 'Financial Manager')}</div>
+                </div>
+              </div>
+
+              ${companySettings.statementFooterNote ? `<div class="footer-note">${escapeHtml(companySettings.statementFooterNote)}</div>` : ''}
             </div>
-            <div class="meta-grid">
-              <div class="meta-card"><span class="k">${tr('الحالة', 'Status')}</span><span class="v">${voucherStatus}</span></div>
-              <div class="meta-card"><span class="k">${tr('العملة', 'Currency')}</span><span class="v">${escapeHtml(currency)}</span></div>
-              <div class="meta-card"><span class="k">${tr('سعر الصرف', 'Exchange Rate')}</span><span class="v">${exchangeRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span></div>
-              <div class="meta-card"><span class="k">${tr('عدد البنود', 'Lines')}</span><span class="v">${parts.length}</span></div>
-              <div class="meta-card" style="grid-column: span 4;"><span class="k">${tr('تفاصيل الطرف', 'Contact details')}</span><span class="v">${escapeHtml(contactName)}${contact?.phone ? ` - ${escapeHtml(contact.phone)}` : ''}</span></div>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th style="text-align:right;">${tr('البيان', 'Description')}</th>
-                  <th style="text-align:right;">${tr(isReceipt ? 'حساب التحصيل' : 'حساب الدفع', isReceipt ? 'Receipt Account' : 'Payment Account')}</th>
-                  <th style="text-align:right;">${tr('الحساب المقابل', 'Counter Account')}</th>
-                  <th style="text-align:right;">${tr('المرجع/التفاصيل', 'Reference / Details')}</th>
-                  <th>${tr('المبلغ', 'Amount')}</th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-            <h3 style="text-align:left; margin-top:16px;">${tr('الإجمالي', 'Total')}: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${escapeHtml(currency)}</h3>
-            ${accountBalancesHtml}
-            ${companySettings.statementFooterNote ? `<div class="footer-note">${escapeHtml(companySettings.statementFooterNote)}</div>` : ''}
             ${autoPrint ? '<script>window.focus(); window.print();</script>' : ''}
           </body>
         </html>`;

@@ -1,6 +1,8 @@
 import { Router, type Response } from 'express';
-import { type AuthenticatedRequest, verifyCompanyMembership } from '../middleware/auth.js';
+import { authenticateUser, type AuthenticatedRequest, verifyCompanyMembership } from '../middleware/auth.js';
 import { query, getClient } from '../config/db.js';
+
+import { upsertUser } from '../utils/user-helpers.js';
 import { prefixAccountId, unprefixAccountId, resolveDbAccountId } from '../utils/account-helpers.js';
 
 const router = Router({ mergeParams: true });
@@ -56,8 +58,8 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
   }
 
   try {
-    const limitVal = req.query.limit ? Math.max(1, Math.min(1000, Number(req.query.limit))) : 50;
-    const offsetVal = req.query.offset ? Math.max(0, Number(req.query.offset)) : 0;
+    let limitVal = req.query.limit ? Math.max(1, Math.min(1000, Number(req.query.limit))) : 50;
+    let offsetVal = req.query.offset ? Math.max(0, Number(req.query.offset)) : 0;
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
 
@@ -128,7 +130,7 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
          WHERE p.company_id = $1
       `;
       const queryParams: any[] = [companyId];
-      if (req.query.limit) {
+      if (true) { let reqLimit = req.query.limit; if (!reqLimit) { limitVal = 1000; offsetVal = 0; }
         queryText += ` LIMIT $2 OFFSET $3`;
         queryParams.push(limitVal, offsetVal);
       }
@@ -141,7 +143,7 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
          WHERE st.company_id = $1
       `;
       const queryParams: any[] = [companyId];
-      if (req.query.limit) {
+      if (true) { let reqLimit = req.query.limit; if (!reqLimit) { limitVal = 1000; offsetVal = 0; }
         queryText += ` LIMIT $2 OFFSET $3`;
         queryParams.push(limitVal, offsetVal);
       }
@@ -203,13 +205,18 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
       let paramIndex = 2;
 
       // Only paginate other collections if explicitly requested
-      if (req.query.limit) {
-        const hasDateColumn = ['invoice_settlements', 'stock_transfers', 'checks'].includes(dbTable);
+      if (true) { let reqLimit = req.query.limit; if (!reqLimit) { limitVal = 1000; offsetVal = 0; }
+        const hasDateColumn = ['invoice_settlements', 'stock_transfers'].includes(dbTable);
         const hasTimestampColumn = ['audit_logs'].includes(dbTable);
+        const hasDueDateColumn = ['checks'].includes(dbTable);
 
         if (startDate) {
           if (hasDateColumn) {
             queryText += ` AND date >= $${paramIndex}`;
+            queryParams.push(startDate);
+            paramIndex++;
+          } else if (hasDueDateColumn) {
+            queryText += ` AND due_date >= $${paramIndex}`;
             queryParams.push(startDate);
             paramIndex++;
           } else if (hasTimestampColumn) {
@@ -223,6 +230,10 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
             queryText += ` AND date <= $${paramIndex}`;
             queryParams.push(endDate);
             paramIndex++;
+          } else if (hasDueDateColumn) {
+            queryText += ` AND due_date <= $${paramIndex}`;
+            queryParams.push(endDate);
+            paramIndex++;
           } else if (hasTimestampColumn) {
             queryText += ` AND timestamp <= $${paramIndex}`;
             queryParams.push(endDate);
@@ -232,8 +243,10 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
 
         if (dbTable === 'audit_logs') {
           queryText += ` ORDER BY timestamp DESC`;
-        } else if (dbTable === 'invoice_settlements' || dbTable === 'checks') {
-          queryText += ` ORDER BY date DESC, created_at DESC`;
+        } else if (dbTable === 'invoice_settlements' || dbTable === 'stock_transfers') {
+          queryText += ` ORDER BY date DESC`;
+        } else if (dbTable === 'checks') {
+          queryText += ` ORDER BY due_date DESC, created_at DESC`;
         }
 
         queryText += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
@@ -349,8 +362,7 @@ router.get('/:collectionName', verifyCompanyMembership, async (req: Authenticate
         preferredPriceTier: row.preferred_price_tier || undefined,
         linkedAccountId: unprefixAccountId(companyId, row.linked_account_id) || undefined,
         currentAccountId: unprefixAccountId(companyId, row.current_account_id) || undefined,
-        capitalAccountId: unprefixAccountId(companyId, row.capital_account_id) || undefined,
-        drawingsAccountId: unprefixAccountId(companyId, row.drawings_account_id) || undefined
+        capitalAccountId: unprefixAccountId(companyId, row.capital_account_id) || undefined
       }));
       res.json(mappedRows);
     } else if (collectionName === 'warehouses' && result) {
@@ -709,12 +721,12 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req: Authen
         for (const item of upserts) {
           if (collectionName === 'contacts') {
             await client.query(
-              `INSERT INTO contacts (id, company_id, name, type, phone, address, preferred_price_tier, linked_account_id, current_account_id, capital_account_id, drawings_account_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+              `INSERT INTO contacts (id, company_id, name, type, phone, address, preferred_price_tier, linked_account_id, current_account_id, capital_account_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                ON CONFLICT (company_id, id) DO UPDATE
                SET name = EXCLUDED.name, type = EXCLUDED.type, phone = EXCLUDED.phone, address = EXCLUDED.address,
                    preferred_price_tier = EXCLUDED.preferred_price_tier, linked_account_id = EXCLUDED.linked_account_id,
-                   current_account_id = EXCLUDED.current_account_id, capital_account_id = EXCLUDED.capital_account_id, drawings_account_id = EXCLUDED.drawings_account_id`,
+                   current_account_id = EXCLUDED.current_account_id, capital_account_id = EXCLUDED.capital_account_id`,
               [
                 item.id,
                 companyId,
@@ -725,8 +737,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req: Authen
                 item.preferredPriceTier || 'RETAIL',
                 await resolveDbAccountId(client, companyId, item.linkedAccountId),
                 await resolveDbAccountId(client, companyId, item.currentAccountId),
-                await resolveDbAccountId(client, companyId, item.capitalAccountId),
-                await resolveDbAccountId(client, companyId, item.drawingsAccountId)
+                await resolveDbAccountId(client, companyId, item.capitalAccountId)
               ]
             );
           }
@@ -765,13 +776,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req: Authen
           }
 
           else if (collectionName === 'users') {
-            await client.query(
-              `INSERT INTO users (id, email, name, picture, role)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (id) DO UPDATE
-               SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture, role = EXCLUDED.role`,
-              [item.id, item.email, item.name || '', item.picture || null, item.role || 'USER']
-            );
+            await upsertUser(item.id, item.email, item.name || '', item.role || 'USER', item.picture || null, undefined, client);
 
             // Link the user to the company
             await client.query(

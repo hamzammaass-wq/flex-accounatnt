@@ -9,12 +9,12 @@ import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import {
     UserPlus, Trash2, Users, Truck, Search, FileText, X,
-    Phone, LayoutGrid, Edit2,
+    Phone, LayoutGrid, Edit2, List,
     Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
 import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, applyExcelStyles, printElementContent, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
-import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget } from '../utils/drilldown';
+import { clearPendingDrilldown, consumePendingDrilldown, DRILLDOWN_EVENT_NAME, DrilldownTarget, openDrilldown } from '../utils/drilldown';
 import { getCurrentFiscalYearRange } from '../utils/fiscalYear';
 
 const DIRECTORY_TAB_STORAGE_KEY = 'smart-account:directory-tab:v1';
@@ -33,6 +33,7 @@ const Directory: React.FC = () => {
     const [stmtStartDate, setStmtStartDate] = useState(currentFiscalYearRange.startDate);
     const [stmtEndDate, setStmtEndDate] = useState(currentFiscalYearRange.endDate);
     const [printCheckImagesInStatement, setPrintCheckImagesInStatement] = useState(false);
+    const [statementViewMode, setStatementViewMode] = useState<'standard' | 'detailed'>('standard');
 
     const [editingContactId, setEditingContactId] = useState<string | null>(null);
     const [newName, setNewName] = useState('');
@@ -542,7 +543,32 @@ const Directory: React.FC = () => {
                                     const detailBlock = renderClassicStatementInlineDetails(row.preview, row.secondaryDescription);
                                     return (
                                         <React.Fragment key={row.id}>
-                                            <tr className={`statement-classic-row ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
+                                            <tr
+                                                className={`statement-classic-row cursor-pointer transition-colors hover:bg-blue-50/40 ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''}`}
+                                                onDoubleClick={() => {
+                                                    if (row.entry.invoiceId) {
+                                                        const invoice = invoices.find(i => i.id === row.entry.invoiceId);
+                                                        if (invoice) {
+                                                            let mode: any = 'SALES';
+                                                            if (invoice.category === 'sales_invoice') mode = 'SALES';
+                                                            else if (invoice.category === 'purchase_invoice') mode = 'PURCHASES';
+                                                            else if (invoice.category === 'expense') mode = 'EXPENSES';
+                                                            else if (invoice.category === 'sales_return') mode = 'SALES_RETURN';
+                                                            else if (invoice.category === 'purchase_return') mode = 'PURCHASE_RETURN';
+                                                            openDrilldown({ kind: 'EDIT_TRANSACTION', mode, invoiceId: invoice.id });
+                                                        }
+                                                    } else if (row.entry.voucherId) {
+                                                        const isReceipt = row.preview.paymentRows?.some((pr: any) => pr.isReceipt);
+                                                        openDrilldown({ kind: 'EDIT_TRANSACTION', mode: 'VOUCHERS', voucherId: row.entry.voucherId, voucherType: isReceipt ? 'RECEIPT' : 'PAYMENT' });
+                                                    } else if (row.entry.id) {
+                                                        const tx = transactions.find(t => t.id === row.entry.id);
+                                                        if (tx && tx.category === 'journal') {
+                                                            openDrilldown({ kind: 'EDIT_TRANSACTION', mode: 'JOURNAL', voucherId: row.entry.id });
+                                                        }
+                                                    }
+                                                }}
+                                                title={tr('اضغط مرتين لفتح المستند', 'Double click to open document')}
+                                            >
                                                 <td className="statement-classic-date-cell dir-ltr">{row.dateText}</td>
                                                 {!hideVoucherColumnInStatement && (
                                                     <td className="statement-classic-document-cell">
@@ -559,7 +585,7 @@ const Directory: React.FC = () => {
                                                 <td className="statement-classic-amount-cell dir-ltr">{row.credit > 0 ? formatStatementFigure(row.credit) : '-'}</td>
                                                 <td className="statement-classic-balance-cell dir-ltr">{formatStatementFigure(row.balance)}</td>
                                             </tr>
-                                            {detailBlock && (
+                                            {detailBlock && statementViewMode === 'detailed' && (
                                                 <tr className="statement-classic-detail-row">
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td colSpan={hideVoucherColumnInStatement ? 1 : 2} className="statement-classic-detail-cell">{detailBlock}</td>
@@ -674,8 +700,8 @@ const Directory: React.FC = () => {
 
         rawTransactions.forEach(t => {
             const { d, c } = getTransactionDC(t, contact);
-            // Use voucherId if present, otherwise unique id
-            const key = t.voucherId || t.id;
+            // Use invoiceId if present, then voucherId, otherwise unique id
+            const key = t.invoiceId || t.voucherId || t.id;
 
             if (!groupedMap.has(key)) {
                 // Initialize group with first transaction details
@@ -2173,6 +2199,22 @@ const Directory: React.FC = () => {
                                         <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
                                     </div>
                                     <div className="directory-statement-toolbar flex items-center gap-2 shrink-0">
+                                        <div className="flex bg-gray-100 rounded-lg p-0.5">
+                                            <button 
+                                                onClick={() => setStatementViewMode('standard')} 
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] sm:text-[11px] font-bold transition-all ${statementViewMode === 'standard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                            >
+                                                <List size={14} />
+                                                <span className="hidden sm:inline">{tr('كشف حساب', 'Standard')}</span>
+                                            </button>
+                                            <button 
+                                                onClick={() => setStatementViewMode('detailed')} 
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] sm:text-[11px] font-bold transition-all ${statementViewMode === 'detailed' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                            >
+                                                <LayoutGrid size={14} />
+                                                <span className="hidden sm:inline">{tr('مفصل', 'Detailed')}</span>
+                                            </button>
+                                        </div>
                                         <DocumentActions
                                             title={`${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`}
                                             shareText={buildStatementShareText(contact, closingBalance)}

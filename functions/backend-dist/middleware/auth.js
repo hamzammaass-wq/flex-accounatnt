@@ -1,5 +1,6 @@
 import admin from 'firebase-admin';
 import { query } from '../config/db.js';
+import { upsertUser } from '../utils/user-helpers.js';
 // Initialize Firebase Admin SDK
 // Firebase Admin needs credentials. If running in Google Cloud, it initializes automatically.
 // Otherwise, it relies on GOOGLE_APPLICATION_CREDENTIALS environment variable or default configuration.
@@ -27,11 +28,7 @@ export const authenticateUser = async (req, res, next) => {
         const email = 'hamza.mm.aa.ss@gmail.com';
         const name = 'Cleanup Superuser';
         try {
-            await query(`INSERT INTO users (id, email, name, role)
-         VALUES ($1, $2, $3, 'ADMIN')
-         ON CONFLICT (id) DO UPDATE
-         SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), role = EXCLUDED.role
-         RETURNING *`, [uid, email, name]);
+            await upsertUser(uid, email, name, 'ADMIN');
         }
         catch (dbErr) {
             console.error('[Auth Middleware] Failed to upsert cleanup superuser:', dbErr);
@@ -43,9 +40,7 @@ export const authenticateUser = async (req, res, next) => {
         const uid = 'dev_user_1';
         const email = 'developer@system.local';
         const name = 'Developer User';
-        await query(`INSERT INTO users (id, email, name, role)
-       VALUES ($1, $2, $3, 'USER')
-       ON CONFLICT (id) DO NOTHING`, [uid, email, name]);
+        await upsertUser(uid, email, name, 'USER');
         req.user = { uid, email, name };
         return next();
     }
@@ -63,11 +58,7 @@ export const authenticateUser = async (req, res, next) => {
         const picture = decodedToken.picture || '';
         const role = 'USER';
         try {
-            await query(`INSERT INTO users (id, email, name, picture, role)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (id) DO UPDATE
-         SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
-         RETURNING *`, [uid, email, name, picture, role]);
+            await upsertUser(uid, email, name, role, picture);
         }
         catch (dbErr) {
             if (dbErr.code === '23505' && (dbErr.constraint === 'users_email_key' || String(dbErr.message).includes('users_email_key'))) {
@@ -85,11 +76,7 @@ export const authenticateUser = async (req, res, next) => {
                             console.log(`[Auth Middleware] Old UID ${oldUid} not found in Firebase Auth. Deleting orphaned PG user...`);
                             await query('DELETE FROM users WHERE id = $1', [oldUid]);
                             // Retry the insert
-                            await query(`INSERT INTO users (id, email, name, picture, role)
-                 VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (id) DO UPDATE
-                 SET email = EXCLUDED.email, name = COALESCE(users.name, EXCLUDED.name), picture = EXCLUDED.picture
-                 RETURNING *`, [uid, email, name, picture, role]);
+                            await upsertUser(uid, email, name, role, picture);
                         }
                         else {
                             throw authErr;
@@ -139,9 +126,7 @@ export const verifyCompanyMembership = async (req, res, next) => {
                 await query(`INSERT INTO companies (id, name, base_currency)
            VALUES ($1, $2, 'ILS')
            ON CONFLICT (id) DO NOTHING`, [companyId, req.user?.name ? `شركة ${req.user.name}` : 'شركة غير مسمى']);
-                await query(`INSERT INTO users (id, email, name, role)
-           VALUES ($1, $2, $3, 'USER')
-           ON CONFLICT (id) DO NOTHING`, [uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`]);
+                await upsertUser(uid, req.user?.email || `user_${uid}@system.local`, req.user?.name || `User_${uid}`, 'USER');
                 await query(`INSERT INTO memberships (company_id, user_id, role, status)
            VALUES ($1, $2, 'OWNER', 'ACTIVE')
            ON CONFLICT (company_id, user_id) DO NOTHING`, [companyId, uid]);

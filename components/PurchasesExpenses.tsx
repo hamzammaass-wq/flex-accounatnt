@@ -12,6 +12,7 @@ import { TransactionTabType } from './TransactionForm';
 import EnglishDateInput from './EnglishDateInput';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import { openDrilldown } from '../utils/drilldown';
+import { printHtmlContent } from '../utils/documentExport';
 
 interface PurchasesExpensesProps {
     onNavigate: (tab: TabView, formTab?: TransactionTabType, voucherType?: 'RECEIPT' | 'PAYMENT') => void;
@@ -117,6 +118,118 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
       if (!id) return tr('مصروف عام', 'General Expense');
       return displayContactName(contacts.find(c => c.id === id) || null) || tr('مورد خدمات', 'Service Supplier');
   };
+
+  const handlePrintExpense = (inv: any) => {
+      const contactName = getContactName(inv.customerId);
+      const invoiceItems = getInvoiceItems(inv) as Array<{ productId?: string; description?: string; quantity?: number; total?: number }>;
+      const isImport = inv.category === 'import_expenses';
+      const title = isImport ? tr('سند مصروفات استيراد', 'Import Expense Voucher') : tr('سند مصروف', 'Expense Voucher');
+
+      const tableRows = invoiceItems.map((item, idx) => {
+          const itemName = item.productId ? displayProductName(products.find(p => p.id === item.productId) || null) : item.description;
+          const qty = Number(item.quantity) || 0;
+          const total = Number(item.total) || 0;
+          const price = qty > 0 ? (total / qty) : total;
+
+          return `
+              <tr>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${idx + 1}</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee;"><strong>${itemName}</strong></td>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${qty > 0 ? qty : '-'}</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${price > 0 ? price.toLocaleString() : '-'}</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-weight: bold; color: var(--primary);">${total.toLocaleString()} ${baseCurrency}</td>
+              </tr>
+          `;
+      }).join('');
+
+      const html = `
+          <div style="font-family: 'Cairo', system-ui, sans-serif; max-width: 800px; margin: 0 auto; color: #1e293b; line-height: 1.6;">
+              <!-- Header Section -->
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 3px solid var(--primary); padding-bottom: 20px;">
+                  <div>
+                      <h1 style="color: var(--primary); font-size: 28px; font-weight: 900; margin: 0 0 5px 0;">${companySettings?.name || 'Smart Accountant'}</h1>
+                      <div style="color: #64748b; font-size: 14px;">
+                          ${companySettings?.address ? `<p style="margin: 2px 0;">${companySettings.address}</p>` : ''}
+                          ${companySettings?.taxNumber ? `<p style="margin: 2px 0;">${tr('الرقم الضريبي', 'Tax No')}: ${companySettings.taxNumber}</p>` : ''}
+                      </div>
+                  </div>
+                  <div style="text-align: left;">
+                      <h2 style="font-size: 24px; font-weight: 900; margin: 0 0 10px 0; color: #0f172a;">${title}</h2>
+                      <div style="background: var(--bg-light); padding: 10px 15px; border-radius: 8px; display: inline-block;">
+                          <p style="margin: 0; font-size: 14px;"><strong>${tr('رقم القيد', 'Entry No.')}:</strong> ${inv.invoiceNumber}</p>
+                          <p style="margin: 5px 0 0 0; font-size: 14px;"><strong>${tr('التاريخ', 'Date')}:</strong> ${formatDate(inv.date)}</p>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- Meta Info Cards -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                  <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px;">
+                      <h3 style="font-size: 12px; color: #64748b; text-transform: uppercase; margin: 0 0 5px 0;">${tr('المستفيد / المورد', 'Beneficiary / Supplier')}</h3>
+                      <p style="font-size: 16px; font-weight: 700; margin: 0; color: #0f172a;">${contactName}</p>
+                  </div>
+                  <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px;">
+                      <h3 style="font-size: 12px; color: #64748b; text-transform: uppercase; margin: 0 0 5px 0;">${tr('طريقة الدفع', 'Payment Method')}</h3>
+                      <p style="font-size: 16px; font-weight: 700; margin: 0; color: #0f172a;">
+                          ${inv.cashAmount ? tr('نقدي', 'Cash') : inv.bankAmount ? tr('تحويل بنكي', 'Bank Transfer') : tr('آجل', 'Credit')}
+                      </p>
+                  </div>
+              </div>
+
+              <!-- Table -->
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+                  <thead>
+                      <tr style="background-color: var(--primary); color: white;">
+                          <th style="padding: 12px; text-align: center; border-radius: 0 8px 8px 0; width: 50px;">#</th>
+                          <th style="padding: 12px; text-align: right;">${tr('البيان', 'Description')}</th>
+                          <th style="padding: 12px; text-align: center;">${tr('الكمية', 'Qty')}</th>
+                          <th style="padding: 12px; text-align: center;">${tr('السعر', 'Price')}</th>
+                          <th style="padding: 12px; text-align: left; border-radius: 8px 0 0 8px;">${tr('المجموع', 'Total')}</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      ${tableRows}
+                  </tbody>
+              </table>
+
+              <!-- Totals Section -->
+              <div style="display: flex; justify-content: flex-end; margin-bottom: 40px;">
+                  <div style="width: 350px; background: var(--bg-light); border-radius: 12px; padding: 20px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 900; color: var(--primary);">
+                          <span>${tr('الإجمالي', 'Total')}:</span>
+                          <span>${getInvoiceTotal(inv).toLocaleString()} ${baseCurrency}</span>
+                      </div>
+                  </div>
+              </div>
+
+              ${inv.notes ? `
+                  <div style="margin-bottom: 40px; padding: 15px; background: #f8fafc; border-radius: 8px; border-right: 4px solid var(--primary);">
+                      <strong style="color: #64748b; font-size: 12px; text-transform: uppercase;">${tr('ملاحظات', 'Notes')}</strong>
+                      <p style="margin: 5px 0 0 0; font-size: 14px; color: #334155;">${inv.notes}</p>
+                  </div>
+              ` : ''}
+
+              <!-- Signatures -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 60px; padding-top: 40px; border-top: 1px dashed #cbd5e1;">
+                  <div style="text-align: center;">
+                      <p style="margin: 0 0 40px 0; color: #64748b; font-weight: bold;">${tr('المحاسب', 'Accountant')}</p>
+                      <div style="border-bottom: 1px solid #cbd5e1; width: 80%; margin: 0 auto;"></div>
+                  </div>
+                  <div style="text-align: center;">
+                      <p style="margin: 0 0 40px 0; color: #64748b; font-weight: bold;">${tr('المستلم / المعتمد', 'Receiver / Approver')}</p>
+                      <div style="border-bottom: 1px solid #cbd5e1; width: 80%; margin: 0 auto;"></div>
+                  </div>
+              </div>
+              
+              <div style="text-align: center; margin-top: 40px; font-size: 11px; color: #94a3b8;">
+                  ${tr('تم إنشاء هذا السند بواسطة نظام فليكس إي آر بي', 'Generated by Flex ERP')}
+              </div>
+          </div>
+      `;
+
+      printHtmlContent(html);
+  };
+
 
   const activeAdvancedFilterCount = [
     statusFilter !== 'ALL',
@@ -446,7 +559,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                             )}
                             <div className="flex justify-between items-center text-[10px] text-gray-400 font-black uppercase tracking-widest">
                                 <span>{tr('رقم القيد', 'Entry No.')}: {inv.invoiceNumber}</span>
-                                <button className="flex items-center gap-1 hover:text-rose-600 transition-colors">
+                                <button onClick={(e) => { e.stopPropagation(); handlePrintExpense(inv); }} className="flex items-center gap-1 hover:text-rose-600 transition-colors">
                                     <Printer size={14} /> {tr('طباعة', 'Print')}
                                 </button>
                             </div>

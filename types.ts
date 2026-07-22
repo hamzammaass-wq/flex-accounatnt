@@ -26,7 +26,8 @@ export type PermissionModule =
   | 'HR'
   | 'SETTLEMENTS'
   | 'BANK_RECON'
-  | 'SETTINGS';
+  | 'SETTINGS'
+  | 'FIXED_ASSETS';
 
 export interface PermissionMatrix {
   modules: Record<PermissionModule, Record<PermissionAction, boolean>>;
@@ -151,7 +152,6 @@ export interface Contact {
   linkedAccountId?: string;
   currentAccountId?: string;
   capitalAccountId?: string;
-  drawingsAccountId?: string;
 }
 
 // HR Types
