@@ -75,6 +75,7 @@ type PartnerCapitalContributionInput = {
   date: string;
   note?: string;
   isReduction?: boolean;
+  assetId?: string;
 };
 
 type PartnerCurrentReceiptInput = {
@@ -4359,7 +4360,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       contactId: input.partnerId,
       currency: baseCurrency,
       exchangeRate: 1,
-      status: 'POSTED'
+      status: 'POSTED',
+      assetId: input.assetId
     }, accountSnapshot);
   };
 

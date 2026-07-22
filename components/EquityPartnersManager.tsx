@@ -16,6 +16,7 @@ import {
 } from '../utils/equityPartners';
 import { compressImageFile } from '../utils/imageCompression';
 import QuickAddAccountModal from './QuickAddAccountModal';
+import QuickAddFixedAssetModal from './QuickAddFixedAssetModal';
 
 type TabKey = 'DASHBOARD' | 'CAPITAL' | 'PARTNER_ACCOUNTS' | 'PROFIT_DISTRIBUTION' | 'SETTLEMENT';
 
@@ -125,10 +126,12 @@ const EquityPartnersManager: React.FC = () => {
   const [capitalPartnerId, setCapitalPartnerId] = useState('');
   const [capitalPartnerName, setCapitalPartnerName] = useState('');
   const [capitalAmount, setCapitalAmount] = useState('');
+  const [capitalFundingAccountId, setCapitalFundingAccountId] = useState('');
+  const [capitalFundingAssetId, setCapitalFundingAssetId] = useState('');
+  const [showQuickFixedAsset, setShowQuickFixedAsset] = useState(false);
   const [capitalDate, setCapitalDate] = useState(today());
   const [capitalSharePercent, setCapitalSharePercent] = useState('');
   const [capitalPartnerType, setCapitalPartnerType] = useState('');
-  const [capitalFundingAccountId, setCapitalFundingAccountId] = useState('');
   const [capitalFilterPartnerId, setCapitalFilterPartnerId] = useState('ALL');
   const [capitalFilterFrom, setCapitalFilterFrom] = useState('');
   const [capitalFilterTo, setCapitalFilterTo] = useState('');
@@ -473,11 +476,31 @@ const EquityPartnersManager: React.FC = () => {
     return { ok: true, totalAllocated: draft.totalAllocated, remainder: draft.remainder, message: '' };
   }, [distDate, distPeriod, distTotalProfit, distMethod, retainedEarningsAccountId, partnerRows, baseCurrency, distCustomRatios, distFixedAmounts, distNote]);
 
+  const isAccountOrDescendantOf = (accountId: string, rootId: string) => {
+    let currentId: string | undefined = accountId;
+    const visited = new Set<string>();
+    while (currentId) {
+      if (currentId === rootId) return true;
+      if (visited.has(currentId)) break;
+      visited.add(currentId);
+      const acct = accounts.find(a => a.id === currentId);
+      currentId = acct?.parentId;
+    }
+    return false;
+  };
+
+  const isFundingAccountFixedAsset = capitalFundingAccountId && (
+    isAccountOrDescendantOf(capitalFundingAccountId, 'acc_fixed_assets_root') ||
+    capitalFundingAccountId === 'acc_depreciation_exp' ||
+    capitalFundingAccountId === 'acc_accumulated_depreciation'
+  );
+
   const postCapital = (mode: 'CREATE' | 'INCREASE' | 'DECREASE') => {
     if (!canCreateEntries || !canPostEntries) return alert(tr('لا تملك صلاحية كافية.', 'Insufficient permission.'));
     const amount = roundMoney(Number(capitalAmount) || 0);
     if (amount <= 0) return alert(tr('أدخل مبلغ رأس مال صحيح.', 'Enter a valid capital amount.'));
     if (!capitalFundingAccountId) return alert(tr('اختر حساب تمويل.', 'Select funding account.'));
+    if (isFundingAccountFixedAsset && !capitalFundingAssetId) return alert(tr('اختر الأصل الثابت.', 'Select the fixed asset.'));
     if (!isPostingDateAllowed(capitalDate)) return alert(tr('الفترة مقفلة لهذا التاريخ.', 'Period is closed for this date.'));
 
     let partnerId = capitalPartnerId;
@@ -499,6 +522,7 @@ const EquityPartnersManager: React.FC = () => {
       partnerName,
       amount,
       fundingAccountId: capitalFundingAccountId,
+      assetId: isFundingAccountFixedAsset ? capitalFundingAssetId : undefined,
       date: capitalDate,
       note: mode === 'CREATE' ? 'create_capital_entry' : mode === 'INCREASE' ? 'increase_capital_entry' : 'decrease_capital_entry',
       isReduction: mode === 'DECREASE'
@@ -786,6 +810,33 @@ const EquityPartnersManager: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {isFundingAccountFixedAsset && (
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-gray-700">{tr('الأصل الثابت', 'Fixed Asset')}</label>
+                <div className="flex gap-2">
+                  <select
+                    value={capitalFundingAssetId}
+                    onChange={e => setCapitalFundingAssetId(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">{tr('اختر الأصل...', 'Select asset...')}</option>
+                    {contacts.filter(c => c.type === 'FIXED_ASSET').map(a => (
+                      <option key={a.id} value={a.id}>{displayContactName(a)}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickFixedAsset(true)}
+                    className="px-3 min-h-[44px] bg-slate-100 text-indigo-600 rounded-xl hover:bg-slate-200 transition-colors flex items-center justify-center font-black"
+                    title={tr('إضافة أصل ثابت جديد', 'Add new fixed asset')}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-2">
               <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('CREATE')} className="p-2.5 rounded-xl bg-blue-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('إضافة رأس مال', 'Create Capital Entry')}</button>
               <button disabled={!canCreateEntries || !canPostEntries} onClick={() => postCapital('INCREASE')} className="p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-60"><Plus size={13} />{tr('زيادة رأس مال', 'Increase Capital')}</button>
@@ -1131,6 +1182,14 @@ const EquityPartnersManager: React.FC = () => {
           onSave={(id) => {
             setCapitalFundingAccountId(id);
             setShowQuickAccount(false);
+          }}
+        />
+      )}
+      {showQuickFixedAsset && (
+        <QuickAddFixedAssetModal
+          onClose={() => setShowQuickFixedAsset(false)}
+          onSave={(id) => {
+            setCapitalFundingAssetId(id);
           }}
         />
       )}
