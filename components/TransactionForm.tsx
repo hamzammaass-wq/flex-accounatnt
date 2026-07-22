@@ -5929,7 +5929,7 @@ interface JournalLine {
     linkedAccountId?: string;
 }
 
-type JournalRequirement = 'NONE' | 'CUSTOMER' | 'SUPPLIER' | 'EMPLOYEE' | 'CHECK_COLLECTION' | 'OUTGOING_CHECK' | 'FIXED_ASSET';
+type JournalRequirement = 'NONE' | 'CUSTOMER' | 'SUPPLIER' | 'EMPLOYEE' | 'CHECK_COLLECTION' | 'OUTGOING_CHECK' | 'FIXED_ASSET' | 'PARTNER';
 
 const JournalScreen: React.FC<{
     sharedState: any;
@@ -5955,6 +5955,7 @@ const JournalScreen: React.FC<{
     const [showQuickAccount, setShowQuickAccount] = useState(false);
     const [quickAccountInitialName, setQuickAccountInitialName] = useState('');
     const [quickFixedAssetLineId, setQuickFixedAssetLineId] = useState<string | null>(null);
+    const [quickPartnerLineId, setQuickPartnerLineId] = useState<string | null>(null);
 
     const customerContacts = useMemo(() => contacts.filter(c => c.type === 'CUSTOMER'), [contacts]);
     const supplierContacts = useMemo(() => contacts.filter(c => c.type === 'SUPPLIER'), [contacts]);
@@ -6058,6 +6059,7 @@ const JournalScreen: React.FC<{
         if (isAccountOrDescendantOf(accountId, 'acc_notes_payable')) return 'OUTGOING_CHECK';
         if (accountId === 'acc_depreciation_exp' || accountId === 'acc_accumulated_depreciation') return 'FIXED_ASSET';
         if (isAccountOrDescendantOf(accountId, 'acc_fixed_assets_root')) return 'FIXED_ASSET';
+        if (isAccountOrDescendantOf(accountId, 'acc_partners_capital') || isAccountOrDescendantOf(accountId, 'acc_partner_current')) return 'PARTNER';
         return 'NONE';
     };
 
@@ -6800,6 +6802,27 @@ const JournalScreen: React.FC<{
                                     );
                                 }
 
+                                if (requirement === 'PARTNER') {
+                                    return (
+                                        <div className="bg-sky-50 border border-sky-100 rounded-xl p-2">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="block text-[10px] font-black text-sky-700">{tr('الشريك المرتبط بالحساب', 'Partner linked to account')}</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQuickPartnerLineId(line.id)}
+                                                    className="w-4 h-4 bg-sky-100 hover:bg-sky-200 text-sky-700 rounded-full flex justify-center items-center font-bold text-xs"
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+                                            <select value={line.contactId || ''} onChange={e => handleUpdateLine(line.id, 'contactId', e.target.value)} className="w-full bg-white p-2 rounded-xl text-xs font-bold outline-none">
+                                                <option value="">{tr('-- اختر الشريك --', '-- Select Partner --')}</option>
+                                                {contacts.filter(c => c.type === 'PARTNER').map(c => <option key={c.id} value={c.id}>{displayContactName(c)}</option>)}
+                                            </select>
+                                        </div>
+                                    );
+                                }
+
                                 if (requirement === 'SUPPLIER') {
                                     return (
                                         <div className="bg-purple-50 border border-purple-100 rounded-xl p-2">
@@ -6985,6 +7008,16 @@ const JournalScreen: React.FC<{
                     onSave={(id) => {
                         handleUpdateLine(quickFixedAssetLineId, 'assetId', id);
                         setQuickFixedAssetLineId(null);
+                    }}
+                />
+            )}
+            {quickPartnerLineId && (
+                <QuickAddContactModal
+                    type="PARTNER"
+                    onClose={() => setQuickPartnerLineId(null)}
+                    onSave={(id) => {
+                        handleUpdateLine(quickPartnerLineId, 'contactId', id);
+                        setQuickPartnerLineId(null);
                     }}
                 />
             )}
