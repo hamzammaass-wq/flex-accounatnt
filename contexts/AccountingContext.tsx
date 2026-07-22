@@ -281,7 +281,7 @@ interface AccountingContextType {
   deleteTicket: (id: string) => void;
 
   fixedAssets: FixedAsset[];
-  addFixedAsset: (asset: Omit<FixedAsset, 'id'>) => void;
+  addFixedAsset: (asset: Omit<FixedAsset, 'id'>) => string | null;
   updateFixedAsset: (id: string, updates: Partial<FixedAsset>) => void;
   deleteFixedAsset: (id: string) => void;
 
@@ -7232,8 +7232,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     setTickets(prev => prev.filter(t => t.id !== id));
   };
   const addFixedAsset = (asset: Omit<FixedAsset, 'id'>) => {
-    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'ADD', 'Fixed Assets')) return;
-    setFixedAssets(prev => [...prev, { ...asset, id: Math.random().toString(36).substr(2, 9) }]);
+    if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'ADD', 'Fixed Assets')) return null;
+    const id = Math.random().toString(36).substr(2, 9);
+    setFixedAssets(prev => [...prev, { ...asset, id }]);
+    return id;
   };
   const updateFixedAsset = (id: string, updates: Partial<FixedAsset>) => {
     if (!guardSubscriptionOnlyMutation('ACCOUNTS', 'EDIT', 'Fixed Assets')) return;

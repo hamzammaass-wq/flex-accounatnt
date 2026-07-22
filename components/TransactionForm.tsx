@@ -879,6 +879,63 @@ const QuickAddContactModal: React.FC<{ type: ContactType; onClose: () => void; o
     );
 };
 
+// --- Quick Add Fixed Asset Modal ---
+const QuickAddFixedAssetModal: React.FC<{ onClose: () => void; onSave: (id: string) => void }> = ({ onClose, onSave }) => {
+    const { addFixedAsset, companySettings } = useAccounting();
+    const [name, setName] = useState('');
+    const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
+    const tr = (ar: string, en: string) => (isEnglish ? en : ar);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!name.trim()) return;
+        
+        const newAsset = {
+            name: name.trim(),
+            description: '',
+            status: 'ACTIVE' as const,
+            baseCost: 0,
+            accumulatedDepreciation: 0,
+            netBookValue: 0,
+            depreciationMethod: 'STRAIGHT_LINE' as const,
+            usefulLifeYears: 5,
+            scrapValue: 0,
+            createdAt: new Date().toISOString()
+        };
+        
+        const id = addFixedAsset(newAsset);
+        if (id) {
+            onSave(id);
+        }
+        onClose();
+    };
+
+    return (
+        <ResponsiveDialog
+            open
+            onClose={onClose}
+            size="md"
+            zIndexClassName="z-[300]"
+            backdropClassName="bg-black/70 backdrop-blur-md"
+            panelClassName="bg-white rounded-[2.5rem] p-8 shadow-2xl"
+        >
+            <form onSubmit={handleSubmit} className="animate-in zoom-in-95" dir={isEnglish ? 'ltr' : 'rtl'}>
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-black text-gray-800 text-lg">
+                        {tr('إضافة أصل ثابت جديد', 'Add New Fixed Asset')}
+                    </h3>
+                    <button type="button" onClick={onClose} className="p-2 bg-gray-50 rounded-full text-gray-400"><X size={20} /></button>
+                </div>
+                <div className="space-y-4">
+                    <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder={tr('اسم الأصل الثابت', 'Fixed Asset Name')} className={inputClass} />
+                    <button type="submit" className="w-full min-h-[44px] py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-indigo-200 mt-2">{tr('حفظ الأصل', 'Save Asset')}</button>
+                </div>
+            </form>
+        </ResponsiveDialog>
+    );
+};
+
+
 // --- Quick Add Product Modal ---
 const QuickAddProductModalLegacy: React.FC<{ onClose: () => void; onSave: (product: Product) => void }> = ({ onClose, onSave }) => {
     const { addProduct, companySettings, products } = useAccounting();
@@ -5897,6 +5954,7 @@ const JournalScreen: React.FC<{
     ]);
     const [showQuickAccount, setShowQuickAccount] = useState(false);
     const [quickAccountInitialName, setQuickAccountInitialName] = useState('');
+    const [quickFixedAssetLineId, setQuickFixedAssetLineId] = useState<string | null>(null);
 
     const customerContacts = useMemo(() => contacts.filter(c => c.type === 'CUSTOMER'), [contacts]);
     const supplierContacts = useMemo(() => contacts.filter(c => c.type === 'SUPPLIER'), [contacts]);
@@ -6757,7 +6815,16 @@ const JournalScreen: React.FC<{
                                 if (requirement === 'FIXED_ASSET') {
                                     return (
                                         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-2">
-                                            <label className="block text-[10px] font-black text-indigo-700 mb-1">{tr('الأصل الثابت المرتبط', 'Linked fixed asset')}</label>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="block text-[10px] font-black text-indigo-700">{tr('الأصل الثابت المرتبط', 'Linked fixed asset')}</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQuickFixedAssetLineId(line.id)}
+                                                    className="w-4 h-4 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-full flex justify-center items-center font-bold text-xs"
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
                                             <select value={line.assetId || ''} onChange={e => handleUpdateLine(line.id, 'assetId', e.target.value)} className="w-full bg-white p-2 rounded-xl text-xs font-bold outline-none">
                                                 <option value="">{tr('-- اختر الأصل الثابت --', '-- Select Fixed Asset --')}</option>
                                                 {fixedAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
@@ -6910,6 +6977,15 @@ const JournalScreen: React.FC<{
                     onClose={() => { setQuickAccountInitialName(''); setShowQuickAccount(false); }}
                     onSave={() => { setQuickAccountInitialName(''); setShowQuickAccount(false); }}
                     initialName={quickAccountInitialName}
+                />
+            )}
+            {quickFixedAssetLineId && (
+                <QuickAddFixedAssetModal
+                    onClose={() => setQuickFixedAssetLineId(null)}
+                    onSave={(id) => {
+                        handleUpdateLine(quickFixedAssetLineId, 'assetId', id);
+                        setQuickFixedAssetLineId(null);
+                    }}
                 />
             )}
         </div>
