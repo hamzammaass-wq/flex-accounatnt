@@ -136,8 +136,8 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                   <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${idx + 1}</td>
                   <td style="padding: 12px; border-bottom: 1px solid #eee;"><strong>${itemName}</strong></td>
                   <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${qty > 0 ? qty : '-'}</td>
-                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${price > 0 ? price.toLocaleString() : '-'}</td>
-                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-weight: bold; color: var(--primary);">${total.toLocaleString()} ${baseCurrency}</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${price > 0 ? price.toLocaleString('en-US') : '-'}</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-weight: bold; color: var(--primary);">${total.toLocaleString('en-US')} ${baseCurrency}</td>
               </tr>
           `;
       }).join('');
@@ -197,7 +197,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                   <div style="width: 350px; background: var(--bg-light); border-radius: 12px; padding: 20px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; font-size: 20px; font-weight: 900; color: var(--primary);">
                           <span>${tr('الإجمالي', 'Total')}:</span>
-                          <span>${getInvoiceTotal(inv).toLocaleString()} ${baseCurrency}</span>
+                          <span>${getInvoiceTotal(inv).toLocaleString('en-US')} ${baseCurrency}</span>
                       </div>
                   </div>
               </div>
@@ -278,7 +278,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
       {/* Summary Card */}
       <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm mb-8">
           <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">{tr('إجمالي المصروفات', 'Total Expenses')}</span>
-          <h2 className="text-4xl font-black text-rose-600 dir-ltr tracking-tighter">{totalExpenses.toLocaleString()} <span className="text-sm text-gray-400">{baseCurrency}</span></h2>
+          <h2 className="text-4xl font-black text-rose-600 dir-ltr tracking-tighter">{totalExpenses.toLocaleString('en-US')} <span className="text-sm text-gray-400">{baseCurrency}</span></h2>
       </div>
 
       {/* Search */}
@@ -496,7 +496,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                         </div>
                         <div className="text-end">
                             <span className="block font-black text-rose-600 dir-ltr text-lg tracking-tighter">
-                                {getInvoiceTotal(inv).toLocaleString()}
+                                {getInvoiceTotal(inv).toLocaleString('en-US')}
                             </span>
                             <span className="flex justify-end mt-1 text-gray-300">
                                 {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -523,7 +523,7 @@ const PurchasesExpenses: React.FC<PurchasesExpensesProps> = ({ onNavigate, onEdi
                                         </span>
                                         <div className="flex items-center gap-3">
                                             {(Number(item.quantity) || 0) > 1 && <span className="text-[10px] text-gray-400 font-bold">x{item.quantity}</span>}
-                                            <span className="font-black text-rose-600 dir-ltr">{Number(item.total || 0).toLocaleString()}</span>
+                                            <span className="font-black text-rose-600 dir-ltr">{Number(item.total || 0).toLocaleString('en-US')}</span>
                                         </div>
                                     </div>
                                 ))}

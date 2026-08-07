@@ -18,7 +18,7 @@ const DEFAULT_PLAN: CompanySubscriptionPlan = 'BASIC';
 const DEFAULT_CYCLE: SubscriptionBillingCycle = 'YEARLY';
 
 const PRICING: Record<SubscriptionBillingCycle, { basePriceUsd: number; extraCompanyPriceUsd: number }> = {
-  YEARLY: { basePriceUsd: 100, extraCompanyPriceUsd: 20 }
+  YEARLY: { basePriceUsd: 40, extraCompanyPriceUsd: 10 }
 };
 
 const PALPAY_CHECKOUT_URL = String(import.meta.env.VITE_PALPAY_CHECKOUT_URL || '').trim();

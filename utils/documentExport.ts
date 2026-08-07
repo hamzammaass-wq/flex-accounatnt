@@ -706,6 +706,20 @@ export const printElementContent = (element: HTMLElement | null, options: PrintE
     /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) && 
     !Capacitor.isNativePlatform();
 
+  const isIosStandalone = typeof window !== 'undefined' && 
+    /iPhone|iPad|iPod/i.test(navigator.userAgent) && 
+    (('standalone' in window.navigator && (window.navigator as any).standalone) || window.matchMedia('(display-mode: standalone)').matches);
+
+  if (isIosStandalone) {
+    downloadElementAsPdf(element, {
+      fileName: options.title || 'document',
+      orientation: options.pageOrientation,
+      dir: options.dir,
+      lang: options.lang
+    }).catch(console.error);
+    return true;
+  }
+
   if (isMobileWeb) {
     const printContainer = document.createElement('div');
     printContainer.className = 'mobile-print-container';
@@ -1582,6 +1596,10 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
   }
 
   const isMobileWeb = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) && !Capacitor.isNativePlatform();
+  
+  const isIosStandalone = typeof window !== 'undefined' && 
+    /iPhone|iPad|iPod/i.test(navigator.userAgent) && 
+    (('standalone' in window.navigator && (window.navigator as any).standalone) || window.matchMedia('(display-mode: standalone)').matches);
 
   if (isMobileWeb) {
     const printContainer = document.createElement('div');
@@ -1617,6 +1635,10 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
       const styleEl = document.createElement('style');
       styleEl.innerHTML = `
         @media print {
+          @page {
+            size: auto;
+            margin: 5mm;
+          }
           html, body {
             overflow: visible !important;
             height: auto !important;
@@ -1624,6 +1646,8 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
             position: static !important;
             background: #ffffff !important;
             color: #000000 !important;
+            width: 1024px !important;
+            min-width: 1024px !important;
           }
           body > *:not(.mobile-print-container) {
             display: none !important;
@@ -1631,12 +1655,13 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
           .mobile-print-container {
             display: block !important;
             position: static !important;
-            width: 100% !important;
+            width: 1024px !important;
+            min-width: 1024px !important;
             height: auto !important;
             background: #ffffff !important;
             color: #000000 !important;
             padding: 0 !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             overflow: visible !important;
           }
           .mobile-print-container .no-print {
@@ -1655,6 +1680,15 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
 
       document.body.appendChild(printContainer);
 
+      if (isIosStandalone) {
+        downloadElementAsPdf(printContainer, { fileName: 'document' }).finally(() => {
+          if (printContainer.parentNode) {
+            printContainer.remove();
+          }
+        });
+        return true;
+      }
+
       window.focus();
       setTimeout(() => {
         window.print();
@@ -1666,6 +1700,16 @@ export const printHtmlContent = (html: string, options?: { targetWindow?: Window
       console.error('Error parsing html for mobile printing:', err);
       printContainer.innerHTML = html;
       document.body.appendChild(printContainer);
+      
+      if (isIosStandalone) {
+        downloadElementAsPdf(printContainer, { fileName: 'document' }).finally(() => {
+          if (printContainer.parentNode) {
+            printContainer.remove();
+          }
+        });
+        return true;
+      }
+
       window.focus();
       setTimeout(() => {
         window.print();

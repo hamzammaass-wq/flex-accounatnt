@@ -11,7 +11,7 @@ import QuickAddAccountModal from './QuickAddAccountModal';
 import QuickAddFixedAssetModal from './QuickAddFixedAssetModal';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import ResponsiveOverlay from './layout/ResponsiveOverlay';
-import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName } from '../utils/displayNames';
+import { getDisplayAccountName, getDisplayContactName, getDisplayProductName, getDisplayWarehouseName, getDisplayUnitName } from '../utils/displayNames';
 import {
     Wallet, ArrowLeft, ArrowRight, Check, X, ChevronDown,
     Plus, Trash2, Package, CreditCard, PlusCircle, ArrowRightLeft, Percent,
@@ -521,7 +521,8 @@ interface SearchableAccountSelectProps {
     inputClassName?: string;
     inputTestId?: string;
     onCreateNew?: (name: string) => void;
-    createNewLabel?: string;
+    createNewLabel?: string | ((query: string) => string);
+    renderCustomCreateOptions?: (query: string, closeDropdown: () => void) => React.ReactNode;
 }
 
 const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
@@ -536,7 +537,8 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
     inputClassName = '',
     inputTestId,
     onCreateNew,
-    createNewLabel
+    createNewLabel,
+    renderCustomCreateOptions
 }) => {
     const [query, setQuery] = useState('');
     const [isOpen, setIsOpen] = useState(false);
@@ -723,18 +725,22 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
                     )) : (
                         <div className="px-3 py-3 text-xs font-black text-slate-400">{emptyLabel}</div>
                     )}
-                    {onCreateNew && query.trim() && !accounts.some(a => displayAccountName(a).trim().toLowerCase() === query.trim().toLowerCase()) && (
-                        <button
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => {
-                                onCreateNew(query.trim());
-                                setIsOpen(false);
-                            }}
-                            className="w-full text-start px-3 py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border-t border-indigo-100 transition-colors"
-                        >
-                            <span className="inline-flex items-center gap-1.5"><Plus size={14} />{createNewLabel || (isEnglish ? `Add account "${query}"` : `إضافة حساب "${query}"`)}</span>
-                        </button>
+                    {renderCustomCreateOptions && query.trim() && !accounts.some(a => displayAccountName(a).trim().toLowerCase() === query.trim().toLowerCase()) ? (
+                        renderCustomCreateOptions(query.trim(), () => setIsOpen(false))
+                    ) : (
+                        onCreateNew && query.trim() && !accounts.some(a => displayAccountName(a).trim().toLowerCase() === query.trim().toLowerCase()) && (
+                            <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                    onCreateNew(query.trim());
+                                    setIsOpen(false);
+                                }}
+                                className="w-full text-start px-3 py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border-t border-indigo-100 transition-colors"
+                            >
+                                <span className="inline-flex items-center gap-1.5"><Plus size={14} />{typeof createNewLabel === 'function' ? createNewLabel(query.trim()) : (createNewLabel || (isEnglish ? `Add account "${query}"` : `إضافة حساب "${query}"`))}</span>
+                            </button>
+                        )
                     )}
                 </div>,
                 document.body
@@ -828,7 +834,7 @@ const QuickAccountLookup: React.FC<QuickAccountLookupProps> = ({
                     </div>
                     <div className="col-span-2">
                         <div className="text-slate-400">{tr('الرصيد الحالي', 'Current Balance')}</div>
-                        <div className="dir-ltr">{Number(selectedAccount.balance || 0).toLocaleString()} {baseCurrency}</div>
+                        <div className="dir-ltr">{Number(selectedAccount.balance || 0).toLocaleString('en-US')} {baseCurrency}</div>
                     </div>
                 </div>
             )}
@@ -837,18 +843,26 @@ const QuickAccountLookup: React.FC<QuickAccountLookupProps> = ({
 };
 
 // --- Quick Add Contact Modal ---
-const QuickAddContactModal: React.FC<{ type: ContactType; onClose: () => void; onSave: (id: string) => void }> = ({ type, onClose, onSave }) => {
-    const { addContact, companySettings } = useAccounting();
-    const [name, setName] = useState('');
+const QuickAddContactModal: React.FC<{ type: ContactType; onClose: () => void; onSave: (id: string) => void; initialName?: string }> = ({ type, onClose, onSave, initialName }) => {
+    const { addContact, companySettings, contacts } = useAccounting();
+    const [name, setName] = useState(initialName || '');
     const [phone, setPhone] = useState('');
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name) return;
+        const trimmedName = name.trim();
+        if (!trimmedName) return;
+        
+        const existingContact = contacts.find(c => c.name.trim().toLowerCase() === trimmedName.toLowerCase() && c.type === type);
+        if (existingContact) {
+            alert(tr('هذا الاسم موجود بالفعل. الرجاء اختياره من القائمة.', 'This name already exists. Please select it from the list.'));
+            return;
+        }
+
         const id = Math.random().toString(36).substr(2, 9);
-        const result = addContact({ id, name, type, phone });
+        const result = addContact({ id, name: trimmedName, type, phone });
         if (!result.ok) return;
         onSave(id);
         onClose();
@@ -1051,7 +1065,7 @@ const InvoiceScreen: React.FC<{
     initialInvoiceId?: string;
     initialDraft?: InvoiceFormDraftState;
 }> = ({ mode, sharedState, onDateChange, onCurrencyChange, onRateChange, onModeChange, onSuccess, onBack, linkedInvoiceId: initialLinkedId, initialInvoiceId, initialDraft }) => {
-    const { createInvoice, deleteInvoice, contacts, products, companySettings, updateCompanySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency, stockTransfers } = useAccounting();
+    const { createInvoice, deleteInvoice, contacts, products, companySettings, updateCompanySettings, accounts, invoices, warehouses, updateProduct, addStockTransfer, currentCompanyId, currencies, baseCurrency, stockTransfers, units } = useAccounting();
 
     const isSales = mode === 'SALES';
     const isReturn = mode === 'SALES_RETURN';
@@ -1247,10 +1261,16 @@ const InvoiceScreen: React.FC<{
     // New: Link Original Invoice
     const [linkedInvoiceId, setLinkedInvoiceId] = useState(initialLinkedId || '');
     const hasAppliedInitialDraftRef = useRef(false);
-    const barcodeSettings = useMemo(
-        () => loadBarcodeReaderSettings(currentCompanyId),
-        [currentCompanyId]
-    );
+    const [barcodeSettings, setBarcodeSettings] = useState(() => loadBarcodeReaderSettings(currentCompanyId));
+
+    useEffect(() => {
+        const handleSettingsChange = () => {
+            setBarcodeSettings(loadBarcodeReaderSettings(currentCompanyId));
+        };
+        window.addEventListener('barcodeSettingsChanged', handleSettingsChange);
+        return () => window.removeEventListener('barcodeSettingsChanged', handleSettingsChange);
+    }, [currentCompanyId]);
+
     const editingInvoice = useMemo(
         () => initialInvoiceId ? invoices.find(inv => inv.id === initialInvoiceId) || null : null,
         [initialInvoiceId, invoices]
@@ -1723,7 +1743,7 @@ const InvoiceScreen: React.FC<{
     }, [products, currentCompanyId, addItem]);
 
     const addManualItem = () => {
-        if (!manualItemDesc || !manualItemPrice) return;
+        if (!manualItemDesc.trim()) return;
         const qty = parseFloat(manualItemQty) || 1;
         const price = parseFloat(manualItemPrice) || 0;
 
@@ -1750,7 +1770,7 @@ const InvoiceScreen: React.FC<{
     };
 
     const handleInlineManualItemAdd = () => {
-        if (!manualItemDesc.trim() || !manualItemPrice.trim()) return;
+        if (!manualItemDesc.trim()) return;
         addManualItem();
     };
 
@@ -2237,8 +2257,8 @@ const InvoiceScreen: React.FC<{
                             <td style="text-align: center;">${index + 1}</td>
                             <td style="text-align: ${isEnglish ? 'left' : 'right'};"><strong>${itemName}</strong></td>
                             <td style="text-align: center;" dir="ltr">${qty > 0 ? qty : '-'}</td>
-                            <td style="text-align: center;" dir="ltr">${price > 0 ? price.toLocaleString() : '-'}</td>
-                            <td style="text-align: ${isEnglish ? 'left' : 'right'}; font-weight: bold; color: #1e3a8a;" dir="ltr">${total.toLocaleString()} ${baseCurrency}</td>
+                            <td style="text-align: center;" dir="ltr">${price > 0 ? price.toLocaleString('en-US') : '-'}</td>
+                            <td style="text-align: ${isEnglish ? 'left' : 'right'}; font-weight: bold; color: #1e3a8a;" dir="ltr">${total.toLocaleString('en-US')} ${baseCurrency}</td>
                         </tr>
                     `;
                 }).join('');
@@ -2389,7 +2409,7 @@ const InvoiceScreen: React.FC<{
                             <div class="totals-section">
                                 <div class="totals-box">
                                     <span>${tr('الإجمالي', 'Total')}:</span>
-                                    <span dir="ltr">${draft.totalAmount.toLocaleString()} ${baseCurrency}</span>
+                                    <span dir="ltr">${draft.totalAmount.toLocaleString('en-US')} ${baseCurrency}</span>
                                 </div>
                             </div>
 
@@ -3325,9 +3345,9 @@ const InvoiceScreen: React.FC<{
                 </div>
 
                 {/* Warehouse & Account (Row 2) */}
-                <div className="invoice-context-grid grid grid-cols-2 gap-2">
+                <div className="invoice-context-grid grid grid-cols-1 md:grid-cols-2 gap-2">
                     {!isExpenseStyle && hasWarehouses && (
-                        <div className={`relative min-w-0 ${(!isQuotation && paymentType === 'CASH') ? '' : 'col-span-2'}`}>
+                        <div className={`relative min-w-0 ${(!isQuotation && paymentType === 'CASH') ? '' : 'md:col-span-2'}`}>
                             <select
                                 value={warehouseId}
                                 onChange={e => {
@@ -3514,7 +3534,7 @@ const InvoiceScreen: React.FC<{
                         />
                     </div>
 
-                    {!isExpenseVoucherManualOnly && (
+                    {!isExpenseVoucherManualOnly && barcodeSettings.allowCameraScannerInInvoices && (
                         <button
                             type="button"
                             onClick={() => {
@@ -3599,11 +3619,11 @@ const InvoiceScreen: React.FC<{
                                             </div>
                                             <div className="text-left">
                                                 <div className="font-black text-indigo-600 text-[11px] dir-ltr">
-                                                    {resolveInvoiceEntryPrice(p).toLocaleString()}
+                                                    {resolveInvoiceEntryPrice(p).toLocaleString('en-US')}
                                                 </div>
                                                 {typeof resolveLastInvoicePrice(p.id) === 'number' && (
                                                     <div className="mt-0.5 text-[9px] font-bold text-emerald-600">
-                                                        {tr('آخر سعر', 'Last price')}: {resolveLastInvoicePrice(p.id)?.toLocaleString()}
+                                                        {tr('آخر سعر', 'Last price')}: {resolveLastInvoicePrice(p.id)?.toLocaleString('en-US')}
                                                     </div>
                                                 )}
                                             </div>
@@ -3632,6 +3652,7 @@ const InvoiceScreen: React.FC<{
                                         onClick={() => {
                                             setIsSearchFocused(false);
                                             setIsManualItem(true);
+                                            setShowQuickProduct(true);
                                         }}
                                         className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-100 bg-white px-3 py-2.5 text-[11px] font-black text-amber-700 transition-colors hover:bg-amber-50 shadow-sm"
                                     >
@@ -3648,22 +3669,25 @@ const InvoiceScreen: React.FC<{
             {/* 4. Items Sheet (Excel-like) */}
             <div className="invoice-items-card w-full rounded-[1.15rem] border border-slate-200 bg-white p-2.5 shadow-[0_14px_34px_-28px_rgba(15,23,42,0.55)]">
                 <div className="invoice-items-shell overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="invoice-items-table w-full min-w-full table-fixed text-[10px] sm:text-[11px] md:min-w-[620px]">
+                    <table className="invoice-items-table w-full table-fixed text-[10px] sm:text-[11px]">
                         <thead className="bg-slate-100/95 text-slate-700">
                             <tr>
-                                <th className="w-[6%] border-b border-slate-200 px-1 py-1.5 text-center font-black">#</th>
-                                <th className="w-[42%] border-b border-slate-200 px-1.5 py-1.5 text-start font-black">{tr('الصنف/الوصف', 'Item / Description')}</th>
-                                <th className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('الكمية', 'Qty')}</th>
-                                <th className="w-20 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('السعر', 'Price')}</th>
-                                <th className="w-20 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('الإجمالي', 'Total')}</th>
-                                <th aria-label={tr('المخزون', 'Stock')} className="w-16 border-b border-slate-200 px-1.5 py-1.5 text-center font-black"></th>
-                                <th className="w-12 border-b border-slate-200 px-1.5 py-1.5 text-center font-black">{tr('حذف', 'Delete')}</th>
+                                <th className="hidden sm:table-cell w-[6%] border-b border-slate-200 px-1 py-1.5 text-center font-black">#</th>
+                                <th className="w-[21%] sm:w-[30%] border-b border-slate-200 px-1 sm:px-1.5 py-1.5 text-start font-black text-[10px] sm:text-[11px]">{tr('الصنف', 'Item')}</th>
+                                <th className="w-[8%] sm:w-24 border-b border-slate-200 px-0.5 sm:px-1.5 py-1.5 text-center font-black text-[10px] sm:text-[11px]">
+                                    <span className="hidden sm:inline">{tr('الوحدة', 'Unit')}</span>
+                                </th>
+                                <th className="w-[16%] sm:w-16 border-b border-slate-200 px-0.5 sm:px-1.5 py-1.5 text-center font-black text-[10px] sm:text-[11px]">{tr('كمية', 'Qty')}</th>
+                                <th className="w-[18%] sm:w-20 border-b border-slate-200 px-0.5 sm:px-1.5 py-1.5 text-center font-black text-[10px] sm:text-[11px]">{tr('سعر', 'Price')}</th>
+                                <th className="w-[20%] sm:w-20 border-b border-slate-200 px-0.5 sm:px-1.5 py-1.5 text-center font-black text-[10px] sm:text-[11px]">{tr('إجمالي', 'Total')}</th>
+                                <th className="w-[10%] sm:w-16 border-b border-slate-200 px-0.5 sm:px-1.5 py-1.5 text-center font-black text-[9px] sm:text-[11px]">{tr('متاح', 'Stk')}</th>
+                                <th className="w-[7%] sm:w-12 border-b border-slate-200 px-0.5 sm:px-1.5 py-1.5 text-center font-black"></th>
                             </tr>
                         </thead>
                         <tbody>
                             {items.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="px-3 py-6 text-center text-[11px] font-bold text-slate-400">
+                                    <td colSpan={8} className="px-3 py-6 text-center text-[11px] font-bold text-slate-400">
                                         {tr('لا توجد بنود بعد. أضف البنود من الأعلى.', 'No lines yet. Add lines from above.')}
                                     </td>
                                 </tr>
@@ -3676,21 +3700,75 @@ const InvoiceScreen: React.FC<{
                                 const lastInvoicePrice = resolveLastInvoicePrice(item.productId);
                                 return (
                                     <tr key={idx} className="odd:bg-white even:bg-slate-50/60">
-                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center font-black text-slate-500">{idx + 1}</td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1">
+                                        <td className="hidden sm:table-cell border-b border-slate-100 px-1 py-1 text-center font-black text-slate-500">{idx + 1}</td>
+                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <textarea
                                                 value={item.description}
                                                 onChange={e => setItems(prev => prev.map((it, i) => i === idx ? { ...it, description: e.target.value } : it))}
                                                 rows={2}
-                                                className="invoice-item-name-field w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[10.5px] font-bold leading-4 outline-none focus:border-indigo-300"
+                                                className="invoice-item-name-field w-full rounded-md border border-slate-200 bg-white px-0.5 sm:px-1.5 py-1 text-[10.5px] font-bold leading-4 outline-none focus:border-indigo-300 min-w-0"
+                                                style={{ minWidth: '40px', resize: 'none' }}
                                             />
-                                            <div className="invoice-item-meta mt-0.5 text-[9px] font-bold text-slate-400 break-all">
+                                            <div className="invoice-item-meta mt-0.5 text-[8.5px] sm:text-[9px] font-bold text-slate-400 break-all">
                                                 {linkedProduct
                                                     ? `${linkedProduct.itemCode || linkedProduct.barcode || linkedProduct.id}${serviceLine ? ` • ${tr('خدمة', 'Service')}` : ''}`
                                                     : tr('بند يدوي', 'Manual line')}
                                             </div>
                                         </td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1">
+                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
+                                            {linkedProduct ? (
+                                                <select
+                                                    value={item.unitId || linkedProduct.unitId || ''}
+                                                    onChange={e => {
+                                                        const newUnitId = e.target.value;
+                                                        let newConversionFactor = 1;
+                                                        let newPrice = item.unitPrice;
+                                                        
+                                                        if (newUnitId === linkedProduct.unitId) {
+                                                            newConversionFactor = 1;
+                                                            newPrice = isSales ? (linkedProduct.sellPrice || 0) : (linkedProduct.buyPrice || 0);
+                                                        } else if (linkedProduct.units) {
+                                                            const selectedUnit = linkedProduct.units.find(u => u.unitId === newUnitId);
+                                                            if (selectedUnit) {
+                                                                newConversionFactor = selectedUnit.conversionFactor || 1;
+                                                                if (selectedUnit.price && isSales) {
+                                                                    newPrice = selectedUnit.price;
+                                                                } else {
+                                                                    const basePrice = isSales ? (linkedProduct.sellPrice || 0) : (linkedProduct.buyPrice || 0);
+                                                                    newPrice = basePrice * newConversionFactor;
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        setItems(prev => prev.map((it, i) => i === idx ? { 
+                                                            ...it, 
+                                                            unitId: newUnitId, 
+                                                            conversionFactor: newConversionFactor,
+                                                            unitPrice: newPrice,
+                                                            total: (Number(it.quantity) || 0) * newPrice
+                                                        } : it));
+                                                    }}
+                                                    className="w-full rounded-md border border-slate-200 bg-white px-0 sm:px-1 py-1 text-[9px] sm:text-[10px] font-bold outline-none focus:border-indigo-300 min-w-0"
+                                                >
+                                                    {linkedProduct.unitId && (
+                                                        <option value={linkedProduct.unitId}>
+                                                            {getDisplayUnitName(units.find(u => u.id === linkedProduct.unitId), isEnglish) || tr('الوحدة الأساسية', 'Base Unit')}
+                                                        </option>
+                                                    )}
+                                                    {linkedProduct.units?.map(u => (
+                                                        <option key={u.unitId} value={u.unitId}>
+                                                            {getDisplayUnitName(units.find(un => un.id === u.unitId), isEnglish) || u.unitId}
+                                                        </option>
+                                                    ))}
+                                                    {!linkedProduct.unitId && !(linkedProduct.units?.length) && (
+                                                        <option value="">{tr('بدون وحدة', 'No unit')}</option>
+                                                    )}
+                                                </select>
+                                            ) : (
+                                                <span className="block text-center text-[10px] text-slate-400">-</span>
+                                            )}
+                                        </td>
+                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
@@ -3699,10 +3777,10 @@ const InvoiceScreen: React.FC<{
                                                 onFocus={() => beginItemNumericCellEdit(idx, 'quantity', item.quantity)}
                                                 onChange={e => handleItemNumericCellChange(idx, 'quantity', e.target.value)}
                                                 onBlur={e => finishItemNumericCellEdit(idx, 'quantity', e.currentTarget.value)}
-                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
+                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-0 sm:px-1 py-1 text-center text-[10px] sm:text-[11px] font-black dir-ltr outline-none focus:border-indigo-300 min-w-0"
                                             />
                                         </td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1">
+                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
@@ -3711,15 +3789,15 @@ const InvoiceScreen: React.FC<{
                                                 onFocus={() => beginItemNumericCellEdit(idx, 'unitPrice', item.unitPrice)}
                                                 onChange={e => handleItemNumericCellChange(idx, 'unitPrice', e.target.value)}
                                                 onBlur={e => finishItemNumericCellEdit(idx, 'unitPrice', e.currentTarget.value)}
-                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-1 py-1 text-center text-[11px] font-black dir-ltr outline-none focus:border-indigo-300"
+                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-0 sm:px-1 py-1 text-center text-[10px] sm:text-[11px] font-black dir-ltr outline-none focus:border-indigo-300 min-w-0"
                                             />
                                             {typeof lastInvoicePrice === 'number' && (
-                                                <div className="mt-0.5 text-center text-[9px] font-bold text-indigo-500 dir-ltr">
+                                                <div className="mt-0.5 text-center text-[8.5px] sm:text-[9px] font-bold text-indigo-500 dir-ltr">
                                                     {tr('آخر سعر', 'Last price')}: {formatAmount(lastInvoicePrice)}
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center align-middle">
+                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center align-middle">
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
@@ -3728,12 +3806,12 @@ const InvoiceScreen: React.FC<{
                                                 onFocus={() => beginItemNumericCellEdit(idx, 'total' as any, item.total)}
                                                 onChange={e => handleItemNumericCellChange(idx, 'total' as any, e.target.value)}
                                                 onBlur={e => finishItemNumericCellEdit(idx, 'total' as any, e.currentTarget.value)}
-                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-blue-50 px-1 py-1 text-center text-[13px] font-black dir-ltr outline-none focus:border-indigo-300 text-blue-900"
+                                                className="invoice-number-input w-full rounded-md border border-slate-200 bg-blue-50 px-0 sm:px-1 py-1 text-center text-[10px] sm:text-[13px] font-black dir-ltr outline-none focus:border-indigo-300 text-blue-900 min-w-0"
                                             />
                                         </td>
                                         <td
-                                            className={`invoice-stock-cell border-b border-slate-100 px-1.5 py-1 text-center text-[10px] font-black ${serviceLine ? 'text-amber-600' : item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
-                                            data-stock={serviceLine ? tr('خدمة', 'Service') : item.productId ? (availableStock?.toLocaleString() ?? '0') : '—'}
+                                            className={`invoice-stock-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center text-[8.5px] sm:text-[10px] font-black ${serviceLine ? 'text-amber-600' : item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
+                                            data-stock={serviceLine ? tr('خدمة', 'Service') : item.productId ? (availableStock?.toLocaleString('en-US') ?? '0') : '—'}
                                         >
                                             {serviceLine
                                                 ? <span className="text-amber-600">{tr('خدمة', 'Service')}</span>
@@ -3741,9 +3819,9 @@ const InvoiceScreen: React.FC<{
                                                 ? <span className={stockOk ? 'text-emerald-600' : 'text-rose-600'}>{stockOk ? tr('متاح', 'OK') : tr('غير كافٍ', 'Low')}</span>
                                                 : <span className="text-slate-400">{tr('—', '—')}</span>}
                                         </td>
-                                        <td className="border-b border-slate-100 px-1.5 py-1 text-center">
-                                            <button type="button" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-600 hover:bg-rose-100">
-                                                <Trash2 size={13} />
+                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center">
+                                            <button type="button" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="inline-flex w-full min-w-0 items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-0.5 sm:p-1.5 text-rose-600 hover:bg-rose-100">
+                                                <Trash2 size={13} className="shrink-0" />
                                             </button>
                                         </td>
                                     </tr>
@@ -3804,12 +3882,12 @@ const InvoiceScreen: React.FC<{
                     <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
                         <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
                         <input
-                            type="number"
+                            type="text"
                             inputMode="decimal"
                             data-testid="invoice-final-total"
                             value={Number((totals.total).toFixed(3))}
                             onChange={handleFinalNetChange}
-                            className="min-w-0 w-32 bg-transparent text-right text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white outline-none focus:text-indigo-300"
+                            className="min-w-0 w-40 bg-transparent text-center text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white outline-none focus:text-indigo-300"
                         />
                     </div>
                 </div>
@@ -3881,11 +3959,11 @@ const InvoiceScreen: React.FC<{
                         <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
                             <span className="text-[12px] font-black text-blue-300 sm:text-[13px]">{tr('الصافي النهائي', 'Final Net')}</span>
                             <input
-                                type="number"
+                                type="text"
                                 inputMode="decimal"
                                 value={Number((totals.total).toFixed(3))}
                                 onChange={handleFinalNetChange}
-                                className="min-w-0 w-28 bg-transparent text-right text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem] outline-none focus:text-indigo-300"
+                                className="min-w-0 w-32 bg-transparent text-center text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem] outline-none focus:text-indigo-300"
                             />
                         </div>
                     </div>
@@ -4174,7 +4252,7 @@ const InvoiceScreen: React.FC<{
                         <div className="pt-1">
                             <button
                                 onClick={() => {
-                                    if (!manualItemDesc.trim() || !manualItemPrice.trim()) return;
+                                    if (!manualItemDesc.trim()) return;
                                     addManualItem();
                                     setShowQuickProduct(false);
                                 }}
@@ -4724,7 +4802,7 @@ const VoucherScreen: React.FC<{
                 row.accountOrBank,
                 row.reference ? `${tr('المرجع', 'Reference')}: ${row.reference}` : '',
                 row.dueDate ? `${tr('الاستحقاق', 'Due')}: ${row.dueDate}` : '',
-                `${tr('المبلغ', 'Amount')}: ${row.amount.toLocaleString()} ${voucherCurrency}`
+                `${tr('المبلغ', 'Amount')}: ${row.amount.toLocaleString('en-US')} ${voucherCurrency}`
             ].filter(Boolean).join(' - '))
             : [tr('لا توجد بنود بعد.', 'No lines yet.')];
 
@@ -4739,7 +4817,7 @@ const VoucherScreen: React.FC<{
             '',
             ...lineItems,
             '',
-            `${tr('إجمالي السند', 'Voucher Total')}: ${totalAmount.toLocaleString()} ${voucherCurrency}`
+            `${tr('إجمالي السند', 'Voucher Total')}: ${totalAmount.toLocaleString('en-US')} ${voucherCurrency}`
         ].filter(Boolean).join('\n');
     };
 
@@ -4751,7 +4829,7 @@ const VoucherScreen: React.FC<{
         `${tr('الطرف', 'Counterparty')}: ${selectedContactLabel || (voucherType === 'RECEIPT' ? tr('عميل نقدي', 'Walk-in Customer') : tr('مورد عام', 'Generic Supplier'))}`,
         `${tr('رقم السند', 'Voucher No.')}: ${voucherReference}`,
         `${tr('التاريخ', 'Date')}: ${sharedState.date}`,
-        `${tr('القيمة', 'Amount')}: ${totalAmount.toLocaleString()} ${voucherCurrency}`
+        `${tr('القيمة', 'Amount')}: ${totalAmount.toLocaleString('en-US')} ${voucherCurrency}`
     ].join('\n');
 
     const handlePrintVoucher = () => {
@@ -4772,7 +4850,7 @@ const VoucherScreen: React.FC<{
                         <td>${escapeVoucherHtml(row.accountOrBank)}</td>
                         <td>${escapeVoucherHtml(row.reference || '-')}</td>
                         <td>${escapeVoucherHtml(row.dueDate || '-')}</td>
-                        <td class="num">${escapeVoucherHtml(Number(row.amount || 0).toLocaleString())}</td>
+                        <td class="num">${escapeVoucherHtml(Number(row.amount || 0).toLocaleString('en-US'))}</td>
                     </tr>
                 `).join('')
                 : `<tr><td colspan="6">${escapeVoucherHtml(tr('لا توجد بنود بعد.', 'No lines yet.'))}</td></tr>`;
@@ -4914,7 +4992,7 @@ const VoucherScreen: React.FC<{
                         <div class="totals-section">
                             <div class="totals-box">
                                 <span>${escapeVoucherHtml(tr('الإجمالي', 'Total'))}:</span>
-                                <span dir="ltr">${escapeVoucherHtml(totalAmount.toLocaleString())} ${escapeVoucherHtml(voucherCurrency)}</span>
+                                <span dir="ltr">${escapeVoucherHtml(totalAmount.toLocaleString('en-US'))} ${escapeVoucherHtml(voucherCurrency)}</span>
                             </div>
                         </div>
 
@@ -5449,7 +5527,7 @@ const VoucherScreen: React.FC<{
                             </p>
                         </div>
                         <div className="text-xs font-black text-blue-600 dir-ltr">
-                            {tr('المخصص', 'Allocated')}: {totalAllocatedToInvoices.toLocaleString()} {voucherCurrency}
+                            {tr('المخصص', 'Allocated')}: {totalAllocatedToInvoices.toLocaleString('en-US')} {voucherCurrency}
                         </div>
                     </div>
 
@@ -5486,10 +5564,10 @@ const VoucherScreen: React.FC<{
                                             </td>
                                             <td className="border-b border-slate-100 px-2 py-1.5 text-center">
                                                 <div className="text-[10px] font-bold text-slate-400">
-                                                    {tr('إجمالي', 'Total')}: <span className="dir-ltr">{(inv.totalAmount || 0).toLocaleString()} {inv.currency}</span>
+                                                    {tr('إجمالي', 'Total')}: <span className="dir-ltr">{(inv.totalAmount || 0).toLocaleString('en-US')} {inv.currency}</span>
                                                 </div>
                                                 <div className="font-black text-amber-600 dir-ltr">
-                                                    {row.remainingInvoiceCurrency.toLocaleString(undefined, { maximumFractionDigits: 2 })} {inv.currency}
+                                                    {row.remainingInvoiceCurrency.toLocaleString('en-US', { maximumFractionDigits: 2 })} {inv.currency}
                                                 </div>
                                             </td>
                                             <td className="border-b border-slate-100 px-2 py-1.5">
@@ -5637,7 +5715,7 @@ const VoucherScreen: React.FC<{
                                             <div className="truncate text-xs font-bold text-slate-700">#{c.checkNumber} - {displayBankName(c.bankName, c.bankAccountId)}</div>
                                             <div className="text-[9px] text-slate-400">{tr('استحقاق', 'Due')}: {c.dueDate}</div>
                                         </div>
-                                        <div className="shrink-0 font-black text-violet-600 dir-ltr">{c.amount.toLocaleString()}</div>
+                                        <div className="shrink-0 font-black text-violet-600 dir-ltr">{c.amount.toLocaleString('en-US')}</div>
                                     </div>
                                 ))}
                             </div>
@@ -5900,6 +5978,7 @@ const JournalScreen: React.FC<{
     const [quickAccountInitialName, setQuickAccountInitialName] = useState('');
     const [quickFixedAssetLineId, setQuickFixedAssetLineId] = useState<string | null>(null);
     const [quickPartnerLineId, setQuickPartnerLineId] = useState<string | null>(null);
+    const [quickPartnerInitialName, setQuickPartnerInitialName] = useState('');
 
     const customerContacts = useMemo(() => contacts.filter(c => c.type === 'CUSTOMER'), [contacts]);
     const supplierContacts = useMemo(() => contacts.filter(c => c.type === 'SUPPLIER'), [contacts]);
@@ -6424,10 +6503,19 @@ const JournalScreen: React.FC<{
         }
 
         for (const pair of postingPairs) {
+            let mergedDesc = '';
+            if (pair.debitLine.fullDescription.includes(pair.creditLine.fullDescription)) {
+                mergedDesc = pair.debitLine.fullDescription;
+            } else if (pair.creditLine.fullDescription.includes(pair.debitLine.fullDescription)) {
+                mergedDesc = pair.creditLine.fullDescription;
+            } else {
+                mergedDesc = `${pair.debitLine.fullDescription} / ${pair.creditLine.fullDescription}`;
+            }
+
             const result = addTransaction({
                 voucherId,
                 amount: pair.amount,
-                description: `${pair.debitLine.fullDescription} <> ${pair.creditLine.fullDescription}`,
+                description: mergedDesc,
                 category: 'journal',
                 type: TransactionType.TRANSFER,
                 date: sharedState.date,
@@ -6488,7 +6576,7 @@ const JournalScreen: React.FC<{
                 const credit = parseFloat(line.credit) || 0;
                 const direction = debit > 0 ? tr('مدين', 'Debit') : tr('دائن', 'Credit');
                 const amount = debit > 0 ? debit : credit;
-                return `${index + 1}. ${accountLabel} - ${direction} ${amount.toLocaleString()} ${sharedState.currency}`;
+                return `${index + 1}. ${accountLabel} - ${direction} ${amount.toLocaleString('en-US')} ${sharedState.currency}`;
             })
             : [tr('لا توجد أسطر قيود بعد.', 'No journal lines yet.')];
 
@@ -6500,8 +6588,8 @@ const JournalScreen: React.FC<{
             '',
             ...lineItems,
             '',
-            `${tr('إجمالي المدين', 'Total Debit')}: ${totals.totalDebit.toLocaleString()}`,
-            `${tr('إجمالي الدائن', 'Total Credit')}: ${totals.totalCredit.toLocaleString()}`
+            `${tr('إجمالي المدين', 'Total Debit')}: ${totals.totalDebit.toLocaleString('en-US')}`,
+            `${tr('إجمالي الدائن', 'Total Credit')}: ${totals.totalCredit.toLocaleString('en-US')}`
         ].join('\n');
     };
 
@@ -6649,9 +6737,38 @@ const JournalScreen: React.FC<{
                                     className="w-full min-w-0"
                                     inputTestId={`journal-line-${idx + 1}-account`}
                                     inputClassName="w-full min-w-0 h-10 px-3 bg-white rounded-xl text-xs font-bold outline-none border border-slate-200"
-                                    onCreateNew={(name) => {
-                                        setQuickAccountInitialName(name);
-                                        setShowQuickAccount(true);
+                                    renderCustomCreateOptions={(query, closeDropdown) => {
+                                        const showPartner = query.startsWith('راس م') || query.startsWith('رأس م') || query.includes('شريك') || query.includes('شراكة');
+                                        return (
+                                            <>
+                                                {showPartner && (
+                                                    <button
+                                                        type="button"
+                                                        onMouseDown={(event) => event.preventDefault()}
+                                                        onClick={() => {
+                                                            setQuickPartnerInitialName(query);
+                                                            setQuickPartnerLineId(line.id);
+                                                            closeDropdown();
+                                                        }}
+                                                        className="w-full text-start px-3 py-3 text-xs font-black text-emerald-600 bg-emerald-50/50 hover:bg-emerald-50 border-t border-emerald-100 transition-colors"
+                                                    >
+                                                        <span className="inline-flex items-center gap-1.5"><Plus size={14} />{isEnglish ? `Add Partner "${query}"` : `إضافة شريك "${query}"`}</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    onClick={() => {
+                                                        setQuickAccountInitialName(query);
+                                                        setShowQuickAccount(true);
+                                                        closeDropdown();
+                                                    }}
+                                                    className="w-full text-start px-3 py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border-t border-indigo-100 transition-colors"
+                                                >
+                                                    <span className="inline-flex items-center gap-1.5"><Plus size={14} />{isEnglish ? `Add account "${query}"` : `إضافة حساب "${query}"`}</span>
+                                                </button>
+                                            </>
+                                        );
                                     }}
                                 />
                                 <button data-testid={`journal-line-${idx + 1}-remove`} onClick={() => handleRemoveLine(line.id)} className="text-rose-400 p-2 rounded-xl"><Trash2 size={16} /></button>
@@ -6659,11 +6776,11 @@ const JournalScreen: React.FC<{
                             <div className="journal-line-grid journal-line-grid--compact grid gap-2 min-w-0">
                                 <label className="min-w-0">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-emerald-600">{tr('مدين', 'Debit')}</span>
-                                    <input data-testid={`journal-line-${idx + 1}-debit`} placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
+                                    <input data-testid={`journal-line-${idx + 1}-debit`} placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" lang="en" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
                                 </label>
                                 <label className="min-w-0">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-rose-600">{tr('دائن', 'Credit')}</span>
-                                    <input data-testid={`journal-line-${idx + 1}-credit`} placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
+                                    <input data-testid={`journal-line-${idx + 1}-credit`} placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" lang="en" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
                                 </label>
                                 <label className="min-w-0 journal-line-description-field">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-slate-400">{tr('شرح مبسط', 'Description')}</span>
@@ -6809,7 +6926,7 @@ const JournalScreen: React.FC<{
                                                     <option value="">{tr('-- اختر الشيك --', '-- Select Check --')}</option>
                                                     {availableIncomingChecks.map(chk => (
                                                         <option key={chk.id} value={chk.id}>
-                                                            #{chk.checkNumber} - {displayCheckBankName(chk.bankName, chk.bankAccountId)} - {chk.amount.toLocaleString()}
+                                                            #{chk.checkNumber} - {displayCheckBankName(chk.bankName, chk.bankAccountId)} - {chk.amount.toLocaleString('en-US')}
                                                         </option>
                                                     ))}
                                                 </select>
@@ -6838,7 +6955,7 @@ const JournalScreen: React.FC<{
                                                     <option value="">{tr('-- اختر الشيك الصادر --', '-- Select Outgoing Check --')}</option>
                                                     {availableOutgoingChecks.map(chk => (
                                                         <option key={chk.id} value={chk.id}>
-                                                            #{chk.checkNumber} - {displayCheckBankName(chk.bankName, chk.bankAccountId)} - {chk.amount.toLocaleString()} ({chk.status})
+                                                            #{chk.checkNumber} - {displayCheckBankName(chk.bankName, chk.bankAccountId)} - {chk.amount.toLocaleString('en-US')} ({chk.status})
                                                         </option>
                                                     ))}
                                                 </select>
@@ -6883,15 +7000,15 @@ const JournalScreen: React.FC<{
                     <div className="grid grid-cols-3 gap-2 text-center">
                         <div className="rounded-xl bg-white/5 p-2">
                             <div className="text-[10px] font-black text-emerald-300">{tr('إجمالي مدين', 'Total Debit')}</div>
-                            <div className="text-sm font-black dir-ltr text-emerald-200">{totals.totalDebit.toLocaleString()}</div>
+                            <div className="text-sm font-black dir-ltr text-emerald-200">{totals.totalDebit.toLocaleString('en-US')}</div>
                         </div>
                         <div className="rounded-xl bg-white/5 p-2">
                             <div className="text-[10px] font-black text-rose-300">{tr('إجمالي دائن', 'Total Credit')}</div>
-                            <div className="text-sm font-black dir-ltr text-rose-200">{totals.totalCredit.toLocaleString()}</div>
+                            <div className="text-sm font-black dir-ltr text-rose-200">{totals.totalCredit.toLocaleString('en-US')}</div>
                         </div>
                         <div className={`rounded-xl p-2 ${isBalanced ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
                             <div className={`text-[10px] font-black ${isBalanced ? 'text-emerald-200' : 'text-amber-200'}`}>{tr('الفرق', 'Difference')}</div>
-                            <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString()}</div>
+                            <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString('en-US')}</div>
                         </div>
                     </div>
                 </div>
@@ -6921,15 +7038,15 @@ const JournalScreen: React.FC<{
                         <div className="grid grid-cols-3 gap-2 text-center">
                             <div className="rounded-xl bg-white/5 p-2">
                                 <div className="text-[10px] font-black text-emerald-300">{tr('إجمالي مدين', 'Total Debit')}</div>
-                                <div className="text-sm font-black text-emerald-200 dir-ltr">{totals.totalDebit.toLocaleString()}</div>
+                                <div className="text-sm font-black text-emerald-200 dir-ltr">{totals.totalDebit.toLocaleString('en-US')}</div>
                             </div>
                             <div className="rounded-xl bg-white/5 p-2">
                                 <div className="text-[10px] font-black text-rose-300">{tr('إجمالي دائن', 'Total Credit')}</div>
-                                <div className="text-sm font-black text-rose-200 dir-ltr">{totals.totalCredit.toLocaleString()}</div>
+                                <div className="text-sm font-black text-rose-200 dir-ltr">{totals.totalCredit.toLocaleString('en-US')}</div>
                             </div>
                             <div className={`rounded-xl p-2 ${isBalanced ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
                                 <div className={`text-[10px] font-black ${isBalanced ? 'text-emerald-200' : 'text-amber-200'}`}>{tr('الفرق', 'Difference')}</div>
-                                <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString()}</div>
+                                <div className={`text-sm font-black dir-ltr ${isBalanced ? 'text-emerald-100' : 'text-amber-100'}`}>{totals.diff.toLocaleString('en-US')}</div>
                             </div>
                         </div>
                     </div>
@@ -6948,6 +7065,11 @@ const JournalScreen: React.FC<{
             )}
             {quickFixedAssetLineId && (
                 <QuickAddFixedAssetModal
+                    initialCost={(() => {
+                        const line = lines.find(l => l.id === quickFixedAssetLineId);
+                        if (!line) return 0;
+                        return (parseFloat(String(line.debit)) || 0) + (parseFloat(String(line.credit)) || 0);
+                    })()}
                     onClose={() => setQuickFixedAssetLineId(null)}
                     onSave={(id) => {
                         handleUpdateLine(quickFixedAssetLineId, 'assetId', id);
@@ -6958,9 +7080,12 @@ const JournalScreen: React.FC<{
             {quickPartnerLineId && (
                 <QuickAddContactModal
                     type="PARTNER"
-                    onClose={() => setQuickPartnerLineId(null)}
+                    initialName={quickPartnerInitialName}
+                    onClose={() => { setQuickPartnerInitialName(''); setQuickPartnerLineId(null); }}
                     onSave={(id) => {
                         handleUpdateLine(quickPartnerLineId, 'contactId', id);
+                        handleUpdateLine(quickPartnerLineId, 'accountId', `acc_partner_capital_${id}`);
+                        setQuickPartnerInitialName('');
                         setQuickPartnerLineId(null);
                     }}
                 />

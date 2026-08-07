@@ -62,7 +62,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
 
     const postDepreciation = () => {
         if (totalMonthlyDepreciation <= 0) return alert(tr('لا يوجد إهلاك للحساب', 'No depreciation amount to post'));
-        if (confirm(`${tr('ترحيل قيد إهلاك بقيمة', 'Post depreciation entry amount')} ${totalMonthlyDepreciation.toLocaleString()}?`)) {
+        if (confirm(`${tr('ترحيل قيد إهلاك بقيمة', 'Post depreciation entry amount')} ${totalMonthlyDepreciation.toLocaleString('en-US')}?`)) {
             const monthNumber = new Date(date).getMonth() + 1;
             const result = addTransaction({
                 amount: totalMonthlyDepreciation,
@@ -298,7 +298,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
         const adjustmentValue = Math.abs(diff) * product.buyPrice;
         const isSurplus = diff > 0;
 
-        if (confirm(`${tr('تسوية مخزون الصنف', 'Inventory adjustment for item')} "${displayProductName(product)}":\n${tr('الفرق', 'Difference')}: ${diff} ${tr('قطعة', 'pcs')}\n${tr('القيمة', 'Amount')}: ${adjustmentValue.toLocaleString()}\n${tr('هل أنت متأكد من الترحيل؟', 'Are you sure you want to post?')}`)) {
+        if (confirm(`${tr('تسوية مخزون الصنف', 'Inventory adjustment for item')} "${displayProductName(product)}":\n${tr('الفرق', 'Difference')}: ${diff} ${tr('قطعة', 'pcs')}\n${tr('القيمة', 'Amount')}: ${adjustmentValue.toLocaleString('en-US')}\n${tr('هل أنت متأكد من الترحيل؟', 'Are you sure you want to post?')}`)) {
             // Post journal entry first to prevent stock drift if posting is blocked.
             const result = addTransaction({
                 amount: adjustmentValue,
@@ -394,7 +394,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                             <div key={asset.id} className="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center shadow-sm">
                                 <div>
                                     <h4 className="font-black text-xs text-gray-800 mb-1">{asset.name}</h4>
-                                <p className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg w-fit">{tr('التكلفة', 'Cost')}: {asset.cost.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded-lg w-fit">{tr('التكلفة', 'Cost')}: {asset.cost.toLocaleString('en-US')}</p>
                                 </div>
                                 <div className="text-left">
                                     <span className="block font-black text-pink-600 dir-ltr text-sm">{asset.monthlyDep.toFixed(2)}</span>
@@ -407,7 +407,7 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                     <div className="fixed left-4 right-4 md:left-8 md:right-8 max-w-md md:max-w-xl mx-auto" style={{ bottom: 'calc(var(--app-nav-height) + var(--app-safe-bottom) + 0.5rem)' }}>
                         <button onClick={postDepreciation} className="w-full bg-pink-600 text-white h-11 rounded-xl text-xs font-black shadow-xl shadow-pink-200 hover:bg-pink-700 active:scale-95 transition-all flex justify-center items-center gap-2">
                             <Calculator size={16} />
-                            {tr('اعتماد إهلاك بقيمة', 'Post depreciation amount')} {totalMonthlyDepreciation.toLocaleString()}
+                            {tr('اعتماد إهلاك بقيمة', 'Post depreciation amount')} {totalMonthlyDepreciation.toLocaleString('en-US')}
                         </button>
                     </div>
                 </div>
@@ -494,18 +494,18 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                     <div className="grid grid-cols-2 gap-2">
                         <div className="bg-emerald-50 p-3.5 rounded-xl text-center border border-emerald-100">
                             <p className="text-[9px] font-black text-emerald-600 mb-1 uppercase tracking-wide">{tr('ضريبة المبيعات', 'Sales Tax')}</p>
-                            <h3 className="text-base font-black text-emerald-800 dir-ltr">{taxData.salesTax.toLocaleString()}</h3>
+                            <h3 className="text-base font-black text-emerald-800 dir-ltr">{taxData.salesTax.toLocaleString('en-US')}</h3>
                         </div>
                         <div className="bg-amber-50 p-3.5 rounded-xl text-center border border-amber-100">
                             <p className="text-[9px] font-black text-amber-600 mb-1 uppercase tracking-wide">{tr('ضريبة المشتريات', 'Purchase Tax')}</p>
-                            <h3 className="text-base font-black text-amber-800 dir-ltr">{taxData.purchaseTax.toLocaleString()}</h3>
+                            <h3 className="text-base font-black text-amber-800 dir-ltr">{taxData.purchaseTax.toLocaleString('en-US')}</h3>
                         </div>
                     </div>
 
                     <div className="bg-slate-800 p-4 rounded-2xl text-white text-center shadow-lg relative overflow-hidden">
                         <div className="relative z-10">
                             <p className="text-[9px] font-black text-slate-400 mb-1.5 uppercase tracking-wide">{tr('صافي الضريبة واجبة السداد', 'Net Tax Payable')}</p>
-                            <h2 className="text-3xl font-black dir-ltr mb-3">{taxData.netTax.toLocaleString()}</h2>
+                            <h2 className="text-3xl font-black dir-ltr mb-3">{taxData.netTax.toLocaleString('en-US')}</h2>
                             <button onClick={postTaxSettlement} className="bg-white text-slate-900 h-10 rounded-xl font-black text-[11px] hover:bg-slate-100 transition-all w-full flex items-center justify-center gap-2">
                                 <CheckCircle size={15} /> {tr('ترحيل قيود الإقفال الضريبي', 'Post tax closing entries')}
                             </button>
@@ -523,34 +523,34 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                         <div className="grid grid-cols-2 gap-2 text-center">
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
                                 <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مخرجات من الفواتير', 'Output from invoices')}</p>
-                                <p className="text-base font-black text-indigo-700 dir-ltr">{taxData.salesTax.toLocaleString()}</p>
+                                <p className="text-base font-black text-indigo-700 dir-ltr">{taxData.salesTax.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
                                 <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مخرجات من القيود', 'Output from entries')}</p>
-                                <p className="text-base font-black text-indigo-700 dir-ltr">{taxData.vatOutputPosted.toLocaleString()}</p>
+                                <p className="text-base font-black text-indigo-700 dir-ltr">{taxData.vatOutputPosted.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
                                 <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مدخلات من الفواتير', 'Input from invoices')}</p>
-                                <p className="text-base font-black text-emerald-700 dir-ltr">{taxData.purchaseTax.toLocaleString()}</p>
+                                <p className="text-base font-black text-emerald-700 dir-ltr">{taxData.purchaseTax.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
                                 <p className="text-[9px] font-black text-gray-500 mb-1">{tr('مدخلات من القيود', 'Input from entries')}</p>
-                                <p className="text-base font-black text-emerald-700 dir-ltr">{taxData.vatInputPosted.toLocaleString()}</p>
+                                <p className="text-base font-black text-emerald-700 dir-ltr">{taxData.vatInputPosted.toLocaleString('en-US')}</p>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-3 gap-2">
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5">
                                 <p className="text-[9px] text-gray-400 font-black mb-1">{tr('فرق المخرجات', 'Output difference')}</p>
-                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.outputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.outputDiff.toLocaleString()}</p>
+                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.outputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.outputDiff.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5">
                                 <p className="text-[9px] text-gray-400 font-black mb-1">{tr('فرق المدخلات', 'Input difference')}</p>
-                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.inputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.inputDiff.toLocaleString()}</p>
+                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.inputDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.inputDiff.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5">
                                 <p className="text-[9px] text-gray-400 font-black mb-1">{tr('صافي الفرق', 'Net difference')}</p>
-                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.netDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.netDiff.toLocaleString()}</p>
+                                <p className={`text-sm font-black dir-ltr ${Math.abs(taxData.netDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>{taxData.netDiff.toLocaleString('en-US')}</p>
                             </div>
                         </div>
 
@@ -597,12 +597,12 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                                         <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl"><Coins size={18} /></div>
                                         <div>
                                             <h4 className="font-black text-xs text-gray-800">{displayAccountName(item.acc)}</h4>
-                                            <p className="text-[10px] text-gray-400 font-bold mt-0.5 dir-ltr">{item.foreignBalance.toLocaleString()} {item.acc.currency}</p>
+                                            <p className="text-[10px] text-gray-400 font-bold mt-0.5 dir-ltr">{item.foreignBalance.toLocaleString('en-US')} {item.acc.currency}</p>
                                         </div>
                                     </div>
                                     <div className="text-left">
                                         <span className={`text-sm font-black dir-ltr ${item.diff > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {item.diff > 0 ? '+' : ''}{item.diff.toLocaleString()}
+                                            {item.diff > 0 ? '+' : ''}{item.diff.toLocaleString('en-US')}
                                         </span>
                                         <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">{tr('فرق تقييم', 'Revaluation Diff')}</p>
                                     </div>
@@ -610,11 +610,11 @@ const SettlementManager: React.FC<SettlementManagerProps> = ({ onBack }) => {
                                 <div className="grid grid-cols-2 gap-2 text-center text-[9px] bg-gray-50 p-3 rounded-2xl border border-gray-100">
                                     <div>
                                         <span className="block text-gray-400 font-bold mb-1">{tr('الرصيد الدفتري', 'Book Balance')}</span>
-                                        <span className="font-black dir-ltr text-gray-700">{item.bookBalance.toLocaleString()}</span>
+                                        <span className="font-black dir-ltr text-gray-700">{item.bookBalance.toLocaleString('en-US')}</span>
                                     </div>
                                     <div className="border-r border-gray-200">
                                         <span className="block text-gray-400 font-bold mb-1">{tr('الرصيد المقيم', 'Revalued Balance')}</span>
-                                        <span className="font-black dir-ltr text-gray-700">{item.revaluedBalance.toLocaleString()}</span>
+                                        <span className="font-black dir-ltr text-gray-700">{item.revaluedBalance.toLocaleString('en-US')}</span>
                                     </div>
                                 </div>
                             </div>

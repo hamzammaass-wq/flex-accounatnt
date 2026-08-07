@@ -67,6 +67,11 @@ input:focus, textarea:focus, select:focus {
 
 .dir-ltr {
   direction: ltr;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+
+input[type="number"] {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
 }
 
 .invoice-stock-cell {
@@ -2484,6 +2489,8 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
   align-content: center;
   gap: 0.16rem;
   width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .statement-classic-document-label {
@@ -3036,5 +3043,21 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
+}
+
+@media (max-width: 639px) {
+
+}
+
+/* Performance & Rendering Optimizations */
+.fast-scroll-list,
+.table-responsive,
+.product-grid {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 500px;
+}
+
+.will-change-transform {
+  will-change: transform;
 }
 

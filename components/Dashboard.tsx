@@ -27,6 +27,8 @@ import {
   Coins,
   Building2,
   Layers,
+  Factory,
+  Store
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
@@ -129,19 +131,20 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   ];
 
   const modules = [
+    { label: t('dashboard.module.journal'), icon: Scale, color: 'text-slate-600', bg: 'bg-slate-200', action: () => onNavigate('journal-list') },
     { label: t('dashboard.module.warehouses'), icon: Warehouse, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('warehouses') },
+    { label: t('dashboard.module.assets'), icon: Briefcase, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('fixed-assets') },
+    { label: t('nav.hr') || (appLanguage === 'AR' ? 'الموظفين' : 'HR'), icon: Briefcase, color: 'text-sky-600', bg: 'bg-sky-100', action: () => onNavigate('hr') },
+    { label: appLanguage === 'AR' ? 'حقوق الملكية والشركاء' : 'Equity & Partners', icon: Coins, color: 'text-fuchsia-600', bg: 'bg-fuchsia-100', action: () => onNavigate('equity-partners') },
+    { label: t('dashboard.module.checks'), icon: FileCheck, color: 'text-purple-600', bg: 'bg-purple-100', action: () => onNavigate('checks') },
+    { label: t('dashboard.module.imports'), icon: Ship, color: 'text-cyan-600', bg: 'bg-cyan-100', action: () => onNavigate('import-list') },
+    { label: appLanguage === 'AR' ? 'الإشعارات المحاسبية' : 'Adjustment Notices', icon: BadgePercent, color: 'text-emerald-600', bg: 'bg-emerald-100', action: () => onNavigate('notices') },
+    { label: t('nav.manufacturing') || (appLanguage === 'AR' ? 'التصنيع' : 'Manufacturing'), icon: Factory, color: 'text-amber-600', bg: 'bg-amber-100', action: () => onNavigate('manufacturing') },
     { label: t('dashboard.module.inventory'), icon: Package, color: 'text-orange-600', bg: 'bg-orange-100', action: () => onNavigate('products') },
     { label: t('dashboard.module.treasury'), icon: Wallet, color: 'text-emerald-600', bg: 'bg-emerald-100', action: () => onNavigate('treasury') },
     { label: appLanguage === 'AR' ? 'مطابقة البنك' : 'Bank Reconciliation', icon: Landmark, color: 'text-teal-600', bg: 'bg-teal-100', action: () => onNavigate('bank-reconciliation') },
-    { label: t('dashboard.module.assets'), icon: Briefcase, color: 'text-indigo-600', bg: 'bg-indigo-100', action: () => onNavigate('fixed-assets') },
-    { label: appLanguage === 'AR' ? 'حقوق الملكية والشركاء' : 'Equity & Partners', icon: Coins, color: 'text-fuchsia-600', bg: 'bg-fuchsia-100', action: () => onNavigate('equity-partners') },
     { label: t('dashboard.module.customers'), icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', action: () => onNavigate('directory') },
-    { label: t('dashboard.module.checks'), icon: FileCheck, color: 'text-purple-600', bg: 'bg-purple-100', action: () => onNavigate('checks') },
     { label: appLanguage === 'AR' ? 'التنبيهات' : 'Alerts', icon: BellRing, color: 'text-rose-600', bg: 'bg-rose-100', action: () => onNavigate('alerts') },
-    { label: appLanguage === 'AR' ? 'الإشعارات المحاسبية' : 'Adjustment Notices', icon: BadgePercent, color: 'text-emerald-600', bg: 'bg-emerald-100', action: () => onNavigate('notices') },
-    { label: t('dashboard.module.imports'), icon: Ship, color: 'text-cyan-600', bg: 'bg-cyan-100', action: () => onNavigate('import-list') },
-    { label: t('dashboard.module.journal'), icon: Scale, color: 'text-slate-600', bg: 'bg-slate-200', action: () => onNavigate('journal-list') },
-    { label: t('dashboard.module.reports'), icon: BarChart3, color: 'text-violet-600', bg: 'bg-violet-100', action: () => onNavigate('reports') },
     { label: t('dashboard.module.settlements'), icon: Scale, color: 'text-pink-600', bg: 'bg-pink-100', action: () => onNavigate('settlements') }
   ];
 
@@ -212,42 +215,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       </div>
 
       <div className="p-4 sm:p-5">
-        <div className="dashboard-primary-card bg-slate-900 rounded-[2rem] sm:rounded-[2.8rem] p-5 sm:p-7 shadow-2xl text-white mb-6 sm:mb-8 relative overflow-hidden">
-          <div className="absolute right-0 top-0 w-32 h-32 bg-blue-600/20 blur-[60px] rounded-full"></div>
-          <div className="absolute left-0 bottom-0 w-24 h-24 bg-emerald-600/20 blur-[50px] rounded-full"></div>
-
-          <div className="relative z-10">
-            <div className="flex justify-between items-start mb-4 sm:mb-6">
-              <div className="flex-1 min-w-0">
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1">{t('dashboard.unifiedBalance')}</p>
-                <h2 className="text-2xl sm:text-3xl font-black dir-ltr tracking-tighter truncate">
-                  {formatCurrency(summary.netBalance)} <span className="text-xs text-slate-500 font-bold">{baseCurrency}</span>
-                </h2>
-              </div>
-              <div className="bg-white/10 p-2.5 sm:p-3 rounded-2xl backdrop-blur-md border border-white/5 shrink-0 ms-2">
-                <Wallet className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-4 sm:pt-5 border-t border-white/5">
-              <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
-                <p className="text-slate-500 text-[9px] font-black uppercase mb-1">{t('dashboard.income')}</p>
-                <div className="flex items-center gap-1.5">
-                  <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span className="font-black text-sm dir-ltr text-emerald-400 truncate">{formatCurrency(summary.totalIncome)}</span>
-                </div>
-              </div>
-              <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
-                <p className="text-slate-500 text-[9px] font-black uppercase mb-1">{t('dashboard.expense')}</p>
-                <div className="flex items-center gap-1.5">
-                  <ArrowUpRight className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                  <span className="font-black text-sm dir-ltr text-rose-400 truncate">{formatCurrency(summary.totalExpense)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div className="mb-6 sm:mb-8">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 sm:mb-4 px-1">{t('dashboard.quickActions')}</h3>
           <div className="grid grid-cols-5 gap-1.5 sm:gap-2">

@@ -67,6 +67,7 @@ export const loadBarcodeReaderSettings = (companyId?: string | null): BarcodeRea
 export const saveBarcodeReaderSettings = (companyId: string | null | undefined, settings: Partial<BarcodeReaderSettings>) => {
   const next = normalize(settings);
   localStorage.setItem(STORAGE_KEY(companyId), JSON.stringify(next));
+  window.dispatchEvent(new CustomEvent('barcodeSettingsChanged'));
   return next;
 };
 
@@ -77,5 +78,6 @@ export const patchBarcodeReaderSettings = (
   const current = loadBarcodeReaderSettings(companyId);
   const next = normalize({ ...current, ...patch });
   localStorage.setItem(STORAGE_KEY(companyId), JSON.stringify(next));
+  window.dispatchEvent(new CustomEvent('barcodeSettingsChanged'));
   return next;
 };

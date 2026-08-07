@@ -57,7 +57,7 @@ const ProductList: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [name, setName] = useState('');
   const [groupId, setGroupId] = useState('');
-  const [unitId, setUnitId] = useState('');
+  const [unitId, setUnitId] = useState('u_pc');
   const [sellPrice, setSellPrice] = useState('');
   const [wholesalePrice, setWholesalePrice] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
@@ -141,7 +141,7 @@ const ProductList: React.FC = () => {
   const resetForm = () => {
       setName('');
       setGroupId('');
-      setUnitId('');
+      setUnitId('u_pc');
       setSellPrice('');
       setWholesalePrice('');
       setBuyPrice('');

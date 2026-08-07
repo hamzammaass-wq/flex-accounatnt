@@ -268,7 +268,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
         const customer = contacts.find(c => c.id === invoice.customerId);
         const customerName = getCustomerName(invoice.customerId);
         const formatPrintNumber = (value: number) => {
-            const normalized = value.toLocaleString();
+            const normalized = value.toLocaleString('en-US');
             return dottedNumbers ? normalized.replace(/,/g, '.') : normalized;
         };
         const topSpacerPx = Math.max(0, headerTopLines) * 20;
@@ -834,7 +834,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                             ? tr('المرتجعات', 'Returns')
                             : tr('العروض', 'Quotations')}
                 </span>
-                <span className="text-lg sm:text-xl font-black text-gray-800 dir-ltr">{stats.total.toLocaleString()}</span>
+                <span className="text-lg sm:text-xl font-black text-gray-800 dir-ltr">{stats.total.toLocaleString('en-US')}</span>
             </div>
 
             <div className="relative mb-6">
@@ -1037,7 +1037,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                                 </div>
                                 <div className="flex justify-between items-center border-t border-gray-50 pt-4">
                                     <div className="text-[10px] text-gray-400 font-bold flex items-center gap-1.5"><Calendar size={14} className="text-gray-300" />{formatDate(inv.date)}</div>
-                                    <div className="text-left"><span className="text-xl font-black text-gray-800 dir-ltr">{getInvoiceTotal(inv).toLocaleString()}</span></div>
+                                    <div className="text-left"><span className="text-xl font-black text-gray-800 dir-ltr">{getInvoiceTotal(inv).toLocaleString('en-US')}</span></div>
                                 </div>
                             </div>
 
@@ -1069,7 +1069,7 @@ const SalesInvoiceList: React.FC<SalesInvoiceListProps> = ({ onNavigate, onEditI
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-3">
-                                                        <span className={`font-black dir-ltr ${item.returned ? 'text-rose-400 line-through' : 'text-gray-800'}`}>{item.total.toLocaleString()}</span>
+                                                        <span className={`font-black dir-ltr ${item.returned ? 'text-rose-400 line-through' : 'text-gray-800'}`}>{item.total.toLocaleString('en-US')}</span>
                                                         {activeTab === 'INVOICES' && !item.returned && !isDraft && (
                                                             <button
                                                                 onClick={(e) => {

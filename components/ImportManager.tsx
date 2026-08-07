@@ -604,7 +604,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                                     <p className="text-[9px] font-bold text-gray-400">{formatDate(inv.date)} ? {displayContactName(contacts.find(c => c.id === inv.customerId) || null)}</p>
                                                 </div>
                                             </div>
-                                            <span className="font-black text-sm dir-ltr text-slate-700">{inv.totalAmount.toLocaleString()}</span>
+                                            <span className="font-black text-sm dir-ltr text-slate-700">{inv.totalAmount.toLocaleString('en-US')}</span>
                                         </button>
                                     ))}
                                 </div>
@@ -673,14 +673,14 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                                         />
                                                     ) : (
                                                         <div className="flex flex-col items-end">
-                                                            <span className="font-black text-xs text-emerald-600 dir-ltr">+{distributions[item.key]?.toLocaleString()}</span>
+                                                            <span className="font-black text-xs text-emerald-600 dir-ltr">+{distributions[item.key]?.toLocaleString('en-US')}</span>
                                                             <span className="text-[7px] text-gray-300 font-black uppercase mt-0.5 tracking-tighter">{tr('من أصل', 'out of')} {expenseAmount}</span>
                                                         </div>
                                                     )}
                                                     {projected && (
                                                         <div className="mt-1.5 text-[9px] font-black text-slate-500 leading-5">
-                                                            <div className="dir-ltr">{tr('صافي التكلفة', 'Net Cost')}: {projected.nextCost.toLocaleString()}</div>
-                                                            <div className="dir-ltr">{tr('جملة', 'Wholesale')}: {projected.wholesalePrice.toLocaleString()} | {tr('مفرق', 'Retail')}: {projected.retailPrice.toLocaleString()}</div>
+                                                            <div className="dir-ltr">{tr('صافي التكلفة', 'Net Cost')}: {projected.nextCost.toLocaleString('en-US')}</div>
+                                                            <div className="dir-ltr">{tr('جملة', 'Wholesale')}: {projected.wholesalePrice.toLocaleString('en-US')} | {tr('مفرق', 'Retail')}: {projected.retailPrice.toLocaleString('en-US')}</div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -702,12 +702,12 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                                 <div key={entry.product.id} className="bg-white border border-cyan-100 rounded-xl p-3 text-[11px] font-black">
                                                     <div className="flex justify-between items-center mb-1.5">
                                                         <span className="text-slate-700">{displayProductName(entry.product)}</span>
-                                                        <span className="text-slate-400 dir-ltr">{entry.totalQty.toLocaleString()}</span>
+                                                        <span className="text-slate-400 dir-ltr">{entry.totalQty.toLocaleString('en-US')}</span>
                                                     </div>
                                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                                        <div className="bg-blue-50 text-blue-700 rounded-lg px-2 py-1.5 dir-ltr">{tr('صافي التكلفة', 'Net Cost')}: {entry.nextCost.toLocaleString()}</div>
-                                                        <div className="bg-violet-50 text-violet-700 rounded-lg px-2 py-1.5 dir-ltr">{tr('جملة', 'Wholesale')}: {entry.wholesalePrice.toLocaleString()}</div>
-                                                        <div className="bg-emerald-50 text-emerald-700 rounded-lg px-2 py-1.5 dir-ltr">{tr('مفرق', 'Retail')}: {entry.retailPrice.toLocaleString()}</div>
+                                                        <div className="bg-blue-50 text-blue-700 rounded-lg px-2 py-1.5 dir-ltr">{tr('صافي التكلفة', 'Net Cost')}: {entry.nextCost.toLocaleString('en-US')}</div>
+                                                        <div className="bg-violet-50 text-violet-700 rounded-lg px-2 py-1.5 dir-ltr">{tr('جملة', 'Wholesale')}: {entry.wholesalePrice.toLocaleString('en-US')}</div>
+                                                        <div className="bg-emerald-50 text-emerald-700 rounded-lg px-2 py-1.5 dir-ltr">{tr('مفرق', 'Retail')}: {entry.retailPrice.toLocaleString('en-US')}</div>
                                                     </div>
                                                 </div>
                                             ))}
@@ -721,7 +721,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{tr('إجمالي المبلغ الموزع', 'Total Distributed Amount')}</span>
                                     <div className="flex items-center gap-2">
                                         {isBalanced ? <CheckCircle2 size={16} className="text-emerald-400" /> : <AlertTriangle size={16} className="text-rose-400 animate-pulse" />}
-                                        <h4 className={`text-2xl font-black dir-ltr tracking-tighter ${isBalanced ? 'text-emerald-400' : 'text-rose-400'}`}>{totalDistributed.toLocaleString()}</h4>
+                                        <h4 className={`text-2xl font-black dir-ltr tracking-tighter ${isBalanced ? 'text-emerald-400' : 'text-rose-400'}`}>{totalDistributed.toLocaleString('en-US')}</h4>
                                     </div>
                                 </div>
                                 <button 

@@ -111,7 +111,9 @@ export const validateInvoiceInput = (payload: Omit<Invoice, 'id'>): ValidationIs
     const discountAmount = Number(toSafeNumber(payload.discountAmount).toFixed(2));
     const taxAmount = Number(toSafeNumber(payload.taxAmount).toFixed(2));
     const totalAmount = Number(toSafeNumber(payload.totalAmount).toFixed(2));
-    const expectedInvoiceTotal = Number((itemsSubtotal - discountAmount + taxAmount).toFixed(2));
+    const expectedInvoiceTotal = payload.taxMode === 'INCLUSIVE'
+      ? Number((itemsSubtotal - discountAmount).toFixed(2))
+      : Number((itemsSubtotal - discountAmount + taxAmount).toFixed(2));
 
     if (discountAmount - itemsSubtotal > 0.02) {
       issues.push({

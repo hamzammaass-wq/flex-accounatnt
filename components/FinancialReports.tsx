@@ -289,7 +289,11 @@ const BalanceSheetSection: React.FC<{
     );
 };
 
-const FinancialReports: React.FC = () => {
+interface FinancialReportsProps {
+    onEditTransaction?: (tx: any, invoice?: any | null) => void;
+}
+
+const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }) => {
     const { transactions, accounts, baseCurrency, products, invoices, contacts, fixedAssets, currencies, checks, boms, warehouses, companySettings, importExpenseDistributions } = useAccounting();
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -644,9 +648,9 @@ const FinancialReports: React.FC = () => {
 
     const getOperationCategoryLabel = (category?: string) => {
         switch (category) {
-            case 'sales_invoice': return tr('فاتورة مبيعات', 'Sales Invoice');
+            case 'sales_invoice': return tr('مبيعات', 'Sales');
             case 'sales_return': return tr('مرتجع مبيعات', 'Sales Return');
-            case 'purchase_invoice': return tr('فاتورة مشتريات', 'Purchase Invoice');
+            case 'purchase_invoice': return tr('مشتريات', 'Purchases');
             case 'purchase_return': return tr('مرتجع مشتريات', 'Purchase Return');
             case 'receipt':
             case 'voucher_receipt':
@@ -660,22 +664,60 @@ const FinancialReports: React.FC = () => {
         }
     };
 
-    const normalizeStatementDescriptionText = (value?: string) => {
-        const raw = String(value || '').trim();
-        if (!raw) return '';
+    const normalizeStatementDescriptionText = (value?: string, txCategory?: string) => {
+        let text = String(value || '').trim();
+        if (!text) {
+            if (!txCategory) return '';
+            switch (txCategory) {
+                case 'sales_invoice': return tr('مبيعات', 'Sales');
+                case 'purchase_invoice': return tr('مشتريات', 'Purchases');
+                case 'sales_return': return tr('مردود مبيعات', 'Sales Return');
+                case 'purchase_return': return tr('مردود مشتريات', 'Purchase Return');
+                case 'receipt':
+                case 'voucher_receipt': return tr('قبض', 'Receipt');
+                case 'payment':
+                case 'voucher_payment': return tr('صرف', 'Payment');
+                default: return '';
+            }
+        }
 
-        const replacements: Array<[RegExp, string]> = [
-            [/sales\s+invoice/gi, tr('فاتورة مبيعات', 'Sales invoice')],
-            [/sales\s+return/gi, tr('مرتجع مبيعات', 'Sales return')],
-            [/purchase\s+invoi\w*/gi, tr('فاتورة مشتريات', 'Purchase invoice')],
-            [/purchase\s+return/gi, tr('مرتجع مشتريات', 'Purchase return')],
-            [/receipt\s+voucher/gi, tr('سند قبض', 'Receipt voucher')],
-            [/payment\s+voucher/gi, tr('سند صرف', 'Payment voucher')],
-            [/import\s+handling\s+expense/gi, tr('مصاريف مناولة استيراد', 'Import handling expense')],
-            [/import\s+expenses?/gi, tr('مصاريف استيراد', 'Import expenses')]
+        // Strip noisy auto-generated prefixes to prevent text overlap and simplify the view
+        const noisePatterns = [
+            /^(?:Invoice مبيعات|Invoice شراء مخزون|Invoice مصروف|Invoice|مبيعات Invoice مبيعات|مبيعات Invoice|مشتريات Invoice شراء مخزون|مشتريات Invoice|فاتورة مبيعات|فاتورة مشتريات|Sales Invoice|Purchase Invoice|سند قبض|سند صرف|Receipt Voucher|Payment Voucher|قبض نقدي|صرف نقدي|مبيعات|مشتريات)\s*(?:#\s*[A-Za-z0-9-]+)?\s*-\s*/i,
+            /^(?:Invoice مبيعات|Invoice شراء مخزون|Invoice مصروف|Invoice|مبيعات Invoice مبيعات|مبيعات Invoice|مشتريات Invoice شراء مخزون|مشتريات Invoice|فاتورة مبيعات|فاتورة مشتريات|Sales Invoice|Purchase Invoice|سند قبض|سند صرف|Receipt Voucher|Payment Voucher|قبض نقدي|صرف نقدي|مبيعات|مشتريات)\s*(?:#\s*[A-Za-z0-9-]+)?/i
         ];
 
-        return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), raw);
+        for (const pattern of noisePatterns) {
+            if (pattern.test(text)) {
+                text = text.replace(pattern, '').trim();
+                if (text.startsWith('-')) text = text.substring(1).trim();
+                break; // Only strip the first matched prefix
+            }
+        }
+
+        let prefix = '';
+        if (txCategory) {
+            switch (txCategory) {
+                case 'sales_invoice': prefix = tr('مبيعات', 'Sales'); break;
+                case 'purchase_invoice': prefix = tr('مشتريات', 'Purchases'); break;
+                case 'sales_return': prefix = tr('مردود مبيعات', 'Sales Return'); break;
+                case 'purchase_return': prefix = tr('مردود مشتريات', 'Purchase Return'); break;
+                case 'receipt':
+                case 'voucher_receipt': prefix = tr('قبض', 'Receipt'); break;
+                case 'payment':
+                case 'voucher_payment': prefix = tr('صرف', 'Payment'); break;
+                default: break;
+            }
+        }
+
+        if (prefix) {
+            if (txCategory === 'sales_invoice' || txCategory === 'purchase_invoice' || txCategory === 'sales_return' || txCategory === 'purchase_return') {
+                return prefix;
+            }
+            return text ? `${prefix} - ${text}` : prefix;
+        }
+
+        return text || value || '';
     };
 
     const extractReferenceFromDescription = (value: string, prefixPattern: RegExp) => {
@@ -871,7 +913,7 @@ const FinancialReports: React.FC = () => {
     };
 
     const getClassicStatementDescriptionText = (tx: Transaction, details: ClassicStatementDetails) => {
-        const normalizedDescription = normalizeStatementDescriptionText(tx.description);
+        const normalizedDescription = normalizeStatementDescriptionText(tx.description, tx.category);
         const docLabel = getClassicStatementDocumentLabel(tx, details);
         if (normalizedDescription && normalizedDescription !== docLabel) {
             return normalizedDescription;
@@ -1075,18 +1117,16 @@ const FinancialReports: React.FC = () => {
                             className={`statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper ${reportTableClassName} w-full text-start table-fixed min-w-0 max-w-full`}
                         >
                             <colgroup>
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '13%' }} />
-                                <col style={{ width: '41%' }} />
-                                <col style={{ width: '11%' }} />
-                                <col style={{ width: '11%' }} />
-                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '18%' }} />
+                                <col style={{ width: '34%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '16%' }} />
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th>{tr('التاريخ', 'Date')}</th>
                                     <th>{tr('المستند', 'Document')}</th>
-                                    <th>{tr('البيان', 'Description')}</th>
                                     <th>{tr('مدين', 'Debit')}</th>
                                     <th>{tr('دائن', 'Credit')}</th>
                                     <th>{getStatementBalanceColumnLabel()}</th>
@@ -1095,8 +1135,7 @@ const FinancialReports: React.FC = () => {
                             <tbody>
                                 <tr className="statement-classic-row statement-classic-row--opening">
                                     <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
-                                    <td className="statement-classic-document-cell"></td>
-                                    <td className="statement-classic-description">{tr('رصيد منقول', 'Balance B/F')}</td>
+                                    <td className="statement-classic-document-cell text-xs font-bold text-gray-500">{tr('رصيد منقول', 'Balance B/F')}</td>
                                     <td className="statement-classic-placeholder"></td>
                                     <td className="statement-classic-placeholder"></td>
                                     <td className="statement-classic-balance-cell dir-ltr">{formatValue(openingBalance)}</td>
@@ -1106,12 +1145,14 @@ const FinancialReports: React.FC = () => {
                                     const details = buildClassicStatementDetails(entry.tx, controlAccountIds);
                                     const documentLabel = getClassicStatementDocumentLabel(entry.tx, details);
                                     const descriptionText = getClassicStatementDescriptionText(entry.tx, details);
-                                    const inlineDetails = renderClassicStatementInlineDetails(entry.tx, details, descriptionText);
                                     const documentNumber = hideVoucherColumnInStatement ? '' : getStatementDocumentNumber(entry.tx);
 
                                     return (
                                         <React.Fragment key={entry.id}>
-                                            <tr className={`statement-classic-row ${entry.tx.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
+                                            <tr 
+                                                className={`statement-classic-row ${entry.tx.invoiceId ? 'statement-classic-row--invoice' : ''} ${onEditTransaction ? 'cursor-pointer hover:bg-slate-50 transition-colors' : ''}`}
+                                                onDoubleClick={() => onEditTransaction && onEditTransaction(entry.tx, invoice)}
+                                            >
                                                 <td className="statement-classic-date-cell dir-ltr">{formatClassicStatementDate(entry.date)}</td>
                                                 <td className="statement-classic-document-cell">
                                                     <div className="statement-classic-document-wrap">
@@ -1119,34 +1160,21 @@ const FinancialReports: React.FC = () => {
                                                         <span className="statement-classic-document-number dir-ltr">{documentNumber || ''}</span>
                                                     </div>
                                                 </td>
-                                                <td className="statement-report-description statement-classic-description">
-                                                    <div className="statement-classic-primary">{descriptionText}</div>
-                                                </td>
                                                 <td className="statement-classic-amount-cell dir-ltr">{entry.debit > 0 ? formatValue(entry.debit) : '-'}</td>
                                                 <td className="statement-classic-amount-cell dir-ltr">{entry.credit > 0 ? formatValue(entry.credit) : '-'}</td>
                                                 <td className="statement-classic-balance-cell dir-ltr">{formatValue(entry.balance)}</td>
                                             </tr>
-                                            {inlineDetails && (
-                                                <tr className="statement-classic-detail-row">
-                                                    <td className="statement-classic-placeholder"></td>
-                                                    <td colSpan={2} className="statement-classic-detail-cell">{inlineDetails}</td>
-                                                    <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
-                                                </tr>
-                                            )}
                                         </React.Fragment>
                                     );
                                 })}
 
                                 {entries.length === 0 && (
                                     <tr className="statement-classic-empty-row">
-                                        <td colSpan={6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                        <td colSpan={5}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
                                     </tr>
                                 )}
 
                                 <tr className="statement-classic-summary-inline-row">
-                                    <td></td>
                                     <td></td>
                                     <td></td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalDebit)}</td>
@@ -1154,7 +1182,7 @@ const FinancialReports: React.FC = () => {
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(closingBalance)}</td>
                                 </tr>
                                 <tr className="statement-classic-fill-row">
-                                    <td colSpan={6}></td>
+                                    <td colSpan={5}></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1351,9 +1379,16 @@ const FinancialReports: React.FC = () => {
             group.credit += credit;
             group.subTransactions.push(tx);
         });
-
-        groupedList.sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime());
-
+        groupedList.sort((left, right) => {
+            const timeDiff = new Date(left.date).getTime() - new Date(right.date).getTime();
+            if (timeDiff !== 0) return timeDiff;
+            // Fallback to createdAt for exact sequence on the same date
+            const createdA = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+            const createdB = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+            if (createdA !== createdB) return createdA - createdB;
+            // Fallback to insertion order (or ID for stability)
+            return left.id.localeCompare(right.id);
+        });
         let openingBalance = 0;
         const periodTransactions: UnifiedStatementGroupedTransaction[] = [];
         const startDateObj = rangeStart ? new Date(rangeStart) : null;
@@ -1484,8 +1519,9 @@ const FinancialReports: React.FC = () => {
     ) => {
         const rawDescription = String(entry.description || '').trim();
         const documentLabel = getUnifiedClassicStatementDocumentLabel(entry, preview);
-        if (rawDescription && rawDescription !== documentLabel) {
-            return rawDescription;
+        const normalized = normalizeStatementDescriptionText(rawDescription, entry.category);
+        if (normalized && normalized !== documentLabel) {
+            return normalized;
         }
 
         const paymentNames = preview.paymentRows.map(row => row.accountName).filter(Boolean).join(' - ');
@@ -1705,18 +1741,16 @@ const FinancialReports: React.FC = () => {
                             className={`directory-statement-table statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper ${reportTableClassName} w-full text-start table-fixed min-w-0 max-w-full`}
                         >
                             <colgroup>
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '13%' }} />
-                                <col style={{ width: '41%' }} />
-                                <col style={{ width: '11%' }} />
-                                <col style={{ width: '11%' }} />
-                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '18%' }} />
+                                <col style={{ width: '34%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '16%' }} />
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th>{tr('التاريخ', 'Date')}</th>
                                     <th>{tr('المستند', 'Document')}</th>
-                                    <th>{tr('البيان', 'Description')}</th>
                                     <th>{tr('مدين', 'Debit')}</th>
                                     <th>{tr('دائن', 'Credit')}</th>
                                     <th>{getStatementBalanceColumnLabel()}</th>
@@ -1725,8 +1759,7 @@ const FinancialReports: React.FC = () => {
                             <tbody>
                                 <tr className="statement-classic-row statement-classic-row--opening">
                                     <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
-                                    <td className="statement-classic-document-cell"></td>
-                                    <td className="statement-classic-description">{tr('رصيد منقول', 'Balance B/F')}</td>
+                                    <td className="statement-classic-document-cell text-xs font-bold text-gray-500">{tr('رصيد منقول', 'Balance B/F')}</td>
                                     <td className="statement-classic-placeholder"></td>
                                     <td className="statement-classic-placeholder"></td>
                                     <td className="statement-classic-balance-cell dir-ltr">{formatUnifiedStatementFigure(openingBalance)}</td>
@@ -1736,16 +1769,16 @@ const FinancialReports: React.FC = () => {
                                     const detailBlock = renderUnifiedClassicStatementInlineDetails(row.preview, row.secondaryDescription);
                                     return (
                                         <React.Fragment key={row.id}>
-                                            <tr className={`statement-classic-row ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''}`}>
+                                            <tr 
+                                                className={`statement-classic-row ${row.entry.invoiceId ? 'statement-classic-row--invoice' : ''} ${onEditTransaction ? 'cursor-pointer hover:bg-slate-50 transition-colors' : ''}`}
+                                                onDoubleClick={() => onEditTransaction && onEditTransaction(row.entry, invoice)}
+                                            >
                                                 <td className="statement-classic-date-cell dir-ltr">{row.dateText}</td>
                                                 <td className="statement-classic-document-cell">
                                                     <div className="statement-classic-document-wrap">
                                                         <span className="statement-classic-document-label">{row.primaryDescription}</span>
                                                         <span className="statement-classic-document-number dir-ltr">{row.documentNumber}</span>
                                                     </div>
-                                                </td>
-                                                <td className="statement-report-description statement-classic-description">
-                                                    <div className="statement-classic-primary">{row.secondaryDescription}</div>
                                                 </td>
                                                 <td className="statement-classic-amount-cell dir-ltr">{row.debit > 0 ? formatUnifiedStatementFigure(row.debit) : '-'}</td>
                                                 <td className="statement-classic-amount-cell dir-ltr">{row.credit > 0 ? formatUnifiedStatementFigure(row.credit) : '-'}</td>
@@ -1757,7 +1790,6 @@ const FinancialReports: React.FC = () => {
                                                     <td colSpan={2} className="statement-classic-detail-cell">{detailBlock}</td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
                                                 </tr>
                                             )}
                                         </React.Fragment>
@@ -1766,12 +1798,11 @@ const FinancialReports: React.FC = () => {
 
                                 {rows.length === 0 && (
                                     <tr className="statement-classic-empty-row">
-                                        <td colSpan={6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                        <td colSpan={5}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
                                     </tr>
                                 )}
 
                                 <tr className="statement-classic-summary-inline-row">
-                                    <td></td>
                                     <td></td>
                                     <td></td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatUnifiedStatementFigure(totalDebit)}</td>
@@ -1779,7 +1810,7 @@ const FinancialReports: React.FC = () => {
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatUnifiedStatementFigure(closingBalance)}</td>
                                 </tr>
                                 <tr className="statement-classic-fill-row">
-                                    <td colSpan={6}></td>
+                                    <td colSpan={5}></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1864,7 +1895,7 @@ const FinancialReports: React.FC = () => {
                 case 'purchase_return':
                 case 'sales_invoice':
                 case 'sales_return':
-                    return `${categoryLabel}${invoiceReference}`.trim();
+                    return categoryLabel.trim();
                 case 'payment':
                 case 'voucher_payment':
                 case 'receipt':
@@ -3219,7 +3250,7 @@ const FinancialReports: React.FC = () => {
 
                     return [{
                         id: `${tx.id}-payment-${index}`,
-                        label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                        label: isReceipt ? tr('مقبوض من', 'Received from') : tr('مصروف لـ', 'Paid to'),
                         accountName: displayAccountName(account),
                         amount: Number(sub.amount || 0) || 0,
                         currency: sub.currency || tx.currency || baseCurrency,
@@ -3249,14 +3280,14 @@ const FinancialReports: React.FC = () => {
                             `${tr('البنك', 'Bank')}: ${check.bankName}`,
                             check.accountNumber ? `${tr('الحساب', 'Account')}: ${check.accountNumber}` : '',
                             `${tr('الاستحقاق', 'Due')}: ${check.dueDate}`,
-                            `${tr('المبلغ', 'Amount')}: ${check.amount.toLocaleString()} ${check.currency || baseCurrency}`
+                            `${tr('المبلغ', 'Amount')}: ${check.amount.toLocaleString('en-US')} ${check.currency || baseCurrency}`
                         ].filter(Boolean).join(' | ')
                     );
                 });
 
                 // 2. Payments details
                 preview.paymentRows.forEach(pay => {
-                    const amountSuffix = pay.amount > 0 ? ` (${pay.amount.toLocaleString()} ${pay.currency || baseCurrency})` : '';
+                    const amountSuffix = pay.amount > 0 ? ` (${pay.amount.toLocaleString('en-US')} ${pay.currency || baseCurrency})` : '';
                     detailLines.push(`${pay.label}: ${pay.accountName}${amountSuffix}`);
                 });
 
@@ -3267,7 +3298,7 @@ const FinancialReports: React.FC = () => {
                         const product = products.find(p => p.id === item.productId);
                         const name = item.description || (product ? getDisplayProductName(product, isEnglish) : '');
                         detailLines.push(
-                            `${index + 1}. ${name} | ${tr('الكمية', 'Qty')}: ${item.quantity} | ${tr('السعر', 'Price')}: ${item.unitPrice.toLocaleString()} | ${tr('الإجمالي', 'Total')}: ${item.total.toLocaleString()}`
+                            `${index + 1}. ${name} | ${tr('الكمية', 'Qty')}: ${item.quantity} | ${tr('السعر', 'Price')}: ${item.unitPrice.toLocaleString('en-US')} | ${tr('الإجمالي', 'Total')}: ${item.total.toLocaleString('en-US')}`
                         );
                     });
                 }
@@ -3743,6 +3774,7 @@ const FinancialReports: React.FC = () => {
                 const closing = opening + movement;
                 return { account: acc, opening, movement, increase, decrease, closing };
             })
+            .filter(row => Math.abs(row.opening) >= 0.01 || Math.abs(row.movement) >= 0.01 || Math.abs(row.closing) >= 0.01)
             .sort((a, b) => a.account.code.localeCompare(b.account.code, 'ar'));
 
         const periodRevenue = accounts
@@ -4747,7 +4779,7 @@ const FinancialReports: React.FC = () => {
                                 <div><h4 className="font-black text-xs text-gray-800 line-clamp-1">{t.description}</h4><p className="text-[9px] text-gray-400 font-bold uppercase">{t.date}</p></div>
                             </div>
                             <span className={`font-black text-sm dir-ltr ${t.type === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {t.type === 'INCOME' ? '+' : '-'}{t.amount.toLocaleString()}
+                                {t.type === 'INCOME' ? '+' : '-'}{t.amount.toLocaleString('en-US')}
                             </span>
                         </div>
                     ))}
@@ -4788,7 +4820,7 @@ const FinancialReports: React.FC = () => {
                                     </div>
                                     <div className="text-left">
                                         <span className={`block font-black text-base dir-ltr ${isIn ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {isIn ? '+' : '-'}{t.amount.toLocaleString()}
+                                            {isIn ? '+' : '-'}{t.amount.toLocaleString('en-US')}
                                         </span>
                                         <span className="text-[9px] text-gray-400 font-bold">{t.date}</span>
                                     </div>
@@ -8455,7 +8487,7 @@ const FinancialReports: React.FC = () => {
 
                 return [{
                     id: `${tx.id}-payment-${index}`,
-                    label: isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from'),
+                    label: isReceipt ? tr('مقبوض من', 'Received from') : tr('مصروف لـ', 'Paid to'),
                     accountName: displayAccountName(account),
                     amount: Number(sub.amount || 0) || 0,
                     currency: sub.currency || tx.currency || baseCurrency,
@@ -8514,18 +8546,16 @@ const FinancialReports: React.FC = () => {
                             className={`directory-statement-table statement-report-table statement-report-table--ledger statement-classic-table statement-classic-table--paper report-table-account-ledger w-full text-start table-fixed min-w-0 max-w-full ${hideVoucherColumnInStatement ? '' : 'statement-report-table--with-voucher'}`}
                         >
                             <colgroup>
-                                <col style={{ width: hideVoucherColumnInStatement ? '15%' : '14%' }} />
-                                {!hideVoucherColumnInStatement && <col style={{ width: '13%' }} />}
-                                <col style={{ width: hideVoucherColumnInStatement ? '45%' : '31%' }} />
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: hideVoucherColumnInStatement ? '16%' : '18%' }} />
+                                <col style={{ width: hideVoucherColumnInStatement ? '25%' : '18%' }} />
+                                {!hideVoucherColumnInStatement && <col style={{ width: '34%' }} />}
+                                <col style={{ width: hideVoucherColumnInStatement ? '25%' : '16%' }} />
+                                <col style={{ width: hideVoucherColumnInStatement ? '25%' : '16%' }} />
+                                <col style={{ width: hideVoucherColumnInStatement ? '25%' : '16%' }} />
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th>{tr('التاريخ', 'Date')}</th>
                                     {!hideVoucherColumnInStatement && <th>{tr('السند', 'Voucher')}</th>}
-                                    <th>{tr('البيان', 'Description')}</th>
                                     <th>{tr('مدين', 'Debit')}</th>
                                     <th>{tr('دائن', 'Credit')}</th>
                                     <th>{tr('الرصيد الجاري', 'Running Balance')}</th>
@@ -8533,9 +8563,11 @@ const FinancialReports: React.FC = () => {
                             </thead>
                             <tbody>
                                 <tr className="statement-classic-row statement-classic-row--opening">
-                                    <td className="statement-classic-date-cell dir-ltr">{openingRowDate}</td>
-                                    {!hideVoucherColumnInStatement && <td className="statement-classic-document-cell"></td>}
-                                    <td className="statement-classic-description">{tr('رصيد افتتاحي', 'Opening Balance')}</td>
+                                    <td className="statement-classic-date-cell dir-ltr">
+                                        {openingRowDate}
+                                        {hideVoucherColumnInStatement && <div className="text-xs font-bold text-gray-500 mt-1">{tr('رصيد افتتاحي', 'Opening Balance')}</div>}
+                                    </td>
+                                    {!hideVoucherColumnInStatement && <td className="statement-classic-document-cell text-xs font-bold text-gray-500">{tr('رصيد افتتاحي', 'Opening Balance')}</td>}
                                     <td className="statement-classic-placeholder"></td>
                                     <td className="statement-classic-placeholder"></td>
                                     <td className={`statement-classic-balance-cell dir-ltr ${openingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -8546,9 +8578,9 @@ const FinancialReports: React.FC = () => {
                                 {ledgerEntries.map(entry => {
                                     const { tx, debit, credit, runningBalance: rowBalance } = entry;
                                     const primaryDesc = tx.voucherReference || tr(tx.category || '', tx.type || '');
-                                    const secondaryDesc = tx.description || '';
+                                    const secondaryDesc = normalizeStatementDescriptionText(tx.description, tx.category) || primaryDesc;
                                     const preview = buildLedgerClassicStatementPreview(tx, acc.id);
-                                    const detailBlock = renderUnifiedClassicStatementInlineDetails(preview, secondaryDesc || primaryDesc);
+                                    const detailBlock = renderUnifiedClassicStatementInlineDetails(preview, secondaryDesc);
                                     const documentLabel =
                                         tx.category === 'sales_invoice' ? tr('مبيعات', 'Sales')
                                         : tx.category === 'purchase_invoice' ? tr('مشتريات', 'Purchases')
@@ -8575,9 +8607,6 @@ const FinancialReports: React.FC = () => {
                                                         </div>
                                                     </td>
                                                 )}
-                                                <td className="statement-report-description statement-classic-description">
-                                                    <div className="statement-classic-primary">{secondaryDesc || primaryDesc}</div>
-                                                </td>
                                                 <td className="statement-classic-amount-cell dir-ltr">{debit > 0 ? formatValue(debit) : '-'}</td>
                                                 <td className="statement-classic-amount-cell dir-ltr">{credit > 0 ? formatValue(credit) : '-'}</td>
                                                 <td className="statement-classic-balance-cell dir-ltr font-black">{formatValue(Math.abs(rowBalance))}</td>
@@ -8588,7 +8617,6 @@ const FinancialReports: React.FC = () => {
                                                     <td colSpan={hideVoucherColumnInStatement ? 1 : 2} className="statement-classic-detail-cell">{detailBlock}</td>
                                                     <td className="statement-classic-placeholder"></td>
                                                     <td className="statement-classic-placeholder"></td>
-                                                    <td className="statement-classic-placeholder"></td>
                                                 </tr>
                                             )}
                                         </React.Fragment>
@@ -8597,20 +8625,19 @@ const FinancialReports: React.FC = () => {
 
                                 {ledgerEntries.length === 0 && (
                                     <tr className="statement-classic-empty-row">
-                                        <td colSpan={hideVoucherColumnInStatement ? 5 : 6}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
+                                        <td colSpan={hideVoucherColumnInStatement ? 4 : 5}>{tr('لا توجد حركات ضمن الفترة المحددة', 'No movements in selected period')}</td>
                                     </tr>
                                 )}
 
                                 <tr className="statement-classic-summary-inline-row">
                                     <td></td>
                                     {!hideVoucherColumnInStatement && <td></td>}
-                                    <td></td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalDebit)}</td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(totalCredit)}</td>
                                     <td className="statement-classic-summary-inline-cell dir-ltr">{formatValue(Math.abs(closingBalance))} {getBalanceNature(acc.type, closingBalance)}</td>
                                 </tr>
                                 <tr className="statement-classic-fill-row">
-                                    <td colSpan={hideVoucherColumnInStatement ? 5 : 6}></td>
+                                    <td colSpan={hideVoucherColumnInStatement ? 4 : 5}></td>
                                 </tr>
                             </tbody>
                         </table>

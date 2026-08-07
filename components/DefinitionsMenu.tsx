@@ -6062,16 +6062,16 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="text-gray-400 font-black">{tr('قيمة المخزون الدفترية (تقريبية)', 'Inventory ledger value (approx)')}</div>
-              <div className="font-black text-slate-800 dir-ltr">{integrityReport.metrics.inventoryLedgerValueApprox.toLocaleString()}</div>
+              <div className="font-black text-slate-800 dir-ltr">{integrityReport.metrics.inventoryLedgerValueApprox.toLocaleString('en-US')}</div>
             </div>
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="text-gray-400 font-black">{tr('قيمة المخزون من الأصناف (تقريبية)', 'Inventory from products (approx)')}</div>
-              <div className="font-black text-slate-800 dir-ltr">{integrityReport.metrics.inventoryStockValueApprox.toLocaleString()}</div>
+              <div className="font-black text-slate-800 dir-ltr">{integrityReport.metrics.inventoryStockValueApprox.toLocaleString('en-US')}</div>
             </div>
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="text-gray-400 font-black">{tr('فرق القيمة (تقريبي)', 'Value difference (approx)')}</div>
               <div className={`font-black dir-ltr ${Math.abs(integrityReport.metrics.inventoryValueDiffApprox) > 0.5 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                {integrityReport.metrics.inventoryValueDiffApprox.toLocaleString()}
+                {integrityReport.metrics.inventoryValueDiffApprox.toLocaleString('en-US')}
               </div>
             </div>
             <div className="rounded-xl border bg-slate-50 p-3">

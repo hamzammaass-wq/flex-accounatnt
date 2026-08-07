@@ -327,11 +327,7 @@ router.post('/', async (req, res) => {
             { id: 'u_m', name: 'متر', code: 'M' },
             { id: 'u_cup', name: 'كوب', code: 'CUP' }
         ];
-        const defaultItemGroups = [
-            { id: 'ig_electronics', name: 'إلكترونيات', icon: '📱' },
-            { id: 'ig_furniture', name: 'أثاث مكتبي', icon: '🪑' },
-            { id: 'ig_other', name: 'أخرى', icon: '📦' }
-        ];
+        const defaultItemGroups = [];
         const defaultDepartments = [
             { id: 'dept_admin', name: 'الإدارة والمالية' },
             { id: 'dept_sales', name: 'المبيعات' },

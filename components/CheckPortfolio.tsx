@@ -102,7 +102,7 @@ const CheckPortfolio: React.FC = () => {
                 maximumFractionDigits: 2
             }).format(value);
         } catch {
-            return `${value.toLocaleString()} ${currency}`;
+            return `${value.toLocaleString('en-US')} ${currency}`;
         }
     };
     const getCheckEntryLabel = (check: Pick<Check, 'type'>) =>
@@ -864,7 +864,7 @@ const CheckPortfolio: React.FC = () => {
                     <td>${escapeHtml(t.description || '-')}</td>
                     <td>${escapeHtml(getAccountNameById(t.debitAccountId))}</td>
                     <td>${escapeHtml(getAccountNameById(t.creditAccountId))}</td>
-                    <td class="num">${escapeHtml(t.amount.toLocaleString())} ${escapeHtml(t.currency || '')}</td>
+                    <td class="num">${escapeHtml(t.amount.toLocaleString('en-US'))} ${escapeHtml(t.currency || '')}</td>
                 </tr>
             `).join('')
             : `<tr><td colspan="7" class="muted">${escapeHtml(tr('لا توجد قيود مرتبطة بهذا الشيك', 'No related entries for this check'))}</td></tr>`;
@@ -908,7 +908,7 @@ const CheckPortfolio: React.FC = () => {
                 <div class="grid">
                     <div class="card"><div class="lbl">${escapeHtml(tr('نوع الشيك', 'Check Type'))}</div><div class="val">${escapeHtml(check.type === 'INCOMING' ? tr('وارد', 'Incoming') : tr('صادر', 'Outgoing'))}</div></div>
                     <div class="card"><div class="lbl">${escapeHtml(tr('الحالة', 'Status'))}</div><div class="val">${escapeHtml(getStatusLabel(check.status))}</div></div>
-                    <div class="card"><div class="lbl">${escapeHtml(tr('المبلغ', 'Amount'))}</div><div class="val">${escapeHtml(check.amount.toLocaleString())} ${escapeHtml(check.currency)}</div></div>
+                    <div class="card"><div class="lbl">${escapeHtml(tr('المبلغ', 'Amount'))}</div><div class="val">${escapeHtml(check.amount.toLocaleString('en-US'))} ${escapeHtml(check.currency)}</div></div>
                     <div class="card"><div class="lbl">${escapeHtml(tr('البنك', 'Bank'))}</div><div class="val">${escapeHtml(displayBankName(check.bankName, check.bankAccountId))}</div></div>
                     <div class="card"><div class="lbl">${escapeHtml(tr('تاريخ الإصدار', 'Issue Date'))}</div><div class="val">${escapeHtml(formatDate(check.issueDate))}</div></div>
                     <div class="card"><div class="lbl">${escapeHtml(tr('تاريخ الاستحقاق', 'Due Date'))}</div><div class="val">${escapeHtml(formatDate(check.dueDate))}</div></div>
@@ -1036,22 +1036,22 @@ const CheckPortfolio: React.FC = () => {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
                 <div className="bg-white p-2.5 rounded-xl border border-emerald-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest block mb-1">{tr('واردة', 'Incoming')}</span>
-                    <p className="text-sm font-black text-emerald-700 dir-ltr">{stats.incomingPending.toLocaleString()}</p>
+                    <p className="text-sm font-black text-emerald-700 dir-ltr">{stats.incomingPending.toLocaleString('en-US')}</p>
                 </div>
                 <div className="bg-white p-2.5 rounded-xl border border-rose-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest block mb-1">{tr('صادرة', 'Outgoing')}</span>
-                    <p className="text-sm font-black text-rose-700 dir-ltr">{stats.outgoingPending.toLocaleString()}</p>
+                    <p className="text-sm font-black text-rose-700 dir-ltr">{stats.outgoingPending.toLocaleString('en-US')}</p>
                 </div>
                 <div className="bg-white p-2.5 rounded-xl border border-amber-50 shadow-sm text-center">
                     <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest block mb-1">{tr('برسم التحصيل', 'Under Collection')}</span>
-                    <p className="text-sm font-black text-blue-700 dir-ltr">{stats.underCollection.toLocaleString()}</p>
+                    <p className="text-sm font-black text-blue-700 dir-ltr">{stats.underCollection.toLocaleString('en-US')}</p>
                 </div>
                 <div className="bg-white p-2.5 rounded-xl border border-amber-50 shadow-sm text-center">
                     <div className="flex items-center justify-center gap-1 mb-1 text-amber-500">
                         <XCircle size={12} />
                         <span className="text-[9px] font-black uppercase tracking-widest">{tr('مرتجعة', 'Bounced')}</span>
                     </div>
-                    <p className="text-sm font-black text-amber-700 dir-ltr">{stats.bouncedAmount.toLocaleString()}</p>
+                    <p className="text-sm font-black text-amber-700 dir-ltr">{stats.bouncedAmount.toLocaleString('en-US')}</p>
                     <div className="mt-1 text-[9px] font-black text-gray-400">
                         <span className="text-emerald-600">{stats.bouncedPaidCount}</span> {tr('مسدد', 'Settled')} • <span className="text-rose-600">{stats.bouncedUnpaidCount}</span> {tr('غير مسدد', 'Unsettled')}
                     </div>
@@ -1668,7 +1668,7 @@ const CheckPortfolio: React.FC = () => {
                                                             <td className="p-2 font-bold text-gray-700">{t.description}</td>
                                                             <td className="p-2 text-[11px] text-gray-600">{getAccountNameById(t.debitAccountId)}</td>
                                                             <td className="p-2 text-[11px] text-gray-600">{getAccountNameById(t.creditAccountId)}</td>
-                                                            <td className="p-2 text-center dir-ltr font-black">{t.amount.toLocaleString()} {t.currency}</td>
+                                                            <td className="p-2 text-center dir-ltr font-black">{t.amount.toLocaleString('en-US')} {t.currency}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>

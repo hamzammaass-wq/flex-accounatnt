@@ -1526,11 +1526,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const initialProductionOrders: ProductionOrder[] = [];;
 
-  const defaultItemGroups: ItemGroup[] = [
-    { id: 'ig_electronics', name: 'إلكترونيات', icon: '📱' },
-    { id: 'ig_furniture', name: 'أثاث مكتبي', icon: '🪑' },
-    { id: 'ig_other', name: 'أخرى', icon: '📦' }
-  ];
+  const defaultItemGroups: ItemGroup[] = [];
 
   const defaultDepartments: Department[] = [
     { id: 'dept_admin', name: 'الإدارة والمالية' },
@@ -1557,10 +1553,10 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     leaveAccrualPolicy: 'ANNUAL',
     monthlyLeaveAccrualDays: 1.75,
     lowStockAlertQtyDefault: 5,
-    defaultTaxRate: 15,
-    showTaxInInvoices: true,
-    hidePurchaseTax: false,
-    hideSalesTax: false,
+    defaultTaxRate: 0,
+    showTaxInInvoices: false,
+    hidePurchaseTax: true,
+    hideSalesTax: true,
     biometricLoginEnabled: false,
     notifyAfterAmountAdded: true,
     alertsDesktopNotificationsEnabled: false,
@@ -1578,12 +1574,12 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     journalDateLockEnabled: false,
     journalDateLockFrom: '',
     journalDateLockTo: '',
-    inventoryValuationMethod: 'STANDARD',
-    useAverageCosting: false,
+    inventoryValuationMethod: 'AVERAGE',
+    useAverageCosting: true,
     voucherInvoiceAllocationEnabled: true,
     autoAddItemPriceInInvoice: true,
     updateSalesPriceOnInvoiceEntry: false,
-    barcodeEnabled: true,
+    barcodeEnabled: false,
     invoiceExpiryDateEnabled: false,
     reportYearCloseEnabled: true,
     strictPostedLockEnabled: true,
@@ -4017,7 +4013,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const created: Transaction = {
       ...t,
       id: newId('tx'),
-      status: t.status || 'POSTED'
+      status: t.status || 'POSTED',
+      createdAt: new Date().toISOString()
     };
 
     const journalDateLockEnabled = companySettings.journalDateLockEnabled === true;
@@ -4347,11 +4344,26 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     const { resolvedName, ensured, accountSnapshot } = resolvePartnerPostingAccounts(input.partnerId, input.partnerName);
     
     const isReduction = !!input.isReduction;
-    const descPrefix = isReduction ? 'Partner capital reduction' : 'Partner capital contribution';
+    const descPrefix = isReduction ? 'تخفيض رأس مال' : 'إيداع رأس مال';
     
-    return commitTransaction({
+    // Generate JV sequence
+    const currentYear = String(new Date().getFullYear()).slice(-2);
+    const prefix = `JRN-${currentYear}-`;
+    let maxNum = 0;
+    transactions.forEach(tx => {
+      const vId = tx.voucherId || '';
+      if (vId.startsWith(prefix)) {
+        const numPart = vId.slice(prefix.length);
+        const num = parseInt(numPart, 10);
+        if (!isNaN(num)) maxNum = Math.max(maxNum, num);
+      }
+    });
+    const nextNum = (maxNum + 1).toString().padStart(4, '0');
+    const voucherId = `${prefix}${nextNum}`;
+
+    const result = commitTransaction({
       amount: Number(amount.toFixed(2)),
-      description: `${descPrefix} - ${resolvedName}${input.note ? ` - ${input.note}` : ''}`,
+      description: `${descPrefix} - ${resolvedName}${input.note && !input.note.includes('_capital_entry') ? ` - ${input.note}` : ''}`,
       category: 'partner_capital',
       type: TransactionType.TRANSFER,
       date: input.date,
@@ -4361,8 +4373,20 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       currency: baseCurrency,
       exchangeRate: 1,
       status: 'POSTED',
-      assetId: input.assetId
+      assetId: input.assetId,
+      voucherId
     }, accountSnapshot);
+
+    if (result.ok && input.assetId) {
+      const amountToApply = Number(amount.toFixed(2));
+      setFixedAssets(prev => prev.map(a => 
+        a.id === input.assetId 
+          ? { ...a, cost: Math.max(0, (a.cost || 0) + (isReduction ? -amountToApply : amountToApply)) } 
+          : a
+      ));
+    }
+
+    return result;
   };
 
   const postPartnerCurrentReceipt = (input: PartnerCurrentReceiptInput): MutationResult => {
@@ -4929,7 +4953,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
     if (qtyChange > 0) {
       const incomingQty = roundToFour(qtyChange);
-      const incomingCostFromItem = Math.max(0, Number(item.unitPrice) || 0);
+      const incomingCostFromItem = Math.max(0, (Number(item.unitPrice) || 0) / ((item as any).conversionFactor || 1));
       const incomingUnitCost = inv.category === 'purchase_invoice' && incomingCostFromItem > 0
         ? incomingCostFromItem
         : baseCost;
@@ -4966,8 +4990,8 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (inv.category !== 'purchase_invoice') return { nextCost: product.buyPrice, layers: product.fifoLayers };
       if (qtyChange <= 0) return { nextCost: product.buyPrice, layers: product.fifoLayers };
 
-      const incomingQty = Math.max(0, Number(item.quantity) || 0);
-      const incomingUnitCost = Math.max(0, Number(item.unitPrice) || 0);
+      const incomingQty = Math.max(0, (Number(item.quantity) || 0) * (Number(item.conversionFactor) || 1));
+      const incomingUnitCost = Math.max(0, (Number(item.unitPrice) || 0) / (Number(item.conversionFactor) || 1));
       if (incomingQty <= 0 || incomingUnitCost <= 0) return { nextCost: product.buyPrice, layers: product.fifoLayers };
 
       const currentQty = Math.max(0, Number(product.stock) || 0);
@@ -4991,7 +5015,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       return roundToFour(invoice.items.reduce((sum, item) => {
         const product = products.find(p => p.id === item.productId);
         if (!isStockProduct(product)) return sum;
-        return sum + ((Number(item.quantity) || 0) * (Number(product?.buyPrice) || 0));
+        return sum + (((Number(item.quantity) || 0) * (item.conversionFactor || 1)) * (Number(product?.buyPrice) || 0));
       }, 0));
     }
 
@@ -5001,7 +5025,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (!item.productId) return;
       const product = productMap.get(item.productId);
       if (!product || !isStockProduct(product)) return;
-      const qty = Math.max(0, Number(item.quantity) || 0);
+      const qty = Math.max(0, (Number(item.quantity) || 0) * (item.conversionFactor || 1));
       if (qty <= 0) return;
 
       const fifoResult = applyFifoCostingForQtyChange(product, invoice, item, -qty, false);
@@ -5429,7 +5453,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
         const item = newInvoice.items.find(i => i.productId === p.id);
         if (!item || !isStockProduct(p)) return p;
 
-        const qtyChange = getQtyChange(newInvoice, item.quantity);
+        const qtyChange = getQtyChange(newInvoice, item.quantity * (item.conversionFactor || 1));
         if (qtyChange === 0) return p;
 
         const computedExpiryDate = newInvoice.category === 'purchase_invoice' && qtyChange > 0
@@ -5490,7 +5514,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const item = inv.items.find(i => i.productId === p.id);
       if (!item || !isStockProduct(p)) return p;
 
-      const qtyChange = getInvoiceQtyChange(inv, item.quantity) * (reverse ? -1 : 1);
+      const qtyChange = getInvoiceQtyChange(inv, item.quantity * (item.conversionFactor || 1)) * (reverse ? -1 : 1);
       if (qtyChange === 0) return p;
 
       const computedExpiryDate = !reverse && inv.category === 'purchase_invoice' && qtyChange > 0
@@ -5531,7 +5555,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       const item = returnedItems.find(entry => entry.productId === product.id);
       if (!item || !isStockProduct(product)) return product;
 
-      const originalQtyChange = inv.type === TransactionType.INCOME ? item.quantity : -item.quantity;
+      const originalQtyChange = inv.type === TransactionType.INCOME ? (item.quantity * (item.conversionFactor || 1)) : -(item.quantity * (item.conversionFactor || 1));
       const qtyChange = originalQtyChange * (reverse ? -1 : 1);
       if (qtyChange === 0) return product;
 
@@ -5944,7 +5968,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (item.productId && (inv.type === TransactionType.INCOME || inv.category === 'purchase_invoice')) {
       const product = products.find(p => p.id === item.productId);
       if (product && isStockProduct(product)) {
-        const qtyChange = inv.type === TransactionType.INCOME ? item.quantity : -item.quantity;
+        const qtyChange = inv.type === TransactionType.INCOME ? (item.quantity * (item.conversionFactor || 1)) : -(item.quantity * (item.conversionFactor || 1));
         let updatedWarehouseStock = product.warehouseStock || [];
         if (inv.warehouseId) {
           const idx = updatedWarehouseStock.findIndex(w => w.warehouseId === inv.warehouseId);
@@ -8752,6 +8776,14 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     }
 
     try {
+      if (useBackend && currentUser && !isGuestUser(currentUser)) {
+        try {
+          await callBackendApi(currentUser, `/companies/${currentCompanyId}/clear`, 'POST');
+        } catch (backendError) {
+          console.warn('Backend clear endpoint failed (possibly missing), falling back to client-side wipe:', backendError);
+        }
+      }
+
       const emptySnapshot = buildEmptyWorkspaceSnapshot(currentCompany);
       emptySnapshot.companySettings = companySettings;
       
@@ -8759,6 +8791,32 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       if (!didPersist) {
         return makeError('VALIDATION_ERROR', 'Failed to save wiped data.');
       }
+
+      // Clear local state immediately
+      setTransactions([]);
+      setInvoices([]);
+      setImportExpenseDistributions([]);
+      setInvoiceSettlements([]);
+      setAccounts([]);
+      setProducts([]);
+      setItemGroups([]);
+      setUnits([]);
+      setContacts([]);
+      setEmployees([]);
+      setEmployeeContracts([]);
+      setSalaryHistory([]);
+      setEmployeeLeaveRequests([]);
+      setEmployeeRecurringDeductions([]);
+      setDepartments([]);
+      setTickets([]);
+      setAssetGroups([]);
+      setFixedAssets([]);
+      setChecks([]);
+      setCurrencies([]);
+      setWarehouses([]);
+      setStockTransfers([]);
+      setBoms([]);
+      setProductionOrders([]);
 
       upsertWorkspaceSyncQueueItem(currentCompany.id, emptySnapshot.updatedAt, currentUser?.id);
       setSyncQueueVersion(prev => prev + 1);

@@ -253,19 +253,19 @@ const HRManager: React.FC = () => {
         const basis = getEmployeePayBasis(emp);
         switch (basis) {
             case 'DAILY':
-                return `${Number(emp.dailyRate || 0).toLocaleString()} / ${tr('يوم', 'day')}`;
+                return `${Number(emp.dailyRate || 0).toLocaleString('en-US')} / ${tr('يوم', 'day')}`;
             case 'WEEKLY':
-                return `${Number(emp.weeklyRate || 0).toLocaleString()} / ${tr('أسبوع', 'week')}`;
+                return `${Number(emp.weeklyRate || 0).toLocaleString('en-US')} / ${tr('أسبوع', 'week')}`;
             case 'MONTHLY_PRORATED':
-                return `${Number(emp.basicSalary || 0).toLocaleString()} ${tr('شهري نسبي', 'Monthly prorated')}`;
+                return `${Number(emp.basicSalary || 0).toLocaleString('en-US')} ${tr('شهري نسبي', 'Monthly prorated')}`;
             case 'MONTHLY_BY_HOURS':
-                return `${Number(emp.basicSalary || 0).toLocaleString()} ${tr('شهري حسب الساعات', 'Monthly by hours')}`;
+                return `${Number(emp.basicSalary || 0).toLocaleString('en-US')} ${tr('شهري حسب الساعات', 'Monthly by hours')}`;
             case 'HOURLY':
-                return `${Number(emp.hourlyRate || 0).toLocaleString()} / ${tr('ساعة', 'hour')}`;
+                return `${Number(emp.hourlyRate || 0).toLocaleString('en-US')} / ${tr('ساعة', 'hour')}`;
             case 'COMMISSION':
-                return `${Number(emp.basicSalary || 0).toLocaleString()} + ${Number(emp.commissionRatePercent || 0).toLocaleString()}% ${tr('من العمل', 'of work')}`;
+                return `${Number(emp.basicSalary || 0).toLocaleString('en-US')} + ${Number(emp.commissionRatePercent || 0).toLocaleString('en-US')}% ${tr('من العمل', 'of work')}`;
             default:
-                return `${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency}`;
+                return `${Number(emp.basicSalary || 0).toLocaleString('en-US')} ${baseCurrency}`;
         }
     };
     const getCompanyDefaultLeaveEntitlementDays = (type: 'FIXED_TERM' | 'OPEN_ENDED' = 'OPEN_ENDED') => {
@@ -1407,8 +1407,8 @@ const HRManager: React.FC = () => {
             const accountName = displayAccountName(accounts.find(a => a.id === accountId) || null) || tr('حساب الذمم', 'Dues Account');
             const availableBalance = Math.max(0, getEmployeeAccountBalance(emp.id, accountId));
             return tr(
-                `مجموع الخصم على ${accountName} للموظف ${emp.name} (${amount.toLocaleString()}) أكبر من الرصيد المتاح (${availableBalance.toLocaleString()}).`,
-                `Total deduction on ${accountName} for ${emp.name} (${amount.toLocaleString()}) exceeds available balance (${availableBalance.toLocaleString()}).`
+                `مجموع الخصم على ${accountName} للموظف ${emp.name} (${amount.toLocaleString('en-US')}) أكبر من الرصيد المتاح (${availableBalance.toLocaleString('en-US')}).`,
+                `Total deduction on ${accountName} for ${emp.name} (${amount.toLocaleString('en-US')}) exceeds available balance (${availableBalance.toLocaleString('en-US')}).`
             );
         }
 
@@ -1530,8 +1530,8 @@ const HRManager: React.FC = () => {
         if (deductionValidationError) return alert(deductionValidationError);
 
         if (confirm(tr(
-            `استحقاق ${emp.name}: إجمالي ${grossBeforeDeductions.toLocaleString()} | خصومات ${deductions.toLocaleString()} | صافي ${net.toLocaleString()}.\nهل تريد الترحيل الآن؟`,
-            `Accrual for ${emp.name}: Gross ${grossBeforeDeductions.toLocaleString()} | Deductions ${deductions.toLocaleString()} | Net ${net.toLocaleString()}.\nDo you want to post now?`
+            `استحقاق ${emp.name}: إجمالي ${grossBeforeDeductions.toLocaleString('en-US')} | خصومات ${deductions.toLocaleString('en-US')} | صافي ${net.toLocaleString('en-US')}.\nهل تريد الترحيل الآن؟`,
+            `Accrual for ${emp.name}: Gross ${grossBeforeDeductions.toLocaleString('en-US')} | Deductions ${deductions.toLocaleString('en-US')} | Net ${net.toLocaleString('en-US')}.\nDo you want to post now?`
         ))) {
             postPayrollAccrualWithDeduction(emp, range, tr('استحقاق راتب', 'Salary Accrual'));
         }
@@ -1566,8 +1566,8 @@ const HRManager: React.FC = () => {
         if (net <= 0) return alert(tr('صافي الراتب صفر أو سالب، لا يمكن الصرف', 'Net salary is zero or negative. Payment is not allowed.'));
 
         if (confirm(tr(
-            `هل أنت متأكد من صرف راتب الموظف ${emp.name} بقيمة ${net.toLocaleString()}؟ (سيتم الخصم من ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)})`,
-            `Are you sure you want to pay ${emp.name} an amount of ${net.toLocaleString()}? (It will be credited from ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)})`
+            `هل أنت متأكد من صرف راتب الموظف ${emp.name} بقيمة ${net.toLocaleString('en-US')}؟ (سيتم الخصم من ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)})`,
+            `Are you sure you want to pay ${emp.name} an amount of ${net.toLocaleString('en-US')}? (It will be credited from ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)})`
         ))) {
             addTransaction({
                 amount: net,
@@ -1617,8 +1617,8 @@ const HRManager: React.FC = () => {
         if (net <= 0) return alert(tr('صافي الراتب صفر أو سالب، لا يمكن الترحيل', 'Net salary is zero or negative. Posting is not allowed.'));
 
         if (confirm(tr(
-            `هل أنت متأكد من استحقاق وصرف راتب الموظف ${emp.name} بقيمة ${net.toLocaleString()} فورًا؟ (سيتم إنشاء قيد مركب: الرواتب مدين / الصندوق دائن)`,
-            `Are you sure you want to accrue and pay ${emp.name} immediately for ${net.toLocaleString()}? (A compound entry will be posted: Salaries Dr / Cash Cr)`
+            `هل أنت متأكد من استحقاق وصرف راتب الموظف ${emp.name} بقيمة ${net.toLocaleString('en-US')} فورًا؟ (سيتم إنشاء قيد مركب: الرواتب مدين / الصندوق دائن)`,
+            `Are you sure you want to accrue and pay ${emp.name} immediately for ${net.toLocaleString('en-US')}? (A compound entry will be posted: Salaries Dr / Cash Cr)`
         ))) {
             addTransaction({
                 amount: net,
@@ -1677,8 +1677,8 @@ const HRManager: React.FC = () => {
         }
 
         if (confirm(tr(
-            `سيتم ترحيل استحقاق ${unaccruedEmployees.length} موظف.\nإجمالي الاستحقاق: ${totalGross.toLocaleString()} | إجمالي الخصومات: ${totalDeductions.toLocaleString()} | الصافي: ${totalAmount.toLocaleString()}`,
-            `This will post accrual for ${unaccruedEmployees.length} employee(s).\nGross: ${totalGross.toLocaleString()} | Deductions: ${totalDeductions.toLocaleString()} | Net: ${totalAmount.toLocaleString()}`
+            `سيتم ترحيل استحقاق ${unaccruedEmployees.length} موظف.\nإجمالي الاستحقاق: ${totalGross.toLocaleString('en-US')} | إجمالي الخصومات: ${totalDeductions.toLocaleString('en-US')} | الصافي: ${totalAmount.toLocaleString('en-US')}`,
+            `This will post accrual for ${unaccruedEmployees.length} employee(s).\nGross: ${totalGross.toLocaleString('en-US')} | Deductions: ${totalDeductions.toLocaleString('en-US')} | Net: ${totalAmount.toLocaleString('en-US')}`
         ))) {
             setIsProcessing(true);
             setTimeout(() => {
@@ -1711,8 +1711,8 @@ const HRManager: React.FC = () => {
         const totalAmount = unpaidEmployees.reduce((s, e) => s + calculateEmployeeBreakdown(e).net, 0);
 
         if (confirm(tr(
-            `سيتم صرف رواتب ${unpaidEmployees.length} موظف بقيمة إجمالية ${totalAmount.toLocaleString()} من حساب ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}؟`,
-            `Pay salaries for ${unpaidEmployees.length} employee(s) with total ${totalAmount.toLocaleString()} from account ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}?`
+            `سيتم صرف رواتب ${unpaidEmployees.length} موظف بقيمة إجمالية ${totalAmount.toLocaleString('en-US')} من حساب ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}؟`,
+            `Pay salaries for ${unpaidEmployees.length} employee(s) with total ${totalAmount.toLocaleString('en-US')} from account ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}?`
         ))) {
             setIsProcessing(true);
             setTimeout(() => {
@@ -1759,8 +1759,8 @@ const HRManager: React.FC = () => {
 
         const totalAmount = directEligibleEmployees.reduce((s, e) => s + calculateEmployeeBreakdown(e).net, 0);
         if (confirm(tr(
-            `سيتم ترحيل استحقاق وصرف مباشر لـ ${directEligibleEmployees.length} موظف بقيمة ${totalAmount.toLocaleString()} من حساب ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}؟`,
-            `This will post direct accrual and payment for ${directEligibleEmployees.length} employee(s) totaling ${totalAmount.toLocaleString()} from account ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}. Continue?`
+            `سيتم ترحيل استحقاق وصرف مباشر لـ ${directEligibleEmployees.length} موظف بقيمة ${totalAmount.toLocaleString('en-US')} من حساب ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}؟`,
+            `This will post direct accrual and payment for ${directEligibleEmployees.length} employee(s) totaling ${totalAmount.toLocaleString('en-US')} from account ${displayAccountName(accounts.find(a => a.id === paymentAccountId) || null)}. Continue?`
         ))) {
             setIsProcessing(true);
             setTimeout(() => {
@@ -2180,8 +2180,8 @@ const HRManager: React.FC = () => {
         }
 
         const confirmMsg = tr(
-            `سيتم صرف ${payableLines.length} موظف ضمن ${batch.batchNumber} بإجمالي ${payableLines.reduce((s, l) => s + l.amount, 0).toLocaleString()} ${baseCurrency}. هل تريد المتابعة؟`,
-            `${payableLines.length} employees will be paid via ${batch.batchNumber} totaling ${payableLines.reduce((s, l) => s + l.amount, 0).toLocaleString()} ${baseCurrency}. Continue?`
+            `سيتم صرف ${payableLines.length} موظف ضمن ${batch.batchNumber} بإجمالي ${payableLines.reduce((s, l) => s + l.amount, 0).toLocaleString('en-US')} ${baseCurrency}. هل تريد المتابعة؟`,
+            `${payableLines.length} employees will be paid via ${batch.batchNumber} totaling ${payableLines.reduce((s, l) => s + l.amount, 0).toLocaleString('en-US')} ${baseCurrency}. Continue?`
         );
         if (!confirm(confirmMsg)) return;
 
@@ -2473,11 +2473,11 @@ const HRManager: React.FC = () => {
                             <div className="grid grid-cols-2 gap-2 text-left min-w-0">
                                 <div>
                                     <span className="text-[9px] text-slate-400 font-black uppercase mb-1 block">{tr('إجمالي صافي الاحتساب', 'Total Net Calculation')}</span>
-                                    <h2 className="text-lg sm:text-xl font-black dir-ltr text-cyan-300">{totalPayrollAmount.toLocaleString()}</h2>
+                                    <h2 className="text-lg sm:text-xl font-black dir-ltr text-cyan-300">{totalPayrollAmount.toLocaleString('en-US')}</h2>
                                 </div>
                                 <div>
                                     <span className="text-[9px] text-slate-400 font-black uppercase mb-1 block">{tr('المتبقي للاستحقاق', 'Remaining to Accrue')}</span>
-                                    <h2 className="text-lg sm:text-xl font-black dir-ltr text-emerald-400">{totalUnaccruedAmount.toLocaleString()}</h2>
+                                    <h2 className="text-lg sm:text-xl font-black dir-ltr text-emerald-400">{totalUnaccruedAmount.toLocaleString('en-US')}</h2>
                                 </div>
                             </div>
                         </div>
@@ -2542,7 +2542,7 @@ const HRManager: React.FC = () => {
                                         </span>
                                     </div>
                                     <div className="text-[10px] font-bold text-gray-400">{run.periodStart} - {run.periodEnd} - {tr('عدد الموظفين', 'Employees')}: {run.employeeIds.length}</div>
-                                    <div className="text-[10px] font-bold text-gray-500 mt-1">{tr('الصافي', 'Net')}: <span className="dir-ltr text-indigo-600">{run.totals.net.toLocaleString()} {baseCurrency}</span></div>
+                                    <div className="text-[10px] font-bold text-gray-500 mt-1">{tr('الصافي', 'Net')}: <span className="dir-ltr text-indigo-600">{run.totals.net.toLocaleString('en-US')} {baseCurrency}</span></div>
                                 </button>
                             ))}
                         </div>
@@ -2577,15 +2577,15 @@ const HRManager: React.FC = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                         <div className="bg-white rounded-xl p-3 border border-gray-100">
                                             <div className="text-[10px] text-gray-400 font-black mb-1">{tr('الإجمالي قبل الخصومات', 'Gross Total')}</div>
-                                            <div className="font-black text-sm text-gray-800 dir-ltr">{selectedPayrollRun.totals.gross.toLocaleString()} {baseCurrency}</div>
+                                            <div className="font-black text-sm text-gray-800 dir-ltr">{selectedPayrollRun.totals.gross.toLocaleString('en-US')} {baseCurrency}</div>
                                         </div>
                                         <div className="bg-white rounded-xl p-3 border border-gray-100">
                                             <div className="text-[10px] text-gray-400 font-black mb-1">{tr('إجمالي الخصومات', 'Total Deductions')}</div>
-                                            <div className="font-black text-sm text-rose-600 dir-ltr">{selectedPayrollRun.totals.deductions.toLocaleString()} {baseCurrency}</div>
+                                            <div className="font-black text-sm text-rose-600 dir-ltr">{selectedPayrollRun.totals.deductions.toLocaleString('en-US')} {baseCurrency}</div>
                                         </div>
                                         <div className="bg-white rounded-xl p-3 border border-gray-100">
                                             <div className="text-[10px] text-gray-400 font-black mb-1">{tr('صافي الدفعة', 'Run Net')}</div>
-                                            <div className="font-black text-sm text-emerald-600 dir-ltr">{selectedPayrollRun.totals.net.toLocaleString()} {baseCurrency}</div>
+                                            <div className="font-black text-sm text-emerald-600 dir-ltr">{selectedPayrollRun.totals.net.toLocaleString('en-US')} {baseCurrency}</div>
                                         </div>
                                     </div>
 
@@ -2665,7 +2665,7 @@ const HRManager: React.FC = () => {
                                                             {selectedPayrollRunPaymentPreview.summary.readyToPost}/{selectedPayrollRunPaymentPreview.summary.totalLines}
                                                         </div>
                                                         <div className="text-[10px] font-bold text-gray-500 mt-1">
-                                                            {tr('إجمالي قابل للتصدير البنكي', 'Bank-exportable total')}: <span className="dir-ltr text-indigo-600">{selectedPayrollRunPaymentPreview.summary.exportableAmount.toLocaleString()} {baseCurrency}</span>
+                                                            {tr('إجمالي قابل للتصدير البنكي', 'Bank-exportable total')}: <span className="dir-ltr text-indigo-600">{selectedPayrollRunPaymentPreview.summary.exportableAmount.toLocaleString('en-US')} {baseCurrency}</span>
                                                         </div>
                                                     </div>
                                                     <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
@@ -2736,7 +2736,7 @@ const HRManager: React.FC = () => {
                                                                             <div className="text-[10px] text-gray-400 dir-ltr">{line.employeeCode}</div>
                                                                         </td>
                                                                         <td className="p-2 font-bold text-gray-500 dir-ltr">{line.iban || '—'}</td>
-                                                                        <td className="p-2 font-black text-gray-800 dir-ltr">{line.amount.toLocaleString()} {baseCurrency}</td>
+                                                                        <td className="p-2 font-black text-gray-800 dir-ltr">{line.amount.toLocaleString('en-US')} {baseCurrency}</td>
                                                                         <td className="p-2">
                                                                             <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${statusClass}`}>{statusText}</span>
                                                                         </td>
@@ -2767,9 +2767,9 @@ const HRManager: React.FC = () => {
                                                     <tr key={`${selectedPayrollRun.id}-${line.employeeId}`} className="border-t border-gray-50">
                                                         <td className="p-2 font-bold text-gray-700">{line.employeeName} <span className="text-[10px] text-gray-400 dir-ltr inline-block">{line.employeeCode}</span></td>
                                                         <td className="p-2 font-bold text-gray-500 dir-ltr">{line.periodStart} / {line.periodEnd}</td>
-                                                        <td className="p-2 font-bold text-gray-700 dir-ltr">{line.gross.toLocaleString()}</td>
-                                                        <td className="p-2 font-bold text-rose-600 dir-ltr">{line.deductions.toLocaleString()}</td>
-                                                        <td className="p-2 font-black text-emerald-600 dir-ltr">{line.net.toLocaleString()}</td>
+                                                        <td className="p-2 font-bold text-gray-700 dir-ltr">{line.gross.toLocaleString('en-US')}</td>
+                                                        <td className="p-2 font-bold text-rose-600 dir-ltr">{line.deductions.toLocaleString('en-US')}</td>
+                                                        <td className="p-2 font-black text-emerald-600 dir-ltr">{line.net.toLocaleString('en-US')}</td>
                                                         <td className="p-2">
                                                             <button
                                                                 type="button"
@@ -2833,7 +2833,7 @@ const HRManager: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="text-left flex flex-col items-end">
-                                        <span className={`text-base font-black dir-ltr ${isPaid ? 'text-emerald-600' : isAccrued ? 'text-indigo-600' : 'text-slate-800'}`}>{net.toLocaleString()}</span>
+                                        <span className={`text-base font-black dir-ltr ${isPaid ? 'text-emerald-600' : isAccrued ? 'text-indigo-600' : 'text-slate-800'}`}>{net.toLocaleString('en-US')}</span>
                                         <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">{isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
                                     </div>
                                 </div>
@@ -2904,8 +2904,8 @@ const HRManager: React.FC = () => {
                                                         {payBasis === 'COMMISSION' && (
                                                             <p className="text-[9px] font-black text-indigo-600 px-1">
                                                                 {tr(
-                                                                    `ثابت ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% من قيمة العمل).`,
-                                                                    `Fixed ${Number(emp.basicSalary || 0).toLocaleString()} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% of work value).`,
+                                                                    `ثابت ${Number(emp.basicSalary || 0).toLocaleString('en-US')} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% من قيمة العمل).`,
+                                                                    `Fixed ${Number(emp.basicSalary || 0).toLocaleString('en-US')} ${baseCurrency} + (${Number((emp as any).commissionRatePercent || 0)}% of work value).`,
                                                                 )}
                                                             </p>
                                                         )}
@@ -2939,17 +2939,17 @@ const HRManager: React.FC = () => {
                                                             <label className="text-[9px] font-black text-gray-400 px-1">{tr('ملخص المعدل', 'Rate Summary')}</label>
                                                             <div className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[10px] font-black text-slate-600 text-center">
                                                                 {payBasis === 'HOURLY'
-                                                                    ? `${Number(emp.hourlyRate || 0).toLocaleString()} / ${tr('ساعة', 'hour')}`
+                                                                    ? `${Number(emp.hourlyRate || 0).toLocaleString('en-US')} / ${tr('ساعة', 'hour')}`
                                                                     : payBasis === 'MONTHLY_BY_HOURS'
                                                                         ? (() => {
                                                                             const monthlyBase = Math.max(0, Number(row.customBaseSalary) || Number(emp.basicSalary) || 0);
                                                                             const stdHours = Math.max(1, (Number(emp.dailyWorkHours) || 8) * Math.max(1, monthlyWorkingDays || 30));
                                                                             const derivedHourly = monthlyBase / stdHours;
-                                                                            return `${monthlyBase.toLocaleString()} ${tr('شهري', 'monthly')} (${derivedHourly.toFixed(2)} / ${tr('ساعة', 'hour')})`;
+                                                                            return `${monthlyBase.toLocaleString('en-US')} ${tr('شهري', 'monthly')} (${derivedHourly.toFixed(2)} / ${tr('ساعة', 'hour')})`;
                                                                         })()
                                                                         : payBasis === 'DAILY'
-                                                                            ? `${Number((emp as any).dailyRate || 0).toLocaleString()} / ${tr('يوم', 'day')}`
-                                                                            : `${Number((emp as any).weeklyRate || 0).toLocaleString()} / ${tr('أسبوع', 'week')}`}
+                                                                            ? `${Number((emp as any).dailyRate || 0).toLocaleString('en-US')} / ${tr('يوم', 'day')}`
+                                                                            : `${Number((emp as any).weeklyRate || 0).toLocaleString('en-US')} / ${tr('أسبوع', 'week')}`}
                                                             </div>
                                                         </div>
                                                     </>
@@ -3007,7 +3007,7 @@ const HRManager: React.FC = () => {
                                                         {!!row.duesSettlementAccountId && (
                                                             <div className="bg-white/80 border border-amber-100 rounded-xl px-2 py-1.5 flex items-center justify-between text-[10px] font-black">
                                                                 <span className="text-amber-700">{tr('رصيد الموظف في', 'Employee balance in')} {displayAccountName(duesSettlementAccount || null) || tr('الحساب المختار', 'selected account')}</span>
-                                                                <span className={`dir-ltr ${duesSettlementAccountBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{duesSettlementAccountBalance.toLocaleString()} {baseCurrency}</span>
+                                                                <span className={`dir-ltr ${duesSettlementAccountBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{duesSettlementAccountBalance.toLocaleString('en-US')} {baseCurrency}</span>
                                                             </div>
                                                         )}
                                                         {isReceivableAccount(row.duesSettlementAccountId) && duesSettlementReceivableBalance > 0 && (
@@ -3018,7 +3018,7 @@ const HRManager: React.FC = () => {
                                                                 }))}
                                                                 className="w-full py-2 bg-white text-amber-700 rounded-xl text-[10px] font-black border border-amber-100 hover:bg-amber-100/60"
                                                             >
-                                                                {tr('تعبئة من رصيد الذمم', 'Fill from receivable balance')} ({duesSettlementReceivableBalance.toLocaleString()})
+                                                                {tr('تعبئة من رصيد الذمم', 'Fill from receivable balance')} ({duesSettlementReceivableBalance.toLocaleString('en-US')})
                                                             </button>
                                                         )}
                                                         {duesSettlementExceedsReceivable && (
@@ -3105,7 +3105,7 @@ const HRManager: React.FC = () => {
                                                             {!!row.duesSettlementAccountId && (
                                                                 <div className="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-2 py-2 text-[10px] font-black">
                                                                     <span className="text-amber-700">{tr('رصيد الموظف في', 'Employee balance in')} {displayAccountName(duesSettlementAccount || null) || tr('الحساب المختار', 'selected account')}</span>
-                                                                    <span className={`dir-ltr ${duesSettlementAccountBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{duesSettlementAccountBalance.toLocaleString()} {baseCurrency}</span>
+                                                                    <span className={`dir-ltr ${duesSettlementAccountBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{duesSettlementAccountBalance.toLocaleString('en-US')} {baseCurrency}</span>
                                                                 </div>
                                                             )}
                                                             {isReceivableAccount(row.duesSettlementAccountId) && duesSettlementReceivableBalance > 0 && (
@@ -3117,7 +3117,7 @@ const HRManager: React.FC = () => {
                                                                     }))}
                                                                     className="w-full rounded-lg border border-amber-100 bg-white px-2 py-2 text-[10px] font-black text-amber-700"
                                                                 >
-                                                                    {tr('تعبئة من رصيد الذمم', 'Fill from receivable balance')} ({duesSettlementReceivableBalance.toLocaleString()})
+                                                                    {tr('تعبئة من رصيد الذمم', 'Fill from receivable balance')} ({duesSettlementReceivableBalance.toLocaleString('en-US')})
                                                                 </button>
                                                             )}
                                                             {duesSettlementExceedsReceivable && (
@@ -3137,7 +3137,7 @@ const HRManager: React.FC = () => {
                                                         {payBasis === 'WEEKLY' ? ` (${(((workedDaysFromHours > 0 ? workedDaysFromHours : periodDays) / 7)).toFixed(2)} ${tr('أسبوع', 'week')} x ${Number((emp as any).weeklyRate || 0)})` : ''}
                                                         {payBasis === 'MONTHLY_PRORATED' ? ` (${periodDays}/${monthlyWorkingDays})` : ''}
                                                         {payBasis === 'COMMISSION'
-                                                            ? ` (${Number(emp.basicSalary || 0).toLocaleString()} + ${Number((emp as any).commissionRatePercent || 0)}% x ${Number(row.customBaseSalary || 0).toLocaleString()})`
+                                                            ? ` (${Number(emp.basicSalary || 0).toLocaleString('en-US')} + ${Number((emp as any).commissionRatePercent || 0)}% x ${Number(row.customBaseSalary || 0).toLocaleString('en-US')})`
                                                             : ''}
                                                         {payBasis === 'FIXED_MONTHLY' ? ` ${tr('(ثابت)', '(Fixed)')}` : ''}
                                                         :
@@ -3152,34 +3152,34 @@ const HRManager: React.FC = () => {
                                                             className={`${statementInputClass} text-gray-700`}
                                                         />
                                                     ) : (
-                                                        <span dir="ltr">{regularPay.toLocaleString()}</span>
+                                                        <span dir="ltr">{regularPay.toLocaleString('en-US')}</span>
                                                     )}
                                                 </div>
-                                                <div className="flex justify-between text-gray-600"><span>{tr('إجمالي البدلات الثابتة', 'Total Fixed Allowances')}:</span><span dir="ltr">+{allowances.toLocaleString()}</span></div>
-                                                {overtimePay > 0 && <div className="flex justify-between text-emerald-600"><span>{tr('ساعات إضافية', 'Overtime Hours')} ({row.overtimeHours}{tr('س', 'h')}):</span><span dir="ltr">+{overtimePay.toLocaleString()}</span></div>}
-                                                <div className="flex justify-between text-blue-600"><span>{tr('حوافز ومكافئات', 'Bonus & Incentives')}:</span><span dir="ltr">+{row.bonus.toLocaleString()}</span></div>
-                                                <div className="flex justify-between text-rose-600"><span>{tr('خصم تأخير/جزاءات', 'Late Penalty Deduction')}:</span><span dir="ltr">-{latePenaltyDeduction.toLocaleString()}</span></div>
-                                                <div className="flex justify-between text-amber-700"><span>{tr('خصم تسوية ذمم', 'Dues Settlement Deduction')}:</span><span dir="ltr">-{duesSettlementDeduction.toLocaleString()}</span></div>
+                                                <div className="flex justify-between text-gray-600"><span>{tr('إجمالي البدلات الثابتة', 'Total Fixed Allowances')}:</span><span dir="ltr">+{allowances.toLocaleString('en-US')}</span></div>
+                                                {overtimePay > 0 && <div className="flex justify-between text-emerald-600"><span>{tr('ساعات إضافية', 'Overtime Hours')} ({row.overtimeHours}{tr('س', 'h')}):</span><span dir="ltr">+{overtimePay.toLocaleString('en-US')}</span></div>}
+                                                <div className="flex justify-between text-blue-600"><span>{tr('حوافز ومكافئات', 'Bonus & Incentives')}:</span><span dir="ltr">+{row.bonus.toLocaleString('en-US')}</span></div>
+                                                <div className="flex justify-between text-rose-600"><span>{tr('خصم تأخير/جزاءات', 'Late Penalty Deduction')}:</span><span dir="ltr">-{latePenaltyDeduction.toLocaleString('en-US')}</span></div>
+                                                <div className="flex justify-between text-amber-700"><span>{tr('خصم تسوية ذمم', 'Dues Settlement Deduction')}:</span><span dir="ltr">-{duesSettlementDeduction.toLocaleString('en-US')}</span></div>
                                                 {autoLeaveDeduction > 0 && (
                                                     <div className="flex justify-between text-rose-700">
                                                         <span>{autoLeaveDeductionLine?.label || tr('خصم إجازة بدون راتب', 'Unpaid Leave Deduction')}:</span>
-                                                        <span dir="ltr">-{autoLeaveDeduction.toLocaleString()}</span>
+                                                        <span dir="ltr">-{autoLeaveDeduction.toLocaleString('en-US')}</span>
                                                     </div>
                                                 )}
                                                 {recurringAutoDeductionLines.map(line => (
                                                     <div key={line.key} className="flex justify-between text-fuchsia-700">
                                                         <span>{line.label} {line.source === 'recurring' ? tr('(متكرر)', '(recurring)') : ''}:</span>
-                                                        <span dir="ltr">-{line.amount.toLocaleString()}</span>
+                                                        <span dir="ltr">-{line.amount.toLocaleString('en-US')}</span>
                                                     </div>
                                                 ))}
                                                 {recurringDeductionsTotal > 0 && (
                                                     <div className="flex justify-between text-fuchsia-800">
                                                         <span>{tr('إجمالي الاستقطاعات المتكررة', 'Total Recurring Deductions')}:</span>
-                                                        <span dir="ltr">-{recurringDeductionsTotal.toLocaleString()}</span>
+                                                        <span dir="ltr">-{recurringDeductionsTotal.toLocaleString('en-US')}</span>
                                                     </div>
                                                 )}
-                                                <div className="flex justify-between text-rose-700"><span>{tr('إجمالي الخصومات', 'Total Deductions')}:</span><span dir="ltr">-{deductions.toLocaleString()}</span></div>
-                                                <div className="pt-2 border-t border-gray-200 flex justify-between font-black text-slate-800 text-sm uppercase"><span>{tr('صافي المستحق النهائي', 'Final Net Due')}</span><span dir="ltr" className="text-emerald-600">{net.toLocaleString()} {baseCurrency}</span></div>
+                                                <div className="flex justify-between text-rose-700"><span>{tr('إجمالي الخصومات', 'Total Deductions')}:</span><span dir="ltr">-{deductions.toLocaleString('en-US')}</span></div>
+                                                <div className="pt-2 border-t border-gray-200 flex justify-between font-black text-slate-800 text-sm uppercase"><span>{tr('صافي المستحق النهائي', 'Final Net Due')}</span><span dir="ltr" className="text-emerald-600">{net.toLocaleString('en-US')} {baseCurrency}</span></div>
                                             </div>
                                         </div>
 
@@ -3611,10 +3611,10 @@ const HRManager: React.FC = () => {
             basis === 'HOURLY' ? `${entry.hourlyRate || 0}/${tr('ساعة', 'hour')}`
                 : basis === 'DAILY' ? `${entry.dailyRate || 0}/${tr('يوم', 'day')}`
                     : basis === 'WEEKLY' ? `${entry.weeklyRate || 0}/${tr('أسبوع', 'week')}`
-                        : basis === 'COMMISSION' ? `${(entry.basicSalary || 0).toLocaleString()} + ${entry.commissionRatePercent || 0}% ${tr('من العمل', 'of work')}`
-                            : `${(entry.basicSalary || 0).toLocaleString()} ${baseCurrency}`;
+                        : basis === 'COMMISSION' ? `${(entry.basicSalary || 0).toLocaleString('en-US')} + ${entry.commissionRatePercent || 0}% ${tr('من العمل', 'of work')}`
+                            : `${(entry.basicSalary || 0).toLocaleString('en-US')} ${baseCurrency}`;
         const allowances = ((entry.housingAllowance || 0) + (entry.transportAllowance || 0) + (entry.otherAllowances || 0));
-        return `${getPayBasisLabel(basis)}: ${fixedPart} ${allowances > 0 ? `+ ${allowances.toLocaleString()} ${tr('بدلات', 'allowances')}` : ''}`.trim();
+        return `${getPayBasisLabel(basis)}: ${fixedPart} ${allowances > 0 ? `+ ${allowances.toLocaleString('en-US')} ${tr('بدلات', 'allowances')}` : ''}`.trim();
     };
 
     const openEmployeeStatement = (employeeId: string) => {
@@ -4215,8 +4215,8 @@ const HRManager: React.FC = () => {
                             <div className="hidden md:block text-[10px] font-black text-gray-400">
                                 {getCompanyLeaveAccrualPolicy() === 'MONTHLY'
                                     ? tr(
-                                        `تم تفعيل سياسة الاستحقاق الشهري (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} يوم/شهر). الرصيد المتاح يُحتسب خلال السنة الحالية من العقد النشط أو ملف الموظف.`,
-                                        `Monthly accrual is enabled (${getCompanyMonthlyLeaveAccrualDays().toLocaleString()} days/month). Available leave is earned within the current year from the active contract/employee profile.`
+                                        `تم تفعيل سياسة الاستحقاق الشهري (${getCompanyMonthlyLeaveAccrualDays().toLocaleString('en-US')} يوم/شهر). الرصيد المتاح يُحتسب خلال السنة الحالية من العقد النشط أو ملف الموظف.`,
+                                        `Monthly accrual is enabled (${getCompanyMonthlyLeaveAccrualDays().toLocaleString('en-US')} days/month). Available leave is earned within the current year from the active contract/employee profile.`
                                     )
                                     : tr(
                                         'الرصيد السنوي يُحتسب من العقد الفعّال أو ملف الموظف (مع افتراضي الشركة حسب نوع العقد عند عدم التحديد).',
@@ -4425,7 +4425,7 @@ const HRManager: React.FC = () => {
                         </div>
                         <input value={recurringNotes} onChange={e => setRecurringNotes(e.target.value)} placeholder={tr('ملاحظات', 'Notes')} className={`w-full min-w-0 p-3 bg-gray-50 rounded-xl border border-gray-100 text-[11px] font-black outline-none ${isEnglish ? 'text-left' : 'text-right'}`} />
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div className="text-[10px] font-black text-gray-400 text-center md:text-right">{tr(`نشط: ${activeCount} - قيمة الدورة: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`, `Active: ${activeCount} - Cycle total: ${totalActiveAmount.toLocaleString()} ${baseCurrency}`)}</div>
+                            <div className="text-[10px] font-black text-gray-400 text-center md:text-right">{tr(`نشط: ${activeCount} - قيمة الدورة: ${totalActiveAmount.toLocaleString('en-US')} ${baseCurrency}`, `Active: ${activeCount} - Cycle total: ${totalActiveAmount.toLocaleString('en-US')} ${baseCurrency}`)}</div>
                             <button type="submit" className="w-full md:w-auto px-5 py-3 bg-fuchsia-600 text-white rounded-xl text-xs font-black shadow-lg shadow-fuchsia-100 hover:bg-fuchsia-700 transition-all">{tr('إضافة استقطاع متكرر', 'Add Recurring Deduction')}</button>
                         </div>
                     </form>
@@ -4465,7 +4465,7 @@ const HRManager: React.FC = () => {
                                                     }`}>{getRecurringStatusLabel(item.status)}</span>
                                             </div>
                                             <div className="text-[10px] font-bold text-gray-400">
-                                                {emp?.name || tr('موظف محذوف', 'Deleted Employee')} - {item.effectiveFrom}{item.effectiveTo ? ` - ${item.effectiveTo}` : ''} - {tr('المبلغ', 'Amount')}: {item.amount.toLocaleString()} {baseCurrency}
+                                                {emp?.name || tr('موظف محذوف', 'Deleted Employee')} - {item.effectiveFrom}{item.effectiveTo ? ` - ${item.effectiveTo}` : ''} - {tr('المبلغ', 'Amount')}: {item.amount.toLocaleString('en-US')} {baseCurrency}
                                             </div>
                                             <div className="text-[10px] font-bold text-gray-500">
                                                 {tr('التقدم', 'Progress')}: {progressText}
@@ -4954,23 +4954,23 @@ const HRManager: React.FC = () => {
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-gray-50/70 border-b border-gray-100">
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('المستحقات', 'Entitlements')}</p>
-                                <p className="text-sm font-black text-blue-700 dir-ltr">{payrollTotals.entitlements.toLocaleString()}</p>
+                                <p className="text-sm font-black text-blue-700 dir-ltr">{payrollTotals.entitlements.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('الخصومات', 'Deductions')}</p>
-                                <p className="text-sm font-black text-rose-600 dir-ltr">{payrollTotals.deductions.toLocaleString()}</p>
+                                <p className="text-sm font-black text-rose-600 dir-ltr">{payrollTotals.deductions.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('صافي الراتب', 'Net Salary')}</p>
-                                <p className="text-sm font-black text-emerald-600 dir-ltr">{payrollTotals.net.toLocaleString()}</p>
+                                <p className="text-sm font-black text-emerald-600 dir-ltr">{payrollTotals.net.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('المدفوع', 'Paid')}</p>
-                                <p className="text-sm font-black text-indigo-600 dir-ltr">{payrollTotals.paid.toLocaleString()}</p>
+                                <p className="text-sm font-black text-indigo-600 dir-ltr">{payrollTotals.paid.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('المتبقي', 'Remaining')}</p>
-                                <p className={`text-sm font-black dir-ltr ${payrollTotals.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{payrollTotals.remaining.toLocaleString()}</p>
+                                <p className={`text-sm font-black dir-ltr ${payrollTotals.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{payrollTotals.remaining.toLocaleString('en-US')}</p>
                             </div>
                         </div>
                         <div className="employee-report-table-shell overflow-x-auto">
@@ -4990,11 +4990,11 @@ const HRManager: React.FC = () => {
                                     {payrollRowsReport.map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
                                             <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td data-label={tr('المستحقات', 'Entitlements')} className="p-3 text-center dir-ltr text-blue-700">{row.entitlements.toLocaleString()}</td>
-                                            <td data-label={tr('الخصومات', 'Deductions')} className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString()}</td>
-                                            <td data-label={tr('الصافي', 'Net')} className="p-3 text-center dir-ltr text-emerald-600 font-black">{row.net.toLocaleString()}</td>
-                                            <td data-label={tr('المدفوع', 'Paid')} className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString()}</td>
-                                            <td data-label={tr('المتبقي', 'Remaining')} className={`p-3 text-center dir-ltr font-black ${row.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{row.remaining.toLocaleString()}</td>
+                                            <td data-label={tr('المستحقات', 'Entitlements')} className="p-3 text-center dir-ltr text-blue-700">{row.entitlements.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('الخصومات', 'Deductions')} className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('الصافي', 'Net')} className="p-3 text-center dir-ltr text-emerald-600 font-black">{row.net.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('المدفوع', 'Paid')} className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('المتبقي', 'Remaining')} className={`p-3 text-center dir-ltr font-black ${row.remaining >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>{row.remaining.toLocaleString('en-US')}</td>
                                             <td data-label={tr('كشف الموظف', 'Employee Statement')} className="p-3 text-center">
                                                 <button
                                                     type="button"
@@ -5026,23 +5026,23 @@ const HRManager: React.FC = () => {
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-gray-50/70 border-b border-gray-100">
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('استحقاق مرحل', 'Posted Accrual')}</p>
-                                <p className="text-sm font-black text-blue-700 dir-ltr">{unpaidAccrualTotals.accrued.toLocaleString()}</p>
+                                <p className="text-sm font-black text-blue-700 dir-ltr">{unpaidAccrualTotals.accrued.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('الخصومات', 'Deductions')}</p>
-                                <p className="text-sm font-black text-rose-600 dir-ltr">{unpaidAccrualTotals.deductions.toLocaleString()}</p>
+                                <p className="text-sm font-black text-rose-600 dir-ltr">{unpaidAccrualTotals.deductions.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('صافي الاستحقاق', 'Net Accrual')}</p>
-                                <p className="text-sm font-black text-emerald-600 dir-ltr">{unpaidAccrualTotals.netAccrued.toLocaleString()}</p>
+                                <p className="text-sm font-black text-emerald-600 dir-ltr">{unpaidAccrualTotals.netAccrued.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('مدفوع من الذمم', 'Paid from liabilities')}</p>
-                                <p className="text-sm font-black text-indigo-600 dir-ltr">{unpaidAccrualTotals.paid.toLocaleString()}</p>
+                                <p className="text-sm font-black text-indigo-600 dir-ltr">{unpaidAccrualTotals.paid.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('غير مصروف', 'Unpaid')}</p>
-                                <p className={`text-sm font-black dir-ltr ${unpaidAccrualTotals.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{unpaidAccrualTotals.unpaid.toLocaleString()}</p>
+                                <p className={`text-sm font-black dir-ltr ${unpaidAccrualTotals.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{unpaidAccrualTotals.unpaid.toLocaleString('en-US')}</p>
                             </div>
                         </div>
                         <div className="employee-report-table-shell overflow-x-auto">
@@ -5062,11 +5062,11 @@ const HRManager: React.FC = () => {
                                     {[...unpaidAccrualRows].sort((a, b) => b.unpaid - a.unpaid).map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
                                             <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td data-label={tr('استحقاق', 'Accrual')} className="p-3 text-center dir-ltr text-blue-700">{row.accrued.toLocaleString()}</td>
-                                            <td data-label={tr('خصومات', 'Deductions')} className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString()}</td>
-                                            <td data-label={tr('صافي مستحق', 'Net Due')} className="p-3 text-center dir-ltr text-emerald-600">{row.netAccrued.toLocaleString()}</td>
-                                            <td data-label={tr('مدفوع', 'Paid')} className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString()}</td>
-                                            <td data-label={tr('غير مصروف', 'Unpaid')} className={`p-3 text-center dir-ltr font-black ${row.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.unpaid.toLocaleString()}</td>
+                                            <td data-label={tr('استحقاق', 'Accrual')} className="p-3 text-center dir-ltr text-blue-700">{row.accrued.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('خصومات', 'Deductions')} className="p-3 text-center dir-ltr text-rose-600">-{row.deductions.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('صافي مستحق', 'Net Due')} className="p-3 text-center dir-ltr text-emerald-600">{row.netAccrued.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('مدفوع', 'Paid')} className="p-3 text-center dir-ltr text-indigo-600">{row.paid.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('غير مصروف', 'Unpaid')} className={`p-3 text-center dir-ltr font-black ${row.unpaid > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.unpaid.toLocaleString('en-US')}</td>
                                             <td data-label={tr('كشف الموظف', 'Employee Statement')} className="p-3 text-center">
                                                 <button
                                                     type="button"
@@ -5098,19 +5098,19 @@ const HRManager: React.FC = () => {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-gray-50/70 border-b border-gray-100">
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('رصيد افتتاحي', 'Opening Balance')}</p>
-                                <p className="text-sm font-black text-blue-700 dir-ltr">{advanceTotals.opening.toLocaleString()}</p>
+                                <p className="text-sm font-black text-blue-700 dir-ltr">{advanceTotals.opening.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('سلف الفترة', 'Period Advances')}</p>
-                                <p className="text-sm font-black text-amber-600 dir-ltr">{advanceTotals.advances.toLocaleString()}</p>
+                                <p className="text-sm font-black text-amber-600 dir-ltr">{advanceTotals.advances.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('تسويات الفترة', 'Period Settlements')}</p>
-                                <p className="text-sm font-black text-emerald-600 dir-ltr">{advanceTotals.settlements.toLocaleString()}</p>
+                                <p className="text-sm font-black text-emerald-600 dir-ltr">{advanceTotals.settlements.toLocaleString('en-US')}</p>
                             </div>
                             <div className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
                                 <p className="text-[9px] text-gray-400 font-black">{tr('رصيد ختامي', 'Closing Balance')}</p>
-                                <p className={`text-sm font-black dir-ltr ${advanceTotals.closing > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{advanceTotals.closing.toLocaleString()}</p>
+                                <p className={`text-sm font-black dir-ltr ${advanceTotals.closing > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{advanceTotals.closing.toLocaleString('en-US')}</p>
                             </div>
                         </div>
 
@@ -5130,10 +5130,10 @@ const HRManager: React.FC = () => {
                                     {activeAdvanceRows.map(row => (
                                         <tr key={row.emp.id} className="hover:bg-gray-50">
                                             <td data-label={tr('الموظف', 'Employee')} className="p-3 font-black text-gray-700">{row.emp.name} <span className="text-[9px] text-gray-400 font-bold">({row.emp.code})</span></td>
-                                            <td data-label={tr('افتتاحي', 'Opening')} className="p-3 text-center dir-ltr">{row.openingBalance.toLocaleString()}</td>
-                                            <td data-label={tr('سلف الفترة', 'Period Advances')} className="p-3 text-center dir-ltr text-amber-600">+{row.periodAdvance.toLocaleString()}</td>
-                                            <td data-label={tr('تسويات الفترة', 'Period Settlements')} className="p-3 text-center dir-ltr text-emerald-600">-{row.periodSettlement.toLocaleString()}</td>
-                                            <td data-label={tr('ختامي', 'Closing')} className={`p-3 text-center dir-ltr font-black ${row.closingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.closingBalance.toLocaleString()}</td>
+                                            <td data-label={tr('افتتاحي', 'Opening')} className="p-3 text-center dir-ltr">{row.openingBalance.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('سلف الفترة', 'Period Advances')} className="p-3 text-center dir-ltr text-amber-600">+{row.periodAdvance.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('تسويات الفترة', 'Period Settlements')} className="p-3 text-center dir-ltr text-emerald-600">-{row.periodSettlement.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('ختامي', 'Closing')} className={`p-3 text-center dir-ltr font-black ${row.closingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.closingBalance.toLocaleString('en-US')}</td>
                                             <td data-label={tr('كشف الموظف', 'Employee Statement')} className="p-3 text-center">
                                                 <button
                                                     type="button"
@@ -5177,8 +5177,8 @@ const HRManager: React.FC = () => {
                                                     : <span className="px-2 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-700">{tr('تسوية', 'Settlement')}</span>}
                                             </td>
                                             <td data-label={tr('البيان', 'Description')} className="p-3">{row.description || '-'}</td>
-                                            <td data-label={tr('المبلغ', 'Amount')} className={`p-3 text-center dir-ltr font-black ${row.kind === 'ADVANCE' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.kind === 'ADVANCE' ? '+' : '-'}{row.amount.toLocaleString()}</td>
-                                            <td data-label={tr('الرصيد بعد الحركة', 'Balance After Movement')} className={`p-3 text-center dir-ltr font-black ${row.runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.runningBalance.toLocaleString()}</td>
+                                            <td data-label={tr('المبلغ', 'Amount')} className={`p-3 text-center dir-ltr font-black ${row.kind === 'ADVANCE' ? 'text-amber-600' : 'text-emerald-600'}`}>{row.kind === 'ADVANCE' ? '+' : '-'}{row.amount.toLocaleString('en-US')}</td>
+                                            <td data-label={tr('الرصيد بعد الحركة', 'Balance After Movement')} className={`p-3 text-center dir-ltr font-black ${row.runningBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{row.runningBalance.toLocaleString('en-US')}</td>
                                         </tr>
                                     ))}
                                     {advanceMovementRows.length === 0 && (
@@ -5490,7 +5490,7 @@ const HRManager: React.FC = () => {
             { label: tr('المصروف خلال الفترة', 'Paid during period'), value: payrollPaidTotal, tone: 'text-emerald-700' }
         ];
 
-        const formatNumber = (value: number) => (value || 0).toLocaleString();
+        const formatNumber = (value: number) => (value || 0).toLocaleString('en-US');
         const escapeHtml = (value: string) =>
             value
                 .replaceAll('&', '&amp;')
@@ -5853,19 +5853,19 @@ const HRManager: React.FC = () => {
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
                                 <span className="text-[8px] font-black text-amber-200 uppercase block mb-0.5">{tr('الرصيد الافتتاحي', 'Opening Balance')}</span>
-                                <span className={`text-sm font-black ${openingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{openingBalance.toLocaleString()}</span>
+                                <span className={`text-sm font-black ${openingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{openingBalance.toLocaleString('en-US')}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
                                 <span className="text-[8px] font-black text-blue-200 uppercase block mb-0.5">{tr('الرصيد الختامي', 'Closing Balance')}</span>
-                                <span className={`text-sm font-black ${closingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{closingBalance.toLocaleString()}</span>
+                                <span className={`text-sm font-black ${closingBalance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{closingBalance.toLocaleString('en-US')}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
                                 <span className="text-[8px] font-black text-rose-300 uppercase block mb-0.5">{tr('مدين الفترة', 'Period Debit')}</span>
-                                <span className="text-sm font-black">{totalDebit.toLocaleString()}</span>
+                                <span className="text-sm font-black">{totalDebit.toLocaleString('en-US')}</span>
                             </div>
                             <div className="bg-white/10 px-3 py-2 rounded-xl border border-white/5">
                                 <span className="text-[8px] font-black text-emerald-300 uppercase block mb-0.5">{tr('دائن الفترة', 'Period Credit')}</span>
-                                <span className="text-sm font-black">{totalCredit.toLocaleString()}</span>
+                                <span className="text-sm font-black">{totalCredit.toLocaleString('en-US')}</span>
                             </div>
                         </div>
                     </div>
@@ -6007,7 +6007,7 @@ const HRManager: React.FC = () => {
                         {Math.abs(openingBalance) > 0.001 && (
                             <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-[10px] font-black flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-center">
                                 <span className="text-amber-700">{tr('رصيد ما قبل الفترة', 'Opening balance before period')}</span>
-                                <span className={`dir-ltr ${openingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{openingBalance.toLocaleString()}</span>
+                                <span className={`dir-ltr ${openingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{openingBalance.toLocaleString('en-US')}</span>
                             </div>
                         )}
 
@@ -6043,9 +6043,9 @@ const HRManager: React.FC = () => {
                                     <div className="flex flex-col gap-1.5 text-[10px] sm:flex-row sm:justify-between sm:items-center">
                                         <span className="text-gray-400 font-bold flex items-center gap-1"><Calendar size={9} /> {safeFormatDate(entry.date)}</span>
                                         <div className="flex flex-wrap items-center gap-3">
-                                            {entry.debit > 0 && <span className="font-black text-rose-500">{entry.debit.toLocaleString()} {tr('مدين', 'Debit')}</span>}
-                                            {entry.credit > 0 && <span className="font-black text-emerald-500">{entry.credit.toLocaleString()} {tr('دائن', 'Credit')}</span>}
-                                            <span className={`font-black px-1.5 py-0.5 rounded text-[9px] ${entry.balance > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{entry.balance.toLocaleString()}</span>
+                                            {entry.debit > 0 && <span className="font-black text-rose-500">{entry.debit.toLocaleString('en-US')} {tr('مدين', 'Debit')}</span>}
+                                            {entry.credit > 0 && <span className="font-black text-emerald-500">{entry.credit.toLocaleString('en-US')} {tr('دائن', 'Credit')}</span>}
+                                            <span className={`font-black px-1.5 py-0.5 rounded text-[9px] ${entry.balance > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{entry.balance.toLocaleString('en-US')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -6237,7 +6237,7 @@ const HRManager: React.FC = () => {
                                                     </div>
                                                     <div className="text-[10px] font-bold text-blue-600 mt-1">{formatSalarySnapshotSummary(contract)}</div>
                                                     <div className="text-[10px] font-bold text-violet-600 mt-1">
-                                                        {tr('رصيد إجازة سنوي', 'Annual leave entitlement')}: {(contract.annualLeaveEntitlementDays ?? contractsEmployee.annualLeaveEntitlementDays ?? getCompanyDefaultLeaveEntitlementDays(contract.contractType)).toLocaleString()} {tr('يوم', 'days')}
+                                                        {tr('رصيد إجازة سنوي', 'Annual leave entitlement')}: {(contract.annualLeaveEntitlementDays ?? contractsEmployee.annualLeaveEntitlementDays ?? getCompanyDefaultLeaveEntitlementDays(contract.contractType)).toLocaleString('en-US')} {tr('يوم', 'days')}
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-1">

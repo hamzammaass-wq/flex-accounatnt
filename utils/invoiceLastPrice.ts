@@ -22,7 +22,15 @@ const isRelevantHistoryInvoice = (
 ): boolean => {
   const { contactId, mode, excludeInvoiceId } = options;
 
-  if (!contactId || invoice.customerId !== contactId) return false;
+  if (mode === 'SALES' && (!contactId || invoice.customerId !== contactId)) return false;
+  // For purchases, if contactId is provided, we could filter, but it's often better
+  // to get the last purchase price globally so the cost auto-populates regardless of supplier.
+  if (mode === 'PURCHASE' && contactId && invoice.customerId !== contactId) {
+    // We will still filter by supplier if one is selected, BUT wait,
+    // if we return false, it won't find it. Let's just NOT return false for purchases
+    // so it gets the absolute last purchase price from any supplier.
+  }
+  
   if (excludeInvoiceId && invoice.id === excludeInvoiceId) return false;
   if (invoice.postingStatus === 'DRAFT') return false;
   if (invoice.category === 'general_expense' || invoice.category === 'import_expenses') return false;

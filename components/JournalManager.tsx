@@ -43,7 +43,9 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
 
   const journalEntries = useMemo(() => {
     return transactions.filter(t => {
-      const isManualJournal = t.category === 'journal' && t.type === TransactionType.TRANSFER;
+      if (t.isReversal || t.reversedById) return false;
+      const isManualJournal = (t.category === 'journal' || t.category === 'partner_capital') && t.type === TransactionType.TRANSFER;
+      if (!isManualJournal) return false;
       const matchesSearch = (t.description || '').toLowerCase().includes(searchTerm.toLowerCase());
       let matchesDate = true;
       const tDate = new Date(t.date);
@@ -78,7 +80,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
     if (entry.voucherId) {
       const grouped = transactions.filter(t =>
         t.voucherId === entry.voucherId &&
-        t.category === 'journal' &&
+        (t.category === 'journal' || t.category === 'partner_capital') &&
         t.type === TransactionType.TRANSFER
       );
       return grouped.length > 0 ? grouped : [entry];
@@ -90,7 +92,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
     const legacyWindowMs = 2500;
     const fallbackGrouped = transactions.filter(t => {
       if (t.voucherId) return false;
-      if (t.category !== 'journal' || t.type !== TransactionType.TRANSFER) return false;
+      if ((t.category !== 'journal' && t.category !== 'partner_capital') || t.type !== TransactionType.TRANSFER) return false;
       if ((t.status || 'POSTED') !== (entry.status || 'POSTED')) return false;
       if (String(t.date || '') !== String(entry.date || '')) return false;
       if (String(t.currency || '') !== String(entry.currency || '')) return false;
@@ -208,7 +210,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
           <div className="p-6 space-y-6">
             <div className="text-center">
               <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">{tr('المبلغ', 'Amount')}</p>
-              <h2 className="text-3xl font-black text-indigo-600 dir-ltr">{totalAmount.toLocaleString()}</h2>
+              <h2 className="text-3xl font-black text-indigo-600 dir-ltr">{totalAmount.toLocaleString('en-US')}</h2>
             </div>
             <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-4 overflow-x-auto">
               <div className="min-w-[400px]">
@@ -224,8 +226,8 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
                       <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-2 items-start text-xs font-bold text-gray-700">
                         <div className="text-gray-400">{index + 1}</div>
                         <div className={line.side === 'DEBIT' ? 'text-emerald-700' : 'text-rose-700'}>{getAccountName(line.accountId)}</div>
-                        <div className="dir-ltr text-center text-emerald-700">{line.side === 'DEBIT' ? line.amount.toLocaleString() : '-'}</div>
-                        <div className="dir-ltr text-center text-rose-700">{line.side === 'CREDIT' ? line.amount.toLocaleString() : '-'}</div>
+                        <div className="dir-ltr text-center text-emerald-700">{line.side === 'DEBIT' ? line.amount.toLocaleString('en-US') : '-'}</div>
+                        <div className="dir-ltr text-center text-rose-700">{line.side === 'CREDIT' ? line.amount.toLocaleString('en-US') : '-'}</div>
                       </div>
                     </div>
                   ))}
@@ -309,7 +311,7 @@ const JournalManager: React.FC<JournalManagerProps> = ({ onAddNew, onEditJournal
                 </div>
               </div>
               <div className="text-left flex flex-col items-end gap-2">
-                <div className="text-xl font-black">{t.amount.toLocaleString()}</div>
+                <div className="text-xl font-black">{t.amount.toLocaleString('en-US')}</div>
                 {!t.isReversal && !t.reversedById && onEditJournal && (
                   <button
                     onClick={(e) => handleEdit(t.id, e)}

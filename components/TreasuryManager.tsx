@@ -135,7 +135,7 @@ const TreasuryManager: React.FC = () => {
                             <span className="text-[9px] font-black uppercase tracking-widest">{tr('إجمالي الصناديق', 'Total Cashboxes')}</span>
                         </div>
                         <div className="flex flex-col items-start">
-                            <h2 className="text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBoxBalance.toLocaleString()}</h2>
+                            <h2 className="text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBoxBalance.toLocaleString('en-US')}</h2>
                             <span className="text-[10px] font-bold opacity-60">{baseCurrency}</span>
                         </div>
                     </div>
@@ -150,7 +150,7 @@ const TreasuryManager: React.FC = () => {
                             <span className="text-[9px] font-black uppercase tracking-widest">{tr('إجمالي البنوك', 'Total Banks')}</span>
                         </div>
                         <div className="flex flex-col items-start">
-                            <h2 className="text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBankBalance.toLocaleString()}</h2>
+                            <h2 className="text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBankBalance.toLocaleString('en-US')}</h2>
                             <span className="text-[10px] font-bold opacity-60">{baseCurrency}</span>
                         </div>
                     </div>
@@ -209,12 +209,12 @@ const TreasuryManager: React.FC = () => {
                                 </div>
                                 <div className="text-left flex flex-col items-end ms-2 min-w-[96px] sm:min-w-[120px] max-w-[45%] overflow-hidden">
                                     <div className={`font-black dir-ltr text-lg sm:text-xl tracking-tighter whitespace-nowrap max-w-full truncate ${balance >= 0 ? 'text-gray-800' : 'text-rose-600'}`}>
-                                        {balance.toLocaleString()}
+                                        {balance.toLocaleString('en-US')}
                                         <span className="text-[9px] text-gray-400 font-bold ml-1">{account.currency}</span>
                                     </div>
                                     {isForeign && (
                                         <span className="text-[9px] font-black text-gray-300 dir-ltr uppercase tracking-tighter mt-1 whitespace-nowrap max-w-full truncate">
-                                            ≈ {baseEquiv.toLocaleString()} {baseCurrency}
+                                            ≈ {baseEquiv.toLocaleString('en-US')} {baseCurrency}
                                         </span>
                                     )}
                                 </div>

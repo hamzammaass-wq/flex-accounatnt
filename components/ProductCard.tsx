@@ -51,6 +51,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
             description: string;
             type: TransactionType;
             quantity: number;
+            unitId?: string;
             price: number;
             total: number;
             id: string;
@@ -68,6 +69,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                     : `${tr('شراء', 'Purchase')} - ${tr('فاتورة', 'Invoice')} #${inv.invoiceNumber}`,
                 type: inv.type,
                 quantity: item.quantity,
+                unitId: item.unitId || product.unitId,
                 price: item.unitPrice,
                 total: item.total,
                 id: inv.id,
@@ -187,7 +189,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                             </div>
                             <div className="flex-1 bg-white/10 px-3 py-2 rounded-xl border border-white/5">
                                 <span className="text-[9px] font-black text-emerald-300 uppercase block mb-0.5">{serviceItem ? tr('الوحدة', 'Unit') : tr('القيمة', 'Value')}</span>
-                                <span className="text-lg font-black">{serviceItem ? (unitLabel || tr('غير محددة', 'Not set')) : (product.stock * pricing.cost).toLocaleString()}</span>
+                                <span className="text-lg font-black">{serviceItem ? (unitLabel || tr('غير محددة', 'Not set')) : (product.stock * pricing.cost).toLocaleString('en-US')}</span>
                             </div>
                         </div>
                     </div>
@@ -199,7 +201,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 text-[11px] font-black">
                             <div className="min-w-[210px] bg-blue-50 text-blue-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
                                 <span>{tr('التكلفة الصافية', 'Net Cost')}</span>
-                                <span className="dir-ltr">{pricing.cost.toLocaleString()} {baseCurrency}</span>
+                                <span className="dir-ltr">{pricing.cost.toLocaleString('en-US')} {baseCurrency}</span>
                             </div>
                             <div className="min-w-[210px] bg-violet-50 text-violet-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
                                 <span className="flex items-center gap-1.5">
@@ -210,7 +212,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                                         : tr('سعر ثابت', 'Fixed price')}
                                     </span>
                                 </span>
-                                <span className="dir-ltr">{pricing.wholesalePrice.toLocaleString()}</span>
+                                <span className="dir-ltr">{pricing.wholesalePrice.toLocaleString('en-US')}</span>
                             </div>
                             <div className="min-w-[210px] bg-emerald-50 text-emerald-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
                                 <span className="flex items-center gap-1.5">
@@ -221,7 +223,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                                         : tr('سعر ثابت', 'Fixed price')}
                                     </span>
                                 </span>
-                                <span className="dir-ltr">{pricing.retailPrice.toLocaleString()}</span>
+                                <span className="dir-ltr">{pricing.retailPrice.toLocaleString('en-US')}</span>
                             </div>
                         </div>
                     </div>
@@ -252,10 +254,19 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="text-left shrink-0">
-                                        <span className={`block font-black text-xs ${item.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {item.total.toLocaleString()}
-                                        </span>
+                                    <div className="text-left shrink-0 flex flex-col items-end">
+                                        {item.quantity > 0 ? (
+                                            <>
+                                                <span className={`block font-black text-xs ${item.category === 'SALES' ? 'text-rose-600' : 'text-emerald-600'}`} dir="ltr">
+                                                    {item.category === 'SALES' ? '-' : '+'}{item.quantity.toLocaleString('en-US')} <span className="text-[10px] opacity-75">{displayUnitName(units.find(u => u.id === item.unitId)) || unitLabel}</span>
+                                                </span>
+                                                {item.total > 0 && <span className="text-[10px] text-gray-400 font-bold">{item.total.toLocaleString('en-US')} {baseCurrency}</span>}
+                                            </>
+                                        ) : (
+                                            <span className={`block font-black text-xs ${item.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-rose-600'}`} dir="ltr">
+                                                {item.total.toLocaleString('en-US')} {baseCurrency}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             ))}

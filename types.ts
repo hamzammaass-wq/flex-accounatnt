@@ -115,6 +115,7 @@ export interface Transaction {
   reversalOfId?: string;
   reversedById?: string;
   isReversal?: boolean;
+  createdAt?: string; // Track creation time for exact sorting
 }
 
 export interface FinancialSummary {
@@ -331,31 +332,11 @@ export interface FingerprintAttendanceBatch {
   rows: FingerprintAttendanceEntry[];
 }
 
-export interface Product {
-  id: string;
-  name: string;
-  kind?: ProductKind;
-  category?: string;
-  buyPrice: number;
-  sellPrice: number;
-  wholesalePrice?: number;
-  retailPrice?: number;
-  wholesalePricingMode?: 'FIXED' | 'MARKUP';
-  retailPricingMode?: 'FIXED' | 'MARKUP';
-  wholesaleMarkupPercent?: number;
-  retailMarkupPercent?: number;
-  stock: number;
+export interface ProductUnit {
+  unitId: string;
+  conversionFactor: number;
   barcode?: string;
-  itemCode?: string;
-  itemCodeMode?: ItemCodeMode;
-  expiryPeriodDays?: number;
-  expiryAlertLeadDays?: number; // Per-item warning threshold (days before expiry)
-  lowStockAlertQty?: number; // Per-item low stock warning threshold (quantity)
-  reorderQty?: number; // Suggested reorder quantity when stock reaches threshold
-  expiryDate?: string;
-  imageUrl?: string;
-  unitId?: string; // Linked Unit
-  fifoLayers?: ProductFifoLayer[];
+  price?: number;
 }
 
 export interface InvoiceItem {
@@ -369,6 +350,8 @@ export interface InvoiceItem {
   returned?: boolean; // Added field to track returns
   width?: number; // For m2 calculations
   length?: number; // For m2 calculations
+  unitId?: string;
+  conversionFactor?: number;
 }
 
 export type PartnerInvoiceMode = 'DIRECT_DRAWINGS' | 'AR_THEN_TRANSFER';
@@ -503,6 +486,7 @@ export interface Product {
   expiryDate?: string;
   imageUrl?: string;
   unitId?: string;
+  units?: ProductUnit[];
   fifoLayers?: ProductFifoLayer[];
 }
 export interface ProductFifoLayer {

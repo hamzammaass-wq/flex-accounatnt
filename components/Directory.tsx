@@ -10,7 +10,7 @@ import ResponsiveDialog from './layout/ResponsiveDialog';
 import {
     UserPlus, Trash2, Users, Truck, Search, FileText, X,
     Phone, LayoutGrid, Edit2, List,
-    Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale
+    Calendar, AlertCircle, ShoppingBag, ArrowUpRight, ArrowDownLeft, MapPin, CheckCircle2, AlertTriangle, Briefcase, Scale, Wallet
 } from 'lucide-react';
 import { getDisplayAccountName, getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
 import { buildElementPdfFile, downloadBlobFile, downloadWorkbookFile, applyExcelStyles, printElementContent, sanitizeDownloadName, settleElementBeforeSnapshot } from '../utils/documentExport';
@@ -27,6 +27,7 @@ const Directory: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showAddForm, setShowAddForm] = useState(false);
     const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+    const [partnerStatementMode, setPartnerStatementMode] = useState<'ALL' | 'CAPITAL' | 'CURRENT'>('ALL');
     const [showOutstandingOnly, setShowOutstandingOnly] = useState(false);
     const [deleteContactId, setDeleteContactId] = useState<string | null>(null);
 
@@ -59,10 +60,11 @@ const Directory: React.FC = () => {
     const displayContactName = (contact?: Pick<Contact, 'id' | 'name'> | null) => getDisplayContactName(contact || undefined, isEnglish);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
     const displayProductName = (product?: { id: string; name: string } | null) => getDisplayProductName(product || undefined, isEnglish);
-    const openContactStatement = (contactId: string) => {
+    const openContactStatement = (contactId: string, mode: 'ALL' | 'CAPITAL' | 'CURRENT' = 'ALL') => {
         setStmtStartDate(currentFiscalYearRange.startDate);
         setStmtEndDate(currentFiscalYearRange.endDate);
         setSelectedContactId(contactId);
+        setPartnerStatementMode(mode);
     };
 
     useEffect(() => {
@@ -225,7 +227,7 @@ const Directory: React.FC = () => {
         return { invoice, checkRows, paymentRows };
     };
 
-    const getStatementDocumentNumber = (entry?: { voucherId?: string; invoiceId?: string | null } | null) => {
+    const getStatementDocumentNumber = (entry?: { id?: string; voucherId?: string; invoiceId?: string | null } | null) => {
         if (!entry) return '-';
         const voucherId = String(entry.voucherId || '').trim();
         if (voucherId) return voucherId;
@@ -233,6 +235,10 @@ const Directory: React.FC = () => {
         const linkedInvoice = entry.invoiceId ? invoices.find(inv => inv.id === entry.invoiceId) || null : null;
         if (linkedInvoice?.invoiceNumber) {
             return linkedInvoice.invoiceNumber;
+        }
+
+        if (entry.id) {
+            return entry.id.startsWith('tx_') ? entry.id.replace('tx_', '').substring(0, 6).toUpperCase() : entry.id.substring(0, 6).toUpperCase();
         }
 
         return '-';
@@ -287,6 +293,7 @@ const Directory: React.FC = () => {
             case 'returned_check':
             case 'returned_checks':
             case 'check_return': return tr('بدل شيك راجع', 'Returned Check');
+            case 'partner_capital': return tr('رأس مال', 'Capital');
             default: break;
         }
 
@@ -296,7 +303,16 @@ const Directory: React.FC = () => {
     };
 
     const getClassicStatementDescriptionText = (entry: any, preview: ClassicStatementPreview) => {
-        const rawDescription = String(entry.description || '').trim();
+        let rawDescription = String(entry.description || '').trim();
+
+        if (rawDescription.includes('create_capital') || rawDescription.includes('increase_capital') || rawDescription.includes('Partner capital contribution')) {
+            rawDescription = tr('إيداع رأس مال', 'Capital deposit');
+        } else if (rawDescription.includes('decrease_capital') || rawDescription.includes('Partner capital reduction')) {
+            rawDescription = tr('تخفيض رأس مال', 'Capital reduction');
+        } else if (entry.category === 'partner_capital') {
+            rawDescription = tr('حركة رأس مال', 'Capital entry');
+        }
+
         const documentLabel = getClassicStatementDocumentLabel(entry, preview);
         if (rawDescription && rawDescription !== documentLabel) {
             return rawDescription;
@@ -629,14 +645,32 @@ const Directory: React.FC = () => {
         );
     };
 
-    const getTransactionDC = (t: typeof transactions[0], contact: Contact) => {
+    const getTransactionDC = (t: typeof transactions[0], contact: Contact, mode: 'ALL' | 'CAPITAL' | 'CURRENT' = 'ALL') => {
         const type = contact.type;
         const linkedAccountId = contact.currentAccountId || contact.linkedAccountId;
         let d = 0, c = 0;
 
-        if (type === 'PARTNER' && linkedAccountId) {
-            if (t.debitAccountId === linkedAccountId) d = t.amount;
-            if (t.creditAccountId === linkedAccountId) c = t.amount;
+        if (type === 'PARTNER') {
+            const capitalAccId = contact.capitalAccountId;
+            const currentAccId = contact.currentAccountId || contact.linkedAccountId;
+            
+            const hitsCapital = t.debitAccountId === capitalAccId || t.creditAccountId === capitalAccId;
+            const hitsCurrent = t.debitAccountId === currentAccId || t.creditAccountId === currentAccId;
+
+            if (mode === 'CAPITAL' && !hitsCapital) return { d, c };
+            if (mode === 'CURRENT' && !hitsCurrent) return { d, c };
+
+            d = (t.debitAccountId === capitalAccId || t.debitAccountId === currentAccId) ? t.amount : 0;
+            c = (t.creditAccountId === capitalAccId || t.creditAccountId === currentAccId) ? t.amount : 0;
+            
+            if (mode === 'CAPITAL') {
+                d = t.debitAccountId === capitalAccId ? t.amount : 0;
+                c = t.creditAccountId === capitalAccId ? t.amount : 0;
+            } else if (mode === 'CURRENT') {
+                d = t.debitAccountId === currentAccId ? t.amount : 0;
+                c = t.creditAccountId === currentAccId ? t.amount : 0;
+            }
+
             if (d > 0 || c > 0) return { d, c };
         }
 
@@ -691,7 +725,7 @@ const Directory: React.FC = () => {
         return { d, c };
     };
 
-    const getStatementData = (contact: Contact, start?: string, end?: string) => {
+    const getStatementData = (contact: Contact, start?: string, end?: string, mode: 'ALL' | 'CAPITAL' | 'CURRENT' = 'ALL') => {
         const rawTransactions = transactions.filter(t => t.contactId === contact.id);
 
         // Group by Voucher ID
@@ -699,7 +733,7 @@ const Directory: React.FC = () => {
         const groupedList: any[] = [];
 
         rawTransactions.forEach(t => {
-            const { d, c } = getTransactionDC(t, contact);
+            const { d, c } = getTransactionDC(t, contact, mode);
             // Use invoiceId if present, then voucherId, otherwise unique id
             const key = t.invoiceId || t.voucherId || t.id;
 
@@ -721,9 +755,16 @@ const Directory: React.FC = () => {
                 group.subTransactions.push(t);
             }
         });
-
-        groupedList.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
+        groupedList.sort((a, b) => {
+            const timeDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            if (timeDiff !== 0) return timeDiff;
+            // Fallback to createdAt for exact sequence on the same date
+            const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            if (createdA !== createdB) return createdA - createdB;
+            // Fallback to insertion order (or ID for stability)
+            return a.id.localeCompare(b.id);
+        });
         let openingBalance = 0;
         let periodTransactions: any[] = [];
         const startDateObj = start ? new Date(start) : null;
@@ -738,8 +779,8 @@ const Directory: React.FC = () => {
             if (startDateObj && !isNaN(startDateObj.getTime()) && tDate < startDateObj) {
                 openingBalance += net;
             } else if (!endDateObj || isNaN(endDateObj.getTime()) || tDate <= endDateObj) {
-                // Only add if it has non-zero value or relevant info
-                if (t.debit > 0 || t.credit > 0 || t.subTransactions.length > 0) {
+                // Only add if it has non-zero value
+                if (t.debit > 0 || t.credit > 0) {
                     periodTransactions.push(t);
                 }
             }
@@ -801,7 +842,7 @@ const Directory: React.FC = () => {
     }, [filteredContacts]);
 
     const buildStatementPrintHtml = (contact: Contact, includeCheckImages = false, autoPrint = false): string => {
-        const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+                        const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate, partnerStatementMode);
         const escapeAttr = (value: string) =>
             String(value || '')
                 .replace(/&/g, '&amp;')
@@ -817,7 +858,7 @@ const Directory: React.FC = () => {
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         const formatPrintNumber = (value: number) => {
-            const normalized = value.toLocaleString();
+            const normalized = value.toLocaleString('en-US');
             return dottedNumbers ? normalized.replace(/,/g, '.') : normalized;
         };
         const formatPrintAmount = (value: number, currency?: string) => {
@@ -1301,14 +1342,14 @@ const Directory: React.FC = () => {
     const buildStatementShareText = (contact: Contact, closingBalance: number) => [
         `${tr('كشف حساب', 'Statement')}: ${displayContactName(contact)}`,
         `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`,
-        `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString()} ${baseCurrency}`
+        `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString('en-US')} ${baseCurrency}`
     ].join('\n');
 
     const buildStatementNotificationText = (contact: Contact, closingBalance: number) => [
         tr('تم تحديث كشف حسابكم.', 'Your account statement was updated.'),
         `${tr('الطرف', 'Contact')}: ${displayContactName(contact)}`,
         `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`,
-        `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString()} ${baseCurrency}`
+        `${tr('الرصيد الختامي', 'Closing Balance')}: ${closingBalance.toLocaleString('en-US')} ${baseCurrency}`
     ].join('\n');
 
     const buildStatementPdfName = (contact: Contact) =>
@@ -1330,7 +1371,7 @@ const Directory: React.FC = () => {
                         `${tr('البنك', 'Bank')}: ${displayAccountName(relatedCheck.bankAccountId ? accounts.find(a => a.id === relatedCheck.bankAccountId) || null : { id: '', name: relatedCheck.bankName })}`,
                         relatedCheck.accountNumber ? `${tr('الحساب', 'Account')}: ${relatedCheck.accountNumber}` : '',
                         `${tr('الاستحقاق', 'Due')}: ${formatDate(relatedCheck.dueDate) || '-'}`,
-                        `${tr('المبلغ', 'Amount')}: ${relatedCheck.amount.toLocaleString()} ${relatedCheck.currency || entry.currency || baseCurrency}`
+                        `${tr('المبلغ', 'Amount')}: ${relatedCheck.amount.toLocaleString('en-US')} ${relatedCheck.currency || entry.currency || baseCurrency}`
                     ].filter(Boolean).join(' | ')
                 );
                 return;
@@ -1341,7 +1382,7 @@ const Directory: React.FC = () => {
             if (account && !invoice) {
                 const label = isReceipt ? tr('تم القبض في', 'Received in') : tr('تم الصرف من', 'Paid from');
                 const amountSuffix = sub.amount !== entry.debit && sub.amount !== entry.credit
-                    ? ` (${sub.amount.toLocaleString()} ${sub.currency || entry.currency || baseCurrency})`
+                    ? ` (${sub.amount.toLocaleString('en-US')} ${sub.currency || entry.currency || baseCurrency})`
                     : '';
                 detailLines.push(`${label}: ${displayAccountName(account)}${amountSuffix}`);
             }
@@ -1352,7 +1393,7 @@ const Directory: React.FC = () => {
             invoice.items.forEach((item, index) => {
                 const product = products.find(p => p.id === item.productId);
                 detailLines.push(
-                    `${index + 1}. ${item.description || displayProductName(product)} | ${tr('الكمية', 'Qty')}: ${item.quantity} | ${tr('السعر', 'Price')}: ${item.unitPrice.toLocaleString()} | ${tr('الإجمالي', 'Total')}: ${item.total.toLocaleString()}`
+                    `${index + 1}. ${item.description || displayProductName(product)} | ${tr('الكمية', 'Qty')}: ${item.quantity} | ${tr('السعر', 'Price')}: ${item.unitPrice.toLocaleString('en-US')} | ${tr('الإجمالي', 'Total')}: ${item.total.toLocaleString('en-US')}`
                 );
             });
             if (printExpiryDate && invoice.dueDate) {
@@ -1382,7 +1423,7 @@ const Directory: React.FC = () => {
     };
 
     const downloadStatementPdf = async (contact: Contact) => {
-        const { closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+        const { closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate, partnerStatementMode);
         const shareText = buildStatementShareText(contact, closingBalance);
         const shareWindow: Window | null = null;
         const openWhatsappLink = (message: string) => {
@@ -1587,7 +1628,7 @@ const Directory: React.FC = () => {
 
     const exportStatementExcelSafe = (contact: Contact) => {
         try {
-            const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+                            const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate, partnerStatementMode);
             const printableStatements = statementDateAscending ? [...stmts] : [...stmts].reverse();
             const title = `${tr('كشف حساب', 'Statement')} - ${displayContactName(contact)}`;
             const periodText = `${tr('الفترة', 'Period')}: ${stmtStartDate || tr('بداية النشاط', 'Start of activity')} - ${stmtEndDate || tr('الآن', 'Now')}`;
@@ -2022,7 +2063,7 @@ const Directory: React.FC = () => {
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <div className="text-[11px] font-black text-blue-500">{tr('المستحق من الزبائن', 'Due From Customers')}</div>
-                                    <div className="mt-2 text-2xl font-black text-blue-700 dir-ltr">{customerDueTotal.toLocaleString()} {baseCurrency}</div>
+                                    <div className="mt-2 text-2xl font-black text-blue-700 dir-ltr">{customerDueTotal.toLocaleString('en-US')} {baseCurrency}</div>
                                 </div>
                                 <div className="rounded-2xl bg-blue-100 p-3 text-blue-600">
                                     <Users size={20} />
@@ -2035,7 +2076,7 @@ const Directory: React.FC = () => {
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <div className="text-[11px] font-black text-orange-500">{tr('المستحق للموردين', 'Due To Suppliers')}</div>
-                                    <div className="mt-2 text-2xl font-black text-orange-700 dir-ltr">{supplierDueTotal.toLocaleString()} {baseCurrency}</div>
+                                    <div className="mt-2 text-2xl font-black text-orange-700 dir-ltr">{supplierDueTotal.toLocaleString('en-US')} {baseCurrency}</div>
                                 </div>
                                 <div className="rounded-2xl bg-orange-100 p-3 text-orange-600">
                                     <Truck size={20} />
@@ -2061,7 +2102,7 @@ const Directory: React.FC = () => {
                 {visibleContacts.map(contact => {
                     const balance = calculateCurrentBalance(contact);
                     return (
-                        <div key={contact.id} onClick={() => openContactStatement(contact.id)} onDoubleClick={() => openContactStatement(contact.id)} className="bg-white px-3 py-2.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer">
+                        <div key={contact.id} onClick={() => openContactStatement(contact.id, 'ALL')} onDoubleClick={() => openContactStatement(contact.id, 'ALL')} className="bg-white px-3 py-2.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer">
                             <div className="flex justify-between items-center mb-0 gap-2 min-w-0">
                                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0 ${contact.type === 'CUSTOMER' ? 'bg-gradient-to-br from-blue-500 to-blue-600' : contact.type === 'SUPPLIER' ? 'bg-gradient-to-br from-orange-500 to-orange-600' : contact.type === 'PARTNER' ? 'bg-gradient-to-br from-emerald-500 to-emerald-600' : 'bg-gradient-to-br from-purple-500 to-purple-600'}`}>{displayContactName(contact).charAt(0)}</div>
@@ -2081,11 +2122,46 @@ const Directory: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                    <span className={`shrink-0 font-black text-sm dir-ltr ${balance > 0 ? 'text-rose-600' : balance < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                        {balance === 0 ? '0.00' : Math.abs(balance).toLocaleString()} {balanceStatus(balance, contact.type)}
-                                    </span>
-                                    <button onClick={(e) => handleEdit(e, contact)} className="p-1.5 bg-gray-50 rounded-lg text-blue-500 hover:bg-blue-50"><Edit2 size={14} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setDeleteContactId(contact.id); }} className="p-1.5 bg-gray-50 rounded-lg text-rose-500 hover:bg-rose-50"><Trash2 size={14} /></button>
+                                    {contact.type === 'PARTNER' ? (() => {
+                                        const capitalAcc = accounts.find(a => a.id === contact.capitalAccountId);
+                                        const currentAcc = accounts.find(a => a.id === (contact.currentAccountId || contact.linkedAccountId));
+                                        const capBal = capitalAcc ? capitalAcc.balance : 0;
+                                        const curBal = currentAcc ? currentAcc.balance : 0;
+                                        return (
+                                            <div className="flex flex-col items-end gap-1.5 px-3 border-r border-gray-100">
+                                                <div className="flex items-center gap-2 cursor-pointer group p-1.5 px-2.5 rounded-xl border border-transparent hover:border-emerald-100 hover:bg-emerald-50 transition-all shadow-sm hover:shadow" onClick={(e) => { e.stopPropagation(); openContactStatement(contact.id, 'CAPITAL'); }} title={tr('كشف حساب رأس المال', 'Capital Account Statement')}>
+                                                    <div className="flex flex-col items-end leading-none">
+                                                        <span className="text-[9px] font-bold text-emerald-600/70 mb-0.5">{tr('رأس المال', 'Capital')}</span>
+                                                        <span className={`font-black text-xs dir-ltr ${capBal > 0 ? 'text-rose-600' : capBal < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                                            {capBal === 0 ? '0.00' : Math.abs(capBal).toLocaleString('en-US')} {balanceStatus(capBal, contact.type)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg group-hover:bg-emerald-200 transition-colors">
+                                                        <Briefcase size={14} />
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2 cursor-pointer group p-1.5 px-2.5 rounded-xl border border-transparent hover:border-blue-100 hover:bg-blue-50 transition-all shadow-sm hover:shadow" onClick={(e) => { e.stopPropagation(); openContactStatement(contact.id, 'CURRENT'); }} title={tr('كشف الحساب الجاري', 'Current Account Statement')}>
+                                                    <div className="flex flex-col items-end leading-none">
+                                                        <span className="text-[9px] font-bold text-blue-600/70 mb-0.5">{tr('الجاري', 'Current')}</span>
+                                                        <span className={`font-black text-xs dir-ltr ${curBal > 0 ? 'text-rose-600' : curBal < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                                            {curBal === 0 ? '0.00' : Math.abs(curBal).toLocaleString('en-US')} {balanceStatus(curBal, contact.type)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg group-hover:bg-blue-200 transition-colors">
+                                                        <Wallet size={14} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })() : (
+                                        <span className={`shrink-0 font-black text-sm dir-ltr ${balance > 0 ? 'text-rose-600' : balance < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                            {balance === 0 ? '0.00' : Math.abs(balance).toLocaleString('en-US')} {balanceStatus(balance, contact.type)}
+                                        </span>
+                                    )}
+                                    <div className="flex items-center gap-1 pl-1">
+                                        <button onClick={(e) => handleEdit(e, contact)} className="p-1.5 bg-gray-50 rounded-lg text-blue-500 hover:bg-blue-50"><Edit2 size={14} /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); setDeleteContactId(contact.id); }} className="p-1.5 bg-gray-50 rounded-lg text-rose-500 hover:bg-rose-50"><Trash2 size={14} /></button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2190,12 +2266,20 @@ const Directory: React.FC = () => {
                     {(() => {
                         const contact = contacts.find(c => c.id === selectedContactId);
                         if (!contact) return null;
-                        const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate);
+                                        const { transactions: stmts, openingBalance, closingBalance } = getStatementData(contact, stmtStartDate, stmtEndDate, partnerStatementMode);
                         return (
                             <div className="directory-statement-sheet h-full flex flex-col bg-white">
                                 <div className="directory-statement-header directory-statement-header-modal bg-slate-50 p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center gap-3">
                                     <div>
-                                        <h2 className="text-lg sm:text-xl font-black text-gray-800 break-words">{displayContactName(contact)}</h2>
+                                        <h2 className="text-lg sm:text-xl font-black text-gray-800 break-words flex items-center gap-2">
+                                            <span>{displayContactName(contact)}</span>
+                                            {contact.type === 'PARTNER' && partnerStatementMode === 'CAPITAL' && (
+                                                <span className="text-[10px] sm:text-xs font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md">{tr('رأس المال', 'Capital')}</span>
+                                            )}
+                                            {contact.type === 'PARTNER' && partnerStatementMode === 'CURRENT' && (
+                                                <span className="text-[10px] sm:text-xs font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md">{tr('الجاري', 'Current')}</span>
+                                            )}
+                                        </h2>
                                         <p className={`text-[9px] sm:text-[10px] font-bold text-gray-400 mt-1 ${isEnglish ? 'uppercase tracking-widest' : 'tracking-normal leading-relaxed'}`}>{tr('كشف حساب تفصيلي', 'Detailed Statement')}</p>
                                     </div>
                                     <div className="directory-statement-toolbar flex items-center gap-2 shrink-0">

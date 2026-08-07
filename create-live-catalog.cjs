@@ -34,12 +34,12 @@ async function run() {
     const productId = prodRes.data.id;
     console.log("Created Product ID:", productId);
 
-    console.log("Creating Base Price ($100/yr)...");
+    console.log("Creating Base Price ($40/yr)...");
     const basePriceRes = await fetchPaddle('/prices', 'POST', {
       product_id: productId,
       description: 'Annual Subscription',
       unit_price: {
-        amount: '10000',
+        amount: '4000',
         currency_code: 'USD'
       },
       billing_cycle: {
@@ -55,12 +55,12 @@ async function run() {
     const basePriceId = basePriceRes.data.id;
     console.log("Created Base Price ID:", basePriceId);
 
-    console.log("Creating Extra Company Seat Price ($20/yr)...");
+    console.log("Creating Extra Company Seat Price ($10/yr)...");
     const extraPriceRes = await fetchPaddle('/prices', 'POST', {
       product_id: productId,
       description: 'Extra Company Seat',
       unit_price: {
-        amount: '2000',
+        amount: '1000',
         currency_code: 'USD'
       },
       billing_cycle: {

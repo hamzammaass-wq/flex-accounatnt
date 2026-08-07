@@ -65,7 +65,7 @@ const ImportantAccountsHub: React.FC<ImportantAccountsHubProps> = ({
   const currentFiscalStart = useMemo(() => getFiscalYearStart(getFiscalYear(todayIso)), [todayIso]);
   const formatAmount = (value: number, absolute = false) => {
     const safeValue = absolute ? Math.abs(value) : value;
-    return Number(safeValue || 0).toLocaleString(undefined, {
+    return Number(safeValue || 0).toLocaleString('en-US', {
       minimumFractionDigits: Math.abs(safeValue) > 0 && Math.abs(safeValue) < 1 ? 2 : 0,
       maximumFractionDigits: 2
     });

@@ -345,7 +345,7 @@ const AdjustmentNoticesManager: React.FC = () => {
     <div class="row"><span class="muted">${tr('رقم الإشعار', 'Notice No')}</span><span class="v">${inv.invoiceNumber}</span></div>
     <div class="row"><span class="muted">${tr('التاريخ', 'Date')}</span><span class="v">${inv.date}</span></div>
     <div class="row"><span class="muted">${tr('الطرف', 'Party')}</span><span class="v">${contact ? displayContactName(contact) : '-'}</span></div>
-    <div class="row"><span class="muted">${tr('المبلغ', 'Amount')}</span><span class="v">${Number(inv.totalAmount).toLocaleString()} ${inv.currency}</span></div>
+    <div class="row"><span class="muted">${tr('المبلغ', 'Amount')}</span><span class="v">${Number(inv.totalAmount).toLocaleString('en-US')} ${inv.currency}</span></div>
     <div class="row"><span class="muted">${tr('الحالة', 'Status')}</span><span class="v">${inv.postingStatus || 'POSTED'} / ${inv.status}</span></div>
     <div class="row"><span class="muted">${tr('الفاتورة المرتبطة', 'Linked Invoice (Optional)')}</span><span class="v">${linked ? linked.invoiceNumber : '-'}</span></div>
   </div>

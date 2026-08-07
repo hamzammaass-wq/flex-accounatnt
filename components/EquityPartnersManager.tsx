@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { BarChart3, FileText, Layers3, Percent, Plus, Printer, Wallet, Minus } from 'lucide-react';
 import { useAccounting } from '../contexts/AccountingContext';
 import EnglishDateInput from './EnglishDateInput';
@@ -83,6 +83,7 @@ const EquityPartnersManager: React.FC = () => {
     baseCurrency,
     contacts,
     accounts,
+    fixedAssets,
     transactions,
     addTransaction,
     addContact,
@@ -169,9 +170,32 @@ const EquityPartnersManager: React.FC = () => {
 
   const postingAccounts = useMemo(() => accounts.filter(a => !a.isGroup), [accounts]);
   const equityAccounts = useMemo(() => postingAccounts.filter(a => a.type === 'EQUITY'), [postingAccounts]);
+  
+  const isAccountOrDescendantOf = useCallback((accountId: string, rootId: string) => {
+    let currentId: string | undefined = accountId;
+    const visited = new Set<string>();
+    while (currentId) {
+      if (currentId === rootId) return true;
+      if (visited.has(currentId)) break;
+      visited.add(currentId);
+      const acct = accounts.find(a => a.id === currentId);
+      currentId = acct?.parentId;
+    }
+    return false;
+  }, [accounts]);
+
   const fundingAccounts = useMemo(
-    () => postingAccounts.filter(a => a.type === 'ASSET'),
-    [postingAccounts]
+    () => postingAccounts.filter(a => 
+      a.type === 'ASSET' && 
+      a.id !== 'acc_accumulated_depreciation' && 
+      a.id !== 'acc_depreciation_exp' && (
+        isAccountOrDescendantOf(a.id, 'acc_cash_root') ||
+        isAccountOrDescendantOf(a.id, 'acc_bank_root') ||
+        isAccountOrDescendantOf(a.id, 'acc_fixed_assets_root') ||
+        a.id === 'acc_main_cash'
+      )
+    ),
+    [postingAccounts, isAccountOrDescendantOf]
   );
   const retainedEarningsAccount = useMemo(() => {
     const account = accountById.get('acc_retained_earnings');
@@ -370,15 +394,26 @@ const EquityPartnersManager: React.FC = () => {
         const debit = ids.some(id => tx.debitAccountId === id) ? tx.amount : 0;
         const credit = ids.some(id => tx.creditAccountId === id) ? tx.amount : 0;
         running = roundMoney(running + credit - debit);
+        let cleanNote = tx.description || '';
+        if (cleanNote.includes('create_capital') || cleanNote.includes('increase_capital') || cleanNote.includes('Partner capital contribution')) {
+          cleanNote = tr('إيداع رأس مال', 'Capital deposit');
+        } else if (cleanNote.includes('decrease_capital') || cleanNote.includes('Partner capital reduction')) {
+          cleanNote = tr('تخفيض رأس مال', 'Capital reduction');
+        } else if (tx.category === 'partner_capital') {
+          cleanNote = tr('حركة رأس مال', 'Capital entry');
+        }
+
+        const shortId = tx.id.startsWith('tx_') ? tx.id.replace('tx_', '').substring(0, 6).toUpperCase() : tx.id.substring(0, 6).toUpperCase();
+
         return {
           id: tx.id,
           date: tx.date,
-          docType: tx.category,
-          docNo: tx.voucherId || tx.id,
+          docType: tx.category === 'partner_capital' ? tr('رأس مال', 'Capital') : tx.category,
+          docNo: tx.voucherId || shortId,
           debit: roundMoney(debit),
           credit: roundMoney(credit),
           running,
-          note: tx.description
+          note: cleanNote
         };
       });
   }, [ledgerPartnerId, partnerById, postedTransactions]);
@@ -450,13 +485,31 @@ const EquityPartnersManager: React.FC = () => {
     printHtmlContent(html);
   };
 
-  const capitalEntries = useMemo(() => transactions
-    .filter(tx => tx.category === 'partner_capital')
-    .filter(tx => (capitalFilterPartnerId === 'ALL' || tx.contactId === capitalFilterPartnerId))
-    .filter(tx => (!capitalFilterFrom || tx.date >= capitalFilterFrom))
-    .filter(tx => (!capitalFilterTo || tx.date <= capitalFilterTo))
-    .sort((a, b) => `${b.date}__${b.id}`.localeCompare(`${a.date}__${a.id}`)),
-    [transactions, capitalFilterPartnerId, capitalFilterFrom, capitalFilterTo]);
+  const capitalEntries = useMemo(() => {
+    const partnerCapitalMap = new Map<string, string>();
+    partners.forEach(p => {
+      if (p.capitalAccountId) partnerCapitalMap.set(p.capitalAccountId, p.id);
+    });
+
+    return transactions
+      .filter(tx => {
+        const isCapitalCategory = tx.category === 'partner_capital';
+        const hitsCapitalAccount = partnerCapitalMap.has(tx.debitAccountId) || partnerCapitalMap.has(tx.creditAccountId);
+        return isCapitalCategory || hitsCapitalAccount;
+      })
+      .filter(tx => {
+        if (capitalFilterPartnerId === 'ALL') return true;
+        let txPartnerId = tx.contactId;
+        if (!txPartnerId || tx.category !== 'partner_capital') {
+          if (partnerCapitalMap.has(tx.debitAccountId)) txPartnerId = partnerCapitalMap.get(tx.debitAccountId)!;
+          else if (partnerCapitalMap.has(tx.creditAccountId)) txPartnerId = partnerCapitalMap.get(tx.creditAccountId)!;
+        }
+        return txPartnerId === capitalFilterPartnerId;
+      })
+      .filter(tx => (!capitalFilterFrom || tx.date >= capitalFilterFrom))
+      .filter(tx => (!capitalFilterTo || tx.date <= capitalFilterTo))
+      .sort((a, b) => `${b.date}__${b.id}`.localeCompare(`${a.date}__${a.id}`));
+  }, [transactions, capitalFilterPartnerId, capitalFilterFrom, capitalFilterTo, partners]);
 
   const distributionPreview = useMemo(() => {
     const draft = buildProfitDistributionDraft({
@@ -476,18 +529,6 @@ const EquityPartnersManager: React.FC = () => {
     return { ok: true, totalAllocated: draft.totalAllocated, remainder: draft.remainder, message: '' };
   }, [distDate, distPeriod, distTotalProfit, distMethod, retainedEarningsAccountId, partnerRows, baseCurrency, distCustomRatios, distFixedAmounts, distNote]);
 
-  const isAccountOrDescendantOf = (accountId: string, rootId: string) => {
-    let currentId: string | undefined = accountId;
-    const visited = new Set<string>();
-    while (currentId) {
-      if (currentId === rootId) return true;
-      if (visited.has(currentId)) break;
-      visited.add(currentId);
-      const acct = accounts.find(a => a.id === currentId);
-      currentId = acct?.parentId;
-    }
-    return false;
-  };
 
   const isFundingAccountFixedAsset = capitalFundingAccountId && (
     isAccountOrDescendantOf(capitalFundingAccountId, 'acc_fixed_assets_root') ||
@@ -508,6 +549,12 @@ const EquityPartnersManager: React.FC = () => {
     if (capitalMode === 'NEW') {
       partnerName = String(capitalPartnerName || '').trim();
       if (!partnerName) return alert(tr('أدخل اسم الشريك.', 'Enter partner name.'));
+      
+      const existingPartner = partners.find(p => p.name.trim().toLowerCase() === partnerName.toLowerCase());
+      if (existingPartner) {
+        return alert(tr('هذا الشريك موجود بالفعل. الرجاء اختياره من القائمة "شريك موجود".', 'This partner already exists. Please select it from the "Existing Partner" list.'));
+      }
+
       partnerId = newId('partner');
       const addPartnerResult = addContact({ id: partnerId, name: partnerName, type: 'PARTNER' });
       if (!addPartnerResult.ok) return;
@@ -821,8 +868,8 @@ const EquityPartnersManager: React.FC = () => {
                     className={inputClass}
                   >
                     <option value="">{tr('اختر الأصل...', 'Select asset...')}</option>
-                    {contacts.filter(c => c.type === 'FIXED_ASSET').map(a => (
-                      <option key={a.id} value={a.id}>{displayContactName(a)}</option>
+                    {fixedAssets.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
                   <button
@@ -845,58 +892,40 @@ const EquityPartnersManager: React.FC = () => {
           </div>
 
           <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm space-y-2">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              <select value={capitalFilterPartnerId} onChange={e => setCapitalFilterPartnerId(e.target.value)} className={`${inputClass} col-span-2 md:col-span-1 text-[11px]`}><option value="ALL">{tr('كل الشركاء', 'All partners')}</option>{partners.map(p => <option key={p.id} value={p.id}>{displayContactName(p)}</option>)}</select>
-              <EnglishDateInput value={capitalFilterFrom} onChange={setCapitalFilterFrom} displayFormat="DMY" placeholder={tr('من تاريخ', 'From date')} className={`${inputClass} text-[11px] dir-ltr`} />
-              <EnglishDateInput value={capitalFilterTo} onChange={setCapitalFilterTo} displayFormat="DMY" placeholder={tr('إلى تاريخ', 'To date')} className={`${inputClass} text-[11px] dir-ltr`} />
-            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-[12px] font-black">
                 <thead>
                   <tr className="text-gray-500 border-b border-gray-100">
-                    <th className="py-2 px-2 text-right">{tr('التاريخ', 'Date')}</th>
                     <th className="py-2 px-2 text-right">{tr('الشريك', 'Partner')}</th>
                     <th className="py-2 px-2 text-center">{tr('نسبة الشريك %', 'Partner Share %')}</th>
-                    <th className="py-2 px-2 text-center">{tr('المبلغ', 'Amount')}</th>
-                    <th className="py-2 px-2 text-center">{tr('المرجع', 'Reference')}</th>
-                    <th className="py-2 px-2 text-center">{tr('الحالة', 'Status')}</th>
+                    <th className="py-2 px-2 text-center">{tr('رأس المال الإجمالي', 'Total Capital')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {capitalEntries.map(tx => {
-                    const partnerId = tx.contactId || '';
-                    const partner = partnerById.get(partnerId);
-                    const shareValue = partner ? englishDigits(partner.sharePercent ?? 0) : '';
-
-                    return (
-                      <tr key={tx.id} className="border-b border-gray-50 last:border-0">
-                        <td className="py-2 px-2">
-                          <span className="dir-ltr inline-block">{fmtDate(tx.date)}</span>
-                        </td>
-                        <td className="py-2 px-2">{partner?.name || displayContactName(contacts.find(c => c.id === tx.contactId)) || tx.contactId || '-'}</td>
-                        <td className="py-2 px-2 text-center">
-                          {partnerId ? (
-                            <input
-                              type="text"
-                              min="0"
-                              max="100"
-                              step="0.01"
-                              value={englishDigits(shareValue)}
-                              inputMode="decimal"
-                              lang={englishNumberLang}
-                              onChange={e => updatePartnerSharePercent(partnerId, normalizeDecimalInput(e.target.value))}
-                              className="w-[110px] p-1.5 rounded-lg border border-gray-200 bg-white text-[11px] font-black text-center dir-ltr"
-                            />
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td className="py-2 px-2 text-center dir-ltr">{fmt(tx.amount)}</td>
-                        <td className="py-2 px-2 text-center dir-ltr">{tx.voucherId || tx.id}</td>
-                        <td className="py-2 px-2 text-center">{tx.status || 'POSTED'}</td>
-                      </tr>
-                    );
-                  })}
+                  {partnerRows.map(partner => (
+                    <tr key={partner.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-2 px-2">{partner.name}</td>
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="text"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={englishDigits(partner.sharePercent || 0)}
+                          inputMode="decimal"
+                          lang={englishNumberLang}
+                          onChange={e => updatePartnerSharePercent(partner.id, normalizeDecimalInput(e.target.value))}
+                          className="w-[110px] p-1.5 rounded-lg border border-gray-200 bg-white text-[11px] font-black text-center dir-ltr mx-auto block"
+                        />
+                      </td>
+                      <td className="py-2 px-2 text-center dir-ltr text-sky-600">{fmt(partner.capital)}</td>
+                    </tr>
+                  ))}
+                  {partnerRows.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-4 text-center text-gray-400">{tr('لا يوجد شركاء', 'No partners found')}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1187,6 +1216,7 @@ const EquityPartnersManager: React.FC = () => {
       )}
       {showQuickFixedAsset && (
         <QuickAddFixedAssetModal
+          initialCost={Number(capitalAmount) || 0}
           onClose={() => setShowQuickFixedAsset(false)}
           onSave={(id) => {
             setCapitalFundingAssetId(id);

@@ -9,7 +9,7 @@ import ResponsiveShell from './components/layout/ResponsiveShell';
 import ResponsiveOverlay from './components/layout/ResponsiveOverlay';
 import useResponsiveMode from './hooks/useResponsiveMode';
 import useMobileInteractions from './hooks/useMobileInteractions';
-import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Package, Users, Settings, Wallet, Briefcase, Factory, Building2, ChevronDown, Plus, ArrowLeft, BarChart3 } from 'lucide-react';
 import { getDocumentLanguageTag, isRtlLanguage, translate } from './utils/i18n';
 import { applyAppTheme } from './utils/appTheme';
 import { DRILLDOWN_EVENT_NAME, DrilldownTarget } from './utils/drilldown';
@@ -329,7 +329,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const htmlLang = getDocumentLanguageTag(appLanguage);
-    document.documentElement.lang = htmlLang;
+    document.documentElement.lang = 'en'; // Force English locale to prevent Arabic numbers in native inputs
     document.documentElement.dir = rtl ? 'rtl' : 'ltr';
     document.title = appLanguage === 'AR' ? 'المحاسب فلكس' : 'flex accaountant';
   }, [appLanguage, rtl]);
@@ -1078,15 +1078,6 @@ const AppContent: React.FC = () => {
             testId="nav-treasury"
           />
           <NavButton
-            active={activeTab === 'hr'}
-            onClick={() => handleNavigate('hr')}
-            icon={<Briefcase className="w-5 h-5" />}
-            label={t('nav.hr')}
-            tablet={isTablet}
-            mobile={isMobile}
-            testId="nav-hr"
-          />
-          <NavButton
             active={activeTab === 'products'}
             onClick={() => handleNavigate('products')}
             icon={<Package className="w-5 h-5" />}
@@ -1095,14 +1086,15 @@ const AppContent: React.FC = () => {
             mobile={isMobile}
             testId="nav-products"
           />
+
           <NavButton
-            active={activeTab === 'manufacturing'}
-            onClick={() => handleNavigate('manufacturing')}
-            icon={<Factory className="w-5 h-5" />}
-            label={t('nav.manufacturing')}
+            active={activeTab === 'reports'}
+            onClick={() => handleNavigate('reports')}
+            icon={<BarChart3 className="w-5 h-5" />}
+            label={t('dashboard.module.reports')}
             tablet={isTablet}
             mobile={isMobile}
-            testId="nav-manufacturing"
+            testId="nav-reports"
           />
           <NavButton
             active={activeTab === 'directory'}

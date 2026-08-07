@@ -35,12 +35,13 @@ export type OverlayView =
     | 'add-sales' | 'add-sales-return' | 'add-quotation' | 'add-purchase' | 'add-purchase-return' | 'add-expense' | 'add-voucher-receipt' | 'add-voucher-payment' | 'add-manual-purchase' | 'add-journal' | 'add-import' | 'voice-ai' | null;
 
 const AppContent: React.FC = () => {
-    const { currentUser } = useAccounting();
+    const { currentUser, invoices } = useAccounting();
     const [activeTab, setActiveTab] = useState<TabView>('dashboard');
     const [overlay, setOverlay] = useState<OverlayView>(null);
     const [initialDefinitionsMode, setInitialDefinitionsMode] = useState<SettingsMode>('MENU');
 
     const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
+    const [editTransactionId, setEditTransactionId] = useState<string>('');
 
     if (!currentUser) {
         return <AuthScreen />;
@@ -57,6 +58,7 @@ const AppContent: React.FC = () => {
     const closeOverlay = () => {
         setOverlay(null);
         setSelectedInvoiceId('');
+        setEditTransactionId('');
     };
 
     const renderMainContent = () => {
@@ -83,7 +85,7 @@ const AppContent: React.FC = () => {
             }} />;
             case 'journal-list': return <JournalManager
                 onAddNew={() => openOverlay('add-journal')}
-                onEditJournal={(journalId) => openOverlay('add-journal')}
+                onEditJournal={(journalId) => { setEditTransactionId(journalId); openOverlay('add-journal'); }}
             />;
             case 'import-list': return <ImportManager onAddNew={() => openOverlay('add-import')} />;
             case 'sales': return <SalesInvoiceList
@@ -93,6 +95,12 @@ const AppContent: React.FC = () => {
                     else openOverlay('add-sales');
                 }}
                 onCreateReturn={(id) => { setSelectedInvoiceId(id); openOverlay('add-sales-return'); }}
+                onEditInvoice={(id, mode) => {
+                    setEditTransactionId(id);
+                    if (mode === 'SALES_RETURN') openOverlay('add-sales-return');
+                    else if (mode === 'QUOTATION') openOverlay('add-quotation');
+                    else openOverlay('add-sales');
+                }}
             />;
             case 'purchases': return <PurchaseInvoiceList
                 onNavigate={(tab, fTab) => {
@@ -100,14 +108,28 @@ const AppContent: React.FC = () => {
                     else openOverlay('add-purchase');
                 }}
                 onAddImportExpense={(id) => { setSelectedInvoiceId(id); openOverlay('add-import'); }}
+                onEditInvoice={(id, mode) => {
+                    setEditTransactionId(id);
+                    if (mode === 'PURCHASE_RETURN') openOverlay('add-purchase-return');
+                    else openOverlay('add-purchase');
+                }}
             />;
-            case 'purchases-expenses': return <PurchasesExpenses onNavigate={(tab, formTab) => {
-                if (formTab === 'MANUAL_PURCHASE') openOverlay('add-manual-purchase');
-                else if (formTab === 'PURCHASES') openOverlay('add-purchase');
-                else if (formTab === 'EXPENSES') openOverlay('add-expense');
-            }} />;
-            case 'receipts-list': return <VoucherManager type="RECEIPT" onAddNew={() => openOverlay('add-voucher-receipt')} />;
-            case 'payments-list': return <VoucherManager type="PAYMENT" onAddNew={() => openOverlay('add-voucher-payment')} />;
+            case 'purchases-expenses': return <PurchasesExpenses 
+                onNavigate={(tab, formTab) => {
+                    if (formTab === 'MANUAL_PURCHASE') openOverlay('add-manual-purchase');
+                    else if (formTab === 'PURCHASES') openOverlay('add-purchase');
+                    else if (formTab === 'EXPENSES') openOverlay('add-expense');
+                }}
+                onEditInvoice={(id, mode) => {
+                    setEditTransactionId(id);
+                    if (mode === 'MANUAL_PURCHASE') openOverlay('add-manual-purchase');
+                    else if (mode === 'IMPORT_EXPENSES') openOverlay('add-import');
+                    else if (mode === 'EXPENSES') openOverlay('add-expense');
+                    else openOverlay('add-purchase');
+                }} 
+            />;
+            case 'receipts-list': return <VoucherManager type="RECEIPT" onAddNew={() => openOverlay('add-voucher-receipt')} onEditVoucher={(id) => { setEditTransactionId(id); openOverlay('add-voucher-receipt'); }} />;
+            case 'payments-list': return <VoucherManager type="PAYMENT" onAddNew={() => openOverlay('add-voucher-payment')} onEditVoucher={(id) => { setEditTransactionId(id); openOverlay('add-voucher-payment'); }} />;
             case 'checks': return <CheckPortfolio />;
             case 'treasury': return <TreasuryManager />;
             case 'hr': return <HRManager />;
@@ -116,7 +138,32 @@ const AppContent: React.FC = () => {
             case 'ai': return <AIAssistant />;
             case 'directory': return <Directory />;
             case 'products': return <ProductList />;
-            case 'reports': return <FinancialReports />;
+            case 'reports': return <FinancialReports onEditTransaction={(tx, passedInvoice) => {
+                const invoice = passedInvoice || (tx.invoiceId ? invoices.find(inv => inv.id === tx.invoiceId) : null);
+                if (invoice) {
+                    setEditTransactionId(invoice.id);
+                    if (invoice.category === 'import_expenses') openOverlay('add-import');
+                    else if (invoice.mode === 'PURCHASES') openOverlay('add-purchase');
+                    else if (invoice.mode === 'PURCHASE_RETURN') openOverlay('add-purchase-return');
+                    else if (invoice.mode === 'SALES_RETURN') openOverlay('add-sales-return');
+                    else if (invoice.mode === 'QUOTATION') openOverlay('add-quotation');
+                    else openOverlay('add-sales');
+                } else if (tx.voucherId) {
+                    setEditTransactionId(tx.voucherId);
+                    if (tx.description?.includes('يومية') || tx.description?.includes('Journal')) {
+                        openOverlay('add-journal');
+                    } else if (tx.debit > 0) {
+                        openOverlay('add-voucher-receipt');
+                    } else {
+                        openOverlay('add-voucher-payment');
+                    }
+                } else if (tx.description && (tx.description.includes('تسوية') || tx.description.includes('Settlement'))) {
+                    // Settlements are not editable via TransactionForm
+                } else {
+                    setEditTransactionId(tx.id);
+                    openOverlay('add-journal');
+                }
+            }} />;
             case 'definitions': return <DefinitionsMenu initialMode={initialDefinitionsMode} />;
             default: return <Dashboard onNavigate={() => { }} />;
         }
@@ -129,17 +176,17 @@ const AppContent: React.FC = () => {
 
         let content = null;
         switch (overlay) {
-            case 'add-sales': content = <TransactionForm initialMode="SALES" onBack={closeOverlay} />; break;
-            case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
-            case 'add-quotation': content = <TransactionForm initialMode="QUOTATION" onBack={closeOverlay} />; break;
-            case 'add-purchase': content = <TransactionForm initialMode="PURCHASES" onBack={closeOverlay} />; break;
-            case 'add-purchase-return': content = <TransactionForm initialMode="PURCHASE_RETURN" onBack={closeOverlay} />; break;
-            case 'add-manual-purchase': content = <TransactionForm initialMode="MANUAL_PURCHASE" onBack={closeOverlay} />; break;
-            case 'add-expense': content = <TransactionForm initialMode="EXPENSES" onBack={closeOverlay} />; break;
-            case 'add-import': content = <TransactionForm initialMode="IMPORT_EXPENSES" initialCategory="import_expenses" initialVoucherType="PAYMENT" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
-            case 'add-voucher-receipt': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="RECEIPT" onBack={closeOverlay} />; break;
-            case 'add-voucher-payment': content = <TransactionForm initialMode="VOUCHERS" initialVoucherType="PAYMENT" onBack={closeOverlay} />; break;
-            case 'add-journal': content = <TransactionForm initialMode="JOURNAL" onBack={closeOverlay} />; break;
+            case 'add-sales': content = <TransactionForm initialMode="SALES" initialInvoiceId={editTransactionId} onBack={closeOverlay} />; break;
+            case 'add-sales-return': content = <TransactionForm initialMode="SALES_RETURN" initialInvoiceId={editTransactionId} initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
+            case 'add-quotation': content = <TransactionForm initialMode="QUOTATION" initialInvoiceId={editTransactionId} onBack={closeOverlay} />; break;
+            case 'add-purchase': content = <TransactionForm initialMode="PURCHASES" initialInvoiceId={editTransactionId} onBack={closeOverlay} />; break;
+            case 'add-purchase-return': content = <TransactionForm initialMode="PURCHASE_RETURN" initialInvoiceId={editTransactionId} onBack={closeOverlay} />; break;
+            case 'add-manual-purchase': content = <TransactionForm initialMode="MANUAL_PURCHASE" initialInvoiceId={editTransactionId} onBack={closeOverlay} />; break;
+            case 'add-expense': content = <TransactionForm initialMode="EXPENSES" initialInvoiceId={editTransactionId} onBack={closeOverlay} />; break;
+            case 'add-import': content = <TransactionForm initialMode="IMPORT_EXPENSES" initialInvoiceId={editTransactionId} initialCategory="import_expenses" initialVoucherType="PAYMENT" initialLinkedInvoiceId={selectedInvoiceId} onBack={closeOverlay} />; break;
+            case 'add-voucher-receipt': content = <TransactionForm initialMode="VOUCHERS" initialVoucherId={editTransactionId} initialVoucherType="RECEIPT" onBack={closeOverlay} />; break;
+            case 'add-voucher-payment': content = <TransactionForm initialMode="VOUCHERS" initialVoucherId={editTransactionId} initialVoucherType="PAYMENT" onBack={closeOverlay} />; break;
+            case 'add-journal': content = <TransactionForm initialMode="JOURNAL" initialVoucherId={editTransactionId} onBack={closeOverlay} />; break;
         }
 
         return (

@@ -1,36 +1,62 @@
-# المحاسب فلكس (flex accaountant)
+# 💼 المحاسب فلكس (Flex Accountant / Smart Accountant)
 
-المحاسب فلكس (flex accaountant) is a Vite + React + Capacitor application with Firebase Authentication and Firebase Hosting deployment.
+> **نظام إدارة موارد المؤسسات والمحاسبة المتكامل (ERP & Accounting System)**
+> متوافق مع الويب والتطبيقات المحمولة (Web, Android, iOS).
 
-## Access From Anywhere
+---
 
-- Source code lives in GitHub and can be edited locally or in GitHub Codespaces.
-- Pushes to `main` deploy the web app to Firebase Hosting project `smart-account-cc181`.
-- Pull requests create Firebase Hosting preview deployments for review before merge.
+## 🌟 نبذة عن البرنامج (Project Description)
 
-## Local Setup
+**المحاسب فلكس (Flex Accountant / Smart Accountant)** هو نظام محاسبي متكامل وإدارة مؤسسية شامِلة يهدف إلى أتمتة كافة الأنشطة المالية والإدارية والتجارية للمؤسسات والشركات بنظام متعدد المنصات (Cross-Platform).
 
-1. Install Node.js 22 or use the version in `.nvmrc`.
-2. Copy `.env.example` to `.env.local`.
-3. Replace placeholder values in `.env.local` as needed.
-4. Install dependencies with `npm ci`.
-5. Start the app with `npm run dev`.
-6. Open `http://localhost:3000`.
+التطبيق مبني بتقنيات حديثة وعالية السرعة: **React 19 + TypeScript + Vite + Capacitor 8** مع الاعتماد على **Firebase** للمزامنة السحابية وإدارة المستخدمين، إضافةً لتقنيات الذكاء الاصطناعي **Google Gemini AI**.
 
-## GitHub Codespaces
+---
 
-1. Open the repository in a new Codespace.
-2. The dev container installs dependencies and creates `.env.local` from `.env.example` if it does not exist yet.
-3. Add repository or Codespaces secrets for any real keys you need, then update `.env.local`.
-4. Run `npm run dev` and open the forwarded port `3000`.
+## ✨ الميزات والوحدات الرئيسية (Core Features & Modules)
 
-## Required Secrets And External Settings
+- **شجرة الحسابات والدفتر العام (General Ledger & Chart of Accounts):** شجرة حسابات هرمية متعددة المستويات، قيد اليومية العامة، والسندات المالية (قبض ودفع).
+- **إدارة المبيعات والمشتريات (Sales & Purchases):** إصدار الفواتير، مردودات المبيعات والمشتريات، تسويات العملاء والموردين، والطباعة الحرارية للباركود.
+- **إدارة المخزون والمستودعات (Inventory & Warehouses):** كتالوج المنتجات والخدمات، المستودعات المتعددة، الجرد المباشر بماسح الباركود والكاميرا.
+- **إدارة الموارد البشرية والرواتب (HR & Payroll):** سجلات الموظفين، الحضور والانصراف (الربط مع أجهزة البصمة)، الرواتب، السلف، والإجازات.
+- **الأصول الثابتة وحقوق الملكية (Fixed Assets & Equity):** تتبع أصول الشركة، الإهلاك السنوي التلقائي، وإدارة أرصدة وأرباح الشركاء.
+- **البنوك والشيكات والتسويات (Bank Reconciliation & Checks):** مطابقة الحسابات البنكية تلقائياً ومتابعة محفظة الشيكات الصادرة والواردة.
+- **التقارير المالية القوائم الختامية (Financial Reports):** ميزان المراجعة، قائمة الدخل، الميزانية العمومية، التقرير الضريبي، ودعم التصدير إلى PDF و Excel.
+- **المساعد الذكي والصوتي (AI & Live Voice Assistant):** تحليل مالي ذكي وإجابة على الاستفسارات بواسطة الذكاء الاصطناعي (Gemini API) والتوجيه الصوتي.
 
-- GitHub Actions secret: `FIREBASE_SERVICE_ACCOUNT_SMART_ACCOUNT_CC181`
-- Firebase web app config values in `.env.local`
-- Gemini key for AI features: `GEMINI_API_KEY` or `VITE_GEMINI_API_KEY`
+---
 
-## Deployment
+## 🛠️ البنية التقنية (Tech Stack)
 
-- Merge or push to `main` to deploy production to Firebase Hosting.
-- Open a pull request to get a preview deployment from GitHub Actions.
+* **Frontend:** React 19, TypeScript, Vite.
+* **Mobile Engine:** Capacitor 8 (iOS & Android).
+* **Styling & Animation:** Custom Vanilla CSS, Framer Motion, Lucide Icons, Recharts.
+* **Database & Cloud:** Firebase Auth, Cloud Firestore, Firebase Hosting, Sql.js (IndexedDB local sync).
+* **AI Integration:** `@google/genai` (Google Gemini API).
+
+---
+
+## 🌐 الرابط المباشر (Live Demo)
+
+- **الموقع المباشر على Firebase Hosting:** [https://smart-account-cc181.web.app](https://smart-account-cc181.web.app)
+
+---
+
+## 💻 التشغيل المحلي (Local Development)
+
+1. تثبيت الاعتماديات:
+```bash
+npm install
+```
+2. تشغيل سيرفر التطوير المحلي:
+```bash
+npm run dev
+```
+3. البناء والتصدير للإنتاج:
+```bash
+npm run build
+```
+4. رفع التحديثات إلى Firebase:
+```bash
+npm run deploy:hosting
+```

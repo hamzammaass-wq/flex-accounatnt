@@ -5,7 +5,7 @@ import ResponsiveDialog from './layout/ResponsiveDialog';
 
 const inputClass = "w-full min-h-[44px] bg-slate-50 border border-slate-200 text-gray-900 text-sm font-bold rounded-2xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 block p-3 transition-all";
 
-const QuickAddFixedAssetModal: React.FC<{ onClose: () => void; onSave: (id: string) => void }> = ({ onClose, onSave }) => {
+const QuickAddFixedAssetModal: React.FC<{ onClose: () => void; onSave: (id: string) => void; initialCost?: number }> = ({ onClose, onSave, initialCost = 0 }) => {
     const { addFixedAsset, companySettings } = useAccounting();
     const [name, setName] = useState('');
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
@@ -19,13 +19,10 @@ const QuickAddFixedAssetModal: React.FC<{ onClose: () => void; onSave: (id: stri
             name: name.trim(),
             description: '',
             status: 'ACTIVE' as const,
-            baseCost: 0,
-            accumulatedDepreciation: 0,
-            netBookValue: 0,
-            depreciationMethod: 'STRAIGHT_LINE' as const,
-            usefulLifeYears: 5,
-            scrapValue: 0,
-            createdAt: new Date().toISOString()
+            cost: initialCost,
+            salvageValue: 0,
+            lifeInYears: 5,
+            purchaseDate: new Date().toISOString().split('T')[0]
         };
         
         const id = addFixedAsset(newAsset);

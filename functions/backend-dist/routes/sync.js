@@ -365,8 +365,7 @@ router.get('/:collectionName', verifyCompanyMembership, async (req, res) => {
                 preferredPriceTier: row.preferred_price_tier || undefined,
                 linkedAccountId: unprefixAccountId(companyId, row.linked_account_id) || undefined,
                 currentAccountId: unprefixAccountId(companyId, row.current_account_id) || undefined,
-                capitalAccountId: unprefixAccountId(companyId, row.capital_account_id) || undefined,
-                drawingsAccountId: unprefixAccountId(companyId, row.drawings_account_id) || undefined
+                capitalAccountId: unprefixAccountId(companyId, row.capital_account_id) || undefined
             }));
             res.json(mappedRows);
         }
@@ -701,12 +700,12 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
             else {
                 for (const item of upserts) {
                     if (collectionName === 'contacts') {
-                        await client.query(`INSERT INTO contacts (id, company_id, name, type, phone, address, preferred_price_tier, linked_account_id, current_account_id, capital_account_id, drawings_account_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        await client.query(`INSERT INTO contacts (id, company_id, name, type, phone, address, preferred_price_tier, linked_account_id, current_account_id, capital_account_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                ON CONFLICT (company_id, id) DO UPDATE
                SET name = EXCLUDED.name, type = EXCLUDED.type, phone = EXCLUDED.phone, address = EXCLUDED.address,
                    preferred_price_tier = EXCLUDED.preferred_price_tier, linked_account_id = EXCLUDED.linked_account_id,
-                   current_account_id = EXCLUDED.current_account_id, capital_account_id = EXCLUDED.capital_account_id, drawings_account_id = EXCLUDED.drawings_account_id`, [
+                   current_account_id = EXCLUDED.current_account_id, capital_account_id = EXCLUDED.capital_account_id`, [
                             item.id,
                             companyId,
                             item.name,
@@ -716,8 +715,7 @@ router.post('/:collectionName/sync', verifyCompanyMembership, async (req, res) =
                             item.preferredPriceTier || 'RETAIL',
                             await resolveDbAccountId(client, companyId, item.linkedAccountId),
                             await resolveDbAccountId(client, companyId, item.currentAccountId),
-                            await resolveDbAccountId(client, companyId, item.capitalAccountId),
-                            await resolveDbAccountId(client, companyId, item.drawingsAccountId)
+                            await resolveDbAccountId(client, companyId, item.capitalAccountId)
                         ]);
                     }
                     else if (collectionName === 'employeeContracts') {

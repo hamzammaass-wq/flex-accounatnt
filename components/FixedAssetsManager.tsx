@@ -609,7 +609,7 @@ const FixedAssetsManager: React.FC = () => {
 
                             <div className="pt-2 border-t border-slate-200 flex justify-between items-center px-1">
                                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{tr('إجمالي تكلفة الأصل (المرسملة)', 'Total Asset Cost (Capitalized)')}</span>
-                                <span className="text-base font-black text-blue-700 dir-ltr">{totalCapitalizedCost.toLocaleString()} {baseCurrency}</span>
+                                <span className="text-base font-black text-blue-700 dir-ltr">{totalCapitalizedCost.toLocaleString('en-US')} {baseCurrency}</span>
                             </div>
                         </div>
 
@@ -716,13 +716,13 @@ const FixedAssetsManager: React.FC = () => {
                                             <div className="hidden md:flex items-center gap-3 text-[10px] text-gray-400 font-bold uppercase">
                                                 <span className="flex items-center gap-1.5"><Calendar size={12} /> {formatDate(asset.purchaseDate)}</span>
                                                 <span>&bull;</span>
-                                                <span>{tr('قيمة', 'Cost')}: {asset.cost.toLocaleString()}</span>
+                                                <span>{tr('قيمة', 'Cost')}: {asset.cost.toLocaleString('en-US')}</span>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                         <span className="text-[11px] font-black text-slate-700 dir-ltr">
-                                            {bookValue.toLocaleString()} {baseCurrency}
+                                            {bookValue.toLocaleString('en-US')} {baseCurrency}
                                         </span>
                                         {activeTab === 'ACTIVE' && (
                                             <>
@@ -736,7 +736,7 @@ const FixedAssetsManager: React.FC = () => {
                                 <div className="hidden">
                                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-2 px-1">
                                         <span className="text-gray-400">{tr('الإهلاك التراكمي', 'Accumulated Depreciation')} ({isNaN(progress) ? 0 : progress.toFixed(0)}%)</span>
-                                        <span className="text-gray-800 dir-ltr">{depreciation.toLocaleString()}</span>
+                                        <span className="text-gray-800 dir-ltr">{depreciation.toLocaleString('en-US')}</span>
                                     </div>
                                     <div className="w-full bg-gray-50 rounded-full h-2.5 border border-gray-100 overflow-hidden shadow-inner">
                                         <div className={`h-full rounded-full transition-all duration-1000 bg-blue-600`} style={{ width: `${Math.min(progress || 0, 100)}%` }}></div>
@@ -745,7 +745,7 @@ const FixedAssetsManager: React.FC = () => {
 
                                 <div className="hidden bg-gray-50/50 p-4 rounded-3xl border border-gray-100 flex justify-between items-center group-hover:bg-white transition-all">
                                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{tr('القيمة الدفترية الحالية', 'Current Book Value')}</span>
-                                    <span className="font-black text-slate-800 text-sm dir-ltr">{bookValue.toLocaleString()} {baseCurrency}</span>
+                                    <span className="font-black text-slate-800 text-sm dir-ltr">{bookValue.toLocaleString('en-US')} {baseCurrency}</span>
                                 </div>
                             </div>
                         );
@@ -934,11 +934,11 @@ const FixedAssetsManager: React.FC = () => {
                         <div className="grid grid-cols-2 gap-3">
                             <div className="bg-gray-50 p-4 rounded-3xl border border-gray-100 text-center">
                                 <span className="text-[9px] font-black text-gray-400 uppercase block mb-1">{tr('القيمة الدفترية', 'Book Value')}</span>
-                                <span className="text-xl font-black text-slate-800 dir-ltr">{(selectedAsset.cost - calculateDepreciation(selectedAsset)).toLocaleString()}</span>
+                                <span className="text-xl font-black text-slate-800 dir-ltr">{(selectedAsset.cost - calculateDepreciation(selectedAsset)).toLocaleString('en-US')}</span>
                             </div>
                             <div className="bg-gray-50 p-4 rounded-3xl border border-gray-100 text-center">
                                 <span className="text-[9px] font-black text-gray-400 uppercase block mb-1">{tr('مجمع الإهلاك', 'Accumulated Depreciation')}</span>
-                                <span className="text-xl font-black text-rose-600 dir-ltr">{calculateDepreciation(selectedAsset).toLocaleString()}</span>
+                                <span className="text-xl font-black text-rose-600 dir-ltr">{calculateDepreciation(selectedAsset).toLocaleString('en-US')}</span>
                             </div>
                         </div>
 

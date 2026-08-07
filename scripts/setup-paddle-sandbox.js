@@ -54,22 +54,22 @@ async function run() {
     }
     const priceListData = await priceListRes.json();
     
-    // Look for base price ($100 USD yearly) and extra price ($20 USD yearly)
+    // Look for base price ($40 USD yearly) and extra price ($10 USD yearly)
     let basePrice = priceListData.data?.find(p => 
       p.billing_cycle?.interval === 'year' && 
       p.billing_cycle?.frequency === 1 && 
-      p.unit_price?.amount === '10000'
+      p.unit_price?.amount === '4000'
     );
     let extraPrice = priceListData.data?.find(p => 
       p.billing_cycle?.interval === 'year' && 
       p.billing_cycle?.frequency === 1 && 
-      p.unit_price?.amount === '2000'
+      p.unit_price?.amount === '1000'
     );
 
     if (basePrice) {
-      console.log(`Found existing base price: ${basePrice.id} ($100 USD/year)`);
+      console.log(`Found existing base price: ${basePrice.id} ($40 USD/year)`);
     } else {
-      console.log('Creating base price ($100 USD/year)...');
+      console.log('Creating base price ($40 USD/year)...');
       const basePriceRes = await fetch(`${BASE_URL}/prices`, {
         method: 'POST',
         headers,
@@ -82,7 +82,7 @@ async function run() {
             frequency: 1
           },
           unit_price: {
-            amount: '10000',
+            amount: '4000',
             currency_code: 'USD'
           }
         })
@@ -96,9 +96,9 @@ async function run() {
     }
 
     if (extraPrice) {
-      console.log(`Found existing extra price: ${extraPrice.id} ($20 USD/year)`);
+      console.log(`Found existing extra price: ${extraPrice.id} ($10 USD/year)`);
     } else {
-      console.log('Creating extra company seat price ($20 USD/year)...');
+      console.log('Creating extra company seat price ($10 USD/year)...');
       const extraPriceRes = await fetch(`${BASE_URL}/prices`, {
         method: 'POST',
         headers,
@@ -111,7 +111,7 @@ async function run() {
             frequency: 1
           },
           unit_price: {
-            amount: '2000',
+            amount: '1000',
             currency_code: 'USD'
           }
         })
@@ -234,8 +234,8 @@ async function run() {
     console.log('\n--- PADDLE SANDBOX INTEGRATION COMPLETE ---');
     console.log(`Environment: sandbox`);
     console.log(`Product: Smart Accountant Premium (${productId})`);
-    console.log(`Base Price (First Company): ${basePrice.id} ($100 USD/year)`);
-    console.log(`Extra Price (Per Extra Company): ${extraPrice.id} ($20 USD/year)`);
+    console.log(`Base Price (First Company): ${basePrice.id} ($40 USD/year)`);
+    console.log(`Extra Price (Per Extra Company): ${extraPrice.id} ($10 USD/year)`);
     console.log(`Client Token: ${clientToken}`);
     console.log('-------------------------------------------');
     console.log('Next Steps: Restart your local Vite dev server for the new variables to take effect!');

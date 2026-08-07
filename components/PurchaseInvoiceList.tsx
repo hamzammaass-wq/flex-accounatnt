@@ -278,7 +278,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
     const supplier = contacts.find(c => c.id === invoice.customerId);
     const supplierName = getSupplierName(invoice.customerId);
     const formatPrintNumber = (value: number) => {
-      const normalized = value.toLocaleString();
+      const normalized = value.toLocaleString('en-US');
       return dottedNumbers ? normalized.replace(/,/g, '.') : normalized;
     };
     const topSpacerPx = Math.max(0, headerTopLines) * 20;
@@ -702,15 +702,15 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">
                 {tr('إجمالي', 'Total')} {activeTab === 'RETURNS' ? tr('المرتجع', 'Returns') : tr('المشتريات', 'Purchases')}
               </span>
-              <span className="text-base sm:text-lg font-black text-gray-800 dir-ltr">{stats.total.toLocaleString()}</span>
+              <span className="text-base sm:text-lg font-black text-gray-800 dir-ltr">{stats.total.toLocaleString('en-US')}</span>
             </div>
             <div className="list-card bg-white p-3 sm:p-4 rounded-2xl sm:rounded-[2rem] border border-gray-100 shadow-sm">
               <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest block mb-1">{tr('المدفوع', 'Paid')}</span>
-              <span className="text-base sm:text-lg font-black text-emerald-600 dir-ltr">{stats.paid.toLocaleString()}</span>
+              <span className="text-base sm:text-lg font-black text-emerald-600 dir-ltr">{stats.paid.toLocaleString('en-US')}</span>
             </div>
             <div className="list-card bg-white p-3 sm:p-4 rounded-2xl sm:rounded-[2rem] border border-gray-100 shadow-sm">
               <span className="text-[9px] font-black text-orange-500 uppercase tracking-widest block mb-1">{tr('الآجل (دين)', 'Credit (Debt)')}</span>
-              <span className="text-base sm:text-lg font-black text-orange-600 dir-ltr">{stats.pending.toLocaleString()}</span>
+              <span className="text-base sm:text-lg font-black text-orange-600 dir-ltr">{stats.pending.toLocaleString('en-US')}</span>
             </div>
           </div>
 
@@ -914,7 +914,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                     </div>
                     <div className="flex justify-between items-center border-t border-gray-50 pt-4">
                       <div className="text-[10px] text-gray-400 font-bold flex items-center gap-1.5"><Calendar size={14} className="text-gray-300" />{formatDate(inv.date)}</div>
-                      <div className="text-left"><span className="text-xl font-black text-gray-800 dir-ltr">{getInvoiceTotal(inv).toLocaleString()}</span></div>
+                      <div className="text-left"><span className="text-xl font-black text-gray-800 dir-ltr">{getInvoiceTotal(inv).toLocaleString('en-US')}</span></div>
                     </div>
                   </div>
 
@@ -946,7 +946,7 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
-                                <span className={`font-black dir-ltr ${item.returned ? 'text-rose-400 line-through' : 'text-gray-800'}`}>{item.total.toLocaleString()}</span>
+                                <span className={`font-black dir-ltr ${item.returned ? 'text-rose-400 line-through' : 'text-gray-800'}`}>{item.total.toLocaleString('en-US')}</span>
                                 {activeTab === 'INVOICES' && !item.returned && !isDraft && (
                                   <button
                                     onClick={(e) => {

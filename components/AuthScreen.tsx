@@ -1050,6 +1050,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
               </div>
 
               <div className="text-center text-[11px] text-slate-400 font-bold leading-6 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setInfoMode('USAGE_GUIDE')}
+                  className="underline hover:text-blue-400 transition-colors"
+                >
+                  {appLanguage === 'AR' ? 'دليل الاستخدام' : 'Usage Guide'}
+                </button>
+                <span className="mx-2 text-slate-600">|</span>
+                <button
+                  type="button"
+                  onClick={() => setInfoMode('POLICY')}
+                  className="underline hover:text-blue-400 transition-colors"
+                >
+                  {appLanguage === 'AR' ? 'سياسة الخصوصية' : 'Privacy Policy'}
+                </button>
+                <span className="mx-2 text-slate-600">|</span>
                 <a
                   href="/pricing.html"
                   target="_blank"
@@ -1057,15 +1073,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ guestTrialExpired = false, gues
                   className="underline hover:text-blue-400 transition-colors"
                 >
                   {appLanguage === 'AR' ? 'الأسعار' : 'Pricing'}
-                </a>
-                <span className="mx-2 text-slate-600">|</span>
-                <a
-                  href="/privacy-policy.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-blue-400 transition-colors"
-                >
-                  {appLanguage === 'AR' ? 'سياسة الخصوصية' : 'Privacy Policy'}
                 </a>
                 <span className="mx-2 text-slate-600">|</span>
                 <a

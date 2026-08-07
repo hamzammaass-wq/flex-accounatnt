@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X } from 'lucide-react';
+import { Camera, Check, ChevronDown, Plus, Scale, ScanBarcode, Upload, X, Trash2 } from 'lucide-react';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { useAccounting } from '../contexts/AccountingContext';
-import { Product, ProductKind } from '../types';
+import { Product, ProductKind, ProductUnit } from '../types';
 import ResponsiveDialog from './layout/ResponsiveDialog';
 import EnglishDateInput from './EnglishDateInput';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
@@ -29,7 +29,8 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
   const [name, setName] = useState('');
   const [productKind, setProductKind] = useState<ProductKind>('STOCK');
   const [groupId, setGroupId] = useState('');
-  const [unitId, setUnitId] = useState('');
+  const [unitId, setUnitId] = useState('u_pc');
+  const [productUnits, setProductUnits] = useState<ProductUnit[]>([]);
   const [itemCode, setItemCode] = useState('');
   const [itemCodeMode, setItemCodeMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [barcode, setBarcode] = useState('');
@@ -97,7 +98,8 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       setName(initialName);
       setProductKind('STOCK');
       setGroupId('');
-      setUnitId('');
+      setUnitId('u_pc');
+      setProductUnits([]);
       setItemCode('');
       setItemCodeMode('AUTO');
       setBarcode('');
@@ -121,6 +123,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
     setProductKind(product.kind === 'SERVICE' ? 'SERVICE' : 'STOCK');
     setGroupId(product.category || '');
     setUnitId(product.unitId || '');
+    setProductUnits(product.units || []);
     setItemCode(product.itemCode || '');
     setItemCodeMode(resolveProductItemCodeMode(product));
     setBarcode(product.barcode || '');
@@ -275,6 +278,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
       kind: productKind,
       category: groupId || (itemGroups[0]?.id || 'ig_other'),
       unitId: unitId || undefined,
+      units: productUnits.length > 0 ? productUnits : undefined,
       itemCode: resolvedItemCode || undefined,
       itemCodeMode: resolvedItemCodeMode,
       expiryDate: productKind === 'SERVICE' ? undefined : normalizedExpiryDate,
@@ -493,6 +497,60 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                   </button>
                 </div>
               </div>
+              
+              <div className="space-y-1.5 mt-4">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block px-1">
+                  {tr('الوحدات الإضافية (مثل: الكرتون يحتوي 12 حبة)', 'Additional Units (e.g., Box = 12 Pieces)')}
+                </label>
+                <div className="flex flex-col gap-2">
+                  {productUnits.map((pu, idx) => (
+                    <div key={idx} className="flex gap-2 items-center">
+                      <select
+                        value={pu.unitId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setProductUnits(prev => prev.map((u, i) => i === idx ? { ...u, unitId: val } : u));
+                        }}
+                        className="flex-1 px-2 py-2 bg-gray-50 rounded-md border border-gray-100 outline-none text-xs font-bold appearance-none"
+                      >
+                        <option value="">{tr('اختر...', 'Select...')}</option>
+                        {units.filter(u => u.id !== unitId).map(u => (
+                          <option key={u.id} value={u.id}>{displayUnitName(u)}</option>
+                        ))}
+                      </select>
+                      <span className="text-xs font-bold text-gray-400">=</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={pu.conversionFactor}
+                        onChange={(e) => {
+                          const val = parseLocalizedPositiveDecimal(e.target.value) || 1;
+                          setProductUnits(prev => prev.map((u, i) => i === idx ? { ...u, conversionFactor: val } : u));
+                        }}
+                        className="w-16 px-2 py-2 bg-gray-50 rounded-md border border-gray-100 outline-none text-xs font-bold text-center dir-ltr"
+                        placeholder="عامل"
+                      />
+                      <span className="text-xs font-bold text-gray-400 truncate max-w-[50px]">
+                        {displayUnitName(units.find(u => u.id === unitId)) || tr('الأساسية', 'Base')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setProductUnits(prev => prev.filter((_, i) => i !== idx))}
+                        className="w-8 h-8 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setProductUnits(prev => [...prev, { unitId: '', conversionFactor: 1 }])}
+                    className="h-9 border border-dashed border-gray-300 rounded-md text-xs font-bold text-gray-500 flex items-center justify-center gap-1 hover:bg-gray-50 hover:text-indigo-500 hover:border-indigo-300 transition-colors"
+                  >
+                    <Plus size={14} /> {tr('إضافة وحدة أخرى', 'Add another unit')}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -641,7 +699,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                     </div>
                   )}
                   <div className="text-[11px] font-black text-violet-700 dir-ltr">
-                    = {draftPricingPreview.wholesalePrice.toLocaleString()} {baseCurrency}
+                    = {draftPricingPreview.wholesalePrice.toLocaleString('en-US')} {baseCurrency}
                   </div>
                 </div>
 
@@ -691,7 +749,7 @@ const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({ onClose, on
                     </div>
                   )}
                   <div className="text-[11px] font-black text-emerald-700 dir-ltr">
-                    = {draftPricingPreview.retailPrice.toLocaleString()} {baseCurrency}
+                    = {draftPricingPreview.retailPrice.toLocaleString('en-US')} {baseCurrency}
                   </div>
                 </div>
               </div>
