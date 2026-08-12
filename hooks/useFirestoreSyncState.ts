@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { firebaseAuth, callBackendApi } from '../firebaseClient';
 
 let lastAlertTime = 0;
+const GUEST_USER_ID = 'guest_user';
 
 export const showSyncAlertOnce = (message: string) => {
   if (typeof window === 'undefined') return;
@@ -18,6 +19,26 @@ export const showSyncAlertOnce = (message: string) => {
   alert(message);
 };
 
+const getLocalSnapshotCollection = <T>(
+  companyId: string | null,
+  collectionName: string,
+  userId: string | null
+): T[] | null => {
+  if (typeof window === 'undefined' || !companyId || userId !== GUEST_USER_ID) return null;
+  try {
+    const raw = localStorage.getItem(`al_mohaseb_workspace_${companyId}`) ||
+                localStorage.getItem(`smart_account_workspace_snapshot_${companyId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed[collectionName])) {
+      return parsed[collectionName] as T[];
+    }
+  } catch {
+    // Ignore JSON parse errors
+  }
+  return null;
+};
+
 export function useFirestoreSyncState<T extends { id?: string }>(
   collectionName: string,
   initialState: T[],
@@ -30,8 +51,11 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     endDate?: string;
   }
 ): [T[], Dispatch<SetStateAction<T[]>>, boolean, boolean] {
-  const [data, setData] = useState<T[]>(initialState);
-  const dataRef = useRef<T[]>(initialState);
+  const [data, setData] = useState<T[]>(() => {
+    const local = getLocalSnapshotCollection<T>(companyId, collectionName, userId);
+    return (local && local.length > 0) ? local : initialState;
+  });
+  const dataRef = useRef<T[]>(data);
   const lastDataUpdateTimeRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -78,8 +102,10 @@ export function useFirestoreSyncState<T extends { id?: string }>(
     const pathChanged = previousPathRef.current !== null && previousPathRef.current !== currentPath;
     if (pathChanged) {
       console.log(`[Sync] Path changed for ${collectionName}. Resetting to initialState.`);
-      setData(initialState);
-      dataRef.current = initialState;
+      const local = getLocalSnapshotCollection<T>(companyId, collectionName, userId);
+      const nextData = (local && local.length > 0) ? local : initialState;
+      setData(nextData);
+      dataRef.current = nextData;
       setHasMore(true);
     }
     previousPathRef.current = currentPath;
@@ -93,6 +119,11 @@ export function useFirestoreSyncState<T extends { id?: string }>(
 
     const user = firebaseAuth?.currentUser;
     if (!user) {
+      const local = getLocalSnapshotCollection<T>(companyId, collectionName, userId);
+      if (local && local.length > 0 && dataRef.current.length === 0) {
+        setData(local);
+        dataRef.current = local;
+      }
       return;
     }
 

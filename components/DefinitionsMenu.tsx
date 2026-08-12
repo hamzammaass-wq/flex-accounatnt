@@ -30,7 +30,9 @@ import {
   Users,
   AlertTriangle,
   LifeBuoy,
-  Mail
+  Mail,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import AccountsTree from './AccountsTree';
 import CurrencyManager from './CurrencyManager';
@@ -510,6 +512,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [userConfirmPassword, setUserConfirmPassword] = useState('');
   const [userPassStatus, setUserPassStatus] = useState('');
   const [userPassLoading, setUserPassLoading] = useState(false);
+  const [currentPasswordVisible, setCurrentPasswordVisible] = useState(false);
 
   // Admin User Management State
   const [adminNewUserCode, setAdminNewUserCode] = useState('');
@@ -524,6 +527,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [adminResetPasswordValue, setAdminResetPasswordValue] = useState('');
   const [adminResetPasswordLoading, setAdminResetPasswordLoading] = useState(false);
   const [adminResetPasswordStatus, setAdminResetPasswordStatus] = useState('');
+  const [visibleAdminPasswords, setVisibleAdminPasswords] = useState<Record<string, boolean>>({});
   const [adminSelectedUserForDelete, setAdminSelectedUserForDelete] = useState('');
   const [adminDeleteUserLoading, setAdminDeleteUserLoading] = useState(false);
   const [adminDeleteUserStatus, setAdminDeleteUserStatus] = useState('');
@@ -535,6 +539,11 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
   const [adminEditUserRole, setAdminEditUserRole] = useState('ACCOUNTANT');
   const [adminEditUserLoading, setAdminEditUserLoading] = useState(false);
   const [adminEditUserStatus, setAdminEditUserStatus] = useState('');
+
+  useEffect(() => {
+    if (mode !== 'USER_ACCOUNT') setCurrentPasswordVisible(false);
+    if (mode !== 'USER_MANAGEMENT') setVisibleAdminPasswords({});
+  }, [mode]);
 
   // Admin Subscription Management State
   const [adminSelectedUserForSubscription, setAdminSelectedUserForSubscription] = useState<string>('');
@@ -2252,7 +2261,24 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-500">{tr('كلمة السر الحالية', 'Current Password')}</label>
-              <div className="text-xs font-black text-slate-800 select-all">{currentUser?.password || tr('لم يتم تعيينها بعد', 'Not set yet')}</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className={`text-xs font-black text-slate-800 font-mono ${currentPasswordVisible ? 'select-all' : 'select-none'}`}>
+                  {currentUser?.password
+                    ? (currentPasswordVisible ? currentUser.password : '********')
+                    : tr('لم يتم تعيينها بعد', 'Not set yet')}
+                </div>
+                {currentUser?.password && (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPasswordVisible((value) => !value)}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                    title={currentPasswordVisible ? tr('إخفاء كلمة المرور', 'Hide password') : tr('إظهار كلمة المرور', 'Show password')}
+                    aria-label={currentPasswordVisible ? tr('إخفاء كلمة المرور', 'Hide password') : tr('إظهار كلمة المرور', 'Show password')}
+                  >
+                    {currentPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -2464,6 +2490,7 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
               {globalUsers.map((u) => {
                 const isCode = isCodeEmail(u.email);
                 const displayEmail = isCode ? extractCodeFromEmail(u.email) : u.email;
+                const passwordVisible = Boolean(visibleAdminPasswords[u.id]);
                 return (
                   <tr key={u.id} className="hover:bg-gray-50/50">
                     <td className="p-3 font-bold text-gray-800">{u.name}</td>
@@ -2476,7 +2503,27 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
                         {u.role === 'ADMIN' ? tr('مدير', 'Admin') : u.role === 'ACCOUNTANT' ? tr('محاسب', 'Accountant') : tr('عرض', 'Viewer')}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-700 select-all font-mono text-[11px]">{u.password || '-'}</td>
+                    <td className="p-3 text-slate-700">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className={`font-mono text-[11px] ${passwordVisible ? 'select-all' : 'select-none'}`}>
+                          {u.password ? (passwordVisible ? u.password : '********') : '-'}
+                        </span>
+                        {u.password && (
+                          <button
+                            type="button"
+                            onClick={() => setVisibleAdminPasswords((prev) => ({
+                              ...prev,
+                              [u.id]: !prev[u.id]
+                            }))}
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                            title={passwordVisible ? tr('إخفاء كلمة المرور', 'Hide password') : tr('إظهار كلمة المرور', 'Show password')}
+                            aria-label={passwordVisible ? tr('إخفاء كلمة المرور', 'Hide password') : tr('إظهار كلمة المرور', 'Show password')}
+                          >
+                            {passwordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-3 text-slate-700 text-[11px]">
                       <span className="font-bold text-indigo-600">{u.subscription?.plan || 'TRIAL'}</span>
                       {' · '}

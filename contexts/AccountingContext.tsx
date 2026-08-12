@@ -1398,7 +1398,6 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
   // ALWAYS use backend mode - Odoo-style online-only architecture
   // No localStorage fallback to prevent Out of Memory crashes
   const useBackend = true;
-  const isFirebaseAuthEnabled = true;
 
   const [forceEmptyBootstrap] = useState<boolean>(() => {
     try {
@@ -2431,13 +2430,33 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
     if (nextUserId !== prevUserId) {
       console.log(`[AccountingContext] User ID changed from ${prevUserId} to ${nextUserId}. Wiping states to prevent leakage.`);
       lastUserIdRef.current = nextUserId;
+      const nextIsGuestUser = nextUserId === GUEST_USER_ID;
+      const guestCompany = nextIsGuestUser
+        ? (() => {
+          const nowIso = new Date().toISOString();
+          return {
+            id: 'cmp_default',
+            name: defaultCompanySettings.name,
+            taxNumber: defaultCompanySettings.taxNumber,
+            address: defaultCompanySettings.address,
+            phone: defaultCompanySettings.phone,
+            logoUrl: defaultCompanySettings.logoUrl,
+            createdAt: nowIso,
+            trialEndsAt: addDaysIso(nowIso, 14),
+            subscriptionStatus: 'TRIAL' as const,
+            subscriptionPlan: 'TRIAL' as const,
+            subscriptionStartsAt: nowIso,
+            graceDays: 0
+          };
+        })()
+        : null;
 
       // Reset user and session states
       setCloudMemberships([]);
-      setCompanies([]);
+      setCompanies(guestCompany ? [guestCompany] : []);
       companiesLoadedForUserIdRef.current = null;
-      setCompaniesLoaded(nextUserId === GUEST_USER_ID);
-      setCurrentCompanyId(nextUserId === GUEST_USER_ID ? 'cmp_default' : '');
+      setCompaniesLoaded(nextIsGuestUser);
+      setCurrentCompanyId(nextIsGuestUser ? 'cmp_default' : '');
       setBaseCurrencyState('ILS');
         setCompanySettings(withNormalizedValuationSettings(defaultCompanySettings));
         setWorkspaceHydratedForCompanyId('');

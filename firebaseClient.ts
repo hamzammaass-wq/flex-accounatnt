@@ -35,9 +35,20 @@ if (!firebaseApiKey || !firebaseProjectId) {
   }
 }
 
+const isLocalFirebaseDisableAllowed = Boolean(import.meta.env.DEV);
+
+const isFirebaseDisabledByLocalFlag = (): boolean => {
+  if (!isLocalFirebaseDisableAllowed || typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem('disableFirebase') === 'true';
+  } catch {
+    return false;
+  }
+};
+
 export const isFirebaseAuthEnabled = Boolean(
   firebaseApiKey && firebaseAuthDomain && firebaseProjectId && firebaseAppId
-) && (typeof window === 'undefined' || window.localStorage.getItem('disableFirebase') !== 'true');
+) && !isFirebaseDisabledByLocalFlag();
 
 const getDynamicAuthDomain = () => {
   if (typeof window === 'undefined') return firebaseAuthDomain;
@@ -102,7 +113,7 @@ if (typeof window !== 'undefined') {
   if (firebaseDb) {
     console.log('[Firebase] ✅ Firestore connected successfully to project:', firebaseProjectId);
   } else {
-    if (window.localStorage.getItem('disableFirebase') === 'true') {
+    if (isFirebaseDisabledByLocalFlag()) {
       console.log('[Firebase] Firestore is intentionally disabled via localStorage flag.');
     } else {
       console.error('[Firebase] ❌ Firestore NOT initialized! Check environment variables.');
