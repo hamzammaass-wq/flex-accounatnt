@@ -13,27 +13,44 @@ router.get('/trial-balance', verifyCompanyMembership, async (req: AuthenticatedR
 
   try {
     const result = await query(
-      `SELECT 
+      `SELECT
         a.id, a.code, a.name, a.type, a.currency,
-        COALESCE(SUM(jl.debit), 0) as total_debit,
-        COALESCE(SUM(jl.credit), 0) as total_credit,
+        COALESCE(period.total_debit, 0) as total_debit,
+        COALESCE(period.total_credit, 0) as total_credit,
         COALESCE((
           SELECT SUM(
-            CASE 
+            CASE
               WHEN a.type IN ('ASSET', 'EXPENSE') THEN jl2.debit - jl2.credit
               ELSE jl2.credit - jl2.debit
             END
           )
           FROM journal_lines jl2
-          JOIN journal_entries je2 ON jl2.company_id = je2.company_id AND jl2.entry_id = je2.id
-          WHERE jl2.company_id = $1 AND jl2.account_id = a.id AND je2.status = 'POSTED'
+          JOIN journal_entries je2
+            ON jl2.company_id = je2.company_id
+           AND jl2.entry_id = je2.id
+          WHERE jl2.company_id = $1
+            AND jl2.account_id = a.id
+            AND je2.status = 'POSTED'
         ), 0) as current_balance,
-        (COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)) as period_balance
+        (COALESCE(period.total_debit, 0) - COALESCE(period.total_credit, 0)) as period_balance
        FROM accounts a
-       LEFT JOIN journal_lines jl ON jl.company_id = $1 AND jl.account_id = a.id
-       LEFT JOIN journal_entries je ON je.company_id = $1 AND je.id = jl.entry_id AND je.date >= $2 AND je.date <= $3
+       LEFT JOIN (
+         SELECT
+           jl.account_id,
+           SUM(jl.debit) as total_debit,
+           SUM(jl.credit) as total_credit
+         FROM journal_lines jl
+         JOIN journal_entries je
+           ON jl.company_id = je.company_id
+          AND jl.entry_id = je.id
+         WHERE jl.company_id = $1
+           AND je.company_id = $1
+           AND je.status = 'POSTED'
+           AND je.date >= $2
+           AND je.date <= $3
+         GROUP BY jl.account_id
+       ) period ON period.account_id = a.id
        WHERE a.company_id = $1
-       GROUP BY a.id, a.code, a.name, a.type, a.currency
        ORDER BY a.code ASC`,
       [companyId, startDate, endDate]
     );
@@ -57,26 +74,35 @@ router.get('/ledger-card/:accountId', verifyCompanyMembership, async (req: Authe
   const prefixedAccountId = prefixAccountId(companyId, accountId);
 
   try {
-    // Get opening balance before the start date
+    // Get opening balance before the start date from POSTED entries only.
     const openingResult = await query(
-      `SELECT 
+      `SELECT
         COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) as opening_balance
        FROM journal_lines jl
        JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
-       WHERE jl.company_id = $1 AND je.company_id = $1 AND jl.account_id = $2 AND je.date < $3`,
+       WHERE jl.company_id = $1
+         AND je.company_id = $1
+         AND jl.account_id = $2
+         AND je.status = 'POSTED'
+         AND je.date < $3`,
       [companyId, prefixedAccountId, startDate]
     );
 
     const openingBalance = Number(openingResult.rows[0]?.opening_balance || 0);
 
-    // Get period details
+    // Get period details from POSTED entries only.
     const detailsResult = await query(
-      `SELECT 
+      `SELECT
         je.id as transaction_id, je.date, je.voucher_id, je.description,
         jl.debit, jl.credit, jl.note, je.currency, je.exchange_rate
        FROM journal_lines jl
        JOIN journal_entries je ON jl.company_id = je.company_id AND jl.entry_id = je.id
-       WHERE jl.company_id = $1 AND je.company_id = $1 AND jl.account_id = $2 AND je.date >= $3 AND je.date <= $4
+       WHERE jl.company_id = $1
+         AND je.company_id = $1
+         AND jl.account_id = $2
+         AND je.status = 'POSTED'
+         AND je.date >= $3
+         AND je.date <= $4
        ORDER BY je.date ASC, je.created_at ASC`,
       [companyId, prefixedAccountId, startDate, endDate]
     );
@@ -97,15 +123,33 @@ router.get('/contact-statement/:contactId', verifyCompanyMembership, async (req:
   const endDate = req.query.endDate || '2100-12-31';
 
   try {
+    // Debit/credit must come from the contact's actual control-account journal lines.
+    // Deriving direction from the journal header type is incorrect for receipts/payments.
     const detailsResult = await query(
-      `SELECT 
-        je.id as transaction_id, je.date, je.voucher_id, je.description,
-        je.amount, je.currency, je.exchange_rate, je.type,
-        -- Check if debit or credit based on transaction type for contacts
-        CASE WHEN je.type = 'INCOME' THEN je.amount ELSE 0 END as debit,
-        CASE WHEN je.type = 'EXPENSE' THEN je.amount ELSE 0 END as credit
+      `WITH contact_account AS (
+         SELECT COALESCE(current_account_id, linked_account_id) AS account_id
+         FROM contacts
+         WHERE company_id = $1 AND id = $2
+         LIMIT 1
+       )
+       SELECT
+         je.id as transaction_id, je.date, je.voucher_id, je.description,
+         je.amount, je.currency, je.exchange_rate, je.type,
+         COALESCE(SUM(jl.debit), 0) as debit,
+         COALESCE(SUM(jl.credit), 0) as credit
        FROM journal_entries je
-       WHERE je.company_id = $1 AND je.contact_id = $2 AND je.date >= $3 AND je.date <= $4
+       JOIN journal_lines jl
+         ON jl.company_id = je.company_id
+        AND jl.entry_id = je.id
+       JOIN contact_account ca ON ca.account_id = jl.account_id
+       WHERE je.company_id = $1
+         AND je.contact_id = $2
+         AND je.status = 'POSTED'
+         AND je.date >= $3
+         AND je.date <= $4
+       GROUP BY
+         je.id, je.date, je.voucher_id, je.description,
+         je.amount, je.currency, je.exchange_rate, je.type, je.created_at
        ORDER BY je.date ASC, je.created_at ASC`,
       [companyId, contactId, startDate, endDate]
     );
@@ -121,7 +165,7 @@ router.get('/dashboard-summary', verifyCompanyMembership, async (req: Authentica
   const { companyId } = req.params;
   try {
     const result = await query(
-      `SELECT 
+      `SELECT
         COALESCE(SUM(CASE WHEN type = 'INCOME' AND status != 'DRAFT' AND category NOT IN ('voucher_receipt', 'supplier_debit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_income,
         COALESCE(SUM(CASE WHEN type = 'EXPENSE' AND status != 'DRAFT' AND category NOT IN ('voucher_payment', 'customer_credit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_expense
        FROM journal_entries
