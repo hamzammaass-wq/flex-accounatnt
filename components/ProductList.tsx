@@ -984,7 +984,7 @@ const ProductList: React.FC = () => {
                     </div>
 
                     <div className={`${metricDividerClass} flex flex-col items-center justify-center min-w-0 px-0.5 sm:px-1`}>
-                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('التكلفة الصافية', 'Net Cost')}</span>
+                        <span className="text-[8px] sm:text-[9px] font-black text-gray-400 uppercase tracking-[0.14em] sm:tracking-widest block mb-1 leading-tight">{tr('صافي تكلفة القطعة', 'Net Unit Cost')}</span>
                         <div className="w-full text-center font-black text-blue-700 text-[11px] sm:text-sm dir-ltr leading-tight truncate">{formatCurrency(pricing.cost)}</div>
                     </div>
 

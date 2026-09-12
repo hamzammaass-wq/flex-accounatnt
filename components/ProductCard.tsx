@@ -203,7 +203,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
                         <h3 className="text-xs font-black text-gray-800 mb-3">{tr('قائمة أسعار الصنف', 'Item Price List')}</h3>
                         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 text-[11px] font-black">
                             <div className="min-w-[210px] bg-blue-50 text-blue-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">
-                                <span>{tr('التكلفة الصافية', 'Net Cost')}</span>
+                                <span>{tr('صافي تكلفة القطعة', 'Net Unit Cost')}</span>
                                 <span className="dir-ltr">{pricing.cost.toLocaleString('en-US')} {baseCurrency}</span>
                             </div>
                             <div className="min-w-[210px] bg-violet-50 text-violet-700 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 whitespace-nowrap">

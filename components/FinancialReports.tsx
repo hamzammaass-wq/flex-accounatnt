@@ -6824,6 +6824,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
             landedCost: 0
         });
 
+        const avgNetUnit = totals.netQty > 0 ? totals.netDirectCost / totals.netQty : null;
         const avgLandedUnit = totals.netQty > 0 ? totals.landedCost / totals.netQty : null;
 
         return (
@@ -6838,6 +6839,10 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                     <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                         <p className="text-[10px] text-gray-400 font-black">{tr('التكلفة المباشرة الصافية', 'Net Direct Purchase Cost')}</p>
                         <h3 className="text-lg font-black text-purple-700 dir-ltr mt-1">{formatValue(totals.netDirectCost)}</h3>
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[10px] text-gray-400 font-black">{tr('متوسط صافي تكلفة القطعة', 'Avg Net Unit Cost')}</p>
+                        <h3 className="text-lg font-black text-emerald-700 dir-ltr mt-1">{avgNetUnit !== null ? formatValue(avgNetUnit) : tr('غير متاح', 'N/A')}</h3>
                     </div>
                     <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                         <p className="text-[10px] text-gray-400 font-black">{tr('توزيع مصاريف الاستيراد الفعلي', 'Actual Allocated Import Expenses')}</p>
@@ -6870,7 +6875,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                                     <th className="p-3 text-center">{tr('تكلفة مباشرة', 'Direct Cost')}</th>
                                     <th className="p-3 text-center">{tr('توزيع استيراد', 'Import Alloc.')}</th>
                                     <th className="p-3 text-center">{tr('تكلفة Landed', 'Landed Cost')}</th>
-                                    <th className="p-3 text-center">{tr('متوسط مباشر', 'Avg Direct')}</th>
+                                    <th className="p-3 text-center">{tr('صافي تكلفة القطعة', 'Net Unit Cost')}</th>
                                     <th className="p-3 text-center">{tr('متوسط Landed', 'Avg Landed')}</th>
                                     <th className="p-3 text-center">{tr('آخر شراء', 'Last Purchase')}</th>
                                 </tr>
@@ -6888,7 +6893,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                                         <td className="p-3 text-center dir-ltr">{formatValue(row.netDirectCost)}</td>
                                         <td className="p-3 text-center dir-ltr text-cyan-700">{formatValue(row.allocatedImportCost)}</td>
                                         <td className="p-3 text-center dir-ltr font-black text-blue-700">{formatValue(row.landedCost)}</td>
-                                        <td className="p-3 text-center dir-ltr">{row.avgDirectCost !== null ? formatValue(row.avgDirectCost) : '-'}</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-emerald-700">{row.avgDirectCost !== null ? formatValue(row.avgDirectCost) : '-'}</td>
                                         <td className="p-3 text-center dir-ltr">{row.avgLandedCost !== null ? formatValue(row.avgLandedCost) : '-'}</td>
                                         <td className="p-3 text-center text-gray-500 dir-ltr">{row.lastPurchaseDate || '-'}</td>
                                     </tr>
@@ -6911,7 +6916,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                                         <td className="p-3 text-center dir-ltr">{formatValue(totals.netDirectCost)}</td>
                                         <td className="p-3 text-center dir-ltr">{formatValue(totals.allocatedImportCost)}</td>
                                         <td className="p-3 text-center dir-ltr text-blue-700">{formatValue(totals.landedCost)}</td>
-                                        <td className="p-3 text-center">-</td>
+                                        <td className="p-3 text-center dir-ltr font-black text-emerald-700">{avgNetUnit !== null ? formatValue(avgNetUnit) : '-'}</td>
                                         <td className="p-3 text-center dir-ltr">{avgLandedUnit !== null ? formatValue(avgLandedUnit) : '-'}</td>
                                         <td className="p-3 text-center">-</td>
                                     </tr>
