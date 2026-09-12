@@ -30,7 +30,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     autoStartWizard = false,
     onLaunchConsumed
 }) => {
-    const { invoices, products, transactions, updateProduct, addTransaction, updateTransaction, addImportExpenseDistribution, updateImportExpenseDistribution, importExpenseDistributions, baseCurrency, contacts, companySettings } = useAccounting();
+    const { invoices, products, transactions, updateProduct, addTransaction, reverseTransaction, addImportExpenseDistribution, updateImportExpenseDistribution, importExpenseDistributions, baseCurrency, contacts, companySettings } = useAccounting();
     const [searchTerm, setSearchTerm] = useState('');
     const [distributionMethodFilter, setDistributionMethodFilter] = useState<'ALL' | 'VALUE' | 'QUANTITY' | 'MANUAL'>('ALL');
     const [distributionContactFilter, setDistributionContactFilter] = useState('ALL');
@@ -320,6 +320,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
         // Older records did not retain a transaction id; match their unique posted import entry.
         const matchingTransactions = editingDistribution ? transactions.filter(tx =>
             tx.category === 'import_expenses' && tx.contactId === editingDistribution.contactId &&
+            !tx.isReversal && !tx.reversedById &&
             Math.abs(Number(tx.amount || 0) - Number(editingDistribution.totalAmountBase || 0)) < 0.01
         ) : [];
         if (editingDistribution && matchingTransactions.length !== 1) {
@@ -327,9 +328,16 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             return;
         }
         const linkedTransaction = matchingTransactions[0];
-        const postResult = linkedTransaction
-            ? updateTransaction(linkedTransaction.id, transactionPayload)
-            : addTransaction(transactionPayload);
+        // Posted entries are immutable. Replace the economic effect through a reversal
+        // and a fresh posted entry, preserving a complete audit trail.
+        if (linkedTransaction) {
+            const reversalResult = reverseTransaction(linkedTransaction.id);
+            if (!reversalResult.ok) {
+                alert(reversalResult.message);
+                return;
+            }
+        }
+        const postResult = addTransaction(transactionPayload);
         if (!postResult.ok) {
             alert(postResult.message);
             return;
