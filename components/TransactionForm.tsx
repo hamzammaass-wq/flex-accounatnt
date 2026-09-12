@@ -688,9 +688,15 @@ const SearchableAccountSelect: React.FC<SearchableAccountSelectProps> = ({
                     }
                     if (event.key === 'Enter') {
                         event.preventDefault();
-                        const exactMatch = accounts.find(a => displayAccountName(a).trim().toLowerCase() === query.trim().toLowerCase());
-                        if (exactMatch) {
-                            handleSelect(exactMatch.id);
+                        const normalizedQuery = query.trim().toLowerCase();
+                        const exactMatch = accounts.find(account =>
+                            displayAccountName(account).trim().toLowerCase() === normalizedQuery
+                            || String(account.code || '').trim().toLowerCase() === normalizedQuery
+                        );
+                        const firstMatchingAccount = exactMatch || filteredAccounts[0];
+                        if (firstMatchingAccount) {
+                            // Enter should select a code/name search result, matching native select behaviour.
+                            handleSelect(firstMatchingAccount.id);
                         } else if (onCreateNew && query.trim()) {
                             onCreateNew(query.trim());
                             setIsOpen(false);
@@ -3050,6 +3056,18 @@ const InvoiceScreen: React.FC<{
     };
 
     const handleInvoiceSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        const enteredTerm = e.currentTarget.value;
+        // Item-code entry is a regular invoice workflow, independent of whether
+        // hardware barcode scanning is enabled for the company.
+        if (e.key === 'Enter') {
+            const exactCodeProduct = findExactBarcodeOrCodeProduct(enteredTerm);
+            const normalizedSearch = toEnglishDigits(enteredTerm || '').trim().toLowerCase();
+            if (exactCodeProduct && String(exactCodeProduct.itemCode || '').trim().toLowerCase() === normalizedSearch) {
+                e.preventDefault();
+                addItem(exactCodeProduct);
+                return;
+            }
+        }
         if (!(companySettings.barcodeEnabled ?? true)) return;
         const expectsEnter = barcodeSettings.scannerSuffix === 'ENTER';
         const expectsTab = barcodeSettings.scannerSuffix === 'TAB';
@@ -3058,14 +3076,14 @@ const InvoiceScreen: React.FC<{
             (expectsTab && e.key === 'Tab') ||
             (barcodeSettings.scannerSuffix === 'NONE' && e.key === 'Enter');
         if (!trigger) return;
-        const exact = findExactBarcodeOrCodeProduct(search);
+        const exact = findExactBarcodeOrCodeProduct(enteredTerm);
         if (!exact) {
             appendDeviceHubLog(currentCompanyId, {
                 deviceType: 'BARCODE_SCANNER',
                 action: 'SCAN',
                 status: 'ERROR',
                 message: 'Keyboard barcode scan did not match any product',
-                metadata: { source: 'keyboard_wedge', scanned: toEnglishDigits(search || '').trim() }
+                metadata: { source: 'keyboard_wedge', scanned: toEnglishDigits(enteredTerm || '').trim() }
             });
             return;
         }
@@ -3074,9 +3092,13 @@ const InvoiceScreen: React.FC<{
             action: 'SCAN',
             status: 'SUCCESS',
             message: `Keyboard barcode scan matched product: ${exact.id}`,
-            metadata: { source: 'keyboard_wedge', scanned: toEnglishDigits(search || '').trim() }
+            metadata: { source: 'keyboard_wedge', scanned: toEnglishDigits(enteredTerm || '').trim() }
         });
-        if (barcodeSettings.autoAddOnExactMatch) {
+        const normalizedSearch = toEnglishDigits(enteredTerm || '').trim().toLowerCase();
+        const isExactItemCode = String(exact.itemCode || '').trim().toLowerCase() === normalizedSearch;
+        // An item code is an intentional lookup, so Enter must add it even when
+        // barcode scans are configured for review before adding.
+        if (isExactItemCode || barcodeSettings.autoAddOnExactMatch) {
             e.preventDefault();
             addItem(exact);
             return;
