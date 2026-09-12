@@ -215,6 +215,7 @@ const HRManager: React.FC = () => {
     const [showEmpForm, setShowEmpForm] = useState(false);
     const [showDeptForm, setShowDeptForm] = useState(false);
     const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+    const loadedHrStateRef = useRef<string | null>(null);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
     const displayAccountName = (account?: { id: string; name: string } | null) => getDisplayAccountName(account || undefined, isEnglish);
@@ -502,6 +503,14 @@ const HRManager: React.FC = () => {
     // Load from company settings on mount/switch
     useEffect(() => {
         const state = companySettings.hrState || {};
+        const nextPayrollRuns = Array.isArray(state.payrollRuns) ? state.payrollRuns : [];
+        const nextAttendanceLog = state.attendanceLog && typeof state.attendanceLog === 'object' && !Array.isArray(state.attendanceLog)
+            ? state.attendanceLog
+            : {};
+        loadedHrStateRef.current = JSON.stringify({
+            payrollRuns: nextPayrollRuns,
+            attendanceLog: nextAttendanceLog
+        });
         if (Array.isArray(state.payrollRuns)) {
             setPayrollRuns(state.payrollRuns);
             setSelectedPayrollRunId(prev => (state.payrollRuns.some((r: PayrollRunRecord) => r.id === prev) ? prev : null));
@@ -519,6 +528,10 @@ const HRManager: React.FC = () => {
 
     // Save to company settings on changes
     useEffect(() => {
+        const nextState = JSON.stringify({ payrollRuns, attendanceLog });
+        if (loadedHrStateRef.current === nextState) {
+            return;
+        }
         const currentHrState = companySettings.hrState || {};
         if (
             JSON.stringify(currentHrState.payrollRuns) === JSON.stringify(payrollRuns) &&

@@ -1498,6 +1498,7 @@ const InvoiceScreen: React.FC<{
         [currentCompanyId]
     );
     const [savedExpenseLinePresets, setSavedExpenseLinePresets] = useState<ExpenseLinePreset[]>([]);
+    const loadedExpenseLinePresetsRef = useRef<string | null>(null);
 
     // Load from company settings on mount/switch
     useEffect(() => {
@@ -1510,11 +1511,17 @@ const InvoiceScreen: React.FC<{
                 .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
                 .slice(0, 30)
             : [];
+        // Record the hydrated value. It is not a user edit and must not trigger
+        // a write to the company settings simply because the property is absent.
+        loadedExpenseLinePresetsRef.current = JSON.stringify(next);
         setSavedExpenseLinePresets(next);
     }, [currentCompanyId]); // Only on company switch, don't run on every settings change to avoid loops!
 
     // Save to company settings on changes
     useEffect(() => {
+        if (loadedExpenseLinePresetsRef.current === JSON.stringify(savedExpenseLinePresets)) {
+            return;
+        }
         const currentPresetsState = companySettings.expenseLinePresetsState || {};
         if (JSON.stringify(currentPresetsState.presets) === JSON.stringify(savedExpenseLinePresets)) {
             return;
@@ -3547,6 +3554,15 @@ const InvoiceScreen: React.FC<{
                         }
                         const rawQuery = search.trim();
                         if (!rawQuery) return;
+                        // Pressing Enter in the item field is also the normal way to
+                        // accept an exact item code.  Keep this fallback in the form
+                        // submit path so it still works when a browser or a scanner
+                        // suppresses the input's keydown handler.
+                        const exactProduct = findExactBarcodeOrCodeProduct(rawQuery);
+                        if (exactProduct) {
+                            addItem(exactProduct);
+                            return;
+                        }
                         setQuickProductInitialName(rawQuery);
                         setShowQuickProduct(true);
                     }}

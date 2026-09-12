@@ -11,8 +11,17 @@ const parseNumberText = (rawValue: string | null | undefined): number => {
 
 export const readNumericValue = async (page: Page, testId: string) => {
   const locator = page.getByTestId(testId);
-  await expect(locator.first()).toBeVisible({ timeout: 20_000 });
-  return parseNumberText(await locator.first().textContent());
+  const element = locator.first();
+  await expect(element).toBeVisible({ timeout: 20_000 });
+  // Form controls expose their displayed value through `.value`, while their
+  // textContent is always empty. Support both controls and ordinary text nodes.
+  const value = await element.evaluate((node) => {
+    if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+      return node.value;
+    }
+    return node.textContent || '';
+  });
+  return parseNumberText(value);
 };
 
 export const installDialogCollector = (page: Page): string[] => {
