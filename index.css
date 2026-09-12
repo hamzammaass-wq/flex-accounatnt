@@ -3678,6 +3678,32 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 /* Phone layout for wide analytical reports: preserve readable columns and
    use native horizontal swiping instead of compressing numbers into overlap. */
 @media (max-width: 639px) {
+  /* All deliberately wide purchase/import tables keep readable columns and
+     use native horizontal panning instead of hiding the remaining data. */
+  .financial-reports-page .overflow-x-auto:has(table[class*="min-w-"]) {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    scrollbar-width: auto;
+  }
+
+  .financial-reports-page .overflow-x-auto:has(table[class*="min-w-"]) > table {
+    width: max-content !important;
+    min-width: max-content !important;
+    max-width: none !important;
+    table-layout: auto !important;
+  }
+
+  .financial-reports-page .overflow-x-auto:has(table[class*="min-w-"]) > table th,
+  .financial-reports-page .overflow-x-auto:has(table[class*="min-w-"]) > table td {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    padding: 0.5rem 0.55rem !important;
+    font-size: 9.5px !important;
+  }
+
   .financial-reports-page .report-mobile-wide-scroll {
     display: block;
     max-width: 100%;
