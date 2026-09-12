@@ -6477,20 +6477,22 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
 
         const purchaseInvoices = inRangePostedInvoices.filter(inv => inv.category === 'purchase_invoice');
         const purchaseReturnInvoices = inRangePostedInvoices.filter(inv => inv.category === 'purchase_return');
-        const importExpenseInvoices = inRangePostedInvoices.filter(inv => inv.category === 'import_expenses');
+        const importExpenseDistributionsInRange = importExpenseDistributions.filter(record =>
+            record.date >= startDate && record.date <= endDate
+        );
 
         const invoiceBase = (inv: Invoice) => (inv.totalAmount || 0) * (inv.exchangeRate || 1);
         const lineBase = (inv: Invoice, lineTotal: number) => (lineTotal || 0) * (inv.exchangeRate || 1);
 
         const grossPurchases = purchaseInvoices.reduce((sum, inv) => sum + invoiceBase(inv), 0);
         const purchaseReturns = purchaseReturnInvoices.reduce((sum, inv) => sum + invoiceBase(inv), 0);
-        const importExpenses = importExpenseInvoices.reduce((sum, inv) => sum + invoiceBase(inv), 0);
+        const importExpenses = importExpenseDistributionsInRange.reduce((sum, record) => sum + (Number(record.totalAmountBase) || 0), 0);
         const netPurchases = Math.max(0, grossPurchases - purchaseReturns);
         const landedPurchases = netPurchases + importExpenses;
 
         const purchaseTax = purchaseInvoices.reduce((sum, inv) => sum + ((inv.taxAmount || 0) * (inv.exchangeRate || 1)), 0);
         const returnTax = purchaseReturnInvoices.reduce((sum, inv) => sum + ((inv.taxAmount || 0) * (inv.exchangeRate || 1)), 0);
-        const importExpenseTax = importExpenseInvoices.reduce((sum, inv) => sum + ((inv.taxAmount || 0) * (inv.exchangeRate || 1)), 0);
+        const importExpenseTax = 0;
         const netTax = (purchaseTax - returnTax) + importExpenseTax;
 
         const purchaseDiscounts = purchaseInvoices.reduce((sum, inv) => sum + ((inv.discountAmount || 0) * (inv.exchangeRate || 1)), 0);
@@ -6514,7 +6516,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
         };
         purchaseInvoices.forEach(inv => { ensureMonth(inv.date.slice(0, 7)).purchases += invoiceBase(inv); });
         purchaseReturnInvoices.forEach(inv => { ensureMonth(inv.date.slice(0, 7)).returns += invoiceBase(inv); });
-        importExpenseInvoices.forEach(inv => { ensureMonth(inv.date.slice(0, 7)).importExpenses += invoiceBase(inv); });
+        importExpenseDistributionsInRange.forEach(record => { ensureMonth(record.date.slice(0, 7)).importExpenses += Number(record.totalAmountBase) || 0; });
         const monthlyRows = Array.from(monthly.entries())
             .map(([month, v]) => ({
                 month,
@@ -6553,7 +6555,18 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
         };
         purchaseInvoices.forEach(inv => pushSupplier(inv, 'purchases'));
         purchaseReturnInvoices.forEach(inv => pushSupplier(inv, 'returns'));
-        importExpenseInvoices.forEach(inv => pushSupplier(inv, 'importExpenses'));
+        importExpenseDistributionsInRange.forEach(record => {
+            record.purchaseInvoiceIds.forEach(invoiceId => {
+                const invoice = invoices.find(inv => inv.id === invoiceId);
+                if (!invoice) return;
+                const allocated = record.lines
+                    .filter(line => line.purchaseInvoiceId === invoiceId)
+                    .reduce((sum, line) => sum + (Number(line.allocatedAmountBase) || 0), 0);
+                if (!allocated) return;
+                const syntheticInvoice = { ...invoice, totalAmount: allocated, exchangeRate: 1 };
+                pushSupplier(syntheticInvoice, 'importExpenses');
+            });
+        });
         const supplierRows = Array.from(supplierMap.values())
             .map(row => ({
                 ...row,
@@ -6684,7 +6697,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                         <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('عدد فواتير الشراء', 'Purchase Invoices')}</p><p className="font-black text-gray-800 dir-ltr">{formatPlainNumber(purchaseInvoices.length)}</p></div>
                         <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('عدد مرتجعات الشراء', 'Purchase Returns')}</p><p className="font-black text-gray-800 dir-ltr">{formatPlainNumber(purchaseReturnInvoices.length)}</p></div>
-                        <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('عدد فواتير مصاريف الاستيراد', 'Import Expense Invoices')}</p><p className="font-black text-gray-800 dir-ltr">{formatPlainNumber(importExpenseInvoices.length)}</p></div>
+                        <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('عمليات توزيع مصاريف الاستيراد', 'Import Expense Distributions')}</p><p className="font-black text-gray-800 dir-ltr">{formatPlainNumber(importExpenseDistributionsInRange.length)}</p></div>
                         <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('متوسط فاتورة الشراء', 'Avg Purchase Invoice')}</p><p className="font-black text-gray-800 dir-ltr">{formatValue(avgPurchaseInvoice)}</p></div>
                         <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('خصومات الشراء (صافي)', 'Net Purchase Discounts')}</p><p className="font-black text-gray-800 dir-ltr">{formatValue(netDiscounts)}</p></div>
                         <div className="p-3 rounded-xl bg-gray-50 border border-gray-100"><p className="text-gray-400 font-black">{tr('كمية مشتراة', 'Purchased Qty')}</p><p className="font-black text-gray-800 dir-ltr">{formatPlainNumber(purchasedQty)}</p></div>
@@ -6705,10 +6718,20 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
         );
         const purchaseInvoices = postedRangeInvoices.filter(inv => inv.category === 'purchase_invoice');
         const purchaseReturnInvoices = postedRangeInvoices.filter(inv => inv.category === 'purchase_return');
-        const importExpenseInvoices = postedRangeInvoices.filter(inv => inv.category === 'import_expenses');
-
         const toBase = (inv: Invoice, amount: number) => (amount || 0) * (inv.exchangeRate || 1);
-        const importExpensesTotal = importExpenseInvoices.reduce((sum, inv) => sum + toBase(inv, inv.totalAmount || 0), 0);
+        const purchaseInvoiceIds = new Set(purchaseInvoices.map(inv => inv.id));
+        // Allocation rows are the accounting source of truth. Import expenses are posted
+        // as journal transactions, not purchase invoices, so invoice-only reporting loses them.
+        const allocatedImportByProduct = new Map<string, number>();
+        importExpenseDistributions.forEach(distribution => {
+            distribution.lines.forEach(line => {
+                if (!line.productId || !purchaseInvoiceIds.has(line.purchaseInvoiceId)) return;
+                allocatedImportByProduct.set(
+                    line.productId,
+                    (allocatedImportByProduct.get(line.productId) || 0) + (Number(line.allocatedAmountBase) || 0)
+                );
+            });
+        });
 
         const byProduct = new Map<string, {
             product: Product;
@@ -6766,12 +6789,9 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
             };
         });
 
-        const totalNetDirectCost = rawRows.reduce((sum, row) => sum + Math.max(0, row.netDirectCost), 0);
-
         const itemRows = rawRows
             .map(row => {
-                const allocRatio = totalNetDirectCost > 0 ? Math.max(0, row.netDirectCost) / totalNetDirectCost : 0;
-                const allocatedImportCost = importExpensesTotal * allocRatio;
+                const allocatedImportCost = allocatedImportByProduct.get(row.product.id) || 0;
                 const landedCost = row.netDirectCost + allocatedImportCost;
                 const avgLandedCost = row.netQty > 0 ? landedCost / row.netQty : null;
                 return {
@@ -6820,7 +6840,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                         <h3 className="text-lg font-black text-purple-700 dir-ltr mt-1">{formatValue(totals.netDirectCost)}</h3>
                     </div>
                     <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-                        <p className="text-[10px] text-gray-400 font-black">{tr('توزيع مصاريف الاستيراد (تقريبي)', 'Allocated Import Expenses (Estimated)')}</p>
+                        <p className="text-[10px] text-gray-400 font-black">{tr('توزيع مصاريف الاستيراد الفعلي', 'Actual Allocated Import Expenses')}</p>
                         <h3 className="text-lg font-black text-cyan-700 dir-ltr mt-1">{formatValue(totals.allocatedImportCost)}</h3>
                     </div>
                     <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm">
@@ -6903,8 +6923,8 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
 
                 <div className="mt-4 p-3 rounded-xl border border-cyan-100 bg-cyan-50 text-xs text-cyan-800 font-bold">
                     {tr(
-                        'ملاحظة: تم توزيع مصاريف الاستيراد على الأصناف بشكل تقديري حسب نسبة التكلفة المباشرة لكل صنف داخل الفترة المحددة (وليس توزيعًا دفتريًا على مستوى الفاتورة).',
-                        'Note: Import expenses are allocated to items using a period-level proportional estimate based on each item direct purchase cost (not a document-level accounting allocation).'
+                        'يعرض هذا التقرير التوزيع الفعلي المحفوظ في معالج مصاريف الاستيراد على مستوى فاتورة الشراء والسطر، لذلك تنعكس تكلفة الشحن والجمارك على الصنف الذي وُزعت عليه فقط.',
+                        'This report uses the saved import-expense allocation at purchase-invoice and line level, so shipping and customs affect only the allocated products.'
                     )}
                 </div>
             </div>

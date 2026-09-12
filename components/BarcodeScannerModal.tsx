@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Camera, Keyboard, X, Check, Volume2, VolumeX, Flashlight } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { createPortal } from 'react-dom';
@@ -33,6 +34,128 @@ const SUPPORTED_FORMATS = [
   Html5QrcodeSupportedFormats.QR_CODE,
 ];
 
+type ScannerConfig = NonNullable<Parameters<Html5Qrcode['start']>[1]>;
+type ScannerSource = Parameters<Html5Qrcode['start']>[0];
+
+const NATIVE_BARCODE_FORMATS = ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e'];
+const BACK_CAMERA_LABEL_RE = /(back|rear|environment|world|wide|ultra|telephoto|dual|triple|facing\s*back)/i;
+let barcodeDetectorPonyfillReady = false;
+
+const isLikelyIOS = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
+const ensureBarcodeDetectorPonyfill = async () => {
+  if (typeof window === 'undefined') return false;
+  if (!isLikelyIOS() && 'BarcodeDetector' in window) return true;
+
+  try {
+    const { BarcodeDetector } = await import('barcode-detector/ponyfill');
+    (window as any).BarcodeDetector = BarcodeDetector;
+    barcodeDetectorPonyfillReady = true;
+    return true;
+  } catch (err) {
+    console.warn('[BarcodeScannerModal] BarcodeDetector WASM ponyfill failed to load:', err);
+    return 'BarcodeDetector' in window;
+  }
+};
+
+const buildBarcodeQrbox = (viewfinderWidth: number, viewfinderHeight: number) => {
+  const safeWidth = Math.max(50, viewfinderWidth - 16);
+  const safeHeight = Math.max(50, viewfinderHeight - 16);
+  const maxWidth = Math.min(560, safeWidth);
+  const width = Math.max(50, Math.min(maxWidth, Math.floor(viewfinderWidth * 0.92)));
+  const maxHeight = Math.min(260, safeHeight);
+  const minHeight = Math.min(80, maxHeight);
+  const height = Math.max(minHeight, Math.min(maxHeight, Math.floor(width * 0.46)));
+  return { width, height };
+};
+
+const createScanner = () => new Html5Qrcode(READER_ID, {
+  formatsToSupport: SUPPORTED_FORMATS,
+  useBarCodeDetectorIfSupported: !isLikelyIOS() || barcodeDetectorPonyfillReady,
+  verbose: false,
+});
+
+const runNativeBarcodeScan = async (tr: (ar: string, en: string) => string): Promise<string> => {
+  const {
+    CapacitorBarcodeScanner,
+    CapacitorBarcodeScannerAndroidScanningLibrary,
+    CapacitorBarcodeScannerCameraDirection,
+    CapacitorBarcodeScannerScanOrientation,
+    CapacitorBarcodeScannerTypeHint,
+  } = await import('@capacitor/barcode-scanner');
+
+  const result = await CapacitorBarcodeScanner.scanBarcode({
+    hint: CapacitorBarcodeScannerTypeHint.ALL,
+    cameraDirection: CapacitorBarcodeScannerCameraDirection.BACK,
+    scanOrientation: CapacitorBarcodeScannerScanOrientation.PORTRAIT,
+    scanButton: false,
+    scanText: tr('مسح', 'Scan'),
+    scanInstructions: tr('وجّه الكاميرا نحو الباركود', 'Point the camera at the barcode'),
+    cancelButtonAccessibilityLabel: tr('إلغاء', 'Cancel'),
+    torchButtonOnAccessibilityLabel: tr('إطفاء المصباح', 'Turn flashlight off'),
+    torchButtonOffAccessibilityLabel: tr('تشغيل المصباح', 'Turn flashlight on'),
+    android: {
+      scanningLibrary: CapacitorBarcodeScannerAndroidScanningLibrary.MLKIT,
+    },
+  });
+
+  return String(result?.ScanResult || '').trim();
+};
+
+const getPreferredCameraId = async (): Promise<string | undefined> => {
+  try {
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras.length) return undefined;
+    const backCamera = cameras.find(camera => BACK_CAMERA_LABEL_RE.test(camera.label || ''));
+    return (backCamera || cameras[cameras.length - 1])?.id;
+  } catch (err) {
+    console.warn('[BarcodeScannerModal] Could not enumerate cameras, using facingMode fallback:', err);
+    return undefined;
+  }
+};
+
+const buildVideoConstraints = (cameraId?: string): MediaTrackConstraints => ({
+  ...(cameraId
+    ? { deviceId: { exact: cameraId } }
+    : { facingMode: { ideal: 'environment' } }),
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
+});
+
+const buildScanConfig = (videoConstraints?: MediaTrackConstraints): ScannerConfig => ({
+  fps: isLikelyIOS() ? 8 : 10,
+  qrbox: buildBarcodeQrbox,
+  disableFlip: true,
+  ...(videoConstraints ? { videoConstraints } : {}),
+});
+
+const tryApplyCameraEnhancements = async (scanner: Html5Qrcode) => {
+  try {
+    const capabilities = scanner.getRunningTrackCapabilities?.() as any;
+    const advanced: Record<string, unknown>[] = [];
+    if (Array.isArray(capabilities?.focusMode) && capabilities.focusMode.includes('continuous')) {
+      advanced.push({ focusMode: 'continuous' });
+    }
+    if (capabilities?.zoom && typeof capabilities.zoom === 'object') {
+      const minZoom = Number(capabilities.zoom.min ?? 1);
+      const maxZoom = Number(capabilities.zoom.max ?? minZoom);
+      const targetZoom = Math.min(maxZoom, Math.max(minZoom, isLikelyIOS() ? 1.8 : 1.4));
+      if (Number.isFinite(targetZoom) && targetZoom > minZoom) {
+        advanced.push({ zoom: targetZoom });
+      }
+    }
+    if (advanced.length) {
+      await scanner.applyVideoConstraints({ advanced } as any);
+    }
+  } catch (err) {
+    console.debug('[BarcodeScannerModal] Camera focus/zoom hints not available:', err);
+  }
+};
+
 // Generate a short beep sound for scan success feedback
 const playBeep = () => {
   try {
@@ -65,6 +188,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const cooldownRef = useRef(false);
   const cooldownTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+  const scanAttemptsRef = useRef(0);
   const [scanCount, setScanCount] = useState(0);
   const [lastScanned, setLastScanned] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -93,6 +217,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       setManualValue('');
       setError('');
       setScanAttempts(0);
+      scanAttemptsRef.current = 0;
       cooldownRef.current = false;
     }
   }, [open]);
@@ -178,6 +303,15 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }, [continuous, cooldownMs, soundEnabled, onScan, onClose, stopScanner]);
 
+  const noteScanAttempt = useCallback((errorMessage: string, error?: unknown) => {
+    if (!error) return;
+    scanAttemptsRef.current += 1;
+    if (scanAttemptsRef.current <= 12 || scanAttemptsRef.current % 8 === 0) {
+      setScanAttempts(scanAttemptsRef.current);
+    }
+    console.debug('[BarcodeScannerModal] Scan attempt:', errorMessage);
+  }, []);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
@@ -200,13 +334,12 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         };
 
         const img = await getImgElement(file);
+        await ensureBarcodeDetectorPonyfill();
         
         // 1. Try Native BarcodeDetector API (Extremely fast, available on modern Android/iOS 17+)
         if ('BarcodeDetector' in window) {
           try {
-            const detector = new (window as any).BarcodeDetector({ 
-              formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e'] 
-            });
+            const detector = new (window as any).BarcodeDetector({ formats: NATIVE_BARCODE_FORMATS });
             const barcodes = await detector.detect(img);
             if (barcodes.length > 0) {
               handleScanResult(barcodes[0].rawValue);
@@ -241,7 +374,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           
           let qr = scannerRef.current;
           if (!qr) {
-            qr = new Html5Qrcode(READER_ID);
+            qr = createScanner();
             scannerRef.current = qr;
           }
           
@@ -277,6 +410,35 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         return;
       }
 
+      if (Capacitor.isNativePlatform()) {
+        try {
+          do {
+            const scanned = await runNativeBarcodeScan(tr);
+            if (cancelled || !mountedRef.current) return;
+            if (!scanned) {
+              onClose();
+              return;
+            }
+
+            handleScanResult(scanned);
+            if (!continuous) return;
+
+            await new Promise(resolve => setTimeout(resolve, cooldownMs + 80));
+          } while (!cancelled && mountedRef.current);
+          return;
+        } catch (nativeErr: any) {
+          if (cancelled) return;
+          const nativeMessage = nativeErr?.message || nativeErr?.errorMessage || String(nativeErr || '');
+          if (/cancel|cancelled|canceled|user/i.test(nativeMessage)) {
+            onClose();
+            return;
+          }
+          console.warn('[BarcodeScannerModal] Native barcode scanner failed, falling back to web scanner:', nativeErr);
+        }
+      }
+
+      await ensureBarcodeDetectorPonyfill();
+
       // Wait for DOM element to be available
       await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -288,94 +450,50 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         return;
       }
 
-      try {
-        const html5QrCode = new Html5Qrcode(READER_ID, {
-          formatsToSupport: SUPPORTED_FORMATS,
-          verbose: true, // Enable verbose logging for debugging
-        });
+      const cleanupCurrentScanner = async () => {
+        if (!scannerRef.current) return;
+        try {
+          if (scannerRef.current.isScanning) {
+            await scannerRef.current.stop();
+          }
+          await scannerRef.current.clear();
+        } catch (cleanupErr) {
+          console.warn('[BarcodeScannerModal] Cleanup failed before retry:', cleanupErr);
+        } finally {
+          scannerRef.current = null;
+        }
+      };
+
+      const startHtml5Scanner = async (source: ScannerSource, config: ScannerConfig) => {
+        const html5QrCode = createScanner();
         scannerRef.current = html5QrCode;
-
-        const config = {
-          fps: 10,
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true,
-          },
-          // Restoring a square qrbox is critical for iOS. Without it, the high-res full frame makes barcodes too small to detect in WASM.
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-            const boxSize = Math.floor(minDimension * 0.85);
-            return { width: boxSize, height: boxSize };
-          },
-        };
-
-        // Proper video constraints for iOS (placed in the correct argument)
-        const videoConstraints = {
-          facingMode: 'environment',
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          advanced: [{ focusMode: 'continuous' } as any, { zoom: 1.5 } as any]
-        };
-
         await html5QrCode.start(
-          videoConstraints,
+          source,
           config,
           (decodedText) => {
             if (!cancelled) handleScanResult(decodedText);
           },
           (errorMessage, error) => {
-            // Log scan errors for debugging and update attempts counter
-            if (error) {
-              console.debug('[BarcodeScannerModal] Scan attempt:', errorMessage);
-              setScanAttempts(prev => prev + 1);
-            }
+            if (!cancelled) noteScanAttempt(errorMessage, error);
           }
+        );
+        await tryApplyCameraEnhancements(html5QrCode);
+      };
+
+      try {
+        const preferredCameraId = await getPreferredCameraId();
+        if (cancelled) return;
+        await startHtml5Scanner(
+          preferredCameraId || { facingMode: 'environment' },
+          buildScanConfig(buildVideoConstraints(preferredCameraId))
         );
       } catch (err: any) {
         if (cancelled) return;
         console.warn('[BarcodeScannerModal] Failed to start scanner with advanced constraints. Retrying with basic constraints...', err);
 
         try {
-          // Ensure complete cleanup before retry
-          if (scannerRef.current) {
-            try {
-              if (scannerRef.current.isScanning) {
-                await scannerRef.current.stop();
-              }
-              await scannerRef.current.clear();
-              scannerRef.current = null;
-            } catch (cleanupErr) {
-              console.warn('[BarcodeScannerModal] Cleanup failed before retry:', cleanupErr);
-            }
-          }
-
-          const html5QrCode = new Html5Qrcode(READER_ID, {
-            formatsToSupport: SUPPORTED_FORMATS,
-            verbose: true,
-          });
-          scannerRef.current = html5QrCode;
-
-          const basicConfig = {
-            fps: 10,
-            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-              const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-              const boxSize = Math.floor(minDimension * 0.85);
-              return { width: boxSize, height: boxSize };
-            },
-          };
-
-          await html5QrCode.start(
-            { facingMode: 'environment' },
-            basicConfig,
-            (decodedText) => {
-              if (!cancelled) handleScanResult(decodedText);
-            },
-            (errorMessage, error) => {
-              if (error) {
-                console.debug('[BarcodeScannerModal] Scan attempt:', errorMessage);
-                setScanAttempts(prev => prev + 1);
-              }
-            }
-          );
+          await cleanupCurrentScanner();
+          await startHtml5Scanner({ facingMode: 'environment' }, buildScanConfig());
         } catch (retryErr: any) {
           if (cancelled) return;
           console.error('[BarcodeScannerModal] Failed to start scanner even with basic constraints:', retryErr);
@@ -426,7 +544,7 @@ const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         {/* Scanning Overlay */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
           <div
-            className={`w-full max-w-[min(85vw,400px)] aspect-square rounded-2xl border-[3px] relative transition-colors duration-300 ${
+            className={`w-[min(92vw,560px)] h-[clamp(112px,42vw,260px)] max-h-[42vh] rounded-2xl border-[3px] relative transition-colors duration-300 ${
               showSuccess ? 'border-emerald-400' : 'border-blue-400/80'
             }`}
             style={{

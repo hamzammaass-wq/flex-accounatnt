@@ -3,8 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 
 async function main() {
-    const inputPath = 'AI FLEX LOGO.png';
-    const outputPath = 'branding/masters/aiflex-erp-ios-icon.png';
+    const inputPath = 'FLEX ACCOUNTANT LOGO.png';
+    const outputPath = 'branding/masters/flex-erp-ios-icon.png';
     
     const image = sharp(inputPath);
     
@@ -48,7 +48,7 @@ async function main() {
             background: bgColor
         })
         .resize(1024, 1024)
-        .toFile('branding/masters/aiflex-erp-app-icon.png');
+        .toFile('branding/masters/flex-erp-app-icon.png');
 
     console.log('Replaced app icon successfully!');
 }

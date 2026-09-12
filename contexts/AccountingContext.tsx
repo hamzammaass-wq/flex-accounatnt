@@ -209,6 +209,7 @@ interface AccountingContextType {
 
   importExpenseDistributions: ImportExpenseDistribution[];
   addImportExpenseDistribution: (record: Omit<ImportExpenseDistribution, 'id'>) => MutationResult;
+  updateImportExpenseDistribution: (id: string, updates: Partial<ImportExpenseDistribution>) => MutationResult;
   setImportExpenseDistributions: React.Dispatch<React.SetStateAction<ImportExpenseDistribution[]>>;
   invoiceSettlements: InvoiceSettlement[];
   upsertInvoiceSettlementsForVoucher: (
@@ -4477,6 +4478,15 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       screen: 'Import Expenses Wizard',
       after: safeClone(created)
     });
+    return makeSuccess();
+  };
+
+  const updateImportExpenseDistribution = (id: string, updates: Partial<ImportExpenseDistribution>): MutationResult => {
+    const existing = importExpenseDistributions.find(record => record.id === id);
+    if (!existing) return makeError('VALIDATION_ERROR', 'Import expense distribution not found.');
+    const updated: ImportExpenseDistribution = { ...existing, ...updates, id };
+    setImportExpenseDistributions(prev => prev.map(record => record.id === id ? updated : record));
+    appendAuditLog({ entityType: 'import_expense_distribution', entityId: id, action: 'UPDATE', screen: 'Import Expenses Wizard', before: safeClone(existing), after: safeClone(updated) });
     return makeSuccess();
   };
 
@@ -10846,7 +10856,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
       transactions, addTransaction, deleteTransaction, setTransactions, updateTransaction, postVoucher, deleteVoucher, reverseTransaction,
       invoices, createInvoice, updateInvoice, deleteInvoice, postInvoice, reverseInvoice, returnInvoiceItem, setInvoices,
       invoiceSettlements, upsertInvoiceSettlementsForVoucher,
-      importExpenseDistributions, addImportExpenseDistribution, setImportExpenseDistributions,
+      importExpenseDistributions, addImportExpenseDistribution, updateImportExpenseDistribution, setImportExpenseDistributions,
       accounts, addAccount, updateAccount, deleteAccount,
       products, addProduct, updateProduct, deleteProduct, setProducts,
       itemGroups, addItemGroup, updateItemGroup, deleteItemGroup,

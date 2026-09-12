@@ -28,7 +28,8 @@ import {
   Building2,
   Layers,
   Factory,
-  Store
+  Store,
+  BookOpen
 } from 'lucide-react';
 import { TabView } from '../App';
 import { TransactionTabType } from './TransactionForm';
@@ -49,7 +50,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const tr = (ar: string, en: string) => (appLanguage === 'AR' ? ar : en);
   const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
     translate(appLanguage, key, params);
-  const smartAccountantTitle = tr('المحاسب فلكس', 'flex accaountant');
+  const smartAccountantTitle = tr('المحاسب فلكس', 'Flex Accountant');
   const smartAccountantCardText = tr(
     'مساعد محاسبي ذكي يحلل بياناتك، يقترح القيود، ويساعدك على اتخاذ قرارات مالية أفضل بسرعة ودقة.',
     'A smart accounting assistant that analyzes your data, suggests entries, and helps you make better financial decisions quickly and accurately.'
@@ -145,7 +146,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     { label: appLanguage === 'AR' ? 'مطابقة البنك' : 'Bank Reconciliation', icon: Landmark, color: 'text-teal-600', bg: 'bg-teal-100', action: () => onNavigate('bank-reconciliation') },
     { label: t('dashboard.module.customers'), icon: Users, color: 'text-blue-600', bg: 'bg-blue-100', action: () => onNavigate('directory') },
     { label: appLanguage === 'AR' ? 'التنبيهات' : 'Alerts', icon: BellRing, color: 'text-rose-600', bg: 'bg-rose-100', action: () => onNavigate('alerts') },
-    { label: t('dashboard.module.settlements'), icon: Scale, color: 'text-pink-600', bg: 'bg-pink-100', action: () => onNavigate('settlements') }
+    { label: t('dashboard.module.settlements'), icon: Scale, color: 'text-pink-600', bg: 'bg-pink-100', action: () => onNavigate('settlements') },
+    { label: tr('دليل الاستخدام', 'Usage Guide'), icon: BookOpen, color: 'text-violet-600', bg: 'bg-violet-100', action: () => onNavigate('definitions', undefined, undefined, 'USAGE_GUIDE') }
   ];
 
   return (

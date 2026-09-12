@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-08-13T14:48:17.883Z",
+  "size": {
+    "width": 1080,
+    "height": 1920
+  },
+  "format": "PNG",
+  "final": [
+    "store-assets/google-play/final/01-dashboard.png",
+    "store-assets/google-play/final/02-sales-invoice.png",
+    "store-assets/google-play/final/03-inventory.png",
+    "store-assets/google-play/final/04-treasury.png",
+    "store-assets/google-play/final/05-reports.png",
+    "store-assets/google-play/final/06-usage-guide.png"
+  ],
+  "raw": [
+    "store-assets/google-play/raw/sales-invoice.png",
+    "store-assets/google-play/raw/dashboard.png",
+    "store-assets/google-play/raw/inventory.png",
+    "store-assets/google-play/raw/treasury.png",
+    "store-assets/google-play/raw/reports.png",
+    "store-assets/google-play/raw/usage-guide.png"
+  ]
+}

@@ -117,6 +117,23 @@ const getTodayDateString = (): string => {
     return `${yyyy}-${mm}-${dd}`;
 };
 
+const normalizeEditableNumberInput = (value: string): string => {
+    const normalized = toEnglishDigits(String(value || ''))
+        .replace(/\u066B/g, '.')
+        .replace(/[\u066C\u060C,]/g, '')
+        .replace(/[^\d.\-]/g, '');
+    const sign = normalized.startsWith('-') ? '-' : '';
+    const unsigned = normalized.replace(/-/g, '');
+    const firstDotIndex = unsigned.indexOf('.');
+    if (firstDotIndex === -1) return `${sign}${unsigned}`;
+    return `${sign}${unsigned.slice(0, firstDotIndex + 1)}${unsigned.slice(firstDotIndex + 1).replace(/\./g, '')}`;
+};
+
+const parseEditableNumber = (value: string, fallback = 0): number => {
+    const parsed = parseFloat(normalizeEditableNumberInput(value));
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 interface MobileSubmitDockProps {
     label: string;
     onClick: () => void;
@@ -1744,8 +1761,8 @@ const InvoiceScreen: React.FC<{
 
     const addManualItem = () => {
         if (!manualItemDesc.trim()) return;
-        const qty = parseFloat(manualItemQty) || 1;
-        const price = parseFloat(manualItemPrice) || 0;
+        const qty = parseEditableNumber(manualItemQty, 1) || 1;
+        const price = parseEditableNumber(manualItemPrice);
 
         setItems(prev => [...prev, {
             description: manualItemDesc,
@@ -1776,8 +1793,8 @@ const InvoiceScreen: React.FC<{
 
     const addExpenseItem = () => {
         if (!newItemDesc || !newItemPrice || !expenseAccountId) return alert(tr('يرجى تعبئة بيانات البند واختيار حساب المصروف', 'Please complete item data and select an expense account'));
-        const qty = parseFloat(newItemQty) || 1;
-        const price = parseFloat(newItemPrice) || 0;
+        const qty = parseEditableNumber(newItemQty, 1) || 1;
+        const price = parseEditableNumber(newItemPrice);
 
         setItems(prev => [...prev, {
             description: newItemDesc,
@@ -1839,10 +1856,10 @@ const InvoiceScreen: React.FC<{
     };
 
     const effectiveTaxMode = taxVisibleInInvoices ? taxMode : 'NONE';
-    const taxRateValue = effectiveTaxMode === 'NONE' ? 0 : Math.max(0, parseFloat(taxRateOverride) || 0);
+    const taxRateValue = effectiveTaxMode === 'NONE' ? 0 : Math.max(0, parseEditableNumber(taxRateOverride));
     const taxModeDescription = getInvoiceTaxModeDescription(effectiveTaxMode, tr);
     const itemsTotalAmount = items.reduce((sum, item) => sum + item.total, 0);
-    const discountValue = parseFloat(discount) || 0;
+    const discountValue = parseEditableNumber(discount);
     const computedDiscountAmount = discountType === 'percentage' ? (itemsTotalAmount * discountValue) / 100 : discountValue;
 
     const totals = useMemo(() => calculateInvoiceTaxSummary({
@@ -1853,8 +1870,8 @@ const InvoiceScreen: React.FC<{
     }), [itemsTotalAmount, computedDiscountAmount, taxRateValue, effectiveTaxMode]);
 
     const handleFinalNetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value;
-        if (val === '') {
+        const val = normalizeEditableNumberInput(e.target.value);
+        if (val === '' || val === '-' || val === '.') {
             setDiscount('');
             return;
         }
@@ -1875,6 +1892,10 @@ const InvoiceScreen: React.FC<{
             setDiscountType('amount');
             setDiscount(newDiscount.toFixed(3));
         }
+    };
+
+    const handleDiscountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setDiscount(normalizeEditableNumberInput(e.target.value));
     };
 
 
@@ -1907,10 +1928,6 @@ const InvoiceScreen: React.FC<{
         minimumFractionDigits: 0,
         maximumFractionDigits: 2
     });
-    const normalizeEditableNumberInput = (value: string) => toEnglishDigits(String(value || ''))
-        .replace(/\u066B/g, '.')
-        .replace(/[\u066C\u060C,]/g, '')
-        .replace(/[^\d.\-]/g, '');
     const isEditingItemNumericCell = (index: number, field: 'quantity' | 'unitPrice') =>
         editingItemNumericCell?.index === index && editingItemNumericCell?.field === field;
     const getItemNumericCellDisplayValue = (index: number, field: 'quantity' | 'unitPrice', value: number) =>
@@ -3556,23 +3573,24 @@ const InvoiceScreen: React.FC<{
                             <div className="grid grid-cols-[minmax(0,0.7fr),minmax(0,0.7fr),auto] gap-2">
                                 <div className="min-w-0">
                                     <input
-                                        type="number"
+                                        type="text"
                                         inputMode="decimal"
+                                        lang="en"
                                         value={manualItemQty}
-                                        onChange={e => setManualItemQty(e.target.value)}
+                                        onChange={e => setManualItemQty(normalizeEditableNumberInput(e.target.value))}
                                         placeholder={tr('الكمية', 'Qty')}
                                         className="h-10 w-full rounded-xl border border-transparent bg-white px-3 text-center text-sm font-black outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dir-ltr"
                                     />
                                 </div>
                                 <div className="min-w-0">
                                     <input
-                                        type="number"
+                                        type="text"
                                         inputMode="decimal"
+                                        lang="en"
                                         value={manualItemPrice}
-                                        onChange={e => setManualItemPrice(e.target.value)}
+                                        onChange={e => setManualItemPrice(normalizeEditableNumberInput(e.target.value))}
                                         placeholder={tr('السعر', 'Price')}
                                         className="h-10 w-full rounded-xl border border-transparent bg-white px-3 text-center text-sm font-black outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dir-ltr"
-                                        min="0"
                                     />
                                 </div>
                                 <button
@@ -3699,15 +3717,15 @@ const InvoiceScreen: React.FC<{
                                 const availableStock = getAvailableStock(item.productId);
                                 const lastInvoicePrice = resolveLastInvoicePrice(item.productId);
                                 return (
-                                    <tr key={idx} className="odd:bg-white even:bg-slate-50/60">
-                                        <td className="hidden sm:table-cell border-b border-slate-100 px-1 py-1 text-center font-black text-slate-500">{idx + 1}</td>
-                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
-                                            <textarea
+                                    <tr key={idx} className="invoice-item-row odd:bg-white even:bg-slate-50/60">
+                                        <td className="invoice-item-index-cell hidden sm:table-cell border-b border-slate-100 px-1 py-1 text-center font-black text-slate-500">{idx + 1}</td>
+                                        <td data-label={tr('الصنف', 'Item')} className="invoice-item-description-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
+                                            <input
+                                                type="text"
                                                 value={item.description}
-                                                onChange={e => setItems(prev => prev.map((it, i) => i === idx ? { ...it, description: e.target.value } : it))}
-                                                rows={2}
+                                                onChange={e => setItems(prev => prev.map((it, i) => i === idx ? { ...it, description: e.target.value.replace(/[\r\n]+/g, ' ') } : it))}
                                                 className="invoice-item-name-field w-full rounded-md border border-slate-200 bg-white px-0.5 sm:px-1.5 py-1 text-[10.5px] font-bold leading-4 outline-none focus:border-indigo-300 min-w-0"
-                                                style={{ minWidth: '40px', resize: 'none' }}
+                                                style={{ minWidth: '40px' }}
                                             />
                                             <div className="invoice-item-meta mt-0.5 text-[8.5px] sm:text-[9px] font-bold text-slate-400 break-all">
                                                 {linkedProduct
@@ -3715,7 +3733,7 @@ const InvoiceScreen: React.FC<{
                                                     : tr('بند يدوي', 'Manual line')}
                                             </div>
                                         </td>
-                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
+                                        <td data-label={tr('الوحدة', 'Unit')} className="invoice-item-unit-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             {linkedProduct ? (
                                                 <select
                                                     value={item.unitId || linkedProduct.unitId || ''}
@@ -3768,7 +3786,7 @@ const InvoiceScreen: React.FC<{
                                                 <span className="block text-center text-[10px] text-slate-400">-</span>
                                             )}
                                         </td>
-                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
+                                        <td data-label={tr('الكمية', 'Qty')} className="invoice-item-qty-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
@@ -3780,7 +3798,7 @@ const InvoiceScreen: React.FC<{
                                                 className="invoice-number-input w-full rounded-md border border-slate-200 bg-white px-0 sm:px-1 py-1 text-center text-[10px] sm:text-[11px] font-black dir-ltr outline-none focus:border-indigo-300 min-w-0"
                                             />
                                         </td>
-                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
+                                        <td data-label={tr('السعر', 'Price')} className="invoice-item-price-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
@@ -3797,7 +3815,7 @@ const InvoiceScreen: React.FC<{
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center align-middle">
+                                        <td data-label={tr('الإجمالي', 'Total')} className="invoice-item-total-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center align-middle">
                                             <input
                                                 type="text"
                                                 inputMode="decimal"
@@ -3810,7 +3828,8 @@ const InvoiceScreen: React.FC<{
                                             />
                                         </td>
                                         <td
-                                            className={`invoice-stock-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center text-[8.5px] sm:text-[10px] font-black ${serviceLine ? 'text-amber-600' : item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
+                                            className={`invoice-item-stock-cell invoice-stock-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center text-[8.5px] sm:text-[10px] font-black ${serviceLine ? 'text-amber-600' : item.productId ? (stockOk ? 'text-emerald-600' : 'text-rose-600') : 'text-slate-400'}`}
+                                            data-label={tr('المتاح', 'Stock')}
                                             data-stock={serviceLine ? tr('خدمة', 'Service') : item.productId ? (availableStock?.toLocaleString('en-US') ?? '0') : '—'}
                                         >
                                             {serviceLine
@@ -3819,7 +3838,7 @@ const InvoiceScreen: React.FC<{
                                                 ? <span className={stockOk ? 'text-emerald-600' : 'text-rose-600'}>{stockOk ? tr('متاح', 'OK') : tr('غير كافٍ', 'Low')}</span>
                                                 : <span className="text-slate-400">{tr('—', '—')}</span>}
                                         </td>
-                                        <td className="border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center">
+                                        <td data-label={tr('حذف', 'Delete')} className="invoice-item-action-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center">
                                             <button type="button" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="inline-flex w-full min-w-0 items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-0.5 sm:p-1.5 text-rose-600 hover:bg-rose-100">
                                                 <Trash2 size={13} className="shrink-0" />
                                             </button>
@@ -3835,12 +3854,12 @@ const InvoiceScreen: React.FC<{
             <div className="invoice-submit-panel layout-footer z-20 hidden rounded-[1.15rem] border border-slate-700/70 bg-[linear-gradient(135deg,#0f172a_0%,#172554_100%)] p-3 text-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.9)] md:block">
                 <div className="transaction-submit-panel-details">
                     {/* Expandable Discount / Tax summary row */}
-                    <div className="flex justify-between items-center mb-2 px-1">
-                        <div className="flex gap-4">
-                            <div className="flex flex-col">
+                    <div className="invoice-submit-summary-row flex justify-between items-center mb-2 px-1">
+                        <div className="invoice-submit-controls flex gap-4">
+                            <div className="invoice-submit-control flex flex-col">
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">{tr('خصم إضافي', 'Extra Disc')}</span>
-                                <div className="relative w-24 flex">
-                                    <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className={`w-full bg-slate-800 text-white text-[11px] font-black rounded-lg py-1 px-1.5 border border-slate-700 focus:border-indigo-500 text-center ${isEnglish ? 'rounded-r-none border-r-0' : 'rounded-l-none border-l-0'}`} />
+                                <div className="invoice-discount-input-group relative w-24 flex">
+                                    <input type="text" inputMode="decimal" lang="en" value={discount} onChange={handleDiscountChange} placeholder="0" className={`invoice-number-input invoice-discount-input w-full bg-slate-800 text-white text-[11px] font-black rounded-lg py-1 px-1.5 border border-slate-700 focus:border-indigo-500 text-center dir-ltr ${isEnglish ? 'rounded-r-none border-r-0' : 'rounded-l-none border-l-0'}`} />
                                     <button
                                         type="button"
                                         onClick={() => setDiscountType(t => t === 'amount' ? 'percentage' : 'amount')}
@@ -3851,11 +3870,11 @@ const InvoiceScreen: React.FC<{
                                 </div>
                             </div>
                             {taxVisibleInInvoices && (
-                                <div className="flex flex-col">
+                                <div className="invoice-submit-control flex flex-col">
                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
                                         {tr('الضريبة', 'Tax')} {isInvoiceTaxApplied(effectiveTaxMode, totals.rate, totals.tax) ? `+${formatAmount(totals.tax)}` : '0'}
                                     </span>
-                                    <div className="relative mt-0.5 w-[108px]">
+                                    <div className="invoice-tax-mode-select relative mt-0.5 w-[108px]">
                                         <select
                                             value={effectiveTaxMode}
                                             onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
@@ -3879,15 +3898,16 @@ const InvoiceScreen: React.FC<{
                     </div>
 
                     {/* Final Total row */}
-                    <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                        <span className="text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
+                    <div className="invoice-final-net-row mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                        <span className="invoice-final-net-label text-[12px] sm:text-[13px] font-black text-blue-300">{tr('الصافي النهائي', 'Final Net')}</span>
                         <input
                             type="text"
                             inputMode="decimal"
+                            lang="en"
                             data-testid="invoice-final-total"
                             value={Number((totals.total).toFixed(3))}
                             onChange={handleFinalNetChange}
-                            className="min-w-0 w-40 bg-transparent text-center text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white outline-none focus:text-indigo-300"
+                            className="invoice-final-net-input min-w-0 w-40 bg-transparent text-center text-[2.05rem] sm:text-[2.45rem] font-black leading-none tracking-tight dir-ltr text-white outline-none focus:text-indigo-300"
                         />
                     </div>
                 </div>
@@ -3915,12 +3935,12 @@ const InvoiceScreen: React.FC<{
                 onClick={() => void handleSubmit()}
                 summary={
                     <div className="transaction-submit-panel-details text-white">
-                        <div className="mb-2 flex items-center justify-between px-1">
-                            <div className="flex gap-4">
-                                <div className="flex flex-col">
+                        <div className="invoice-submit-summary-row mb-2 flex items-center justify-between px-1">
+                            <div className="invoice-submit-controls flex gap-4">
+                                <div className="invoice-submit-control flex flex-col">
                                     <span className="text-[9px] font-bold uppercase tracking-widest leading-tight text-slate-400">{tr('خصم إضافي', 'Extra Disc')}</span>
-                                    <div className="relative w-24 flex">
-                                        <input type="number" inputMode="decimal" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className={`w-full rounded-lg border border-slate-700 bg-slate-800 px-1.5 py-1 text-center text-[11px] font-black text-white focus:border-indigo-500 ${isEnglish ? 'rounded-r-none border-r-0' : 'rounded-l-none border-l-0'}`} />
+                                    <div className="invoice-discount-input-group relative w-24 flex">
+                                        <input type="text" inputMode="decimal" lang="en" value={discount} onChange={handleDiscountChange} placeholder="0" className={`invoice-number-input invoice-discount-input w-full rounded-lg border border-slate-700 bg-slate-800 px-1.5 py-1 text-center text-[11px] font-black text-white focus:border-indigo-500 dir-ltr ${isEnglish ? 'rounded-r-none border-r-0' : 'rounded-l-none border-l-0'}`} />
                                         <button
                                             type="button"
                                             onClick={() => setDiscountType(t => t === 'amount' ? 'percentage' : 'amount')}
@@ -3931,11 +3951,11 @@ const InvoiceScreen: React.FC<{
                                     </div>
                                 </div>
                                 {taxVisibleInInvoices && (
-                                    <div className="flex flex-col">
+                                    <div className="invoice-submit-control flex flex-col">
                                         <span className="text-[9px] font-bold uppercase tracking-widest leading-tight text-slate-400">
                                             {tr('الضريبة', 'Tax')} {isInvoiceTaxApplied(effectiveTaxMode, totals.rate, totals.tax) ? `+${formatAmount(totals.tax)}` : '0'}
                                         </span>
-                                        <div className="relative mt-0.5 w-[108px]">
+                                        <div className="invoice-tax-mode-select relative mt-0.5 w-[108px]">
                                             <select
                                                 value={effectiveTaxMode}
                                                 onChange={e => setTaxMode(e.target.value as InvoiceTaxMode)}
@@ -3956,14 +3976,15 @@ const InvoiceScreen: React.FC<{
                                 )}
                             </div>
                         </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                            <span className="text-[12px] font-black text-blue-300 sm:text-[13px]">{tr('الصافي النهائي', 'Final Net')}</span>
+                        <div className="invoice-final-net-row flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                            <span className="invoice-final-net-label text-[12px] font-black text-blue-300 sm:text-[13px]">{tr('الصافي النهائي', 'Final Net')}</span>
                             <input
                                 type="text"
                                 inputMode="decimal"
+                                lang="en"
                                 value={Number((totals.total).toFixed(3))}
                                 onChange={handleFinalNetChange}
-                                className="min-w-0 w-32 bg-transparent text-center text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem] outline-none focus:text-indigo-300"
+                                className="invoice-final-net-input min-w-0 w-32 bg-transparent text-center text-[2.05rem] font-black leading-none tracking-tight text-white dir-ltr sm:text-[2.45rem] outline-none focus:text-indigo-300"
                             />
                         </div>
                     </div>
@@ -4231,20 +4252,19 @@ const InvoiceScreen: React.FC<{
                             <div>
                                 <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('الكمية', 'Quantity')}</label>
                                 <input
-                                    type="number" inputMode="decimal"
+                                    type="text" inputMode="decimal" lang="en"
                                     value={manualItemQty}
-                                    onChange={e => setManualItemQty(e.target.value)}
-                                    className="w-full text-center bg-gray-50 border border-gray-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-indigo-400 outline-none"
+                                    onChange={e => setManualItemQty(normalizeEditableNumberInput(e.target.value))}
+                                    className="w-full text-center bg-gray-50 border border-gray-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-indigo-400 outline-none dir-ltr"
                                 />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-500 mb-0.5 block px-1">{tr('السعر', 'Price')}</label>
                                 <input
-                                    type="number" inputMode="decimal"
+                                    type="text" inputMode="decimal" lang="en"
                                     value={manualItemPrice}
-                                    onChange={e => setManualItemPrice(e.target.value)}
+                                    onChange={e => setManualItemPrice(normalizeEditableNumberInput(e.target.value))}
                                     className="w-full text-center bg-gray-50 border border-gray-200 text-xs font-black rounded-xl py-2 px-3 focus:ring-1 focus:ring-indigo-400 outline-none dir-ltr"
-                                    min="0"
                                 />
                             </div>
                         </div>
@@ -6196,7 +6216,7 @@ const JournalScreen: React.FC<{
 
     const notifyAmountAdded = (rawValue: string) => {
         if (!(companySettings.notifyAfterAmountAdded ?? true)) return;
-        const normalized = toEnglishDigits(String(rawValue || '')).replace(/[^\d.\-]/g, '');
+        const normalized = normalizeEditableNumberInput(rawValue);
         const parsed = parseFloat(normalized);
         if (!(Number.isFinite(parsed) && parsed > 0)) return;
         const formatted = parsed.toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -6210,7 +6230,10 @@ const JournalScreen: React.FC<{
     const handleUpdateLine = (id: string, field: keyof JournalLine, value: string) => {
         setLines(prev => prev.map(l => {
             if (l.id !== id) return l;
-            const updated: JournalLine = { ...l, [field]: value };
+            const normalizedValue = (field === 'debit' || field === 'credit' || field === 'purchaseTaxRate')
+                ? normalizeEditableNumberInput(value)
+                : value;
+            const updated: JournalLine = { ...l, [field]: normalizedValue };
 
             // Reset linked entities when account changes
             if (field === 'accountId') {
@@ -6272,7 +6295,7 @@ const JournalScreen: React.FC<{
     };
 
     const setLinePurchaseTaxRate = (id: string, value: string) => {
-        setLines(prev => prev.map(line => line.id === id ? { ...line, purchaseTaxRate: value } : line));
+        setLines(prev => prev.map(line => line.id === id ? { ...line, purchaseTaxRate: normalizeEditableNumberInput(value) } : line));
     };
 
     const handleRemoveLine = (id: string) => {
@@ -6776,11 +6799,11 @@ const JournalScreen: React.FC<{
                             <div className="journal-line-grid journal-line-grid--compact grid gap-2 min-w-0">
                                 <label className="min-w-0">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-emerald-600">{tr('مدين', 'Debit')}</span>
-                                    <input data-testid={`journal-line-${idx + 1}-debit`} placeholder={tr('مدين', 'Debit')} type="number" inputMode="decimal" lang="en" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
+                                    <input data-testid={`journal-line-${idx + 1}-debit`} placeholder={tr('مدين', 'Debit')} type="text" inputMode="decimal" lang="en" value={line.debit} onChange={e => handleUpdateLine(line.id, 'debit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-emerald-600 dir-ltr" disabled={!!line.credit} />
                                 </label>
                                 <label className="min-w-0">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-rose-600">{tr('دائن', 'Credit')}</span>
-                                    <input data-testid={`journal-line-${idx + 1}-credit`} placeholder={tr('دائن', 'Credit')} type="number" inputMode="decimal" lang="en" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
+                                    <input data-testid={`journal-line-${idx + 1}-credit`} placeholder={tr('دائن', 'Credit')} type="text" inputMode="decimal" lang="en" value={line.credit} onChange={e => handleUpdateLine(line.id, 'credit', e.target.value)} onBlur={e => notifyAmountAdded(e.target.value)} className="w-full h-10 px-2 bg-white rounded-xl text-xs font-black text-center outline-none text-rose-600 dir-ltr" disabled={!!line.debit} />
                                 </label>
                                 <label className="min-w-0 journal-line-description-field">
                                     <span className="mb-1 block px-1 text-[10px] font-black text-slate-400">{tr('شرح مبسط', 'Description')}</span>
@@ -6816,8 +6839,7 @@ const JournalScreen: React.FC<{
                                                 <div>
                                                     <label className="block text-[10px] font-black text-indigo-600 mb-1">{tr('نسبة الضريبة (%)', 'Tax rate (%)')}</label>
                                                     <input
-                                                        type="number" inputMode="decimal"
-                                                        min={0}
+                                                        type="text" inputMode="decimal" lang="en"
                                                         value={line.purchaseTaxRate || String(companySettings.defaultTaxRate ?? 0)}
                                                         onChange={e => setLinePurchaseTaxRate(line.id, e.target.value)}
                                                         className="w-full p-2 rounded-xl bg-white border border-indigo-100 text-xs font-black text-center dir-ltr outline-none"

@@ -331,7 +331,7 @@ const AppContent: React.FC = () => {
     const htmlLang = getDocumentLanguageTag(appLanguage);
     document.documentElement.lang = 'en'; // Force English locale to prevent Arabic numbers in native inputs
     document.documentElement.dir = rtl ? 'rtl' : 'ltr';
-    document.title = appLanguage === 'AR' ? 'المحاسب فلكس' : 'flex accaountant';
+    document.title = appLanguage === 'AR' ? 'المحاسب فلكس' : 'Flex Accountant';
   }, [appLanguage, rtl]);
 
   useEffect(() => {
@@ -972,7 +972,7 @@ const AppContent: React.FC = () => {
         >
           {!overlay && (
             <div
-              className="relative z-[70] px-2 safe-pt-sm pb-2 flex"
+              className="app-top-bar relative z-[70] px-2 safe-pt-sm pb-2 flex"
             >
               <div
                 className={`relative w-full max-w-[min(100%,var(--app-content-max-width-tablet-browser))] flex items-center gap-2 ${isMobile ? 'justify-between' : (rtl ? 'justify-start' : 'justify-end')
@@ -998,7 +998,7 @@ const AppContent: React.FC = () => {
                   ref={companyMenuButtonRef}
                   type="button"
                   onClick={handleCompanyMenuToggle}
-                  className={`min-w-0 px-3 py-2 rounded-xl bg-white/95 backdrop-blur border border-gray-200 shadow-md flex items-center gap-2 ${showHeaderBackButton ? 'flex-1 max-w-[78vw] sm:max-w-[72vw]' : 'w-full'
+                  className={`app-company-switcher min-w-0 px-3 py-2 rounded-xl bg-white/95 backdrop-blur border border-gray-200 shadow-md flex items-center gap-2 ${showHeaderBackButton ? 'flex-1 max-w-[78vw] sm:max-w-[72vw]' : 'w-full'
                     }`}
                 >
                   <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border border-indigo-100 bg-white shadow-sm">
@@ -1008,7 +1008,7 @@ const AppContent: React.FC = () => {
                       className="h-full w-full object-cover"
                     />
                   </div>
-                  <span className="text-[11px] font-black text-slate-700 truncate">{currentCompany?.name || companySettings.name}</span>
+                  <span className="app-company-switcher-label text-[11px] font-black text-slate-700 truncate">{currentCompany?.name || companySettings.name}</span>
                   <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showCompanyMenu ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -1157,12 +1157,12 @@ const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, tab
   <button
     onClick={onClick}
     data-testid={testId}
-    className={`flex flex-col items-center justify-center min-h-[44px] transition-all duration-200 px-1 py-1.5 rounded-lg ${mobile ? 'flex-1 min-w-0' : 'flex-1'
+    className={`app-nav-button flex flex-col items-center justify-center min-h-[44px] transition-all duration-200 px-1 py-1.5 rounded-lg ${mobile ? 'flex-1 min-w-0' : 'flex-1'
       } ${tablet ? 'gap-1.5 py-1' : 'gap-1'
-      } ${active ? 'bg-slate-800 text-blue-400 scale-[1.03]' : 'text-gray-400 hover:bg-slate-800 hover:text-gray-200'}`}
+      } ${active ? 'bg-slate-800 text-blue-400' : 'text-gray-400 hover:bg-slate-800 hover:text-gray-200'}`}
   >
     {icon}
-    <span className={`font-bold ${tablet ? 'text-[10px]' : mobile ? 'text-[10px]' : 'text-[9px]'}`}>{label}</span>
+    <span className={`app-nav-label font-bold ${tablet ? 'text-[10px]' : mobile ? 'text-[10px]' : 'text-[9px]'}`}>{label}</span>
   </button>
 );
 

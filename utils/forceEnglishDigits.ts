@@ -32,6 +32,7 @@ const PERSIAN_DIGIT_MAP: Record<string, string> = {
 
 const ARABIC_OR_PERSIAN_DIGITS_RE = /[\u0660-\u0669\u06F0-\u06F9]/g;
 const HAS_ARABIC_OR_PERSIAN_DIGITS_RE = /[\u0660-\u0669\u06F0-\u06F9]/;
+const HAS_ARABIC_NUMERIC_CHARS_RE = /[\u0660-\u0669\u06F0-\u06F9\u066B\u066C\u060C]/;
 
 const forceLatinDigitsInLocale = (locale: string): string => {
   const normalized = String(locale || '').trim();
@@ -96,6 +97,8 @@ const normalizeDateInput = (value: string): string => {
 };
 
 const hasArabicDigits = (value: string): boolean => HAS_ARABIC_OR_PERSIAN_DIGITS_RE.test(value);
+
+const hasArabicNumericChars = (value: string): boolean => HAS_ARABIC_NUMERIC_CHARS_RE.test(value);
 
 const normalizeStringDigits = (value: string): string => {
   if (!value || !hasArabicDigits(value)) return value;
@@ -190,13 +193,15 @@ const enforceNumericFieldAttributes = (field: HTMLInputElement | HTMLTextAreaEle
 };
 
 const normalizeFieldValue = (field: HTMLInputElement | HTMLTextAreaElement): void => {
-  if (!isNumericField(field)) return;
-
   const rawValue = field.value || '';
+  if (!hasArabicNumericChars(rawValue)) return;
+
   const isNumberInput = field instanceof HTMLInputElement && field.type.toLowerCase() === 'number';
   const normalized = isDateLikeInput(field)
     ? normalizeDateInput(rawValue)
-    : normalizeNumericInput(rawValue, isNumberInput);
+    : isNumericField(field)
+      ? normalizeNumericInput(rawValue, isNumberInput)
+      : toEnglishDigits(rawValue);
 
   if (normalized === rawValue) return;
 
@@ -382,15 +387,28 @@ export const forceEnglishDigits = (): void => {
     target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
   };
 
+  const normalizeInsertedText = (target: HTMLInputElement | HTMLTextAreaElement, text: string): string => {
+    if (isDateLikeInput(target)) {
+      return toEnglishDigits(text);
+    }
+
+    if (isNumericField(target)) {
+      const isNumberInput = target instanceof HTMLInputElement && (target.type || '').toLowerCase() === 'number';
+      return normalizeNumericInput(text, isNumberInput);
+    }
+
+    return toEnglishDigits(text);
+  };
+
   const handleBeforeInput = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
-    if (!isNumericField(target)) return;
 
     const data = (event as any).data;
-    if (!data || !hasArabicDigits(data)) return;
+    if (!data || !hasArabicNumericChars(data)) return;
 
-    const converted = toEnglishDigits(data);
+    const converted = normalizeInsertedText(target, data);
+    if (converted === data) return;
     event.preventDefault();
 
     let success = false;
@@ -425,15 +443,15 @@ export const forceEnglishDigits = (): void => {
   const handlePaste = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
-    if (!isNumericField(target)) return;
 
     const clipboardData = (event as any).clipboardData || (window as any).clipboardData;
     if (!clipboardData) return;
 
     const text = clipboardData.getData('text');
-    if (!text || !hasArabicDigits(text)) return;
+    if (!text || !hasArabicNumericChars(text)) return;
 
-    const converted = toEnglishDigits(text);
+    const converted = normalizeInsertedText(target, text);
+    if (converted === text) return;
     event.preventDefault();
 
     let success = false;

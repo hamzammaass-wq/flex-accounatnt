@@ -9,7 +9,7 @@ const firebaseAuthenticationConfig = {
 
 const config: CapacitorConfig = {
   appId: 'com.smartaccountant.erp',
-  appName: 'المحاسب فلكس (flex accaountant)',
+  appName: 'Flex Accountant',
   webDir: 'dist',
   plugins: {
     Keyboard: {

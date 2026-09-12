@@ -111,8 +111,8 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onOpenVoiceAssistant }) => {
   const assistantLanguage = isEnglish ? 'English' : 'Arabic';
   const apiKey = useMemo(() => extractGeminiApiKey(), []);
   const cloudAiEnabled = apiKey.length > 0;
-  const assistantDisplayName = tr('المحاسب فلكس', 'flex accaountant');
-  const assistantWelcomeTitle = tr('مرحبًا بك في المحاسب فلكس 👋', 'Welcome to flex accaountant');
+  const assistantDisplayName = tr('المحاسب فلكس', 'Flex Accountant');
+  const assistantWelcomeTitle = tr('مرحبًا بك في المحاسب فلكس 👋', 'Welcome to Flex Accountant');
   const assistantWelcomeText = tr(
     'دعنا نساعدك في تحليل بياناتك المالية وتبسيط أعمالك المحاسبية.',
     'Let us help you analyze your financial data and simplify your accounting work.'
@@ -138,11 +138,11 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ onOpenVoiceAssistant }) => {
   );
   const assistantMarketingTitle = tr(
     'المحاسب فلكس - دع الذكاء يدير أرقامك',
-    'flex accaountant - Let intelligence run your numbers'
+    'Flex Accountant - Let intelligence run your numbers'
   );
   const assistantMarketingDescription = tr(
     'ارتقِ بإدارة حساباتك إلى مستوى جديد مع المحاسب فلكس. حل متطور يعتمد على الذكاء الاصطناعي لتحليل بياناتك المالية، أتمتة القيود اليومية، وتقديم توصيات ذكية تساعدك على اتخاذ قرارات مالية دقيقة بثقة وسرعة.',
-    'Take your accounting to a new level with flex accaountant. It uses AI to analyze your financial data, automate daily entries, and deliver smart recommendations that support faster and more confident financial decisions.'
+    'Take your accounting to a new level with Flex Accountant. It uses AI to analyze your financial data, automate daily entries, and deliver smart recommendations that support faster and more confident financial decisions.'
   );
   const formatAmount = (value: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value || 0));

@@ -6464,6 +6464,10 @@ const DefinitionsMenu: React.FC<DefinitionsMenuProps> = ({ initialMode = 'MENU' 
     }
   };
 
+  if (mode === 'POLICY' || mode === 'USAGE_GUIDE') {
+    return <div className="app-page definitions-page">{renderContent()}</div>;
+  }
+
   return (
     <div className="app-page definitions-page p-4">
       <header className="mb-6 flex items-center gap-2">

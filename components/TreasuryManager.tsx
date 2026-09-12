@@ -113,51 +113,51 @@ const TreasuryManager: React.FC = () => {
     };
 
     return (
-        <div className={`app-page animate-in fade-in duration-700 p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
-            <header className="mb-5 flex justify-between items-start px-2">
+        <div className={`app-page treasury-page animate-in fade-in duration-700 p-4 font-tajawal ${isEnglish ? 'text-left' : 'text-right'}`} dir={isEnglish ? 'ltr' : 'rtl'}>
+            <header className="treasury-header mb-5 flex justify-between items-start px-2">
                 <div className="flex-1 min-w-0">
-                    <h1 className="text-2xl sm:text-3xl font-black text-gray-800 tracking-tight">{tr('النقدية والبنوك', 'Cash & Banks')}</h1>
-                    <p className="text-gray-400 text-[10px] font-black mt-1 uppercase tracking-[0.3em]">{tr('إدارة الصناديق والحسابات الجارية', 'Manage cashboxes and current bank accounts')}</p>
+                    <h1 className="treasury-title text-2xl sm:text-3xl font-black text-gray-800 tracking-tight">{tr('النقدية والبنوك', 'Cash & Banks')}</h1>
+                    <p className="treasury-subtitle text-gray-400 text-[10px] font-black mt-1 uppercase tracking-[0.3em]">{tr('إدارة الصناديق والحسابات الجارية', 'Manage cashboxes and current bank accounts')}</p>
                 </div>
                 <div className={`p-3 rounded-2xl bg-white shadow-xl border border-gray-50 shrink-0 ms-2 ${activeTab === 'BOX' ? 'text-emerald-500' : 'text-blue-500'}`}>
                     {activeTab === 'BOX' ? <Wallet size={24} /> : <Landmark size={24} />}
                 </div>
             </header>
 
-            <div className="grid grid-cols-2 gap-3 mb-6">
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 p-4 sm:p-5 rounded-[2rem] text-white shadow-lg shadow-emerald-100 relative overflow-hidden group">
+            <div className="treasury-summary-grid grid grid-cols-2 gap-3 mb-6">
+                <div className="treasury-summary-card bg-gradient-to-br from-emerald-600 to-emerald-700 p-4 sm:p-5 rounded-[2rem] text-white shadow-lg shadow-emerald-100 relative overflow-hidden group">
                     <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-125 transition-transform duration-700">
                         <Wallet size={80} />
                     </div>
                     <div className="relative z-10">
-                        <div className="flex items-center gap-2 mb-2 opacity-90">
+                        <div className="treasury-summary-label flex items-center gap-2 mb-2 opacity-90">
                             <Sparkles size={14} />
                             <span className="text-[9px] font-black uppercase tracking-widest">{tr('إجمالي الصناديق', 'Total Cashboxes')}</span>
                         </div>
                         <div className="flex flex-col items-start">
-                            <h2 className="text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBoxBalance.toLocaleString('en-US')}</h2>
+                            <h2 className="treasury-summary-value text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBoxBalance.toLocaleString('en-US')}</h2>
                             <span className="text-[10px] font-bold opacity-60">{baseCurrency}</span>
                         </div>
                     </div>
                 </div>
-                <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-4 sm:p-5 rounded-[2rem] text-white shadow-lg shadow-blue-100 relative overflow-hidden group">
+                <div className="treasury-summary-card bg-gradient-to-br from-blue-600 to-blue-700 p-4 sm:p-5 rounded-[2rem] text-white shadow-lg shadow-blue-100 relative overflow-hidden group">
                     <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-125 transition-transform duration-700">
                         <Landmark size={80} />
                     </div>
                     <div className="relative z-10">
-                        <div className="flex items-center gap-2 mb-2 opacity-90">
+                        <div className="treasury-summary-label flex items-center gap-2 mb-2 opacity-90">
                             <Sparkles size={14} />
                             <span className="text-[9px] font-black uppercase tracking-widest">{tr('إجمالي البنوك', 'Total Banks')}</span>
                         </div>
                         <div className="flex flex-col items-start">
-                            <h2 className="text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBankBalance.toLocaleString('en-US')}</h2>
+                            <h2 className="treasury-summary-value text-xl sm:text-2xl font-black dir-ltr tracking-tighter">{totalBankBalance.toLocaleString('en-US')}</h2>
                             <span className="text-[10px] font-bold opacity-60">{baseCurrency}</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="flex p-1.5 bg-gray-100/60 backdrop-blur rounded-[2rem] mb-6 shadow-inner border border-gray-200/20">
+            <div className="treasury-tabs flex p-1.5 bg-gray-100/60 backdrop-blur rounded-[2rem] mb-6 shadow-inner border border-gray-200/20">
                 <button onClick={() => setActiveTab('BOX')} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-[1.6rem] font-black text-[10px] transition-all duration-500 ${activeTab === 'BOX' ? 'bg-white shadow-md text-emerald-600 scale-[1.02] z-10' : 'text-gray-400 hover:text-gray-600'}`}>
                     <Wallet size={16} />
                     {tr('الخزائن النقدية', 'Cash Boxes')}
@@ -178,12 +178,12 @@ const TreasuryManager: React.FC = () => {
                         <div
                             key={account.id}
                             onDoubleClick={() => !isEditing && openAccountLedger(account.id)}
-                            className="bg-white p-5 rounded-[2.5rem] border border-gray-50 shadow-sm flex flex-col items-stretch group animate-in slide-in-from-bottom-5 transition-all hover:shadow-lg hover:border-gray-100"
+                            className="treasury-account-card bg-white p-5 rounded-[2.5rem] border border-gray-50 shadow-sm flex flex-col items-stretch group animate-in slide-in-from-bottom-5 transition-all hover:shadow-lg hover:border-gray-100"
                             title={isEditing ? undefined : tr('اضغط مرتين لفتح حركة الحساب', 'Double-click to open account ledger')}
                         >
                             <div className="flex items-start justify-between gap-3 mb-4">
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                                    <div className={`p-4 rounded-2xl transition-all duration-500 shadow-sm ${activeTab === 'BOX' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'}`}>
+                                    <div className={`treasury-account-icon p-4 rounded-2xl transition-all duration-500 shadow-sm ${activeTab === 'BOX' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'}`}>
                                         {activeTab === 'BOX' ? <Wallet size={20} /> : <Landmark size={20} />}
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -195,20 +195,20 @@ const TreasuryManager: React.FC = () => {
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-2">
-                                                <h4 className="font-black text-gray-800 text-base tracking-tight leading-none truncate">{displayAccountName(account)}</h4>
+                                                <h4 className="treasury-account-name font-black text-gray-800 text-base tracking-tight leading-none truncate">{displayAccountName(account)}</h4>
                                                 <button onClick={() => startEditing(account.id, account.name)} className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-300 hover:text-blue-500 transition-all active:scale-90 shrink-0">
                                                     <Edit2 size={12} />
                                                 </button>
                                             </div>
                                         )}
                                         <div className="flex items-center gap-2 mt-1">
-                                            <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.2em]">{tr('كود الحساب', 'Account Code')}: {account.code}</p>
+                                            <p className="treasury-account-code text-[9px] text-gray-400 font-black uppercase tracking-[0.2em]">{tr('كود الحساب', 'Account Code')}: {account.code}</p>
                                             <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black">{account.currency}</span>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="text-left flex flex-col items-end ms-2 min-w-[96px] sm:min-w-[120px] max-w-[45%] overflow-hidden">
-                                    <div className={`font-black dir-ltr text-lg sm:text-xl tracking-tighter whitespace-nowrap max-w-full truncate ${balance >= 0 ? 'text-gray-800' : 'text-rose-600'}`}>
+                                <div className="treasury-account-balance-wrap text-left flex flex-col items-end ms-2 min-w-[96px] sm:min-w-[120px] max-w-[45%] overflow-hidden">
+                                    <div className={`treasury-account-balance font-black dir-ltr text-lg sm:text-xl tracking-tighter whitespace-nowrap max-w-full truncate ${balance >= 0 ? 'text-gray-800' : 'text-rose-600'}`}>
                                         {balance.toLocaleString('en-US')}
                                         <span className="text-[9px] text-gray-400 font-bold ml-1">{account.currency}</span>
                                     </div>
@@ -221,7 +221,7 @@ const TreasuryManager: React.FC = () => {
                             </div>
                             <div className="flex justify-between items-center pt-3 border-t border-gray-50">
                                 <div className="flex items-center gap-1.5">
-                                    <span className="text-[8px] text-gray-400 font-black uppercase tracking-widest">{tr('الحالة المحاسبية', 'Accounting Status')}:</span>
+                                    <span className="treasury-account-status-label text-[8px] text-gray-400 font-black uppercase tracking-widest">{tr('الحالة المحاسبية', 'Accounting Status')}:</span>
                                     {balance >= 0 ? <TrendingUp size={12} className="text-emerald-500" /> : <TrendingDown size={12} className="text-rose-500" />}
                                     <span className={`text-[8px] font-bold ${balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{tr('مربوط بالدليل', 'Linked to chart')}</span>
                                 </div>

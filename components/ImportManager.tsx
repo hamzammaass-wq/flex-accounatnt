@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAccounting } from '../contexts/AccountingContext';
-import { TransactionType, Invoice, Product, ImportExpenseDistributionLine } from '../types';
+import { TransactionType, Invoice, Product, ImportExpenseDistributionLine, ImportExpenseDistribution } from '../types';
 import { getDisplayContactName, getDisplayProductName } from '../utils/displayNames';
 import { buildProductPricingPatch, resolveProductPricing } from '../utils/productPricing';
 import { toEnglishDigits } from '../utils/forceEnglishDigits';
@@ -30,7 +30,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     autoStartWizard = false,
     onLaunchConsumed
 }) => {
-    const { invoices, products, updateProduct, addTransaction, addImportExpenseDistribution, importExpenseDistributions, baseCurrency, contacts, companySettings } = useAccounting();
+    const { invoices, products, transactions, updateProduct, addTransaction, updateTransaction, addImportExpenseDistribution, updateImportExpenseDistribution, importExpenseDistributions, baseCurrency, contacts, companySettings } = useAccounting();
     const [searchTerm, setSearchTerm] = useState('');
     const [distributionMethodFilter, setDistributionMethodFilter] = useState<'ALL' | 'VALUE' | 'QUANTITY' | 'MANUAL'>('ALL');
     const [distributionContactFilter, setDistributionContactFilter] = useState('ALL');
@@ -39,6 +39,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     const [distributionMinAmountFilter, setDistributionMinAmountFilter] = useState('');
     const [distributionMaxAmountFilter, setDistributionMaxAmountFilter] = useState('');
     const [showWizard, setShowWizard] = useState(false);
+    const [editingDistribution, setEditingDistribution] = useState<ImportExpenseDistribution | null>(null);
     const [wizardStep, setWizardStep] = useState(1);
     const isEnglish = (companySettings.language ?? 'AR') !== 'AR';
     const tr = (ar: string, en: string) => (isEnglish ? en : ar);
@@ -54,6 +55,22 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     const [distributionMethod, setDistributionMethod] = useState<'VALUE' | 'QUANTITY' | 'MANUAL'>('VALUE');
     const [manualAllocations, setManualAllocations] = useState<Record<string, string>>({});
     const [wizardDesc, setWizardDesc] = useState(() => tr('مصاريف شحن وجمارك واردة', 'Inbound shipping and customs expenses'));
+
+    const resetWizard = () => {
+        setShowWizard(false); setWizardStep(1); setExpenseAmount(''); setSelectedInvoiceIds([]);
+        setSelectedContactId(''); setManualAllocations({}); setDistributionMethod('VALUE'); setEditingDistribution(null);
+    };
+
+    const startEditDistribution = (record: ImportExpenseDistribution) => {
+        setEditingDistribution(record);
+        setExpenseAmount(String(record.totalAmountBase || ''));
+        setSelectedContactId(record.contactId || '');
+        setSelectedInvoiceIds(record.purchaseInvoiceIds || []);
+        setDistributionMethod(record.method);
+        setWizardDesc(record.description || '');
+        setManualAllocations(Object.fromEntries(record.lines.map(line => [`${line.purchaseInvoiceId}-${line.invoiceItemId}`, String(line.allocatedAmountBase || '')])));
+        setWizardStep(1); setShowWizard(true);
+    };
 
     useEffect(() => {
         if (!autoStartWizard && !initialInvoiceId) return;
@@ -200,7 +217,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     }, [distributionMethod, expenseAmount, allItemsToDistribute, totals, manualAllocations]);
 
     const projectedPricingByProduct = useMemo(() => {
-        const aggregates = new Map<string, { product: Product; totalQty: number; allocated: number }>();
+        const aggregates = new Map<string, { product: Product; totalQty: number; directAmount: number; allocated: number }>();
 
         allItemsToDistribute.forEach(item => {
             if (!item.productId) return;
@@ -211,14 +228,16 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             if (qty <= 0) return;
 
             const allocated = Number(distributions[item.key] || 0);
+            const directAmount = (Number(item.total) || 0) * (Number(item.invoiceExchangeRate) || 1);
             const prev = aggregates.get(product.id);
             if (!prev) {
-                aggregates.set(product.id, { product, totalQty: qty, allocated });
+                aggregates.set(product.id, { product, totalQty: qty, directAmount, allocated });
                 return;
             }
             aggregates.set(product.id, {
                 product,
                 totalQty: prev.totalQty + qty,
+                directAmount: prev.directAmount + directAmount,
                 allocated: prev.allocated + allocated
             });
         });
@@ -234,7 +253,9 @@ const ImportManager: React.FC<ImportManagerProps> = ({
         }>();
 
         aggregates.forEach((entry, productId) => {
-            const currentCost = round2(Number(entry.product.buyPrice) || 0);
+            // Landed cost must start from the selected purchase lines, not the product's
+            // latest cost (which may belong to another purchase batch).
+            const currentCost = round2(entry.totalQty > 0 ? entry.directAmount / entry.totalQty : 0);
             const extraPerUnit = entry.totalQty > 0 ? (entry.allocated / entry.totalQty) : 0;
             const nextCost = round2(currentCost + extraPerUnit);
             const pricing = resolveProductPricing(entry.product, nextCost);
@@ -283,7 +304,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
         
         // 1. Post Accounting Transaction (Move from Expense to Asset/Inventory Value)
         // This transaction credits the Supplier/Customer account (Liability increases)
-        const postResult = addTransaction({
+        const transactionPayload = {
             amount: totalExp,
             description: `${wizardDesc} - ${tr('مستحق لـ', 'Payable to')} ${displayContactName(party || null)}`,
             category: 'import_expenses',
@@ -295,7 +316,20 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             currency: baseCurrency,
             exchangeRate: 1,
             status: 'POSTED'
-        });
+        };
+        // Older records did not retain a transaction id; match their unique posted import entry.
+        const matchingTransactions = editingDistribution ? transactions.filter(tx =>
+            tx.category === 'import_expenses' && tx.contactId === editingDistribution.contactId &&
+            Math.abs(Number(tx.amount || 0) - Number(editingDistribution.totalAmountBase || 0)) < 0.01
+        ) : [];
+        if (editingDistribution && matchingTransactions.length !== 1) {
+            alert(tr('تعذر تحديد القيد المحاسبي المرتبط بهذا التوزيع بأمان. لا يمكن حفظ التعديل.', 'The accounting entry linked to this distribution could not be identified safely. Changes were not saved.'));
+            return;
+        }
+        const linkedTransaction = matchingTransactions[0];
+        const postResult = linkedTransaction
+            ? updateTransaction(linkedTransaction.id, transactionPayload)
+            : addTransaction(transactionPayload);
         if (!postResult.ok) {
             alert(postResult.message);
             return;
@@ -311,7 +345,6 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             const qty = Number(item.quantity) || 0;
             const directLineAmountBase = (Number(item.total) || 0) * (Number(item.invoiceExchangeRate) || 1);
             const allocatedAmountBase = Number(distributions[item.key] || 0);
-            const projected = item.productId ? projectedPricingByProduct.get(item.productId) : undefined;
             return {
                 id: item.key,
                 purchaseInvoiceId: item.invoiceId,
@@ -324,14 +357,14 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                 directLineAmountBase,
                 allocatedAmountBase,
                 landedLineAmountBase: directLineAmountBase + allocatedAmountBase,
-                unitCostBeforeBase: projected?.currentCost,
-                unitCostAfterBase: projected?.nextCost,
-                suggestedWholesalePrice: projected?.wholesalePrice,
-                suggestedRetailPrice: projected?.retailPrice
+                unitCostBeforeBase: qty > 0 ? round2(directLineAmountBase / qty) : 0,
+                unitCostAfterBase: qty > 0 ? round2((directLineAmountBase + allocatedAmountBase) / qty) : 0,
+                suggestedWholesalePrice: item.productId ? projectedPricingByProduct.get(item.productId)?.wholesalePrice : undefined,
+                suggestedRetailPrice: item.productId ? projectedPricingByProduct.get(item.productId)?.retailPrice : undefined
             };
         });
 
-        addImportExpenseDistribution({
+        const distributionRecord = {
             date: new Date().toISOString().split('T')[0],
             totalAmountBase: totalExp,
             currency: baseCurrency,
@@ -342,14 +375,14 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             purchaseInvoiceIds: Array.from(new Set(selectedInvoiceIds)),
             journalCategory: 'import_expenses',
             lines: distributionLines
-        });
+        };
+        const distributionResult = editingDistribution
+            ? updateImportExpenseDistribution(editingDistribution.id, distributionRecord)
+            : addImportExpenseDistribution(distributionRecord);
+        if (!distributionResult.ok) { alert(distributionResult.message); return; }
 
         alert(tr('تم توزيع المصاريف بنجاح وتقييدها في حساب الطرف المختار ✅', 'Expenses distributed successfully and posted to selected party account ?'));
-        setShowWizard(false);
-        setWizardStep(1);
-        setExpenseAmount('');
-        setSelectedInvoiceIds([]);
-        setSelectedContactId('');
+        resetWizard();
     };
 
     return (
@@ -505,6 +538,11 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                             </div>
                                         </div>
                                     </div>
+                                    <div className="mt-3 pt-3 border-t border-gray-50 flex justify-end">
+                                        <button type="button" onClick={() => startEditDistribution(record)} className="h-9 px-3 rounded-xl bg-cyan-50 text-cyan-700 text-xs font-black flex items-center gap-1.5">
+                                            <Edit2 size={14} /> {tr('تعديل', 'Edit')}
+                                        </button>
+                                    </div>
                                 </div>
                             );
                         })}
@@ -513,7 +551,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             ) : (
                 <div className="animate-in slide-in-from-left-4 duration-500 pb-10">
                     <div className="flex items-center justify-between mb-8">
-                        <button onClick={() => wizardStep > 1 ? setWizardStep(wizardStep - 1) : setShowWizard(false)} className="p-3 bg-white rounded-2xl border border-gray-100 text-gray-500 shadow-sm"><ArrowLeft size={20} className="rotate-180" /></button>
+                        <button onClick={() => wizardStep > 1 ? setWizardStep(wizardStep - 1) : resetWizard()} className="p-3 bg-white rounded-2xl border border-gray-100 text-gray-500 shadow-sm"><ArrowLeft size={20} className="rotate-180" /></button>
                         <div className="flex gap-2">
                             {[1, 2, 3].map(s => (
                                 <div key={s} className={`h-1.5 rounded-full transition-all duration-500 ${wizardStep === s ? 'w-8 bg-cyan-600' : 'w-2 bg-gray-200'}`}></div>
@@ -730,7 +768,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                     className={`w-full py-4.5 rounded-[1.5rem] font-black text-sm shadow-xl transition-all flex items-center justify-center gap-3 ${isBalanced ? 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-900/50 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
                                 >
                                     <Save size={20} />
-                                    {tr('ترحيل القيد وتحديث التكاليف', 'Post Entry and Update Costs')}
+                                    {editingDistribution ? tr('حفظ التعديلات', 'Save Changes') : tr('ترحيل القيد وتحديث التكاليف', 'Post Entry and Update Costs')}
                                 </button>
                             </div>
                         </div>

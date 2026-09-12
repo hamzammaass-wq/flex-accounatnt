@@ -29,8 +29,8 @@ android {
         applicationId "com.smartaccountant.erp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2026080502
-        versionName "1.0.28"
+        versionCode 2026081599
+        versionName "1.0.32"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -47,6 +47,9 @@ android {
         release {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
+            }
+            ndk {
+                debugSymbolLevel 'symbol_table'
             }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

@@ -1,13 +1,13 @@
 Branding masters live in `branding/masters`.
 
 Files:
-- `aiflex-erp-logo.png`: primary logo master.
-- `aiflex-erp-app-icon.png`: 1024x1024 raster app icon master.
-- `aiflex-erp-ios-icon.png`: 1024x1024 iOS-specific app icon master used when the iPhone icon needs a full-bleed version.
+- `flex-erp-logo.png`: primary logo master.
+- `flex-erp-app-icon.png`: 1024x1024 raster app icon master.
+- `flex-erp-ios-icon.png`: 1024x1024 iOS-specific app icon master used when the iPhone icon needs a full-bleed version.
 
 Generated automatically during `npm run brand:sync`:
-- `public/brand/aiflex-erp-logo.svg`
-- `public/brand/aiflex-erp-mark.svg`
+- `public/brand/flex-erp-logo.svg`
+- `public/brand/flex-erp-mark.svg`
 - `public/icons/icon-192.svg`
 - `public/icons/icon-512.svg`
 
