@@ -115,12 +115,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ productId, onClose }) => {
             showHandle={false}
         >
             <div className="font-tajawal h-full flex flex-col" dir={isEnglish ? 'ltr' : 'rtl'}>
-                <div className="bg-slate-900 px-4 pb-4 text-white relative shrink-0" style={{ paddingTop: 'calc(var(--app-safe-top) + 1.25rem)' }}>
-                    <div className="absolute left-3 top-3 flex items-center gap-1 z-20">
-                        <button onClick={handlePrintLabel} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all" title={tr('طباعة باركود', 'Print barcode')}>
+                <div className="bg-slate-900 px-4 pb-4 text-white relative shrink-0" style={{ paddingTop: 'calc(var(--app-safe-top) + 4.25rem)' }}>
+                    <div
+                        className="absolute left-3 flex items-center gap-1 z-20"
+                        style={{ top: 'calc(var(--app-safe-top) + 0.75rem)' }}
+                    >
+                        <button onClick={handlePrintLabel} className="min-w-11 min-h-11 inline-flex items-center justify-center bg-white/10 rounded-full hover:bg-white/20 transition-all" title={tr('طباعة باركود', 'Print barcode')} aria-label={tr('طباعة باركود الصنف', 'Print product barcode')}>
                             <Printer size={16} />
                         </button>
-                        <button onClick={onClose} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all"><X size={18} /></button>
+                        <button onClick={onClose} className="min-w-11 min-h-11 inline-flex items-center justify-center bg-white/10 rounded-full hover:bg-white/20 transition-all" aria-label={tr('إغلاق', 'Close')}><X size={18} /></button>
                     </div>
                     <div className="relative z-10">
                         {product.imageUrl && (
