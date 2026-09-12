@@ -20,10 +20,17 @@ interface ImportManagerProps {
     onLaunchConsumed?: () => void;
 }
 
+type ImportExpenseDistributionWithJournalRef = ImportExpenseDistribution & {
+    journalTransactionRef?: string;
+};
+
 const round2 = (value: number): number => {
     const safe = Number.isFinite(value) ? value : 0;
     return Number(safe.toFixed(2));
 };
+
+const createImportJournalRef = (): string =>
+    `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 
 const ImportManager: React.FC<ImportManagerProps> = ({
     initialInvoiceId,
@@ -185,9 +192,12 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     }, [selectedInvoicesData]);
 
     const totals = useMemo(() => {
-        // Fix: Added explicit types to reduce callback to avoid 'unknown' inference issues
-        const qty = allItemsToDistribute.reduce((s: number, i: any) => s + (i.quantity || 0), 0);
-        const val = allItemsToDistribute.reduce((s: number, i: any) => s + (i.total || 0), 0);
+        const qty = allItemsToDistribute.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+        // VALUE allocation must compare invoice lines in the same (base) currency.
+        const val = allItemsToDistribute.reduce(
+            (s: number, i: any) => s + ((Number(i.total) || 0) * (Number(i.invoiceExchangeRate) || 1)),
+            0
+        );
         return { qty, val };
     }, [allItemsToDistribute]);
 
@@ -199,12 +209,13 @@ const ImportManager: React.FC<ImportManagerProps> = ({
 
         if (distributionMethod === 'VALUE') {
             allItemsToDistribute.forEach(item => {
-                const ratio = item.total / totals.val;
+                const lineValueBase = (Number(item.total) || 0) * (Number(item.invoiceExchangeRate) || 1);
+                const ratio = totals.val > 0 ? lineValueBase / totals.val : 0;
                 results[item.key] = ratio * totalExp;
             });
         } else if (distributionMethod === 'QUANTITY') {
             allItemsToDistribute.forEach(item => {
-                const ratio = item.quantity / totals.qty;
+                const ratio = totals.qty > 0 ? (Number(item.quantity) || 0) / totals.qty : 0;
                 results[item.key] = ratio * totalExp;
             });
         } else {
@@ -279,9 +290,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
         [projectedPricingByProduct]
     );
 
-    // Fix: Explicitly cast to number[] to ensure reduce returns number and fix arithmetic operation type error
     const totalDistributed = (Object.values(distributions) as number[]).reduce((s, v) => s + v, 0);
-    // Fix: arithmetic subtraction now valid because totalDistributed is typed as number
     const isBalanced = Math.abs(totalDistributed - (parseFloat(expenseAmount) || 0)) < 0.1;
 
     const handleConfirmDistribution = () => {
@@ -301,9 +310,14 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             : party?.type === 'PARTNER'
                 ? (party.currentAccountId || party.linkedAccountId || 'acc_partner_current')
                 : (party?.currentAccountId || party?.linkedAccountId || 'acc_receivable');
+
+        const existingJournalRef = editingDistribution
+            ? (editingDistribution as ImportExpenseDistributionWithJournalRef).journalTransactionRef
+            : undefined;
+        const journalTransactionRef = existingJournalRef || createImportJournalRef();
         
         // 1. Post Accounting Transaction (Move from Expense to Asset/Inventory Value)
-        // This transaction credits the Supplier/Customer account (Liability increases)
+        // The stable voucher reference links this distribution to exactly one journal entry.
         const transactionPayload = {
             amount: totalExp,
             description: `${wizardDesc} - ${tr('مستحق لـ', 'Payable to')} ${displayContactName(party || null)}`,
@@ -312,17 +326,22 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             date: new Date().toISOString().split('T')[0],
             debitAccountId: 'acc_inventory',
             creditAccountId: creditAccountId, 
-            contactId: selectedContactId, // Linking the contact for sub-ledger deduction
+            contactId: selectedContactId,
+            voucherId: journalTransactionRef,
             currency: baseCurrency,
             exchangeRate: 1,
             status: 'POSTED'
         };
-        // Older records did not retain a transaction id; match their unique posted import entry.
-        const matchingTransactions = editingDistribution ? transactions.filter(tx =>
-            tx.category === 'import_expenses' && tx.contactId === editingDistribution.contactId &&
-            !tx.isReversal && !tx.reversedById &&
-            Math.abs(Number(tx.amount || 0) - Number(editingDistribution.totalAmountBase || 0)) < 0.01
-        ) : [];
+
+        const matchingTransactions = editingDistribution ? transactions.filter(tx => {
+            if (existingJournalRef) {
+                return tx.voucherId === existingJournalRef && tx.category === 'import_expenses' && !tx.isReversal && !tx.reversedById;
+            }
+            // Legacy fallback: older distributions did not retain a stable journal reference.
+            return tx.category === 'import_expenses' && tx.contactId === editingDistribution.contactId &&
+                !tx.isReversal && !tx.reversedById &&
+                Math.abs(Number(tx.amount || 0) - Number(editingDistribution.totalAmountBase || 0)) < 0.01;
+        }) : [];
         if (editingDistribution && matchingTransactions.length !== 1) {
             alert(tr('تعذر تحديد القيد المحاسبي المرتبط بهذا التوزيع بأمان. لا يمكن حفظ التعديل.', 'The accounting entry linked to this distribution could not be identified safely. Changes were not saved.'));
             return;
@@ -382,6 +401,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             description: wizardDesc,
             purchaseInvoiceIds: Array.from(new Set(selectedInvoiceIds)),
             journalCategory: 'import_expenses',
+            journalTransactionRef,
             lines: distributionLines
         };
         const distributionResult = editingDistribution
@@ -389,7 +409,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
             : addImportExpenseDistribution(distributionRecord);
         if (!distributionResult.ok) { alert(distributionResult.message); return; }
 
-        alert(tr('تم توزيع المصاريف بنجاح وتقييدها في حساب الطرف المختار ✅', 'Expenses distributed successfully and posted to selected party account ?'));
+        alert(tr('تم توزيع المصاريف بنجاح وتقييدها في حساب الطرف المختار ✅', 'Expenses distributed successfully and posted to selected party account ✅'));
         resetWizard();
     };
 
@@ -788,4 +808,3 @@ const ImportManager: React.FC<ImportManagerProps> = ({
 };
 
 export default ImportManager;
-
