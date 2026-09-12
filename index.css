@@ -3675,6 +3675,51 @@ html[data-app-theme='dark'] .app-page :where(input:not([type='checkbox']):not([t
 
 }
 
+/* Phone layout for wide analytical reports: preserve readable columns and
+   use native horizontal swiping instead of compressing numbers into overlap. */
+@media (max-width: 639px) {
+  .financial-reports-page .report-mobile-wide-scroll {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-inline: contain;
+    padding: 0 0.2rem 0.65rem;
+    scrollbar-width: thin;
+  }
+
+  .financial-reports-page .report-mobile-wide-scroll > table {
+    width: max-content !important;
+    min-width: 980px !important;
+    max-width: none !important;
+    table-layout: auto !important;
+  }
+
+  .financial-reports-page .report-mobile-wide-scroll > table th,
+  .financial-reports-page .report-mobile-wide-scroll > table td {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    padding: 0.5rem 0.55rem !important;
+    font-size: 9.5px !important;
+    line-height: 1.35 !important;
+  }
+
+  .financial-reports-page .report-mobile-wide-scroll > table th:first-child,
+  .financial-reports-page .report-mobile-wide-scroll > table td:first-child {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 1;
+    background: inherit;
+    box-shadow: 4px 0 8px rgba(15, 23, 42, 0.06);
+  }
+
+  .financial-reports-page .report-mobile-wide-scroll > table thead th:first-child {
+    z-index: 2;
+  }
+}
+
 /* Performance & Rendering Optimizations */
 .fast-scroll-list,
 .table-responsive,

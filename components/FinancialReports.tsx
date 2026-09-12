@@ -6859,7 +6859,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                             {tr('مرتب حسب أعلى تكلفة إجمالية', 'Sorted by highest total cost')}
                         </span>
                     </div>
-                    <div className="overflow-x-auto">
+                    <div className="report-mobile-wide-scroll overflow-x-auto" aria-label={tr('جدول تكلفة المشتريات، اسحب أفقياً لعرض جميع الأعمدة', 'Purchase-cost table; swipe horizontally to view all columns')}>
                         <table className="report-table-purchase-cost-by-item w-full min-w-[980px] text-start">
                             <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                 <tr>
@@ -7032,7 +7032,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                 </div>
                 <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
                     <div className="p-4 border-b border-gray-50 flex items-center gap-2"><TrendingDown size={16} className="text-purple-600" /><h3 className="font-black text-gray-800">{tr('مقارنة السعر الأخير مقابل السعر السابق ومتوسط الفترة', 'Latest Price vs Previous/Period Average')}</h3></div>
-                    <div className="overflow-x-auto">
+                    <div className="report-mobile-wide-scroll overflow-x-auto" aria-label={tr('جدول فروقات أسعار الشراء، اسحب أفقياً لعرض جميع الأعمدة', 'Purchase-price variance table; swipe horizontally to view all columns')}>
                         <table className="report-table-purchase-price-variance w-full min-w-[1080px] text-start">
                             <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                 <tr>
@@ -7218,7 +7218,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                 </div>
                 <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
                     <div className="p-4 border-b border-gray-50 flex items-center gap-2"><UserCheck size={16} className="text-purple-600" /><h3 className="font-black text-gray-800">{tr('مؤشرات أداء الموردين', 'Supplier Performance Metrics')}</h3></div>
-                    <div className="overflow-x-auto">
+                    <div className="report-mobile-wide-scroll overflow-x-auto" aria-label={tr('جدول تحليل الموردين، اسحب أفقياً لعرض جميع الأعمدة', 'Supplier analysis table; swipe horizontally to view all columns')}>
                         <table className="report-table-supplier-analysis w-full min-w-[1180px] text-start">
                             <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                 <tr>
@@ -7390,7 +7390,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
 
                 <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto mb-6">
                     <div className="p-4 border-b border-gray-50 flex items-center gap-2"><Receipt size={16} className="text-cyan-600" /><h3 className="font-black text-gray-800">{tr('تفاصيل فواتير مصاريف الاستيراد', 'Import Expense Invoice Details')}</h3></div>
-                    <div className="overflow-x-auto">
+                    <div className="report-mobile-wide-scroll overflow-x-auto" aria-label={tr('جدول مصاريف الاستيراد، اسحب أفقياً لعرض جميع الأعمدة', 'Import-expense table; swipe horizontally to view all columns')}>
                         <table className="report-table-import-expense-invoices w-full min-w-[1100px] text-start">
                             <thead className="bg-gray-50 text-gray-500 text-[10px] font-black uppercase">
                                 <tr>
