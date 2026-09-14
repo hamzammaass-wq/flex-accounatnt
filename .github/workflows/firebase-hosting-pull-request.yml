@@ -212,13 +212,29 @@ jobs:
           projectId: smart-account-cc181
       - id: preview_url
         name: Resolve preview URL
+        env:
+          FIREBASE_PREVIEW_URLS: ${{ steps.firebase_preview_deploy.outputs.urls }}
+          FIREBASE_PREVIEW_DETAILS_URL: ${{ steps.firebase_preview_deploy.outputs.details_url }}
         run: |
-          URLS='${{ steps.firebase_preview_deploy.outputs.urls }}'
-          DETAILS='${{ steps.firebase_preview_deploy.outputs.details_url }}'
-          RESOLVED="${URLS%%,*}"
-          if [ -z "$RESOLVED" ]; then
-            RESOLVED="$DETAILS"
-          fi
+          RESOLVED="$(node -e '
+            const raw = process.env.FIREBASE_PREVIEW_URLS || "";
+            let candidates = [];
+            try {
+              const parsed = JSON.parse(raw);
+              candidates = Array.isArray(parsed) ? parsed : [parsed];
+            } catch {
+              candidates = raw.split(",");
+            }
+            candidates.push(process.env.FIREBASE_PREVIEW_DETAILS_URL || "");
+            const resolved = candidates
+              .map((value) => String(value || "").trim())
+              .find((value) => /^https?:\/\//i.test(value));
+            if (!resolved) {
+              console.error("Firebase Hosting did not return a valid preview URL.");
+              process.exit(1);
+            }
+            process.stdout.write(resolved);
+          ')"
           echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
