@@ -693,8 +693,8 @@ const PurchaseInvoiceList: React.FC<PurchaseInvoiceListProps> = ({ onNavigate, o
 
           {/* Tabs */}
           <div className="flex p-1.5 bg-white border border-gray-100 rounded-[2rem] mb-6 shadow-sm">
-            <button onClick={() => setActiveTab('INVOICES')} className={`flex-1 py-3 rounded-[1.6rem] text-xs font-black transition-all ${activeTab === 'INVOICES' ? 'bg-slate-800 text-white shadow-lg' : 'text-gray-400'}`}>{tr('فواتير', 'Invoices')}</button>
-            <button onClick={() => setActiveTab('RETURNS')} className={`flex-1 py-3 rounded-[1.6rem] text-xs font-black transition-all ${activeTab === 'RETURNS' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-400'}`}>{tr('مرتجع', 'Returns')}</button>
+            <button data-testid="purchase-tab-invoices" onClick={() => setActiveTab('INVOICES')} className={`flex-1 py-3 rounded-[1.6rem] text-xs font-black transition-all ${activeTab === 'INVOICES' ? 'bg-slate-800 text-white shadow-lg' : 'text-gray-400'}`}>{tr('فواتير', 'Invoices')}</button>
+            <button data-testid="purchase-tab-returns" onClick={() => setActiveTab('RETURNS')} className={`flex-1 py-3 rounded-[1.6rem] text-xs font-black transition-all ${activeTab === 'RETURNS' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-400'}`}>{tr('مرتجع', 'Returns')}</button>
           </div>
 
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
