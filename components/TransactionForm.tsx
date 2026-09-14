@@ -3826,6 +3826,7 @@ const InvoiceScreen: React.FC<{
                                         </td>
                                         <td data-label={tr('الكمية', 'Qty')} className="invoice-item-qty-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <input
+                                                data-testid={`invoice-item-${idx + 1}-quantity`}
                                                 type="text"
                                                 inputMode="decimal"
                                                 lang="en"
@@ -3838,6 +3839,7 @@ const InvoiceScreen: React.FC<{
                                         </td>
                                         <td data-label={tr('السعر', 'Price')} className="invoice-item-price-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1">
                                             <input
+                                                data-testid={`invoice-item-${idx + 1}-price`}
                                                 type="text"
                                                 inputMode="decimal"
                                                 lang="en"
@@ -3855,6 +3857,7 @@ const InvoiceScreen: React.FC<{
                                         </td>
                                         <td data-label={tr('الإجمالي', 'Total')} className="invoice-item-total-cell border-b border-slate-100 px-0.5 sm:px-1.5 py-1 text-center align-middle">
                                             <input
+                                                data-testid={`invoice-item-${idx + 1}-total`}
                                                 type="text"
                                                 inputMode="decimal"
                                                 lang="en"
