@@ -11,10 +11,13 @@ export const resolveInvoiceProductUnitPrice = (
   options: InvoicePricingOptions = {}
 ): number => {
   const pricing = resolveProductPricing(product);
-  const preferredTier = options.contact?.preferredPriceTier;
+  // Purchase and purchase-return lines must always start from inventory cost.
+  // Customer price tiers are sales-only preferences and must never override buyPrice.
+  if (!options.salesMode) return pricing.cost;
 
+  const preferredTier = options.contact?.preferredPriceTier;
   if (preferredTier === 'WHOLESALE') return pricing.wholesalePrice;
   if (preferredTier === 'RETAIL') return pricing.retailPrice;
 
-  return options.salesMode ? pricing.retailPrice : pricing.cost;
+  return pricing.retailPrice;
 };

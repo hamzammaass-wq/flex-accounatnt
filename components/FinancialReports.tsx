@@ -5115,13 +5115,23 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                     <div className={`p-8 rounded-[3rem] text-white shadow-xl text-center relative overflow-hidden ${netProfit >= 0 ? 'bg-gradient-to-br from-emerald-600 to-emerald-900' : 'bg-gradient-to-br from-rose-600 to-rose-900'}`}>
                         <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
                         <h3 className="text-lg font-bold mb-2 opacity-90">{netProfit >= 0 ? tr('صافي الربح', 'Net Profit') : tr('صافي الخسارة', 'Net Loss')}</h3>
-                        <h1 className="text-5xl font-black dir-ltr tracking-tighter">{formatValue(Math.abs(netProfit))}</h1>
+                        <h1 data-testid="income-statement-net-profit" className="text-5xl font-black dir-ltr tracking-tighter">{formatValue(netProfit)}</h1>
                         <p className="mt-4 overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold uppercase tracking-widest opacity-75 sm:text-[10px]">
                             {tr('عن الفترة من', 'For period from')} {startDate} {tr('إلى', 'to')} {endDate}
                         </p>
                     </div>
 
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
+                        <div className="mb-4 grid grid-cols-2 gap-3">
+                            <div className="rounded-2xl bg-emerald-50 p-3 text-center">
+                                <p className="text-[10px] font-black text-emerald-600">{tr('إجمالي الإيرادات', 'Total Revenue')}</p>
+                                <p data-testid="income-statement-total-revenue" className="dir-ltr mt-1 font-black text-emerald-800">{formatValue(totalRevenue)}</p>
+                            </div>
+                            <div className="rounded-2xl bg-rose-50 p-3 text-center">
+                                <p className="text-[10px] font-black text-rose-600">{tr('إجمالي المصروفات', 'Total Expenses')}</p>
+                                <p data-testid="income-statement-total-expense" className="dir-ltr mt-1 font-black text-rose-800">{formatValue(totalExpense)}</p>
+                            </div>
+                        </div>
                         <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-50">
                             <h4 className="font-black text-gray-800">{tr('تفاصيل حسابات قائمة الدخل', 'Income statement account details')}</h4>
                             <span className="text-[10px] font-black text-gray-400">{tr('إيرادات ومصروفات', 'Revenue and expenses')}</span>
@@ -5936,6 +5946,7 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
         const totalLiabilities = liabilitiesRoot ? liabilitiesRoot.nodeValue : 0;
         const totalEquityFinal = totalEquityRaw + periodNetProfit + financialData.priorProfit;
         const totalLiabAndEquity = totalLiabilities + totalEquityFinal;
+        const balanceDifference = totalAssets - totalLiabAndEquity;
 
         const accountById = new Map<string, Account>(accounts.map(acc => [acc.id, acc] as [string, Account]));
         const isUnderParent = (accountId: string, targetParentId: string) => {
@@ -6084,6 +6095,20 @@ const FinancialReports: React.FC<FinancialReportsProps> = ({ onEditTransaction }
                 <ReportHeader title={tr('الميزانية العمومية', 'Balance Sheet')} />
 
                 <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                        {[
+                            { id: 'balance-sheet-total-assets', label: tr('الأصول', 'Assets'), value: totalAssets },
+                            { id: 'balance-sheet-total-liabilities', label: tr('الخصوم', 'Liabilities'), value: totalLiabilities },
+                            { id: 'balance-sheet-total-equity', label: tr('حقوق الملكية', 'Equity'), value: totalEquityFinal },
+                            { id: 'balance-sheet-total-liabilities-equity', label: tr('الخصوم وحقوق الملكية', 'Liabilities & Equity'), value: totalLiabAndEquity },
+                            { id: 'balance-sheet-difference', label: tr('فرق المعادلة', 'Equation Difference'), value: balanceDifference }
+                        ].map(item => (
+                            <div key={item.id} className="rounded-2xl border border-slate-100 bg-white p-3 text-center shadow-sm">
+                                <p className="text-[9px] font-black text-slate-500">{item.label}</p>
+                                <p data-testid={item.id} className="dir-ltr mt-1 font-black text-slate-900">{formatValue(item.value)}</p>
+                            </div>
+                        ))}
+                    </div>
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-50 shadow-sm">
                         <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-50">
                             <h4 className="font-black text-gray-800">{tr('تفاصيل حسابات الميزانية العمومية', 'Balance sheet account details')}</h4>

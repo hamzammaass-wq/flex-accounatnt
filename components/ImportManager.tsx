@@ -414,7 +414,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
     };
 
     return (
-        <div className="app-page animate-in fade-in duration-700 p-3 md:p-4 font-tajawal" dir={isEnglish ? 'ltr' : 'rtl'}>
+        <div className="app-page animate-in fade-in duration-700 p-3 md:p-4 font-tajawal" dir={isEnglish ? 'ltr' : 'rtl'} data-testid="import-manager-root">
             <header className="mb-3 flex justify-between items-center px-1">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-black text-gray-800 tracking-tight">{tr('مصاريف الاستيراد', 'Import Expenses')}</h1>
@@ -433,6 +433,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                             <h3 className="text-base font-black mb-1 flex items-center gap-2">{tr('توزيع مصاريف ذكي', 'Smart Expense Distribution')}</h3>
                             <p className="text-[10px] text-slate-400 font-bold mb-3 leading-relaxed">{tr('حمل تكاليف الشحن والجمارك على حساب المورد أو العميل المعني ووزعها على المخزون.', 'Allocate shipping and customs costs to the relevant supplier/customer account and distribute them to inventory.')}</p>
                             <button 
+                                data-testid="import-start-distribution"
                                 onClick={() => setShowWizard(true)}
                                 className="w-full h-10 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-black text-xs shadow-xl shadow-cyan-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
@@ -599,6 +600,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                     <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-2">{tr('المبلغ المراد توزيعه (سيُقيد في حساب الطرف)', 'Amount to distribute (will be posted to party account)')}</label>
                                         <input 
+                                            data-testid="import-expense-amount"
                                             type="number" inputMode="decimal" 
                                             value={expenseAmount} 
                                             onChange={e => setExpenseAmount(e.target.value)}
@@ -611,6 +613,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-2">{tr('الطرف المستحق (مورد/عميل/شريك)', 'Payable Party (Supplier/Customer/Partner)')}</label>
                                         <div className="relative">
                                             <select 
+                                                data-testid="import-expense-contact"
                                                 value={selectedContactId} 
                                                 onChange={e => setSelectedContactId(e.target.value)} 
                                                 className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-sm text-gray-800 appearance-none focus:ring-4 ring-blue-50"
@@ -627,6 +630,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                     <div className="space-y-1.5">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1 block mb-2">{tr('وصف المصروف', 'Expense Description')}</label>
                                         <input 
+                                            data-testid="import-expense-description"
                                             type="text"
                                             value={wizardDesc} 
                                             onChange={e => setWizardDesc(e.target.value)}
@@ -637,6 +641,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 </div>
                             </div>
                             <button 
+                                data-testid="import-next-invoices"
                                 onClick={() => (parseFloat(expenseAmount) > 0 && selectedContactId) ? setWizardStep(2) : alert(tr('يرجى تحديد المبلغ واختيار الطرف', 'Please set amount and select party'))}
                                 className="w-full py-4.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all"
                             >
@@ -655,8 +660,9 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 <p className="text-[10px] text-gray-400 font-bold mb-6 px-1">{tr('اختر فاتورة واحدة أو أكثر ليتم تحميل المصروف على بنودها.', 'Choose one or more invoices to distribute this expense across their items.')}</p>
                                 
                                 <div className="max-h-[40vh] overflow-y-auto space-y-3 no-scrollbar pr-1">
-                                    {invoices.filter(i => i.type === TransactionType.EXPENSE).map(inv => (
+                                    {invoices.filter(i => i.type === TransactionType.EXPENSE && i.category === 'purchase_invoice' && i.postingStatus === 'POSTED').map(inv => (
                                         <button 
+                                            data-testid={`import-invoice-${inv.id}`}
                                             key={inv.id}
                                             onClick={() => setSelectedInvoiceIds(prev => prev.includes(inv.id) ? prev.filter(id => id !== inv.id) : [...prev, inv.id])}
                                             className={`w-full p-4.5 rounded-[1.8rem] border flex items-center justify-between transition-all ${selectedInvoiceIds.includes(inv.id) ? 'bg-blue-50 border-blue-200 ring-4 ring-blue-100 shadow-sm' : 'bg-gray-50 border-gray-100 hover:bg-white'}`}
@@ -676,6 +682,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                 </div>
                             </div>
                             <button 
+                                data-testid="import-next-method"
                                 onClick={() => selectedInvoiceIds.length > 0 ? setWizardStep(3) : alert(tr('يرجى اختيار فاتورة واحدة على الأقل', 'Please select at least one invoice'))}
                                 className="w-full py-4.5 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all"
                             >
@@ -699,6 +706,7 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                         { id: 'MANUAL', label: tr('توزيع يدوي', 'Manual'), icon: <Edit2 size={20} /> }
                                     ].map(m => (
                                         <button 
+                                            data-testid={`import-method-${String(m.id).toLowerCase()}`}
                                             key={m.id}
                                             onClick={() => setDistributionMethod(m.id as any)}
                                             className={`p-3.5 rounded-2xl border flex flex-col items-center gap-2 transition-all ${distributionMethod === m.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' : 'bg-gray-50 border-gray-100 text-gray-400'}`}
@@ -787,10 +795,11 @@ const ImportManager: React.FC<ImportManagerProps> = ({
                                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{tr('إجمالي المبلغ الموزع', 'Total Distributed Amount')}</span>
                                     <div className="flex items-center gap-2">
                                         {isBalanced ? <CheckCircle2 size={16} className="text-emerald-400" /> : <AlertTriangle size={16} className="text-rose-400 animate-pulse" />}
-                                        <h4 className={`text-2xl font-black dir-ltr tracking-tighter ${isBalanced ? 'text-emerald-400' : 'text-rose-400'}`}>{totalDistributed.toLocaleString('en-US')}</h4>
+                                        <h4 data-testid="import-distributed-total" className={`text-2xl font-black dir-ltr tracking-tighter ${isBalanced ? 'text-emerald-400' : 'text-rose-400'}`}>{totalDistributed.toLocaleString('en-US')}</h4>
                                     </div>
                                 </div>
                                 <button 
+                                    data-testid="import-submit-distribution"
                                     onClick={handleConfirmDistribution}
                                     disabled={!isBalanced}
                                     className={`w-full py-4.5 rounded-[1.5rem] font-black text-sm shadow-xl transition-all flex items-center justify-center gap-3 ${isBalanced ? 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-900/50 active:scale-95' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}

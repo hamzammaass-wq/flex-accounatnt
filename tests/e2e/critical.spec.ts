@@ -5,7 +5,10 @@ import {
   installDialogCollector,
   installRuntimeErrorGuards,
   navigateToTab,
+  openFinancialReport,
+  openPaymentVoucherForm,
   openPurchaseInvoiceForm,
+  openPurchaseReturnForm,
   openReceiptVoucherForm,
   openSalesInvoiceForm,
   openTrialBalance,
@@ -20,6 +23,125 @@ const journalDescription = 'Playwright critical journal';
 const receiptAmount = 1200;
 const salesItemCost = 2500;
 const payrollAmount = 2500;
+
+test('critical: complete accounting journey remains balanced through financial statements', async ({ page }) => {
+  test.setTimeout(180_000);
+  const dialogMessages = installDialogCollector(page);
+  const runtimeGuards = installRuntimeErrorGuards(page);
+
+  const purchaseAmount = 300;
+  const importCost = 60;
+  const supplierPayment = 20;
+  const purchaseReturn = 300;
+  const customerReceipt = 100;
+  const manualRevenue = 50;
+  const expectedPostedTotal = purchaseAmount + importCost + supplierPayment + purchaseReturn + customerReceipt + manualRevenue;
+
+  await ensureAuthenticated(page);
+  await openTrialBalance(page);
+  const baselineTotalDebit = await readTrialBalanceValue(page, 'trial-balance-total-debit');
+  const baselineTotalCredit = await readTrialBalanceValue(page, 'trial-balance-total-credit');
+
+  await openPurchaseInvoiceForm(page);
+  await page.getByTestId('invoice-payment-credit').click();
+  await chooseSearchableValue(page, 'invoice-contact-input', '0501234567');
+  await page.getByTestId('invoice-item-search').fill('ITM-004');
+  await page.getByTestId('invoice-item-search').press('Enter');
+  const purchaseTaxMode = page.getByTestId('invoice-tax-mode');
+  if (await purchaseTaxMode.count()) {
+    await purchaseTaxMode.selectOption('NONE');
+  }
+  await expect.poll(() => readNumericValue(page, 'invoice-final-total')).toBeCloseTo(purchaseAmount, 2);
+  await page.getByTestId('invoice-submit-action').click();
+  await expect(page.getByTestId('invoice-form-root')).toHaveCount(0, { timeout: 20_000 });
+
+  await navigateToTab(page, 'import-list');
+  await expect(page.getByTestId('import-manager-root')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('import-start-distribution').click();
+  await page.getByTestId('import-expense-amount').fill(String(importCost));
+  await page.getByTestId('import-expense-contact').selectOption('c1');
+  await page.getByTestId('import-expense-description').fill('E2E landed cost');
+  await page.getByTestId('import-next-invoices').click();
+  const purchaseInvoiceChoice = page.locator('[data-testid^="import-invoice-"]').first();
+  await expect(purchaseInvoiceChoice).toBeVisible();
+  await purchaseInvoiceChoice.click();
+  await page.getByTestId('import-next-method').click();
+  await page.getByTestId('import-method-value').click();
+  await expect.poll(() => readNumericValue(page, 'import-distributed-total')).toBeCloseTo(importCost, 2);
+  await page.getByTestId('import-submit-distribution').click();
+  await expect(page.getByTestId('import-start-distribution')).toBeVisible({ timeout: 20_000 });
+
+  await openPaymentVoucherForm(page);
+  await chooseSearchableValue(page, 'voucher-contact-input', '0501234567');
+  await page.getByTestId('voucher-description-input').fill('E2E supplier payment');
+  await page.getByTestId('voucher-add-cash-line').click();
+  await page.getByTestId('voucher-cash-line-1-account').selectOption('acc_cash');
+  await page.getByTestId('voucher-cash-line-1-amount').fill(String(supplierPayment));
+  await page.getByTestId('voucher-submit-action').click();
+  await expect(page.getByTestId('voucher-form-root')).toHaveCount(0, { timeout: 20_000 });
+
+  await openReceiptVoucherForm(page);
+  await chooseSearchableValue(page, 'voucher-contact-input', '0559876543');
+  await page.getByTestId('voucher-description-input').fill('E2E customer receipt');
+  await page.getByTestId('voucher-add-cash-line').click();
+  await page.getByTestId('voucher-cash-line-1-account').selectOption('acc_cash');
+  await page.getByTestId('voucher-cash-line-1-amount').fill(String(customerReceipt));
+  await page.getByTestId('voucher-submit-action').click();
+  await expect(page.getByTestId('voucher-form-root')).toHaveCount(0, { timeout: 20_000 });
+
+  await openPurchaseReturnForm(page);
+  await page.getByTestId('invoice-payment-credit').click();
+  await chooseSearchableValue(page, 'invoice-contact-input', '0501234567');
+  await page.getByTestId('invoice-item-search').fill('ITM-004');
+  await page.getByTestId('invoice-item-search').press('Enter');
+  const returnTaxMode = page.getByTestId('invoice-tax-mode');
+  if (await returnTaxMode.count()) {
+    await returnTaxMode.selectOption('NONE');
+  }
+  await page.getByTestId('invoice-item-1-price').fill(String(purchaseReturn));
+  await page.getByTestId('invoice-item-1-price').blur();
+  await expect.poll(() => readNumericValue(page, 'invoice-final-total')).toBeCloseTo(purchaseReturn, 2);
+  await page.getByTestId('invoice-submit-action').click();
+  await expect(page.getByTestId('invoice-form-root')).toHaveCount(0, { timeout: 20_000 });
+
+  await navigateToTab(page, 'journal-list');
+  await page.getByTestId('journal-add-action').click();
+  await selectJournalAccount(page, 1, '11101');
+  await page.getByTestId('journal-line-1-debit').fill(String(manualRevenue));
+  await selectJournalAccount(page, 2, '41');
+  await page.getByTestId('journal-line-2-credit').fill(String(manualRevenue));
+  await page.getByTestId('journal-submit-action').click();
+  await expect(page.getByTestId('overlay-add-journal')).toHaveCount(0, { timeout: 20_000 });
+
+  await openTrialBalance(page);
+  const inventory = await readTrialBalanceRow(page, 'acc_inventory');
+  const payable = await readTrialBalanceRow(page, 'acc_payable_c1');
+  const cash = await readTrialBalanceRow(page, 'acc_cash');
+  const receivable = await readTrialBalanceRow(page, 'acc_receivable');
+  const sales = await readTrialBalanceRow(page, 'acc_sales');
+  expect(inventory.debit - inventory.credit).toBeCloseTo(60, 2);
+  expect(payable.credit - payable.debit).toBeCloseTo(40, 2);
+  expect(cash.debit - cash.credit).toBeCloseTo(130, 2);
+  expect(receivable.debit - receivable.credit).toBeCloseTo(-100, 2);
+  expect(sales.credit - sales.debit).toBeCloseTo(manualRevenue, 2);
+  expect(await readTrialBalanceValue(page, 'trial-balance-total-debit')).toBeCloseTo(baselineTotalDebit + expectedPostedTotal, 2);
+  expect(await readTrialBalanceValue(page, 'trial-balance-total-credit')).toBeCloseTo(baselineTotalCredit + expectedPostedTotal, 2);
+
+  await openFinancialReport(page, 'income_statement');
+  expect(await readNumericValue(page, 'income-statement-total-revenue')).toBeCloseTo(manualRevenue, 2);
+  expect(await readNumericValue(page, 'income-statement-total-expense')).toBeCloseTo(0, 2);
+  expect(await readNumericValue(page, 'income-statement-net-profit')).toBeCloseTo(manualRevenue, 2);
+
+  await openFinancialReport(page, 'balance_sheet');
+  expect(await readNumericValue(page, 'balance-sheet-total-assets')).toBeCloseTo(90, 2);
+  expect(await readNumericValue(page, 'balance-sheet-total-liabilities')).toBeCloseTo(40, 2);
+  expect(await readNumericValue(page, 'balance-sheet-total-equity')).toBeCloseTo(50, 2);
+  expect(await readNumericValue(page, 'balance-sheet-total-liabilities-equity')).toBeCloseTo(90, 2);
+  expect(await readNumericValue(page, 'balance-sheet-difference')).toBeCloseTo(0, 2);
+
+  expect(dialogMessages.some((message) => /نجاح|success|posted|ترحيل/i.test(message))).toBeTruthy();
+  runtimeGuards.assertClean();
+});
 
 test('critical: post journal and verify trial balance impact', async ({ page }) => {
   const dialogMessages = installDialogCollector(page);
