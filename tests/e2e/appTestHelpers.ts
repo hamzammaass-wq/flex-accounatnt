@@ -128,6 +128,8 @@ export const openTrialBalance = async (page: Page) => {
 };
 
 export const openFinancialReport = async (page: Page, reportId: 'income_statement' | 'balance_sheet') => {
+  // Leave any currently open report so FinancialReports remounts on its catalog.
+  await navigateToTab(page, 'dashboard');
   await navigateToTab(page, 'reports');
   await expect(page.getByTestId('financial-reports-root')).toBeVisible();
   await page.getByTestId('reports-category-financial').click();
