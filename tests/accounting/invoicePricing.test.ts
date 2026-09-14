@@ -31,13 +31,13 @@ describe('resolveInvoiceProductUnitPrice', () => {
     expect(resolveInvoiceProductUnitPrice(product, { contact, salesMode: true })).toBe(130);
   });
 
-  it('respects supplier preferred retail price', () => {
+  it('ignores supplier sales tiers and uses cost price', () => {
     const contact: Contact = {
       id: 's1',
       name: 'Supplier 1',
       type: 'SUPPLIER',
       preferredPriceTier: 'RETAIL'
     };
-    expect(resolveInvoiceProductUnitPrice(product, { contact, salesMode: false })).toBe(150);
+    expect(resolveInvoiceProductUnitPrice(product, { contact, salesMode: false })).toBe(100);
   });
 });
