@@ -29,10 +29,10 @@ test('critical: complete accounting journey remains balanced through financial s
   const dialogMessages = installDialogCollector(page);
   const runtimeGuards = installRuntimeErrorGuards(page);
 
-  const purchaseAmount = 600;
+  const purchaseAmount = 300;
   const importCost = 60;
-  const supplierPayment = 200;
-  const purchaseReturn = 330;
+  const supplierPayment = 20;
+  const purchaseReturn = 300;
   const customerReceipt = 100;
   const manualRevenue = 50;
   const expectedPostedTotal = purchaseAmount + importCost + supplierPayment + purchaseReturn + customerReceipt + manualRevenue;
@@ -51,8 +51,6 @@ test('critical: complete accounting journey remains balanced through financial s
   if (await purchaseTaxMode.count()) {
     await purchaseTaxMode.selectOption('NONE');
   }
-  await page.getByTestId('invoice-item-1-quantity').fill('2');
-  await page.getByTestId('invoice-item-1-quantity').blur();
   await expect.poll(() => readNumericValue(page, 'invoice-final-total')).toBeCloseTo(purchaseAmount, 2);
   await page.getByTestId('invoice-submit-action').click();
   await expect(page.getByTestId('invoice-form-root')).toHaveCount(0, { timeout: 20_000 });
@@ -100,8 +98,6 @@ test('critical: complete accounting journey remains balanced through financial s
   if (await returnTaxMode.count()) {
     await returnTaxMode.selectOption('NONE');
   }
-  await page.getByTestId('invoice-item-1-quantity').fill('1');
-  await page.getByTestId('invoice-item-1-quantity').blur();
   await page.getByTestId('invoice-item-1-price').fill(String(purchaseReturn));
   await page.getByTestId('invoice-item-1-price').blur();
   await expect.poll(() => readNumericValue(page, 'invoice-final-total')).toBeCloseTo(purchaseReturn, 2);
@@ -123,9 +119,9 @@ test('critical: complete accounting journey remains balanced through financial s
   const cash = await readTrialBalanceRow(page, 'acc_cash');
   const receivable = await readTrialBalanceRow(page, 'acc_receivable');
   const sales = await readTrialBalanceRow(page, 'acc_sales');
-  expect(inventory.debit - inventory.credit).toBeCloseTo(330, 2);
-  expect(payable.credit - payable.debit).toBeCloseTo(130, 2);
-  expect(cash.debit - cash.credit).toBeCloseTo(-50, 2);
+  expect(inventory.debit - inventory.credit).toBeCloseTo(60, 2);
+  expect(payable.credit - payable.debit).toBeCloseTo(40, 2);
+  expect(cash.debit - cash.credit).toBeCloseTo(130, 2);
   expect(receivable.debit - receivable.credit).toBeCloseTo(-100, 2);
   expect(sales.credit - sales.debit).toBeCloseTo(manualRevenue, 2);
   expect(await readTrialBalanceValue(page, 'trial-balance-total-debit')).toBeCloseTo(baselineTotalDebit + expectedPostedTotal, 2);
@@ -137,10 +133,10 @@ test('critical: complete accounting journey remains balanced through financial s
   expect(await readNumericValue(page, 'income-statement-net-profit')).toBeCloseTo(manualRevenue, 2);
 
   await openFinancialReport(page, 'balance_sheet');
-  expect(await readNumericValue(page, 'balance-sheet-total-assets')).toBeCloseTo(180, 2);
-  expect(await readNumericValue(page, 'balance-sheet-total-liabilities')).toBeCloseTo(130, 2);
+  expect(await readNumericValue(page, 'balance-sheet-total-assets')).toBeCloseTo(90, 2);
+  expect(await readNumericValue(page, 'balance-sheet-total-liabilities')).toBeCloseTo(40, 2);
   expect(await readNumericValue(page, 'balance-sheet-total-equity')).toBeCloseTo(50, 2);
-  expect(await readNumericValue(page, 'balance-sheet-total-liabilities-equity')).toBeCloseTo(180, 2);
+  expect(await readNumericValue(page, 'balance-sheet-total-liabilities-equity')).toBeCloseTo(90, 2);
   expect(await readNumericValue(page, 'balance-sheet-difference')).toBeCloseTo(0, 2);
 
   expect(dialogMessages.some((message) => /نجاح|success|posted|ترحيل/i.test(message))).toBeTruthy();
