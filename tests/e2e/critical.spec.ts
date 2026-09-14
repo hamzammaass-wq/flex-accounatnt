@@ -47,7 +47,10 @@ test('critical: complete accounting journey remains balanced through financial s
   await chooseSearchableValue(page, 'invoice-contact-input', '0501234567');
   await page.getByTestId('invoice-item-search').fill('ITM-004');
   await page.getByTestId('invoice-item-search').press('Enter');
-  await page.getByTestId('invoice-tax-mode').selectOption('NONE');
+  const purchaseTaxMode = page.getByTestId('invoice-tax-mode');
+  if (await purchaseTaxMode.count()) {
+    await purchaseTaxMode.selectOption('NONE');
+  }
   await page.getByTestId('invoice-item-1-quantity').fill('2');
   await page.getByTestId('invoice-item-1-quantity').blur();
   await expect.poll(() => readNumericValue(page, 'invoice-final-total')).toBeCloseTo(purchaseAmount, 2);
@@ -93,7 +96,10 @@ test('critical: complete accounting journey remains balanced through financial s
   await chooseSearchableValue(page, 'invoice-contact-input', '0501234567');
   await page.getByTestId('invoice-item-search').fill('ITM-004');
   await page.getByTestId('invoice-item-search').press('Enter');
-  await page.getByTestId('invoice-tax-mode').selectOption('NONE');
+  const returnTaxMode = page.getByTestId('invoice-tax-mode');
+  if (await returnTaxMode.count()) {
+    await returnTaxMode.selectOption('NONE');
+  }
   await page.getByTestId('invoice-item-1-quantity').fill('1');
   await page.getByTestId('invoice-item-1-quantity').blur();
   await page.getByTestId('invoice-item-1-price').fill(String(purchaseReturn));
