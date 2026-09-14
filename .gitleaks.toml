@@ -1,0 +1,14 @@
+title = "Flex Accountant secret scanning"
+
+[extend]
+useDefault = true
+
+# These two values are public client configuration bundled by Vite and are
+# intentionally visible to browser users. This exception is restricted to the
+# exact VITE_ variables in the tracked production configuration file.
+[[allowlists]]
+description = "Public Vite client configuration"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(?:^|!)\.env\.production$''']
+regexes = ['''^VITE_(?:FIREBASE_API_KEY|PADDLE_CLIENT_TOKEN)=.+$''']
