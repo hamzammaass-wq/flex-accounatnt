@@ -3724,7 +3724,7 @@ export const AccountingProvider = ({ children }: { children?: ReactNode }) => {
 
   const summary: FinancialSummary = useMemo(() => {
     const totalIncome = transactions.filter(t => t.type === 'INCOME' && t.status !== 'DRAFT' && t.category !== 'voucher_receipt' && t.category !== 'supplier_debit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
-    const totalExpense = transactions.filter(t => t.type === 'EXPENSE' && t.status !== 'DRAFT' && t.category !== 'voucher_payment' && t.category !== 'customer_credit_note').reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
+    const totalExpense = transactions.filter(t => t.type === 'EXPENSE' && t.status !== 'DRAFT' && !['voucher_payment', 'customer_credit_note', 'import_expenses'].includes(t.category || '')).reduce((sum, t) => sum + (t.amount * (t.exchangeRate || 1)), 0);
     return {
       totalIncome,
       totalExpense,
