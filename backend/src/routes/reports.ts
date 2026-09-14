@@ -167,7 +167,7 @@ router.get('/dashboard-summary', verifyCompanyMembership, async (req: Authentica
     const result = await query(
       `SELECT
         COALESCE(SUM(CASE WHEN type = 'INCOME' AND status != 'DRAFT' AND category NOT IN ('voucher_receipt', 'supplier_debit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_income,
-        COALESCE(SUM(CASE WHEN type = 'EXPENSE' AND status != 'DRAFT' AND category NOT IN ('voucher_payment', 'customer_credit_note') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_expense
+        COALESCE(SUM(CASE WHEN type = 'EXPENSE' AND status != 'DRAFT' AND category NOT IN ('voucher_payment', 'customer_credit_note', 'import_expenses') THEN amount * COALESCE(exchange_rate, 1) ELSE 0 END), 0) as total_expense
        FROM journal_entries
        WHERE company_id = $1`,
       [companyId]
