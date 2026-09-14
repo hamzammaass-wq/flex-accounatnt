@@ -127,6 +127,14 @@ export const openTrialBalance = async (page: Page) => {
   await expect(page.getByTestId('trial-balance-table')).toBeVisible();
 };
 
+export const openFinancialReport = async (page: Page, reportId: 'income_statement' | 'balance_sheet') => {
+  await navigateToTab(page, 'reports');
+  await expect(page.getByTestId('financial-reports-root')).toBeVisible();
+  await page.getByTestId('reports-category-financial').click();
+  await page.getByTestId(`reports-open-${reportId}`).click();
+  await expect(page.getByTestId(`financial-reports-active-${reportId.toUpperCase()}`)).toBeVisible();
+};
+
 export const readTrialBalanceValue = async (page: Page, testId: string) => {
   const locator = page.getByTestId(testId);
   if (await locator.count()) {
@@ -170,9 +178,24 @@ export const openPurchaseInvoiceForm = async (page: Page) => {
   await expect(page.getByTestId('invoice-form-root')).toBeVisible({ timeout: 20_000 });
 };
 
+export const openPurchaseReturnForm = async (page: Page) => {
+  await navigateToTab(page, 'purchases');
+  await expect(page.getByTestId('purchase-list-root')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('purchase-tab-returns').click();
+  await page.getByTestId('purchase-add-action').click();
+  await expect(page.getByTestId('invoice-form-root')).toBeVisible({ timeout: 20_000 });
+};
+
 export const openReceiptVoucherForm = async (page: Page) => {
   await navigateToTab(page, 'receipts-list');
   await expect(page.getByTestId('voucher-manager-receipt')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('voucher-add-action').click();
+  await expect(page.getByTestId('voucher-form-root')).toBeVisible({ timeout: 20_000 });
+};
+
+export const openPaymentVoucherForm = async (page: Page) => {
+  await navigateToTab(page, 'payments-list');
+  await expect(page.getByTestId('voucher-manager-payment')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('voucher-add-action').click();
   await expect(page.getByTestId('voucher-form-root')).toBeVisible({ timeout: 20_000 });
 };
