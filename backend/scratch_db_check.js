@@ -1,6 +1,12 @@
 import pg from 'pg';
 
-const connectionString = "postgresql://neondb_owner:npg_ObNa5h9szHdc@ep-damp-lake-apz7pu13-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require";
+const connectionString = (() => {
+    const value = process.env.DATABASE_URL;
+    if (!value) {
+      throw new Error('DATABASE_URL environment variable is required.');
+    }
+    return value;
+  })();
 
 async function main() {
   const client = new pg.Client({ connectionString });

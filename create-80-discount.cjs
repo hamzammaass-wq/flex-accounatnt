@@ -1,5 +1,9 @@
 const fs = require('fs');
-const API_KEY = process.env.PADDLE_API_KEY || 'pdl_live_apikey_01kxgvngw52jb6tk8vb386xvqr_c3jywNeShgA4rjkSmYTz4M_AbY';
+const API_KEY = process.env.PADDLE_API_KEY;
+if (!API_KEY) {
+  console.error('PADDLE_API_KEY environment variable is required.');
+  process.exit(1);
+}
 const BASE_URL = 'https://api.paddle.com';
 
 async function fetchPaddle(endpoint, method = 'GET', body = null) {
